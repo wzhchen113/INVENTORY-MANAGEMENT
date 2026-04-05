@@ -16,7 +16,8 @@
       "bundleIdentifier": "com.towson.inventory",
       "infoPlist": {
         "NSCameraUsageDescription": "Used for barcode scanning",
-        "NSPhotoLibraryUsageDescription": "Used for item photos"
+        "NSPhotoLibraryUsageDescription": "Used for item photos",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
