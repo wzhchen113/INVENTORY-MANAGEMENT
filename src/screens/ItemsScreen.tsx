@@ -4,7 +4,7 @@ import {
   View, Text, ScrollView, StyleSheet, TextInput,
   TouchableOpacity, Modal, Alert, FlatList,
 } from 'react-native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';

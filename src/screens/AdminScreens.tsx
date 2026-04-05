@@ -7,7 +7,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   FlatList, TextInput, Modal, Alert,
 } from 'react-native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, PurchaseOrder } from '../types';

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput,
 } from 'react-native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 

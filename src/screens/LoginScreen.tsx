@@ -4,7 +4,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from 'react-native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { USERS } from '../data/seed';
 

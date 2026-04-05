@@ -5,7 +5,7 @@ import {
   TouchableOpacity, Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 

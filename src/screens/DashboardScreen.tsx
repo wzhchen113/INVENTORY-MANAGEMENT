@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, KpiCard, Badge, WhoChip, EmptyState } from '../components';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';

@@ -7,7 +7,6 @@ import Toast from 'react-native-toast-message';
 import * as Notifications from 'expo-notifications';
 import AppNavigator from './src/navigation/AppNavigator';
 
-// Configure notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -18,7 +17,6 @@ Notifications.setNotificationHandler({
 
 export default function App() {
   useEffect(() => {
-    // Request notification permissions
     registerForPushNotifications();
   }, []);
 
@@ -43,10 +41,8 @@ async function registerForPushNotifications() {
     }
     if (finalStatus !== 'granted') {
       console.log('Push notification permission not granted');
-      return;
     }
   } catch (e) {
-    // Notifications not available in Expo Go on some platforms
     console.log('Notifications setup:', e);
   }
 }
