@@ -40,11 +40,16 @@
       "expo-notifications",
       [
         "expo-document-picker",
-        { "iCloudContainerEnvironment": "Production" }
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
       ]
     ],
     "extra": {
-      "eas": { "projectId": "your-project-id-here" }
-    }
+      "eas": {
+        "projectId": "8533e882-6bf6-45f8-bf57-e7b9d1c9bf57"
+      }
+    },
+    "owner": "wzhchen113"
   }
 }

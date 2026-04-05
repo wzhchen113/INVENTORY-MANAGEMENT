@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Towson Inventory — React Native App
 
 A full MarketMan-style restaurant inventory management app built with Expo + React Native.
@@ -226,3 +227,6 @@ Requires an [Expo Application Services (EAS)](https://expo.dev/eas) account — 
 4. Add push notification alerts for low stock
 5. Add Google Sheets sync for existing inventory data
 6. Build a multi-location roll-up dashboard
+=======
+# INVENTORY-MANAGEMENT
+>>>>>>> 8cf9ecdaf862a30bf1d37d921e8f14489d63510a
