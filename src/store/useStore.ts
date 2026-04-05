@@ -3,11 +3,11 @@ import { create } from 'zustand';
 import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
   EODSubmission, Vendor, PurchaseOrder, POSImport,
-  AuditEvent, AuditAction, Store, ItemStatus,
+  AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
-  WASTE_LOG, PURCHASE_ORDERS, AUDIT_LOG,
+  WASTE_LOG, PURCHASE_ORDERS, AUDIT_LOG, PREP_RECIPES,
 } from '../data/seed';
 
 interface StoreActions {
@@ -25,6 +25,11 @@ interface StoreActions {
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   updateRecipe: (id: string, updates: Partial<Recipe>) => void;
+
+  // Prep Recipes
+  addPrepRecipe: (recipe: Omit<PrepRecipe, 'id'>) => void;
+  updatePrepRecipe: (id: string, updates: Partial<PrepRecipe>) => void;
+  deletePrepRecipe: (id: string) => void;
 
   // Waste
   logWaste: (entry: Omit<WasteEntry, 'id'>) => void;
@@ -58,12 +63,15 @@ interface StoreActions {
   getWasteThisWeek: () => number;
   getRecipeCost: (recipeId: string) => number;
   getRecipeFoodCostPct: (recipeId: string) => number;
+  getPrepRecipeCost: (prepRecipeId: string) => number;
+  getPrepRecipeCostPerUnit: (prepRecipeId: string) => number;
 }
 
 type FullStore = AppState & StoreActions;
 
 let itemCounter = INVENTORY.length + 1;
 let recipeCounter = RECIPES.length + 1;
+let prepRecipeCounter = PREP_RECIPES.length + 1;
 let wasteCounter = WASTE_LOG.length + 1;
 let vendorCounter = VENDORS.length + 1;
 let poCounter = PURCHASE_ORDERS.length + 1;
@@ -80,6 +88,7 @@ export const useStore = create<FullStore>((set, get) => ({
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
+  prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
   eodSubmissions: [],
   vendors: VENDORS,
@@ -169,13 +178,66 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       recipes: s.recipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Recipe saved',
+      detail: 'Recipe updated',
+      itemRef: get().recipes.find((r) => r.id === id)?.menuItem || id,
+      value: '',
+    });
+  },
+
+  // Prep Recipes
+  addPrepRecipe: (recipe) => {
+    const id = makeId('pr', ++prepRecipeCounter);
+    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id }] }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Prep recipe saved',
+      detail: 'New prep recipe added',
+      itemRef: recipe.name,
+      value: `${recipe.ingredients.length} ingredients, yields ${recipe.yieldQuantity} ${recipe.yieldUnit}`,
+    });
+  },
+
+  updatePrepRecipe: (id, updates) => {
+    set((s) => ({
+      prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+    }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Prep recipe saved',
+      detail: 'Prep recipe updated',
+      itemRef: get().prepRecipes.find((r) => r.id === id)?.name || id,
+      value: '',
+    });
+  },
+
+  deletePrepRecipe: (id) => {
+    set((s) => ({
+      prepRecipes: s.prepRecipes.filter((r) => r.id !== id),
+    }));
   },
 
   // Waste
   logWaste: (entry) => {
     const id = makeId('w', ++wasteCounter);
     set((s) => ({ wasteLog: [{ ...entry, id }, ...s.wasteLog] }));
-    // Deduct from stock
     const item = get().inventory.find((i) => i.id === entry.itemId);
     if (item) {
       get().adjustStock(
@@ -202,7 +264,6 @@ export const useStore = create<FullStore>((set, get) => ({
   submitEOD: (submission) => {
     const id = makeId('eod', Date.now());
     set((s) => ({ eodSubmissions: [{ ...submission, id }, ...s.eodSubmissions] }));
-    // Update EOD remaining on items
     submission.entries.forEach((entry) => {
       set((s) => ({
         inventory: s.inventory.map((item) =>
@@ -289,7 +350,6 @@ export const useStore = create<FullStore>((set, get) => ({
           : po
       ),
     }));
-    // Update stock
     receivedItems.forEach(({ itemId, receivedQty }) => {
       const item = get().inventory.find((i) => i.id === itemId);
       if (item) {
@@ -315,7 +375,6 @@ export const useStore = create<FullStore>((set, get) => ({
   importPOS: (posImport) => {
     const id = makeId('pos', Date.now());
     set((s) => ({ posImports: [{ ...posImport, id }, ...s.posImports] }));
-    // Deduct inventory using recipes
     posImport.items.forEach((saleItem) => {
       if (saleItem.recipeId) {
         const recipe = get().recipes.find((r) => r.id === saleItem.recipeId);
@@ -392,7 +451,7 @@ export const useStore = create<FullStore>((set, get) => ({
     );
   },
 
-  getFoodCostPercent: () => 31.4, // Would be calculated from actual sales data
+  getFoodCostPercent: () => 31.4,
 
   getWasteThisWeek: () => {
     return get().wasteLog.reduce(
@@ -401,13 +460,41 @@ export const useStore = create<FullStore>((set, get) => ({
     );
   },
 
-  getRecipeCost: (recipeId) => {
-    const recipe = get().recipes.find((r) => r.id === recipeId);
-    if (!recipe) return 0;
-    return recipe.ingredients.reduce((sum, ing) => {
+  // Prep recipe cost = sum of ingredient costs
+  getPrepRecipeCost: (prepRecipeId) => {
+    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
+    if (!prep) return 0;
+    return prep.ingredients.reduce((sum, ing) => {
       const item = get().inventory.find((i) => i.id === ing.itemId);
       return sum + (item ? item.costPerUnit * ing.quantity : 0);
     }, 0);
+  },
+
+  // Cost per yield unit (e.g., cost per lb of marinated chicken)
+  getPrepRecipeCostPerUnit: (prepRecipeId) => {
+    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
+    if (!prep || prep.yieldQuantity === 0) return 0;
+    return get().getPrepRecipeCost(prepRecipeId) / prep.yieldQuantity;
+  },
+
+  // Menu recipe cost = raw ingredients + prep recipe portions
+  getRecipeCost: (recipeId) => {
+    const recipe = get().recipes.find((r) => r.id === recipeId);
+    if (!recipe) return 0;
+
+    // Raw ingredient costs
+    const rawCost = recipe.ingredients.reduce((sum, ing) => {
+      const item = get().inventory.find((i) => i.id === ing.itemId);
+      return sum + (item ? item.costPerUnit * ing.quantity : 0);
+    }, 0);
+
+    // Prep recipe costs
+    const prepCost = (recipe.prepItems || []).reduce((sum, prep) => {
+      const costPerUnit = get().getPrepRecipeCostPerUnit(prep.prepRecipeId);
+      return sum + costPerUnit * prep.quantity;
+    }, 0);
+
+    return rawCost + prepCost;
   },
 
   getRecipeFoodCostPct: (recipeId) => {

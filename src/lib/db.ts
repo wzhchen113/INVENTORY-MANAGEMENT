@@ -94,6 +94,7 @@ export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
       quantity: ing.quantity,
       unit: ing.unit || ing.item?.unit || '',
     })),
+    prepItems: [],
   }));
 }
 

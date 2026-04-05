@@ -9,24 +9,52 @@ import {
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
+import IngredientEditor from '../components/IngredientEditor';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
-import { Recipe, Vendor, PurchaseOrder } from '../types';
+import { Recipe, Vendor, PurchaseOrder, RecipeIngredient, RecipePrepItem } from '../types';
 
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
-  const { recipes, inventory, getRecipeCost, getRecipeFoodCostPct, addRecipe } = useStore();
+  const {
+    recipes, inventory, prepRecipes,
+    getRecipeCost, getRecipeFoodCostPct,
+    addRecipe, updateRecipe,
+  } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [menuItem, setMenuItem] = useState('');
   const [sellPrice, setSellPrice] = useState('');
   const [category, setCategory] = useState('Mains');
 
+  // Ingredient editing state
+  const [showIngModal, setShowIngModal] = useState(false);
+  const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
+  const [editIngredients, setEditIngredients] = useState<RecipeIngredient[]>([]);
+  const [editPrepItems, setEditPrepItems] = useState<RecipePrepItem[]>([]);
+
   const handleSave = () => {
     if (!menuItem.trim()) { Alert.alert('Error', 'Recipe name required'); return; }
     addRecipe({
       menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
-      ingredients: [], storeId: 's1',
+      ingredients: [], prepItems: [], storeId: 's1',
     });
     setMenuItem(''); setSellPrice(''); setShowModal(false);
+  };
+
+  const openIngredientEditor = (recipe: Recipe) => {
+    setEditingRecipeId(recipe.id);
+    setEditIngredients([...recipe.ingredients]);
+    setEditPrepItems([...(recipe.prepItems || [])]);
+    setShowIngModal(true);
+  };
+
+  const saveIngredients = () => {
+    if (editingRecipeId) {
+      updateRecipe(editingRecipeId, {
+        ingredients: editIngredients,
+        prepItems: editPrepItems,
+      });
+    }
+    setShowIngModal(false);
   };
 
   return (
@@ -47,6 +75,7 @@ export function RecipesScreen() {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
           const fcOk = fcPct < 35;
+          const preps = recipe.prepItems || [];
           return (
             <View style={styles.recipeCard}>
               <View style={styles.recipeTop}>
@@ -70,17 +99,28 @@ export function RecipesScreen() {
                     <Text style={styles.ingQty}>{ing.quantity} {ing.unit}</Text>
                   </View>
                 ))}
-                {recipe.ingredients.length === 0 && (
+                {preps.map((prep, idx) => (
+                  <View key={`prep-${idx}`} style={styles.ingRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={styles.prepTag}><Text style={styles.prepTagText}>Prep</Text></View>
+                      <Text style={styles.ingName}>{prep.prepRecipeName}</Text>
+                    </View>
+                    <Text style={styles.ingQty}>{prep.quantity} {prep.unit}</Text>
+                  </View>
+                ))}
+                {recipe.ingredients.length === 0 && preps.length === 0 && (
                   <Text style={styles.noIng}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
               </View>
-              <TouchableOpacity style={styles.editRecipeBtn}>
+              <TouchableOpacity style={styles.editRecipeBtn} onPress={() => openIngredientEditor(recipe)}>
                 <Text style={styles.editRecipeBtnText}>Edit ingredients</Text>
               </TouchableOpacity>
             </View>
           );
         }}
       />
+
+      {/* New recipe modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
@@ -103,6 +143,32 @@ export function RecipesScreen() {
                 <Text style={styles.saveBtnText}>Save recipe</Text>
               </TouchableOpacity>
             </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Edit ingredients modal */}
+      <Modal visible={showIngModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Edit ingredients</Text>
+            <TouchableOpacity onPress={() => setShowIngModal(false)}>
+              <Text style={styles.modalClose}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            <IngredientEditor
+              ingredients={editIngredients}
+              onIngredientsChange={setEditIngredients}
+              availableItems={inventory}
+              prepItems={editPrepItems}
+              onPrepItemsChange={setEditPrepItems}
+              availablePrepRecipes={prepRecipes}
+              showPrepRecipes={true}
+            />
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl }]} onPress={saveIngredients}>
+              <Text style={styles.saveBtnText}>Save ingredients</Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
@@ -308,7 +374,7 @@ export function RestockScreen() {
               </View>
             </View>
             <View style={styles.restockFooter}>
-              <WhoChip name={item.lastUpdatedBy} color={color} time={`EOD: ${item.updatedAt || item.lastUpdatedAt}`} />
+              <WhoChip name={item.lastUpdatedBy} color={color} time={`EOD: ${item.lastUpdatedAt}`} />
               <Text style={[styles.estCost, { color: Colors.textSecondary }]}>Est. ${estCost}</Text>
             </View>
           </View>
@@ -613,6 +679,8 @@ const styles = StyleSheet.create({
   noIng: { fontSize: FontSize.xs, color: Colors.textTertiary, textAlign: 'center', paddingVertical: Spacing.sm },
   editRecipeBtn: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: 6, alignItems: 'center' },
   editRecipeBtnText: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  prepTag: { backgroundColor: Colors.infoBg, borderRadius: Radius.round, paddingHorizontal: 5, paddingVertical: 1 },
+  prepTagText: { fontSize: 8, fontWeight: '600', color: Colors.info },
   vendorCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
   vendorTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
   vendorLogo: { width: 40, height: 40, borderRadius: Radius.md, backgroundColor: Colors.bgSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: Colors.borderLight },

@@ -2,29 +2,45 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ScrollView, Alert,
+  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { signIn } from '../lib/auth';
 import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { USERS } from '../data/seed';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const login = useStore((s) => s.login);
 
-  const handleLogin = () => {
-    const user = USERS.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
-    if (!user) {
-      Alert.alert('Login failed', 'No user found with that email. Try:\nadmin@towson.com\nmaria@towson.com\njames@towson.com');
+  const handleLogin = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email address');
       return;
     }
-    login(user);
+    setError('');
+    setLoading(true);
+    try {
+      const result = await signIn(email.trim(), password);
+      if (result.error) {
+        setError(result.error);
+      } else if (result.user) {
+        login(result.user);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const quickLogin = (email: string) => {
-    const user = USERS.find((u) => u.email === email)!;
-    login(user);
+  // Demo quick-login uses seed data for offline development
+  const quickLogin = (demoEmail: string) => {
+    const user = USERS.find((u) => u.email === demoEmail);
+    if (user) login(user);
   };
 
   return (
@@ -40,6 +56,12 @@ export default function LoginScreen() {
 
         <View style={styles.card}>
           <Text style={styles.formTitle}>Sign in</Text>
+
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.field}>
             <Text style={styles.label}>Email address</Text>
@@ -66,35 +88,41 @@ export default function LoginScreen() {
             />
           </View>
 
-          <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
-            <Text style={styles.loginBtnText}>Sign in</Text>
+          <TouchableOpacity style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Text style={styles.loginBtnText}>Sign in</Text>
+            )}
           </TouchableOpacity>
         </View>
 
-        <View style={styles.demoSection}>
-          <Text style={styles.demoTitle}>Demo accounts</Text>
-          {[
-            { label: 'Admin (Owner)', email: 'admin@towson.com', role: 'Admin', color: Colors.userAdmin },
-            { label: 'Maria Garcia', email: 'maria@towson.com', role: 'Store user', color: Colors.userMaria },
-            { label: 'James Thompson', email: 'james@towson.com', role: 'Store user', color: Colors.userJames },
-            { label: 'Ana Rivera', email: 'ana@baltimore.com', role: 'Store user', color: Colors.userAna },
-          ].map((u) => (
-            <TouchableOpacity key={u.email} style={styles.demoUser} onPress={() => quickLogin(u.email)}>
-              <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
-                <Text style={[styles.demoAvatarText, { color: u.color }]}>
-                  {u.label.split(' ').map((w) => w[0]).join('').slice(0, 2)}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.demoName}>{u.label}</Text>
-                <Text style={styles.demoEmail}>{u.email}</Text>
-              </View>
-              <View style={[styles.rolePill, { backgroundColor: u.color + '22' }]}>
-                <Text style={[styles.rolePillText, { color: u.color }]}>{u.role}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {__DEV__ && (
+          <View style={styles.demoSection}>
+            <Text style={styles.demoTitle}>Demo accounts (dev only)</Text>
+            {[
+              { label: 'Admin (Owner)', email: 'admin@towson.com', role: 'Admin', color: Colors.userAdmin },
+              { label: 'Maria Garcia', email: 'maria@towson.com', role: 'Store user', color: Colors.userMaria },
+              { label: 'James Thompson', email: 'james@towson.com', role: 'Store user', color: Colors.userJames },
+              { label: 'Ana Rivera', email: 'ana@baltimore.com', role: 'Store user', color: Colors.userAna },
+            ].map((u) => (
+              <TouchableOpacity key={u.email} style={styles.demoUser} onPress={() => quickLogin(u.email)}>
+                <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
+                  <Text style={[styles.demoAvatarText, { color: u.color }]}>
+                    {u.label.split(' ').map((w) => w[0]).join('').slice(0, 2)}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.demoName}>{u.label}</Text>
+                  <Text style={styles.demoEmail}>{u.email}</Text>
+                </View>
+                <View style={[styles.rolePill, { backgroundColor: u.color + '22' }]}>
+                  <Text style={[styles.rolePillText, { color: u.color }]}>{u.role}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -110,6 +138,8 @@ const styles = StyleSheet.create({
   logoSub: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 4 },
   card: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.xl, padding: Spacing.xl, marginBottom: Spacing.lg, ...Shadow.md },
   formTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.lg },
+  errorBox: { backgroundColor: Colors.dangerBg, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
+  errorText: { fontSize: FontSize.xs, color: Colors.danger },
   field: { marginBottom: Spacing.md },
   label: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 5 },
   input: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },

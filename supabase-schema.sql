@@ -84,6 +84,36 @@ create table if not exists recipe_ingredients (
   unit        text
 );
 
+-- ─── PREP RECIPES ────────────────────────────────────────
+create table if not exists prep_recipes (
+  id              uuid primary key default uuid_generate_v4(),
+  store_id        uuid references stores(id),
+  name            text not null,
+  category        text,
+  yield_quantity  numeric(10,3) not null,
+  yield_unit      text not null,
+  notes           text,
+  created_by      uuid references profiles(id),
+  created_at      timestamptz default now()
+);
+
+create table if not exists prep_recipe_ingredients (
+  id              uuid primary key default uuid_generate_v4(),
+  prep_recipe_id  uuid references prep_recipes(id) on delete cascade,
+  item_id         uuid references inventory_items(id),
+  quantity        numeric(10,4),
+  unit            text
+);
+
+-- ─── RECIPE PREP ITEMS (menu recipe → prep recipe) ──────
+create table if not exists recipe_prep_items (
+  id              uuid primary key default uuid_generate_v4(),
+  recipe_id       uuid references recipes(id) on delete cascade,
+  prep_recipe_id  uuid references prep_recipes(id),
+  quantity        numeric(10,4),
+  unit            text
+);
+
 -- ─── EOD SUBMISSIONS ─────────────────────────────────────
 create table if not exists eod_submissions (
   id                    uuid primary key default uuid_generate_v4(),
@@ -221,6 +251,9 @@ alter table po_items           enable row level security;
 alter table pos_imports        enable row level security;
 alter table pos_import_items   enable row level security;
 alter table audit_log          enable row level security;
+alter table prep_recipes        enable row level security;
+alter table prep_recipe_ingredients enable row level security;
+alter table recipe_prep_items   enable row level security;
 alter table vendors            enable row level security;
 
 -- Users can only see their own profile
@@ -243,6 +276,9 @@ create policy "Store access" on purchase_orders for all using (store_id in (sele
 create policy "Store access" on pos_imports for all using (store_id in (select store_id from user_stores where user_id = auth.uid()));
 create policy "Store access" on audit_log for all using (store_id in (select store_id from user_stores where user_id = auth.uid()));
 create policy "Store access" on recipes for all using (store_id in (select store_id from user_stores where user_id = auth.uid()));
+create policy "Store access" on prep_recipes for all using (store_id in (select store_id from user_stores where user_id = auth.uid()));
+create policy "Store access" on prep_recipe_ingredients for all using (prep_recipe_id in (select id from prep_recipes where store_id in (select store_id from user_stores where user_id = auth.uid())));
+create policy "Store access" on recipe_prep_items for all using (recipe_id in (select id from recipes where store_id in (select store_id from user_stores where user_id = auth.uid())));
 create policy "Vendors visible to all" on vendors for select using (true);
 create policy "Vendors admin only" on vendors for insert with check ((select role from profiles where id = auth.uid()) = 'admin');
 

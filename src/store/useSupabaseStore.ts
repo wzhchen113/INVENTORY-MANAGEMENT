@@ -51,8 +51,23 @@ interface SupabaseStoreActions {
   inviteUser: (user: any) => void;
   updateUser: (id: string, updates: any) => void;
 
+  // Prep Recipes
+  addPrepRecipe: (recipe: any) => void;
+  updatePrepRecipe: (id: string, updates: any) => void;
+  deletePrepRecipe: (id: string) => void;
+  getPrepRecipeCost: (prepRecipeId: string) => number;
+  getPrepRecipeCostPerUnit: (prepRecipeId: string) => number;
+
   // Audit
   addAuditEvent: (event: any) => Promise<void>;
+
+  // Recipes (enhanced)
+  addRecipe: (recipe: any) => void;
+  updateRecipe: (id: string, updates: any) => void;
+
+  // Misc
+  getFoodCostPercent: () => number;
+  adjustStock: (id: string, newStock: number, by: string) => void;
 }
 
 type FullStore = AppState & SupabaseStoreActions;
@@ -65,6 +80,7 @@ export const useStore = create<FullStore>((set, get) => ({
   users: [],
   inventory: [],
   recipes: [],
+  prepRecipes: [],
   wasteLog: [],
   eodSubmissions: [],
   vendors: [],
@@ -178,10 +194,15 @@ export const useStore = create<FullStore>((set, get) => ({
   getRecipeCost: (recipeId) => {
     const recipe = get().recipes.find((r) => r.id === recipeId);
     if (!recipe) return 0;
-    return recipe.ingredients.reduce((sum, ing) => {
+    const rawCost = recipe.ingredients.reduce((sum, ing) => {
       const item = get().inventory.find((i) => i.id === ing.itemId);
       return sum + (item ? item.costPerUnit * ing.quantity : 0);
     }, 0);
+    const prepCost = (recipe.prepItems || []).reduce((sum, prep) => {
+      const costPerUnit = get().getPrepRecipeCostPerUnit(prep.prepRecipeId);
+      return sum + costPerUnit * prep.quantity;
+    }, 0);
+    return rawCost + prepCost;
   },
 
   getRecipeFoodCostPct: (recipeId) => {
@@ -339,6 +360,48 @@ export const useStore = create<FullStore>((set, get) => ({
   },
   updateUser: (id, updates) => {
     set((s) => ({ users: s.users.map((u) => (u.id === id ? { ...u, ...updates } : u)) }));
+  },
+
+  // ── Recipes (enhanced) ─────────────────────────────────
+  addRecipe: (recipe) => {
+    set((s) => ({ recipes: [...s.recipes, { ...recipe, id: Date.now().toString() }] }));
+  },
+  updateRecipe: (id, updates) => {
+    set((s) => ({ recipes: s.recipes.map((r) => (r.id === id ? { ...r, ...updates } : r)) }));
+  },
+
+  // ── Prep Recipes ──────────────────────────────────────
+  addPrepRecipe: (recipe) => {
+    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id: Date.now().toString() }] }));
+  },
+  updatePrepRecipe: (id, updates) => {
+    set((s) => ({ prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)) }));
+  },
+  deletePrepRecipe: (id) => {
+    set((s) => ({ prepRecipes: s.prepRecipes.filter((r) => r.id !== id) }));
+  },
+  getPrepRecipeCost: (prepRecipeId) => {
+    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
+    if (!prep) return 0;
+    return prep.ingredients.reduce((sum, ing) => {
+      const item = get().inventory.find((i) => i.id === ing.itemId);
+      return sum + (item ? item.costPerUnit * ing.quantity : 0);
+    }, 0);
+  },
+  getPrepRecipeCostPerUnit: (prepRecipeId) => {
+    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
+    if (!prep || prep.yieldQuantity === 0) return 0;
+    return get().getPrepRecipeCost(prepRecipeId) / prep.yieldQuantity;
+  },
+
+  // ── Misc ──────────────────────────────────────────────
+  getFoodCostPercent: () => 31.4,
+  adjustStock: (id, newStock, by) => {
+    set((s) => ({
+      inventory: s.inventory.map((item) =>
+        item.id === id ? { ...item, currentStock: newStock, lastUpdatedBy: by } : item
+      ),
+    }));
   },
 
   // ── Audit Log ─────────────────────────────────────────

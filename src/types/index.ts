@@ -39,10 +39,38 @@ export interface Recipe {
   category: string;
   sellPrice: number;
   ingredients: RecipeIngredient[];
+  prepItems: RecipePrepItem[];
   storeId: string;
 }
 
 export interface RecipeIngredient {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface RecipePrepItem {
+  prepRecipeId: string;
+  prepRecipeName: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface PrepRecipe {
+  id: string;
+  name: string;
+  category: string;
+  yieldQuantity: number;
+  yieldUnit: string;
+  notes: string;
+  ingredients: PrepRecipeIngredient[];
+  storeId: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PrepRecipeIngredient {
   itemId: string;
   itemName: string;
   quantity: number;
@@ -198,6 +226,7 @@ export type AuditAction =
   | 'Receiving'
   | 'User invite'
   | 'Recipe saved'
+  | 'Prep recipe saved'
   | 'Stock adjusted';
 
 export interface Store {
@@ -214,6 +243,7 @@ export interface AppState {
   users: User[];
   inventory: InventoryItem[];
   recipes: Recipe[];
+  prepRecipes: PrepRecipe[];
   wasteLog: WasteEntry[];
   eodSubmissions: EODSubmission[];
   vendors: Vendor[];

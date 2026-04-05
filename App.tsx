@@ -1,23 +1,29 @@
 // App.tsx
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
-import * as Notifications from 'expo-notifications';
 import AppNavigator from './src/navigation/AppNavigator';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Only import and configure notifications on native platforms
+if (Platform.OS !== 'web') {
+  const Notifications = require('expo-notifications');
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 export default function App() {
   useEffect(() => {
-    registerForPushNotifications();
+    if (Platform.OS !== 'web') {
+      registerForPushNotifications();
+    }
   }, []);
 
   return (
@@ -33,6 +39,7 @@ export default function App() {
 
 async function registerForPushNotifications() {
   try {
+    const Notifications = require('expo-notifications');
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     if (existingStatus !== 'granted') {

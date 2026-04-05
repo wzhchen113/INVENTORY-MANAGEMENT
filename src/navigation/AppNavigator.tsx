@@ -1,5 +1,5 @@
 // src/navigation/AppNavigator.tsx
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -7,6 +7,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useStore } from '../store/useStore';
+import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { Colors, FontSize, Spacing, Radius } from '../theme/colors';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -16,6 +17,7 @@ import EODCountScreen from '../screens/EODCountScreen';
 import WasteLogScreen from '../screens/WasteLogScreen';
 import POSImportScreen from '../screens/POSImportScreen';
 import ReconciliationScreen from '../screens/ReconciliationScreen';
+import PrepRecipesScreen from '../screens/PrepRecipesScreen';
 import {
   RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
   RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
@@ -49,6 +51,7 @@ function MoreScreen({ navigation }: any) {
   const isAdmin = currentUser?.role === 'admin';
 
   const items = [
+    { label: 'Prep Recipes', screen: 'PrepRecipes', icon: 'flask-outline' as const },
     { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
     { label: 'Restock Report', screen: 'Restock', icon: 'arrow-down-circle-outline' as const },
     ...(isAdmin ? [
@@ -124,9 +127,22 @@ function TabNavigator() {
 }
 
 function AppStackNavigator() {
+  const storeId = useStore((s) => s.currentStore?.id);
+
+  // Real-time sync: when Supabase data changes, this callback fires.
+  // For now it's a no-op with the seed store; it will reload data when
+  // connected to the Supabase store.
+  const handleSync = useCallback(() => {
+    // Will be wired to store.loadAll() when using Supabase store
+    console.log('[Realtime] Data changed on server');
+  }, []);
+
+  useRealtimeSync(storeId, handleSync);
+
   return (
     <AppStack.Navigator screenOptions={sharedHeaderOptions}>
       <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+      <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
       <AppStack.Screen name="Vendors" component={VendorsScreen} />
       <AppStack.Screen name="PurchaseOrders" component={PurchaseOrdersScreen} options={{ title: 'Purchase orders' }} />
