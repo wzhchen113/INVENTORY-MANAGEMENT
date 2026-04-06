@@ -24,6 +24,7 @@ import PrepRecipesScreen from '../screens/PrepRecipesScreen';
 import IngredientsScreen from '../screens/IngredientsScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import EODHistoryScreen from '../screens/EODHistoryScreen';
+import { useJsonServerSync } from '../store/useJsonServerSync';
 import {
   RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
   RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
@@ -428,6 +429,7 @@ function AppStackNavigator() {
   }, []);
 
   useRealtimeSync(storeId, handleSync);
+  useJsonServerSync();
 
   return (
     <AppStack.Navigator key={storeId} screenOptions={sharedHeaderOptions}>
