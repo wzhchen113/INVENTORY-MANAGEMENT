@@ -1,4 +1,4 @@
-# Towson Inventory
+# Inventory Management
 
 A mobile inventory management system built for multi-location restaurant operations. The app provides end-to-end tracking of ingredients from vendor purchase through kitchen usage, with daily reconciliation against POS sales data.
 
