@@ -70,10 +70,9 @@ export function useJsonServerSync() {
 
 async function loadFromServer() {
   try {
-    const [eodSubmissions, wasteLog, purchaseOrders, auditLog] = await Promise.all([
+    const [eodSubmissions, wasteLog, auditLog] = await Promise.all([
       api.fetchEODSubmissions(),
       api.fetchWasteLog(),
-      api.fetchPurchaseOrders(),
       api.fetchAuditLog(),
     ]);
 
@@ -82,14 +81,12 @@ async function loadFromServer() {
     useStore.setState({
       eodSubmissions: eodSubmissions.length > 0 ? eodSubmissions : state.eodSubmissions,
       wasteLog: wasteLog.length > 0 ? wasteLog : state.wasteLog,
-      purchaseOrders: purchaseOrders.length > 0 ? purchaseOrders : state.purchaseOrders,
       auditLog: auditLog.length > 0 ? auditLog : state.auditLog,
     });
 
     console.log('[json-server] Loaded:', {
       eodSubmissions: eodSubmissions.length,
       wasteLog: wasteLog.length,
-      purchaseOrders: purchaseOrders.length,
       auditLog: auditLog.length,
     });
   } catch (e: any) {

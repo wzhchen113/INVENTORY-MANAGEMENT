@@ -1,5 +1,5 @@
 // src/screens/AdminScreens.tsx
-// Contains: RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
+// Contains: RecipesScreen, VendorsScreen,
 //           RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen
 
 import React, { useState } from 'react';
@@ -12,7 +12,7 @@ import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../compon
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
-import { Recipe, Vendor, PurchaseOrder, RecipeIngredient, RecipePrepItem } from '../types';
+import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
 
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
@@ -179,7 +179,7 @@ export function VendorsScreen() {
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
 
   const handleSave = () => {
-    addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, categories: [] });
+    addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
     setShowModal(false);
   };
 
@@ -244,138 +244,7 @@ export function VendorsScreen() {
   );
 }
 
-// ─── PURCHASE ORDERS ────────────────────────────────────────────────────────
-export function PurchaseOrdersScreen() {
-  const { purchaseOrders, vendors, inventory, currentUser, currentStore, createPO, updatePOStatus } = useStore();
-  const [tab, setTab] = useState<'open' | 'history'>('open');
-
-  const open = purchaseOrders.filter((p) => p.status !== 'received');
-  const history = purchaseOrders.filter((p) => p.status === 'received');
-  const shown = tab === 'open' ? open : history;
-
-  const statusVariant = (s: string) =>
-    s === 'received' ? 'received' : s === 'sent' ? 'sent' : s === 'partial' ? 'partial' : 'draft';
-
-  return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <View style={styles.tabBar}>
-        <TouchableOpacity style={[styles.tabItem, tab === 'open' && styles.tabItemActive]} onPress={() => setTab('open')}>
-          <Text style={[styles.tabText, tab === 'open' && styles.tabTextActive]}>Open ({open.length})</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabItem, tab === 'history' && styles.tabItemActive]} onPress={() => setTab('history')}>
-          <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>History ({history.length})</Text>
-        </TouchableOpacity>
-      </View>
-      <WebScrollView id="po-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        {shown.length === 0 ? (
-          <EmptyState message="No purchase orders" />
-        ) : (
-          shown.map((po) => (
-            <View key={po.id} style={styles.poCard}>
-              <View style={styles.poTop}>
-                <View>
-                  <Text style={styles.poNum}>{po.poNumber}</Text>
-                  <Text style={styles.poVendor}>{po.vendorName}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={statusVariant(po.status) as any} />
-                  <Text style={styles.poCost}>${po.totalCost.toFixed(2)}</Text>
-                </View>
-              </View>
-              <View style={styles.poMeta}>
-                <View style={styles.poMetaItem}>
-                  <Text style={styles.poMetaLabel}>Created by</Text>
-                  <WhoChip name={po.createdBy} color={Colors.userAdmin} />
-                </View>
-                <View style={styles.poMetaItem}>
-                  <Text style={styles.poMetaLabel}>Delivery</Text>
-                  <Text style={styles.poMetaValue}>{po.expectedDelivery}</Text>
-                </View>
-                <View style={styles.poMetaItem}>
-                  <Text style={styles.poMetaLabel}>Items</Text>
-                  <Text style={styles.poMetaValue}>{po.items.length}</Text>
-                </View>
-              </View>
-              {po.status === 'draft' && (
-                <TouchableOpacity
-                  style={styles.sendBtn}
-                  onPress={() => updatePOStatus(po.id, 'sent')}
-                >
-                  <Text style={styles.sendBtnText}>Send to vendor</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ))
-        )}
-      </WebScrollView>
-    </View>
-  );
-}
-
 // ─── RESTOCK REPORT ─────────────────────────────────────────────────────────
-export function RestockScreen() {
-  const { inventory, getItemStatus } = useStore();
-  const needRestock = inventory.filter((i) => getItemStatus(i) !== 'ok');
-
-  const userColors: Record<string, string> = {
-    'Maria G.': Colors.userMaria, 'James T.': Colors.userJames,
-    'Admin': Colors.userAdmin, 'Ana R.': Colors.userAna,
-  };
-
-  return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <WebScrollView id="restock-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <View style={styles.infoBar}>
-          <Text style={styles.infoText}>{needRestock.length} items need restocking. Generate a PO directly from this list.</Text>
-        </View>
-        {needRestock.length === 0 ? (
-          <EmptyState message="All items are above par level" />
-        ) : (
-          needRestock.map((item) => {
-            const status = getItemStatus(item);
-            const orderQty = Math.max(0, item.parLevel * 2 - item.currentStock);
-            const estCost = (orderQty * item.costPerUnit).toFixed(2);
-            const color = userColors[item.lastUpdatedBy] || Colors.userAdmin;
-            return (
-              <View key={item.id} style={styles.restockCard}>
-                <View style={styles.restockTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.restockName}>{item.name}</Text>
-                    <Text style={styles.restockVendor}>{item.vendorName}</Text>
-                  </View>
-                  <Badge label={status === 'out' ? 'Out' : 'Low'} variant={status} />
-                </View>
-                <View style={styles.restockStats}>
-                  <View style={styles.restockStat}>
-                    <Text style={styles.restockStatLabel}>Current</Text>
-                    <Text style={styles.restockStatValue}>{item.currentStock} {item.unit}</Text>
-                  </View>
-                  <View style={styles.restockStat}>
-                    <Text style={styles.restockStatLabel}>Par</Text>
-                    <Text style={styles.restockStatValue}>{item.parLevel} {item.unit}</Text>
-                  </View>
-                  <View style={styles.restockStat}>
-                    <Text style={styles.restockStatLabel}>EOD remaining</Text>
-                    <Text style={styles.restockStatValue}>{item.eodRemaining} {item.unit}</Text>
-                  </View>
-                  <View style={styles.restockStat}>
-                    <Text style={[styles.restockStatValue, { color: Colors.danger, fontWeight: '600' }]}>{Math.ceil(orderQty)} {item.unit}</Text>
-                    <Text style={styles.restockStatLabel}>Order qty</Text>
-                  </View>
-                </View>
-                <View style={styles.restockFooter}>
-                  <WhoChip name={item.lastUpdatedBy} color={color} time={`EOD: ${item.lastUpdatedAt}`} />
-                  <Text style={[styles.estCost, { color: Colors.textSecondary }]}>Est. ${estCost}</Text>
-                </View>
-              </View>
-            );
-          })
-        )}
-      </WebScrollView>
-    </View>
-  );
-}
-
 // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
 export function AuditLogScreen() {
   const { auditLog } = useStore();
@@ -401,7 +270,7 @@ export function AuditLogScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'PO sent', 'Receiving'].map((f) => (
+        {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'Stock adjusted'].map((f) => (
           <TouchableOpacity key={f || 'all'} style={[styles.filterChip, filter === f && styles.filterChipActive]} onPress={() => setFilter(f)}>
             <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f || 'All'}</Text>
           </TouchableOpacity>
@@ -683,27 +552,6 @@ const styles = StyleSheet.create({
   tabItemActive: { borderBottomColor: Colors.textPrimary },
   tabText: { fontSize: FontSize.sm, color: Colors.textSecondary },
   tabTextActive: { color: Colors.textPrimary, fontWeight: '500' },
-  poCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
-  poTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing.sm },
-  poNum: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textPrimary, fontVariant: ['tabular-nums'] },
-  poVendor: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  poCost: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary, marginTop: 4 },
-  poMeta: { flexDirection: 'row', gap: Spacing.lg, marginBottom: Spacing.sm },
-  poMetaItem: { gap: 3 },
-  poMetaLabel: { fontSize: 9, color: Colors.textTertiary },
-  poMetaValue: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '500' },
-  sendBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: 7, alignItems: 'center' },
-  sendBtnText: { color: Colors.white, fontSize: FontSize.xs, fontWeight: '500' },
-  restockCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
-  restockTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: Spacing.sm },
-  restockName: { fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
-  restockVendor: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  restockStats: { flexDirection: 'row', marginBottom: Spacing.sm },
-  restockStat: { flex: 1, alignItems: 'center' },
-  restockStatLabel: { fontSize: 9, color: Colors.textTertiary },
-  restockStatValue: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary },
-  restockFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 0.5, borderTopColor: Colors.borderLight, paddingTop: Spacing.sm },
-  estCost: { fontSize: FontSize.xs },
   filterScroll: { backgroundColor: Colors.bgPrimary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight, flexGrow: 0 },
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },

@@ -39,11 +39,6 @@ interface SupabaseStoreActions {
   // Vendors
   addVendor: (vendor: any) => Promise<void>;
 
-  // POs
-  createPO: (po: any) => Promise<void>;
-  updatePOStatus: (id: string, status: any) => void;
-  receivePO: (id: string, items: any[], by: string) => Promise<void>;
-
   // POS
   importPOS: (posImport: any) => Promise<void>;
 
@@ -84,7 +79,6 @@ export const useStore = create<FullStore>((set, get) => ({
   wasteLog: [],
   eodSubmissions: [],
   vendors: [],
-  purchaseOrders: [],
   posImports: [],
   auditLog: [],
   orderSchedule: {
@@ -136,15 +130,14 @@ export const useStore = create<FullStore>((set, get) => ({
   loadAll: async (storeId) => {
     set({ isLoading: true });
     try {
-      const [inventory, recipes, wasteLog, vendors, purchaseOrders, auditLog] = await Promise.all([
+      const [inventory, recipes, wasteLog, vendors, auditLog] = await Promise.all([
         db.fetchInventory(storeId),
         db.fetchRecipes(storeId),
         db.fetchWasteLog(storeId),
         db.fetchVendors(),
-        db.fetchPurchaseOrders(storeId),
         db.fetchAuditLog(storeId),
       ]);
-      set({ inventory, recipes, wasteLog, vendors, purchaseOrders, auditLog, isLoading: false });
+      set({ inventory, recipes, wasteLog, vendors, auditLog, isLoading: false });
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }
@@ -272,53 +265,6 @@ export const useStore = create<FullStore>((set, get) => ({
   addVendor: async (vendor) => {
     await db.createVendor(vendor);
     set((s) => ({ vendors: [...s.vendors, { ...vendor, id: Date.now().toString() }] }));
-  },
-
-  // ── Purchase Orders ───────────────────────────────────
-  createPO: async (po) => {
-    await db.createPurchaseOrder(po);
-    set((s) => ({
-      purchaseOrders: [{ ...po, id: Date.now().toString(), poNumber: 'PO-NEW' }, ...s.purchaseOrders],
-    }));
-    await get().addAuditEvent({
-      timestamp: new Date().toLocaleString(),
-      userId: get().currentUser?.id || '',
-      userName: get().currentUser?.name || '',
-      userRole: 'admin',
-      storeId: po.storeId,
-      storeName: get().currentStore.name,
-      action: 'PO created',
-      detail: `PO created for ${po.vendorName}`,
-      itemRef: '',
-      value: `$${po.totalCost.toFixed(2)}`,
-    });
-  },
-
-  updatePOStatus: (id, status) => {
-    set((s) => ({
-      purchaseOrders: s.purchaseOrders.map((p) => (p.id === id ? { ...p, status } : p)),
-    }));
-  },
-
-  receivePO: async (id, items, by) => {
-    await db.receivePurchaseOrder(id, items, get().currentUser?.id || '');
-    set((s) => ({
-      purchaseOrders: s.purchaseOrders.map((p) =>
-        p.id === id ? { ...p, status: 'received' as const } : p
-      ),
-    }));
-    await get().addAuditEvent({
-      timestamp: new Date().toLocaleString(),
-      userId: get().currentUser?.id || '',
-      userName: by,
-      userRole: 'admin',
-      storeId: get().currentStore.id,
-      storeName: get().currentStore.name,
-      action: 'Receiving',
-      detail: 'Delivery confirmed',
-      itemRef: id,
-      value: `${items.length} items`,
-    });
   },
 
   // ── POS Import ────────────────────────────────────────

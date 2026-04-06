@@ -2,13 +2,13 @@
 import { create } from 'zustand';
 import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
-  EODSubmission, Vendor, PurchaseOrder, POSImport,
+  EODSubmission, Vendor, POSImport,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
-  WASTE_LOG, PURCHASE_ORDERS, AUDIT_LOG, PREP_RECIPES,
+  WASTE_LOG, AUDIT_LOG, PREP_RECIPES,
   EOD_SUBMISSIONS,
 } from '../data/seed';
 
@@ -43,11 +43,6 @@ interface StoreActions {
   // Vendors
   addVendor: (vendor: Omit<Vendor, 'id'>) => void;
   updateVendor: (id: string, updates: Partial<Vendor>) => void;
-
-  // Purchase Orders
-  createPO: (po: Omit<PurchaseOrder, 'id' | 'poNumber'>) => void;
-  updatePOStatus: (id: string, status: PurchaseOrder['status']) => void;
-  receivePO: (id: string, receivedItems: { itemId: string; receivedQty: number }[], receivedBy: string) => void;
 
   // POS Import
   importPOS: (posImport: Omit<POSImport, 'id'>) => void;
@@ -85,7 +80,6 @@ let recipeCounter = RECIPES.length + 1;
 let prepRecipeCounter = PREP_RECIPES.length + 1;
 let wasteCounter = WASTE_LOG.length + 1;
 let vendorCounter = VENDORS.length + 1;
-let poCounter = PURCHASE_ORDERS.length + 1;
 let auditCounter = AUDIT_LOG.length + 1;
 let userCounter = USERS.length + 1;
 
@@ -103,7 +97,6 @@ export const useStore = create<FullStore>((set, get) => ({
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
   vendors: VENDORS,
-  purchaseOrders: PURCHASE_ORDERS,
   posImports: [],
   auditLog: AUDIT_LOG,
   orderSchedule: {
@@ -367,73 +360,6 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       vendors: s.vendors.map((v) => (v.id === id ? { ...v, ...updates } : v)),
     }));
-  },
-
-  // Purchase Orders
-  createPO: (po) => {
-    const id = makeId('po', ++poCounter);
-    const poNumber = `PO-${String(poCounter + 3).padStart(3, '0')}`;
-    set((s) => ({
-      purchaseOrders: [{ ...po, id, poNumber }, ...s.purchaseOrders],
-    }));
-    get().addAuditEvent({
-      timestamp: new Date().toLocaleString(),
-      userId: get().currentUser?.id || '',
-      userName: get().currentUser?.name || '',
-      userRole: 'admin',
-      storeId: po.storeId,
-      storeName: get().stores.find((s) => s.id === po.storeId)?.name || '',
-      action: po.status === 'sent' ? 'PO sent' : 'PO created',
-      detail: `${poNumber} ${po.status === 'sent' ? 'sent to' : 'drafted for'} ${po.vendorName}`,
-      itemRef: poNumber,
-      value: `$${po.totalCost.toFixed(2)}`,
-    });
-  },
-
-  updatePOStatus: (id, status) => {
-    set((s) => ({
-      purchaseOrders: s.purchaseOrders.map((po) =>
-        po.id === id ? { ...po, status } : po
-      ),
-    }));
-  },
-
-  receivePO: (id, receivedItems, receivedBy) => {
-    set((s) => ({
-      purchaseOrders: s.purchaseOrders.map((po) =>
-        po.id === id
-          ? {
-              ...po,
-              status: 'received' as const,
-              receivedAt: new Date().toLocaleDateString(),
-              receivedBy,
-              items: po.items.map((item) => {
-                const received = receivedItems.find((r) => r.itemId === item.itemId);
-                return received ? { ...item, receivedQty: received.receivedQty } : item;
-              }),
-            }
-          : po
-      ),
-    }));
-    receivedItems.forEach(({ itemId, receivedQty }) => {
-      const item = get().inventory.find((i) => i.id === itemId);
-      if (item) {
-        get().adjustStock(itemId, item.currentStock + receivedQty, receivedBy);
-      }
-    });
-    const po = get().purchaseOrders.find((p) => p.id === id);
-    get().addAuditEvent({
-      timestamp: new Date().toLocaleString(),
-      userId: get().currentUser?.id || '',
-      userName: receivedBy,
-      userRole: 'admin',
-      storeId: get().currentStore.id,
-      storeName: get().currentStore.name,
-      action: 'Receiving',
-      detail: `Delivery confirmed from ${po?.vendorName}`,
-      itemRef: po?.poNumber || id,
-      value: `${receivedItems.length} items`,
-    });
   },
 
   // POS Import

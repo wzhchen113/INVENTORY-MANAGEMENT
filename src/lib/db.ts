@@ -3,7 +3,7 @@
 import { supabase } from './supabase';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
-  Vendor, PurchaseOrder, AuditEvent, Store,
+  Vendor, AuditEvent, Store,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
       cost_per_unit: item.costPerUnit,
       current_stock: item.currentStock,
       par_level: item.parLevel,
+      average_daily_usage: item.averageDailyUsage,
+      safety_stock: item.safetyStock,
       vendor_id: item.vendorId || null,
       usage_per_portion: item.usagePerPortion,
       expiry_date: item.expiryDate || null,
@@ -213,7 +215,7 @@ export async function fetchVendors(): Promise<Vendor[]> {
   return (data || []).map((v: any) => ({
     id: v.id, name: v.name, contactName: v.contact_name, phone: v.phone,
     email: v.email, accountNumber: v.account_number, leadTimeDays: v.lead_time_days,
-    categories: v.categories || [], lastOrderDate: v.last_order_date,
+    deliveryDays: v.delivery_days || [], categories: v.categories || [], lastOrderDate: v.last_order_date,
   }));
 }
 
@@ -221,88 +223,9 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<void> {
   const { error } = await supabase.from('vendors').insert({
     name: vendor.name, contact_name: vendor.contactName, phone: vendor.phone,
     email: vendor.email, account_number: vendor.accountNumber,
-    lead_time_days: vendor.leadTimeDays, categories: vendor.categories,
+    lead_time_days: vendor.leadTimeDays, delivery_days: vendor.deliveryDays, categories: vendor.categories,
   });
   if (error) throw error;
-}
-
-// ─── PURCHASE ORDERS ─────────────────────────────────────────────────────
-export async function fetchPurchaseOrders(storeId: string): Promise<PurchaseOrder[]> {
-  const { data, error } = await supabase
-    .from('purchase_orders')
-    .select(`*, vendor:vendors(name), creator:profiles!created_by(name), po_items(*, item:inventory_items(name, unit))`)
-    .eq('store_id', storeId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data || []).map((po: any) => ({
-    id: po.id,
-    poNumber: po.po_number,
-    vendorId: po.vendor_id,
-    vendorName: po.vendor?.name || '',
-    createdBy: po.creator?.name || '',
-    createdByUserId: po.created_by,
-    createdAt: po.created_at,
-    expectedDelivery: po.expected_delivery,
-    totalCost: po.total_cost,
-    status: po.status,
-    storeId: po.store_id,
-    receivedAt: po.received_at,
-    receivedBy: po.received_by,
-    items: (po.po_items || []).map((i: any) => ({
-      itemId: i.item_id, itemName: i.item?.name || '', unit: i.item?.unit || '',
-      orderedQty: i.ordered_qty, receivedQty: i.received_qty, costPerUnit: i.cost_per_unit,
-    })),
-  }));
-}
-
-export async function createPurchaseOrder(po: Omit<PurchaseOrder, 'id' | 'poNumber'>): Promise<string> {
-  const { data, error } = await supabase
-    .from('purchase_orders')
-    .insert({
-      store_id: po.storeId, vendor_id: po.vendorId, created_by: po.createdByUserId,
-      expected_delivery: po.expectedDelivery, total_cost: po.totalCost, status: po.status,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-
-  await supabase.from('po_items').insert(
-    po.items.map((item) => ({
-      po_id: data.id, item_id: item.itemId,
-      ordered_qty: item.orderedQty, cost_per_unit: item.costPerUnit,
-    }))
-  );
-
-  return data.id;
-}
-
-export async function receivePurchaseOrder(
-  poId: string,
-  items: { itemId: string; receivedQty: number }[],
-  receivedById: string
-): Promise<void> {
-  await supabase
-    .from('purchase_orders')
-    .update({ status: 'received', received_at: new Date().toISOString(), received_by: receivedById })
-    .eq('id', poId);
-
-  for (const { itemId, receivedQty } of items) {
-    await supabase
-      .from('po_items')
-      .update({ received_qty: receivedQty })
-      .eq('po_id', poId)
-      .eq('item_id', itemId);
-
-    const { data: item } = await supabase
-      .from('inventory_items')
-      .select('current_stock')
-      .eq('id', itemId)
-      .single();
-
-    if (item) {
-      await adjustItemStock(itemId, item.current_stock + receivedQty, receivedById);
-    }
-  }
 }
 
 // ─── AUDIT LOG ───────────────────────────────────────────────────────────
@@ -380,6 +303,8 @@ function mapItem(row: any): InventoryItem {
     costPerUnit: row.cost_per_unit || 0,
     currentStock: row.current_stock || 0,
     parLevel: row.par_level || 0,
+    averageDailyUsage: row.average_daily_usage || 0,
+    safetyStock: row.safety_stock || 0,
     vendorId: row.vendor_id || '',
     vendorName: row.vendor?.name || '',
     usagePerPortion: row.usage_per_portion || 0,

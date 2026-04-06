@@ -97,27 +97,6 @@ export async function addWasteEntry(entry: Record<string, any>) {
   });
 }
 
-// ── Purchase Orders ────────────────────────────────────────
-
-export async function fetchPurchaseOrders(storeId?: string) {
-  const query = storeId ? `?storeId=${storeId}` : '';
-  return request<any[]>(`/purchaseOrders${query}`);
-}
-
-export async function addPurchaseOrder(po: Record<string, any>) {
-  return request<any>('/purchaseOrders', {
-    method: 'POST',
-    body: JSON.stringify(po),
-  });
-}
-
-export async function updatePurchaseOrder(id: string | number, updates: Record<string, any>) {
-  return request<any>(`/purchaseOrders/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(updates),
-  });
-}
-
 // ── Audit Log ──────────────────────────────────────────────
 
 export async function fetchAuditLog(storeId?: string) {

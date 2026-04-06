@@ -15,7 +15,7 @@ export default function DashboardScreen() {
   const nav = useNavigation<any>();
   const {
     currentUser, currentStore, stores, inventory, wasteLog,
-    purchaseOrders, eodSubmissions, getItemStatus, addStore,
+    eodSubmissions, getItemStatus, addStore,
   } = useStore();
 
   const isAdmin = currentUser?.role === 'admin';
@@ -32,11 +32,6 @@ export default function DashboardScreen() {
   const storeWaste = useMemo(
     () => wasteLog.filter((w) => w.storeId === currentStore.id),
     [wasteLog, currentStore.id]
-  );
-
-  const storePOs = useMemo(
-    () => purchaseOrders.filter((p) => p.storeId === currentStore.id),
-    [purchaseOrders, currentStore.id]
   );
 
   const storeEOD = useMemo(
@@ -67,10 +62,6 @@ export default function DashboardScreen() {
     [storeInventory]
   );
 
-  const openPOs = useMemo(
-    () => storePOs.filter((p) => p.status !== 'received'),
-    [storePOs]
-  );
 
   const foodCostPct = storeInventory.length > 0 ? 31.4 : 0;
 
@@ -175,25 +166,6 @@ export default function DashboardScreen() {
               <Text style={[styles.alertText, { color: Colors.warning }]}>
                 <Text style={{ fontWeight: '600' }}>{item.name}</Text>{' — '}expires {item.expiryDate}
               </Text>
-            </View>
-          ))}
-        </Card>
-      )}
-
-      {/* Open POs — admin only */}
-      {isAdmin && openPOs.length > 0 && (
-        <Card>
-          <CardHeader title="Open purchase orders" right={
-            <TouchableOpacity onPress={() => nav.navigate('PurchaseOrders')}>
-              <Text style={styles.link}>View all</Text>
-            </TouchableOpacity>
-          } />
-          {openPOs.map((po) => (
-            <View key={po.id} style={styles.tableRow}>
-              <Text style={[styles.tableName, { flex: 1.5 }]}>{po.vendorName}</Text>
-              <Text style={styles.tableCell}>${po.totalCost.toFixed(0)}</Text>
-              <Text style={styles.tableCell}>{po.expectedDelivery}</Text>
-              <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={po.status as any} />
             </View>
           ))}
         </Card>

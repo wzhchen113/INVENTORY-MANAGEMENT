@@ -138,14 +138,6 @@
     { "id": "w3", "itemName": "Snow Crab Legs", "quantity": 3, "unit": "lbs", "costPerUnit": 22.0, "reason": "Quality issue", "loggedBy": "Ana Rivera", "storeId": "s2", "timestamp": "2026-04-04T20:30:00.000Z" },
     { "id": "w4", "itemName": "Gyro Meat (Lamb/Beef)", "quantity": 4, "unit": "lbs", "costPerUnit": 8.5, "reason": "Over-prepped", "loggedBy": "Ana Rivera", "storeId": "s2", "timestamp": "2026-04-02T21:15:00.000Z" }
   ],
-  "purchaseOrders": [
-    { "id": "po1", "poNumber": "PO-2026-001", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "received", "totalCost": 485.00, "createdAt": "2026-03-28T10:00:00.000Z" },
-    { "id": "po2", "poNumber": "PO-2026-002", "vendorName": "US Foods", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "received", "totalCost": 612.50, "createdAt": "2026-03-30T09:00:00.000Z" },
-    { "id": "po3", "poNumber": "PO-2026-004", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "sent", "totalCost": 372.00, "createdAt": "2026-04-03T10:00:00.000Z" },
-    { "id": "po4", "poNumber": "PO-2026-006", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "received", "totalCost": 535.50, "createdAt": "2026-03-29T10:30:00.000Z" },
-    { "id": "po5", "poNumber": "PO-2026-007", "vendorName": "US Foods", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "received", "totalCost": 530.00, "createdAt": "2026-04-01T09:00:00.000Z" },
-    { "id": "po6", "poNumber": "PO-2026-008", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "sent", "totalCost": 289.00, "createdAt": "2026-04-04T11:00:00.000Z" }
-  ],
   "auditLog": [
     { "id": "a1", "timestamp": "2026-04-04T23:05:00.000Z", "userName": "Maria Garcia", "storeId": "s1", "storeName": "Towson", "action": "EOD entry", "detail": "Remaining count submitted", "itemRef": "6 items" },
     { "id": "a2", "timestamp": "2026-04-04T21:30:00.000Z", "userName": "Maria Garcia", "storeId": "s1", "storeName": "Towson", "action": "Waste log", "detail": "Expired logged", "itemRef": "Beef Patty", "value": "8 each" },

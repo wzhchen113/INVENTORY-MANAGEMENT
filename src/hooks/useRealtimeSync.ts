@@ -17,7 +17,6 @@ export function useRealtimeSync(storeId: string | undefined, onSync: () => void)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recipes', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'prep_recipes', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waste_log', filter: `store_id=eq.${storeId}` }, onSync)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'eod_submissions', filter: `store_id=eq.${storeId}` }, onSync)
       .subscribe();
 

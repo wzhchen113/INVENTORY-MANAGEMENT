@@ -69,6 +69,7 @@ export default function ItemsScreen() {
       lastUpdatedBy: currentUser?.name || 'Admin',
       lastUpdatedAt: new Date().toLocaleTimeString(),
       eodRemaining: parseFloat(form.currentStock) || 0,
+      averageDailyUsage: 0, safetyStock: 0,
       storeId: 's1', expiryDate: '',
     };
     if (editItem) {

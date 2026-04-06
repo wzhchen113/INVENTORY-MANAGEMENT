@@ -21,6 +21,8 @@ export interface InventoryItem {
   costPerUnit: number;
   currentStock: number;
   parLevel: number;
+  averageDailyUsage: number;
+  safetyStock: number;
   vendorId: string;
   vendorName: string;
   usagePerPortion: number;
@@ -135,36 +137,9 @@ export interface Vendor {
   email: string;
   accountNumber: string;
   leadTimeDays: number;
+  deliveryDays: string[];
   categories: string[];
   lastOrderDate?: string;
-}
-
-export interface PurchaseOrderItem {
-  itemId: string;
-  itemName: string;
-  unit: string;
-  orderedQty: number;
-  receivedQty?: number;
-  costPerUnit: number;
-}
-
-export type POStatus = 'draft' | 'sent' | 'received' | 'partial';
-
-export interface PurchaseOrder {
-  id: string;
-  poNumber: string;
-  vendorId: string;
-  vendorName: string;
-  createdBy: string;
-  createdByUserId: string;
-  createdAt: string;
-  expectedDelivery: string;
-  items: PurchaseOrderItem[];
-  totalCost: number;
-  status: POStatus;
-  storeId: string;
-  receivedAt?: string;
-  receivedBy?: string;
 }
 
 export interface POSSaleItem {
@@ -222,9 +197,6 @@ export type AuditAction =
   | 'Item deleted'
   | 'POS import'
   | 'Waste log'
-  | 'PO created'
-  | 'PO sent'
-  | 'Receiving'
   | 'User invite'
   | 'Recipe saved'
   | 'Prep recipe saved'
@@ -267,7 +239,6 @@ export interface AppState {
   wasteLog: WasteEntry[];
   eodSubmissions: EODSubmission[];
   vendors: Vendor[];
-  purchaseOrders: PurchaseOrder[];
   posImports: POSImport[];
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;

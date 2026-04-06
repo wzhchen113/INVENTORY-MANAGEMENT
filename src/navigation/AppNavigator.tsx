@@ -24,10 +24,11 @@ import PrepRecipesScreen from '../screens/PrepRecipesScreen';
 import IngredientsScreen from '../screens/IngredientsScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import EODHistoryScreen from '../screens/EODHistoryScreen';
+import OrderReportScreen from '../screens/OrderReportScreen';
 import { useJsonServerSync } from '../store/useJsonServerSync';
 import {
-  RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
-  RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
+  RecipesScreen, VendorsScreen,
+  AuditLogScreen, ReportsScreen, UsersScreen,
 } from '../screens/AdminScreens';
 
 const Tab = createBottomTabNavigator();
@@ -343,11 +344,10 @@ function MoreScreen({ navigation }: any) {
     { label: 'Ingredients', screen: 'Ingredients', icon: 'nutrition-outline' as const },
     { label: 'Prep Recipes', screen: 'PrepRecipes', icon: 'flask-outline' as const },
     { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
-    { label: 'Restock Report', screen: 'Restock', icon: 'arrow-down-circle-outline' as const },
+    { label: 'Suggested Orders', screen: 'OrderReport', icon: 'receipt-outline' as const },
     ...(isAdmin ? [
       { label: 'EOD History', screen: 'EODHistory', icon: 'calendar-outline' as const },
       { label: 'Vendors', screen: 'Vendors', icon: 'business-outline' as const },
-      { label: 'Purchase Orders', screen: 'PurchaseOrders', icon: 'document-text-outline' as const },
       { label: 'POS Import', screen: 'POSImport', icon: 'cloud-upload-outline' as const },
       { label: 'Reconciliation', screen: 'Reconciliation', icon: 'git-compare-outline' as const },
       { label: 'Reports & Analytics', screen: 'Reports', icon: 'bar-chart-outline' as const },
@@ -440,8 +440,7 @@ function AppStackNavigator() {
       <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
       <AppStack.Screen name="Vendors" component={VendorsScreen} />
-      <AppStack.Screen name="PurchaseOrders" component={PurchaseOrdersScreen} options={{ title: 'Purchase orders' }} />
-      <AppStack.Screen name="Restock" component={RestockScreen} options={{ title: 'Restock report' }} />
+      <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders' }} />
       <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import' }} />
       <AppStack.Screen name="Reconciliation" component={ReconciliationScreen} />
       <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics' }} />
