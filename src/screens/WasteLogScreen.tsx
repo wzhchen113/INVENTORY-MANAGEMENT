@@ -7,7 +7,7 @@ import {
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { WasteReason } from '../types';
 
 const REASONS: WasteReason[] = ['Expired', 'Dropped/spilled', 'Over-prepped', 'Quality issue', 'Theft', 'Other'];
@@ -17,6 +17,7 @@ export default function WasteLogScreen() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ itemId: '', qty: '', reason: 'Expired' as WasteReason, notes: '' });
   const [reasonFilter, setReasonFilter] = useState('');
+  const C = useColors();
 
   const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
   const storeWaste = wasteLog.filter((w) => w.storeId === currentStore.id);
@@ -24,8 +25,8 @@ export default function WasteLogScreen() {
   const filtered = storeWaste.filter((e) => !reasonFilter || e.reason === reasonFilter);
 
   const userColors: Record<string, string> = {
-    'Maria G.': Colors.userMaria, 'James T.': Colors.userJames,
-    'Admin': Colors.userAdmin, 'Ana R.': Colors.userAna,
+    'Maria G.': C.userMaria, 'James T.': C.userJames,
+    'Admin': C.userAdmin, 'Ana R.': C.userAna,
   };
 
   const handleLog = () => {
@@ -49,36 +50,36 @@ export default function WasteLogScreen() {
     r === 'Expired' ? 'expired' : r === 'Theft' ? 'mismatch' : 'low';
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       {/* Summary bar */}
-      <View style={styles.summaryBar}>
+      <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>${totalValue.toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Total waste value</Text>
+          <Text style={[styles.summaryValue, { color: C.warning }]}>${totalValue.toFixed(2)}</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Total waste value</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{wasteLog.length}</Text>
-          <Text style={styles.summaryLabel}>Entries</Text>
+          <Text style={[styles.summaryValue, { color: C.warning }]}>{wasteLog.length}</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Entries</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>1.6%</Text>
-          <Text style={styles.summaryLabel}>% of revenue</Text>
+          <Text style={[styles.summaryValue, { color: C.warning }]}>1.6%</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>% of revenue</Text>
         </View>
-        <TouchableOpacity style={styles.logBtn} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={[styles.logBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowModal(true)}>
           <Text style={styles.logBtnText}>+ Log waste</Text>
         </TouchableOpacity>
       </View>
 
       {/* Reason filter */}
-      <View style={styles.filterWrapper}>
+      <View style={[styles.filterWrapper, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           {['', ...REASONS].map((r) => (
             <TouchableOpacity
               key={r || 'all'}
-              style={[styles.filterChip, reasonFilter === r && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, reasonFilter === r && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setReasonFilter(r)}
             >
-              <Text style={[styles.filterText, reasonFilter === r && styles.filterTextActive]}>
+              <Text style={[styles.filterText, { color: C.textSecondary }, reasonFilter === r && styles.filterTextActive]}>
                 {r || 'All reasons'}
               </Text>
             </TouchableOpacity>
@@ -88,24 +89,24 @@ export default function WasteLogScreen() {
 
       <WebScrollView id="waste-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         {filtered.length === 0 ? (
-          <Text style={styles.empty}>No waste entries yet</Text>
+          <Text style={[styles.empty, { color: C.textTertiary }]}>No waste entries yet</Text>
         ) : (
           filtered.map((entry) => {
-            const color = userColors[entry.loggedBy] || Colors.userAdmin;
+            const color = userColors[entry.loggedBy] || C.userAdmin;
             const cost = (entry.quantity * entry.costPerUnit).toFixed(2);
             return (
-              <View key={entry.id} style={styles.entryCard}>
+              <View key={entry.id} style={[styles.entryCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
                 <View style={styles.entryTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.entryName}>{entry.itemName}</Text>
-                    <Text style={styles.entryQty}>{entry.quantity} {entry.unit} · ${cost}</Text>
+                    <Text style={[styles.entryName, { color: C.textPrimary }]}>{entry.itemName}</Text>
+                    <Text style={[styles.entryQty, { color: C.textSecondary }]}>{entry.quantity} {entry.unit} · ${cost}</Text>
                   </View>
                   <Badge label={entry.reason} variant={reasonBadgeVariant(entry.reason) as any} />
                 </View>
-                {entry.notes ? <Text style={styles.entryNotes}>{entry.notes}</Text> : null}
+                {entry.notes ? <Text style={[styles.entryNotes, { color: C.textSecondary }]}>{entry.notes}</Text> : null}
                 <View style={styles.entryFooter}>
                   <WhoChip name={entry.loggedBy} color={color} />
-                  <Text style={styles.entryTime}>{entry.timestamp}</Text>
+                  <Text style={[styles.entryTime, { color: C.textTertiary }]}>{entry.timestamp}</Text>
                 </View>
               </View>
             );
@@ -115,69 +116,69 @@ export default function WasteLogScreen() {
 
       {/* Log waste modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Log waste / spoilage</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Log waste / spoilage</Text>
             <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={styles.modalClose}>Cancel</Text>
+              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
             {/* Item picker */}
-            <Text style={styles.formLabel}>Item *</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Item *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
               {storeInventory.map((item) => (
                 <TouchableOpacity
                   key={item.id}
-                  style={[styles.itemChip, form.itemId === item.id && styles.itemChipActive]}
+                  style={[styles.itemChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.itemId === item.id && [styles.itemChipActive, { backgroundColor: C.textPrimary }]]}
                   onPress={() => setForm((p) => ({ ...p, itemId: item.id }))}
                 >
-                  <Text style={[styles.itemChipText, form.itemId === item.id && { color: Colors.white }]}>{item.name}</Text>
+                  <Text style={[styles.itemChipText, { color: C.textSecondary }, form.itemId === item.id && { color: C.white }]}>{item.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
-            <Text style={styles.formLabel}>Quantity</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Quantity</Text>
             <TextInput
-              style={styles.formInput}
+              style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               keyboardType="decimal-pad"
               placeholder="e.g. 1.5"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               value={form.qty}
               onChangeText={(v) => setForm((p) => ({ ...p, qty: v }))}
             />
 
-            <Text style={styles.formLabel}>Reason</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Reason</Text>
             <View style={styles.reasonGrid}>
               {REASONS.map((r) => (
                 <TouchableOpacity
                   key={r}
-                  style={[styles.reasonBtn, form.reason === r && styles.reasonBtnActive]}
+                  style={[styles.reasonBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.reason === r && [styles.reasonBtnActive, { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]]}
                   onPress={() => setForm((p) => ({ ...p, reason: r }))}
                 >
-                  <Text style={[styles.reasonText, form.reason === r && styles.reasonTextActive]}>{r}</Text>
+                  <Text style={[styles.reasonText, { color: C.textSecondary }, form.reason === r && styles.reasonTextActive]}>{r}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <Text style={styles.formLabel}>Notes (optional)</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Notes (optional)</Text>
             <TextInput
-              style={[styles.formInput, { height: 72, textAlignVertical: 'top' }]}
+              style={[styles.formInput, { height: 72, textAlignVertical: 'top', color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               multiline
               placeholder="What happened?"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               value={form.notes}
               onChangeText={(v) => setForm((p) => ({ ...p, notes: v }))}
             />
 
-            <View style={styles.submitterRow}>
+            <View style={[styles.submitterRow, { backgroundColor: C.infoBg }]}>
               <View style={[styles.submitterAvatar, { backgroundColor: currentUser?.color + '22' }]}>
                 <Text style={[styles.submitterInitials, { color: currentUser?.color }]}>{currentUser?.initials}</Text>
               </View>
-              <Text style={styles.submitterText}>Will be logged as <Text style={{ fontWeight: '600' }}>{currentUser?.name}</Text></Text>
+              <Text style={[styles.submitterText, { color: C.info }]}>Will be logged as <Text style={{ fontWeight: '600' }}>{currentUser?.name}</Text></Text>
             </View>
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleLog}>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleLog}>
               <Text style={styles.saveBtnText}>Log waste entry</Text>
             </TouchableOpacity>
           </ScrollView>

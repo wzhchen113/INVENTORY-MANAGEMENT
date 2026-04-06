@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
 
@@ -19,6 +19,7 @@ const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
 
 export default function IngredientsScreen() {
   const { currentUser, currentStore, stores, inventory, vendors, addItem, updateItem, deleteItem } = useStore();
+  const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
 
   const storeInventory = useMemo(
@@ -245,49 +246,49 @@ export default function IngredientsScreen() {
   };
 
   const renderItem = ({ item }: { item: InventoryItem }) => (
-    <View style={styles.row}>
+    <View style={[styles.row, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
       <View style={styles.rowLeft}>
-        <Text style={styles.rowName}>{item.name}</Text>
-        <Text style={styles.rowMeta}>
+        <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
+        <Text style={[styles.rowMeta, { color: C.textTertiary }]}>
           {item.category} · {item.currentStock} {item.unit}
           {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
           {item.vendorName ? ` · ${item.vendorName}` : ''}
         </Text>
       </View>
       <View style={styles.rowRight}>
-        <Text style={styles.rowCost}>${item.costPerUnit.toFixed(2)}</Text>
-        <Text style={styles.rowCostLabel}>per {item.unit}</Text>
+        <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
+        <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
       </View>
       {isAdmin && (
-        <TouchableOpacity style={styles.rowEditBtn} onPress={() => openEdit(item)}>
-          <Ionicons name="create-outline" size={14} color={Colors.textSecondary} />
+        <TouchableOpacity style={[styles.rowEditBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
+          <Ionicons name="create-outline" size={14} color={C.textSecondary} />
         </TouchableOpacity>
       )}
     </View>
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       {/* Header row */}
       <View style={styles.headerRow}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={16} color={Colors.textTertiary} />
+        <View style={[styles.searchBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+          <Ionicons name="search-outline" size={16} color={C.textTertiary} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: C.textPrimary }]}
             placeholder="Search ingredients..."
-            placeholderTextColor={Colors.textTertiary}
+            placeholderTextColor={C.textTertiary}
             value={search}
             onChangeText={setSearch}
           />
           {search ? (
             <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={16} color={Colors.textTertiary} />
+              <Ionicons name="close-circle" size={16} color={C.textTertiary} />
             </TouchableOpacity>
           ) : null}
         </View>
         {isAdmin && (
-          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-            <Ionicons name="add" size={18} color={Colors.white} />
+          <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
+            <Ionicons name="add" size={18} color={C.white} />
             <Text style={styles.addBtnText}>Add</Text>
           </TouchableOpacity>
         )}
@@ -297,10 +298,10 @@ export default function IngredientsScreen() {
       <View style={styles.pillWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
           <TouchableOpacity
-            style={[styles.pill, !catFilter && styles.pillActive]}
+            style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
           >
-            <Text style={[styles.pillText, !catFilter && styles.pillTextActive]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !catFilter && { color: C.white }]}>
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
@@ -309,10 +310,10 @@ export default function IngredientsScreen() {
             return (
               <TouchableOpacity
                 key={cat}
-                style={[styles.pill, isActive && styles.pillActive]}
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setCatFilter(isActive ? '' : cat)}
               >
-                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.white }]}>
                   {cat} ({categoryCounts[cat] || 0})
                 </Text>
               </TouchableOpacity>
@@ -326,10 +327,10 @@ export default function IngredientsScreen() {
         <View style={[styles.pillWrapper, { paddingTop: 0 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
             <TouchableOpacity
-              style={[styles.pill, !vendorFilter && styles.pillActive]}
+              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !vendorFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, !vendorFilter && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && { color: C.white }]}>
                 All vendors
               </Text>
             </TouchableOpacity>
@@ -338,10 +339,10 @@ export default function IngredientsScreen() {
               return (
                 <TouchableOpacity
                   key={v}
-                  style={[styles.pill, isActive && styles.pillActive]}
+                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setVendorFilter(isActive ? '' : v)}
                 >
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.white }]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>
@@ -353,13 +354,13 @@ export default function IngredientsScreen() {
 
       {/* Summary bar */}
       <View style={styles.summaryBar}>
-        <Text style={styles.summaryText}>
+        <Text style={[styles.summaryText, { color: C.textTertiary }]}>
           {filtered.length} ingredient{filtered.length !== 1 ? 's' : ''}
         </Text>
         {!isAdmin && (
-          <View style={styles.readOnlyBadge}>
-            <Ionicons name="lock-closed-outline" size={10} color={Colors.textTertiary} />
-            <Text style={styles.readOnlyText}>View only</Text>
+          <View style={[styles.readOnlyBadge, { backgroundColor: C.bgSecondary }]}>
+            <Ionicons name="lock-closed-outline" size={10} color={C.textTertiary} />
+            <Text style={[styles.readOnlyText, { color: C.textTertiary }]}>View only</Text>
           </View>
         )}
       </View>
@@ -368,10 +369,10 @@ export default function IngredientsScreen() {
       <WebScrollView id="ingredients-scroll" contentContainerStyle={styles.list}>
         {filtered.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="restaurant-outline" size={32} color={Colors.textTertiary} />
-            <Text style={styles.emptyText}>No ingredients found</Text>
+            <Ionicons name="restaurant-outline" size={32} color={C.textTertiary} />
+            <Text style={[styles.emptyText, { color: C.textTertiary }]}>No ingredients found</Text>
             {isAdmin && (
-              <TouchableOpacity style={styles.emptyBtn} onPress={openAdd}>
+              <TouchableOpacity style={[styles.emptyBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
                 <Text style={styles.emptyBtnText}>Add your first ingredient</Text>
               </TouchableOpacity>
             )}
@@ -385,13 +386,13 @@ export default function IngredientsScreen() {
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>
               {editItem ? 'Edit ingredient' : 'Add ingredient'}
             </Text>
             <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={styles.modalCancel}>Cancel</Text>
+              <Text style={[styles.modalCancel, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
 
@@ -399,11 +400,11 @@ export default function IngredientsScreen() {
             {/* Store selection */}
             <View style={styles.formField}>
               <View style={styles.storeLabelRow}>
-                <Text style={styles.formLabel}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>
                   {editItem ? 'Stores *' : 'Add to stores *'}
                 </Text>
                 <TouchableOpacity onPress={selectAllStores}>
-                  <Text style={styles.selectAllText}>
+                  <Text style={[styles.selectAllText, { color: C.info }]}>
                     {selectedStoreIds.length === stores.length ? 'Deselect all' : 'Select all'}
                   </Text>
                 </TouchableOpacity>
@@ -414,48 +415,48 @@ export default function IngredientsScreen() {
                   return (
                     <TouchableOpacity
                       key={store.id}
-                      style={[styles.storeChip, isSelected && styles.storeChipActive]}
+                      style={[styles.storeChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, isSelected && { backgroundColor: C.successBg, borderColor: C.success }]}
                       onPress={() => toggleStore(store.id)}
                     >
-                      <View style={[styles.storeChipCheck, isSelected && styles.storeChipCheckActive]}>
-                        {isSelected && <Ionicons name="checkmark" size={10} color={Colors.white} />}
+                      <View style={[styles.storeChipCheck, { borderColor: C.borderMedium }, isSelected && { backgroundColor: C.success, borderColor: C.success }]}>
+                        {isSelected && <Ionicons name="checkmark" size={10} color={C.white} />}
                       </View>
-                      <Text style={[styles.storeChipText, isSelected && styles.storeChipTextActive]}>
+                      <Text style={[styles.storeChipText, { color: C.textSecondary }, isSelected && { color: C.textPrimary }]}>
                         {store.name}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
-              <Text style={styles.storeHint}>
+              <Text style={[styles.storeHint, { color: C.textTertiary }]}>
                 {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
               </Text>
             </View>
 
             {/* Name */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Ingredient name *</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Ingredient name *</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.name}
                 onChangeText={(v) => setForm((p) => ({ ...p, name: v }))}
                 placeholder="e.g. Chicken breast"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
               />
             </View>
 
             {/* Category */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Category</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
                   {CATEGORIES.map((cat) => (
                     <TouchableOpacity
                       key={cat}
-                      style={[styles.chip, form.category === cat && styles.chipActive]}
+                      style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.category === cat && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, category: cat }))}
                     >
-                      <Text style={[styles.chipText, form.category === cat && styles.chipTextActive]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.category === cat && { color: C.white }]}>
                         {cat}
                       </Text>
                     </TouchableOpacity>
@@ -466,16 +467,16 @@ export default function IngredientsScreen() {
 
             {/* Unit */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Unit</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Unit</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
                   {UNITS.map((u) => (
                     <TouchableOpacity
                       key={u}
-                      style={[styles.chip, form.unit === u && styles.chipActive]}
+                      style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, unit: u }))}
                     >
-                      <Text style={[styles.chipText, form.unit === u && styles.chipTextActive]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.unit === u && { color: C.white }]}>
                         {u}
                       </Text>
                     </TouchableOpacity>
@@ -486,22 +487,22 @@ export default function IngredientsScreen() {
 
             {/* Vendor */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Vendor</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.chipRow}>
                   <TouchableOpacity
-                    style={[styles.chip, !form.vendorId && styles.chipActive]}
+                    style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !form.vendorId && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                     onPress={() => setForm((p) => ({ ...p, vendorId: '', vendorName: '' }))}
                   >
-                    <Text style={[styles.chipText, !form.vendorId && styles.chipTextActive]}>None</Text>
+                    <Text style={[styles.chipText, { color: C.textSecondary }, !form.vendorId && { color: C.white }]}>None</Text>
                   </TouchableOpacity>
                   {vendors.map((v) => (
                     <TouchableOpacity
                       key={v.id}
-                      style={[styles.chip, form.vendorId === v.id && styles.chipActive]}
+                      style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.vendorId === v.id && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, vendorId: v.id, vendorName: v.name }))}
                     >
-                      <Text style={[styles.chipText, form.vendorId === v.id && styles.chipTextActive]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.vendorId === v.id && { color: C.white }]}>
                         {v.name}
                       </Text>
                     </TouchableOpacity>
@@ -512,45 +513,45 @@ export default function IngredientsScreen() {
 
             {/* Cost */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Cost per unit ($) *</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Cost per unit ($) *</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.costPerUnit}
                 onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: v }))}
                 placeholder="0.00"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
               />
             </View>
 
             {/* Current stock */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Current stock</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Current stock</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.currentStock}
                 onChangeText={(v) => setForm((p) => ({ ...p, currentStock: v }))}
                 placeholder="0"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
               />
             </View>
 
             {/* Par level */}
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Par level (minimum stock)</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Par level (minimum stock)</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.parLevel}
                 onChangeText={(v) => setForm((p) => ({ ...p, parLevel: v }))}
                 placeholder="0"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
               />
             </View>
 
             {/* Save button */}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>
                 {editItem
                   ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
@@ -562,9 +563,9 @@ export default function IngredientsScreen() {
 
             {/* Delete button — admin only, edit mode only */}
             {editItem && isAdmin && (
-              <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteEntirely}>
-                <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-                <Text style={styles.deleteBtnText}>Delete from all stores</Text>
+              <TouchableOpacity style={[styles.deleteBtn, { borderColor: C.danger }]} onPress={handleDeleteEntirely}>
+                <Ionicons name="trash-outline" size={16} color={C.danger} />
+                <Text style={[styles.deleteBtnText, { color: C.danger }]}>Delete from all stores</Text>
               </TouchableOpacity>
             )}
           </ScrollView>

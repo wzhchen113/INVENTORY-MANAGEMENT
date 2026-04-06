@@ -5,7 +5,7 @@ import {
   TextInput, StyleSheet, Alert,
 } from 'react-native';
 import { useStore } from '../store/useStore';
-import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
@@ -19,6 +19,7 @@ export default function PrepRecipesScreen() {
     getPrepRecipeCost, getPrepRecipeCostPerUnit,
   } = useStore();
   const isAdmin = currentUser?.role === 'admin';
+  const C = useColors();
 
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -94,10 +95,10 @@ export default function PrepRecipesScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       {/* Info bar */}
-      <View style={styles.infoBar}>
-        <Text style={styles.infoText}>
+      <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
+        <Text style={[styles.infoText, { color: C.info }]}>
           Prep recipes define intermediate preparations (marinades, sauces, bases) with ingredient portions and costs. These can be referenced in menu item recipes.
         </Text>
       </View>
@@ -105,9 +106,9 @@ export default function PrepRecipesScreen() {
       {/* Search + filter */}
       <View style={styles.searchRow}>
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
           placeholder="Search prep recipes..."
-          placeholderTextColor={Colors.textTertiary}
+          placeholderTextColor={C.textTertiary}
           value={search}
           onChangeText={setSearch}
         />
@@ -115,18 +116,18 @@ export default function PrepRecipesScreen() {
       <View style={styles.filterWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           <TouchableOpacity
-            style={[styles.filterChip, !filter && styles.filterChipActive]}
+            style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !filter && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
             onPress={() => setFilter('')}
           >
-            <Text style={[styles.filterText, !filter && styles.filterTextActive]}>All</Text>
+            <Text style={[styles.filterText, { color: C.textSecondary }, !filter && styles.filterTextActive]}>All</Text>
           </TouchableOpacity>
           {PREP_CATEGORIES.map((c) => (
             <TouchableOpacity
               key={c}
-              style={[styles.filterChip, filter === c && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === c && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setFilter(filter === c ? '' : c)}
             >
-              <Text style={[styles.filterText, filter === c && styles.filterTextActive]}>{c}</Text>
+              <Text style={[styles.filterText, { color: C.textSecondary }, filter === c && styles.filterTextActive]}>{c}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -135,62 +136,62 @@ export default function PrepRecipesScreen() {
       {/* List */}
       <WebScrollView id="prep-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         {isAdmin && (
-          <TouchableOpacity style={styles.addRow} onPress={openNew}>
-            <Text style={styles.addRowText}>+ New prep recipe</Text>
+          <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openNew}>
+            <Text style={[styles.addRowText, { color: C.info }]}>+ New prep recipe</Text>
           </TouchableOpacity>
         )}
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No prep recipes yet</Text>
+            <Text style={[styles.emptyText, { color: C.textTertiary }]}>No prep recipes yet</Text>
           </View>
         ) : (
           filtered.map((pr) => {
             const batchCost = getPrepRecipeCost(pr.id);
             const costPerUnit = getPrepRecipeCostPerUnit(pr.id);
             return (
-              <View key={pr.id} style={styles.card}>
+              <View key={pr.id} style={[styles.card, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cardName}>{pr.name}</Text>
-                    <Text style={styles.cardCategory}>{pr.category}</Text>
+                    <Text style={[styles.cardName, { color: C.textPrimary }]}>{pr.name}</Text>
+                    <Text style={[styles.cardCategory, { color: C.textSecondary }]}>{pr.category}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <View style={styles.yieldBadge}>
-                      <Text style={styles.yieldBadgeText}>
+                    <View style={[styles.yieldBadge, { backgroundColor: C.successBg }]}>
+                      <Text style={[styles.yieldBadgeText, { color: C.success }]}>
                         Yields {pr.yieldQuantity} {pr.yieldUnit}
                       </Text>
                     </View>
                   </View>
                 </View>
-                <View style={styles.ingList}>
+                <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
                   {pr.ingredients.map((ing, idx) => (
                     <View key={idx} style={styles.ingRow}>
-                      <Text style={styles.ingName}>{ing.itemName}</Text>
-                      <Text style={styles.ingQty}>{ing.quantity} {ing.unit}</Text>
+                      <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
+                      <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
                     </View>
                   ))}
                   {pr.ingredients.length === 0 && (
-                    <Text style={styles.noIng}>No ingredients added yet</Text>
+                    <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients added yet</Text>
                   )}
                 </View>
                 <View style={styles.costRow}>
-                  <View style={styles.costItem}>
-                    <Text style={styles.costLabel}>Batch cost</Text>
-                    <Text style={styles.costValue}>${batchCost.toFixed(2)}</Text>
+                  <View style={[styles.costItem, { backgroundColor: C.bgSecondary }]}>
+                    <Text style={[styles.costLabel, { color: C.textTertiary }]}>Batch cost</Text>
+                    <Text style={[styles.costValue, { color: C.textPrimary }]}>${batchCost.toFixed(2)}</Text>
                   </View>
-                  <View style={styles.costItem}>
-                    <Text style={styles.costLabel}>Cost per {pr.yieldUnit}</Text>
-                    <Text style={styles.costValue}>${costPerUnit.toFixed(2)}</Text>
+                  <View style={[styles.costItem, { backgroundColor: C.bgSecondary }]}>
+                    <Text style={[styles.costLabel, { color: C.textTertiary }]}>Cost per {pr.yieldUnit}</Text>
+                    <Text style={[styles.costValue, { color: C.textPrimary }]}>${costPerUnit.toFixed(2)}</Text>
                   </View>
                 </View>
-                {pr.notes ? <Text style={styles.notes}>{pr.notes}</Text> : null}
+                {pr.notes ? <Text style={[styles.notes, { color: C.textSecondary }]}>{pr.notes}</Text> : null}
                 {isAdmin && (
                   <View style={styles.actions}>
-                    <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(pr)}>
-                      <Text style={styles.editBtnText}>Edit</Text>
+                    <TouchableOpacity style={[styles.editBtn, { borderColor: C.borderMedium }]} onPress={() => openEdit(pr)}>
+                      <Text style={[styles.editBtnText, { color: C.textSecondary }]}>Edit</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(pr)}>
-                      <Text style={styles.deleteBtnText}>Delete</Text>
+                    <TouchableOpacity style={[styles.deleteBtn, { borderColor: C.dangerBg, backgroundColor: C.dangerBg }]} onPress={() => handleDelete(pr)}>
+                      <Text style={[styles.deleteBtnText, { color: C.danger }]}>Delete</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -202,79 +203,79 @@ export default function PrepRecipesScreen() {
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{editingId ? 'Edit prep recipe' : 'New prep recipe'}</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editingId ? 'Edit prep recipe' : 'New prep recipe'}</Text>
             <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={styles.modalClose}>Cancel</Text>
+              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            <Text style={styles.formLabel}>Recipe name</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Recipe name</Text>
             <TextInput
-              style={styles.formInput}
+              style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={name}
               onChangeText={setName}
               placeholder="e.g. 40lb Marinated Chicken"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
             />
 
-            <Text style={styles.formLabel}>Category</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
             <View style={styles.catRow}>
               {PREP_CATEGORIES.map((c) => (
                 <TouchableOpacity
                   key={c}
-                  style={[styles.catPill, category === c && styles.catPillActive]}
+                  style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && [styles.catPillActive, { backgroundColor: C.textPrimary }]]}
                   onPress={() => setCategory(c)}
                 >
-                  <Text style={[styles.catPillText, category === c && { color: Colors.white }]}>{c}</Text>
+                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             <View style={styles.yieldRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.formLabel}>Yield quantity</Text>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Yield quantity</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={yieldQty}
                   onChangeText={setYieldQty}
                   keyboardType="decimal-pad"
                   placeholder="40"
-                  placeholderTextColor={Colors.textTertiary}
+                  placeholderTextColor={C.textTertiary}
                 />
               </View>
               <View style={{ width: Spacing.sm }} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.formLabel}>Yield unit</Text>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Yield unit</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={yieldUnit}
                   onChangeText={setYieldUnit}
                   placeholder="lb"
-                  placeholderTextColor={Colors.textTertiary}
+                  placeholderTextColor={C.textTertiary}
                 />
               </View>
             </View>
 
-            <Text style={styles.formLabel}>Notes</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Notes</Text>
             <TextInput
-              style={[styles.formInput, { height: 60, textAlignVertical: 'top' }]}
+              style={[styles.formInput, { height: 60, textAlignVertical: 'top', color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={notes}
               onChangeText={setNotes}
               placeholder="Optional notes..."
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               multiline
             />
 
-            <Text style={[styles.formLabel, { marginTop: Spacing.lg }]}>Ingredients</Text>
+            <Text style={[styles.formLabel, { marginTop: Spacing.lg, color: C.textSecondary }]}>Ingredients</Text>
             <IngredientEditor
               ingredients={formIngredients}
               onIngredientsChange={setFormIngredients}
               availableItems={inventory}
             />
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>{editingId ? 'Update prep recipe' : 'Save prep recipe'}</Text>
             </TouchableOpacity>
           </ScrollView>

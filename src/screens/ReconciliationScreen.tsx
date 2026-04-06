@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { buildReconciliationLines } from '../utils/usageCalculations';
 
 const USER_COLORS: Record<string, string> = {
@@ -21,6 +21,7 @@ export default function ReconciliationScreen() {
   const {
     posImports, recipes, eodSubmissions, inventory, currentStore,
   } = useStore();
+  const C = useColors();
   const [adminNote, setAdminNote] = useState('');
 
   // Available dates that have BOTH POS + EOD data for current store
@@ -53,9 +54,9 @@ export default function ReconciliationScreen() {
   const mismatchLines = lines.filter((l) => l.result === 'mismatch');
 
   const varianceColor = (v: number) => {
-    if (v === 0) return Colors.success;
-    if (Math.abs(v) < 1) return Colors.warning;
-    return Colors.danger;
+    if (v === 0) return C.success;
+    if (Math.abs(v) < 1) return C.warning;
+    return C.danger;
   };
 
   const formatDisplayDate = (iso: string) => {
@@ -65,39 +66,39 @@ export default function ReconciliationScreen() {
 
   if (availableDates.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.bgTertiary, justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: C.bgTertiary, justifyContent: 'center' }}>
         <EmptyState message="No matching POS + EOD data available for reconciliation. Import POS sales and submit EOD counts for the same date." />
       </View>
     );
   }
 
   return (
-    <WebScrollView id="recon-scroll" contentContainerStyle={styles.content}>
+    <WebScrollView id="recon-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Date nav + Summary bar */}
-      <View style={styles.summaryBar}>
+      <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
         <TouchableOpacity
           disabled={!canPrev}
           onPress={() => setSelectedDate(availableDates[dateIdx + 1])}
           style={{ opacity: canPrev ? 1 : 0.3 }}
         >
-          <Ionicons name="chevron-back" size={20} color={Colors.textSecondary} />
+          <Ionicons name="chevron-back" size={20} color={C.textSecondary} />
         </TouchableOpacity>
 
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryVal, { color: Colors.success }]}>{matched}</Text>
-          <Text style={styles.summaryLabel}>Matched</Text>
+          <Text style={[styles.summaryVal, { color: C.success }]}>{matched}</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Matched</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryVal, { color: Colors.danger }]}>{mismatched}</Text>
-          <Text style={styles.summaryLabel}>Mismatch</Text>
+          <Text style={[styles.summaryVal, { color: C.danger }]}>{mismatched}</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Mismatch</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryVal, { color: Colors.warning }]}>{review}</Text>
-          <Text style={styles.summaryLabel}>Review</Text>
+          <Text style={[styles.summaryVal, { color: C.warning }]}>{review}</Text>
+          <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Review</Text>
         </View>
 
-        <View style={styles.datePill}>
-          <Text style={styles.dateText}>{formatDisplayDate(selectedDate)} · {currentStore.name}</Text>
+        <View style={[styles.datePill, { backgroundColor: C.bgSecondary }]}>
+          <Text style={[styles.dateText, { color: C.textSecondary }]}>{formatDisplayDate(selectedDate)} · {currentStore.name}</Text>
         </View>
 
         <TouchableOpacity
@@ -105,7 +106,7 @@ export default function ReconciliationScreen() {
           onPress={() => setSelectedDate(availableDates[dateIdx - 1])}
           style={{ opacity: canNext ? 1 : 0.3 }}
         >
-          <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+          <Ionicons name="chevron-forward" size={20} color={C.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -114,11 +115,11 @@ export default function ReconciliationScreen() {
         <EmptyState message="No EOD entries found for this date." />
       ) : (
         lines.map((line) => (
-          <View key={line.itemId} style={[styles.lineCard, line.result === 'mismatch' && styles.lineCardMismatch]}>
+          <View key={line.itemId} style={[styles.lineCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, line.result === 'mismatch' && [styles.lineCardMismatch, { borderColor: C.danger + '44' }]]}>
             <View style={styles.lineTop}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.lineName}>{line.itemName}</Text>
-                <Text style={styles.lineRecipe}>{line.recipeUsed}</Text>
+                <Text style={[styles.lineName, { color: C.textPrimary }]}>{line.itemName}</Text>
+                <Text style={[styles.lineRecipe, { color: C.textSecondary }]}>{line.recipeUsed}</Text>
               </View>
               <Badge
                 label={line.result === 'match' ? 'Match' : line.result === 'mismatch' ? 'Mismatch' : 'Review'}
@@ -126,40 +127,40 @@ export default function ReconciliationScreen() {
               />
             </View>
 
-            <View style={styles.lineStats}>
+            <View style={[styles.lineStats, { borderBottomColor: C.borderLight }]}>
               <View style={styles.lineStat}>
-                <Text style={styles.lineStatLabel}>POS qty</Text>
-                <Text style={styles.lineStatVal}>{line.posQtySold}</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>POS qty</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.posQtySold}</Text>
               </View>
               <View style={styles.lineStat}>
-                <Text style={styles.lineStatLabel}>Expected deduction</Text>
-                <Text style={styles.lineStatVal}>{line.expectedDeduction} {line.unit}</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Expected deduction</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.expectedDeduction} {line.unit}</Text>
               </View>
               <View style={styles.lineStat}>
-                <Text style={styles.lineStatLabel}>Opening stock</Text>
-                <Text style={styles.lineStatVal}>{line.openingStock} {line.unit}</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Opening stock</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.openingStock} {line.unit}</Text>
               </View>
               <View style={styles.lineStat}>
-                <Text style={styles.lineStatLabel}>Expected rem.</Text>
-                <Text style={styles.lineStatVal}>{line.expectedRemaining} {line.unit}</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Expected rem.</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.expectedRemaining} {line.unit}</Text>
               </View>
             </View>
 
             <View style={styles.eodRow}>
               <View style={styles.eodLeft}>
-                <Text style={styles.lineStatLabel}>EOD entered by</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>EOD entered by</Text>
                 <WhoChip
                   name={line.eodBy}
-                  color={USER_COLORS[line.eodBy] || Colors.userAdmin}
+                  color={USER_COLORS[line.eodBy] || C.userAdmin}
                   time={line.eodTime}
                 />
               </View>
               <View style={styles.eodRight}>
-                <Text style={styles.lineStatLabel}>EOD remaining</Text>
-                <Text style={styles.lineStatVal}>{line.eodRemaining} {line.unit}</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>EOD remaining</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.eodRemaining} {line.unit}</Text>
               </View>
               <View style={styles.eodRight}>
-                <Text style={styles.lineStatLabel}>Variance</Text>
+                <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Variance</Text>
                 <Text style={[styles.varianceVal, { color: varianceColor(line.variance) }]}>
                   {line.variance === 0 ? '0' : `${line.variance > 0 ? '+' : ''}${line.variance} ${line.unit}`}
                 </Text>
@@ -177,13 +178,13 @@ export default function ReconciliationScreen() {
             const item = inventory.find((i) => i.id === line.itemId);
             const cost = item ? Math.abs(line.variance) * item.costPerUnit : 0;
             return (
-              <View key={line.itemId} style={styles.misBox}>
-                <Text style={styles.misTitle}>
+              <View key={line.itemId} style={[styles.misBox, { backgroundColor: C.dangerBg }]}>
+                <Text style={[styles.misTitle, { color: C.danger }]}>
                   {line.itemName} — {Math.abs(line.variance)} {line.unit} {line.variance < 0 ? 'unaccounted' : 'surplus'}
                 </Text>
-                <Text style={styles.misSub}>
+                <Text style={[styles.misSub, { color: C.danger }]}>
                   EOD count entered by <Text style={{ fontWeight: '600' }}>{line.eodBy}</Text> at {line.eodTime}.{'\n'}
-                  {Math.abs(line.variance)} {line.unit} × ${item?.costPerUnit.toFixed(2) || '?'}/{line.unit} = <Text style={{ color: Colors.danger, fontWeight: '600' }}>${cost.toFixed(2)} {line.variance < 0 ? 'unaccounted' : 'surplus'}</Text>{'\n\n'}
+                  {Math.abs(line.variance)} {line.unit} × ${item?.costPerUnit.toFixed(2) || '?'}/{line.unit} = <Text style={{ color: C.danger, fontWeight: '600' }}>${cost.toFixed(2)} {line.variance < 0 ? 'unaccounted' : 'surplus'}</Text>{'\n\n'}
                   {line.variance < 0
                     ? 'Possible causes: waste not logged, over-portioning, spillage, or theft.'
                     : 'Possible causes: under-portioning, unrecorded delivery, or count error.'}
@@ -191,16 +192,16 @@ export default function ReconciliationScreen() {
               </View>
             );
           })}
-          <Text style={styles.noteLabel}>Admin notes</Text>
+          <Text style={[styles.noteLabel, { color: C.textSecondary }]}>Admin notes</Text>
           <TextInput
-            style={styles.noteInput}
+            style={[styles.noteInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
             multiline
             placeholder="Add investigation notes..."
-            placeholderTextColor={Colors.textTertiary}
+            placeholderTextColor={C.textTertiary}
             value={adminNote}
             onChangeText={setAdminNote}
           />
-          <TouchableOpacity style={styles.saveNoteBtn}>
+          <TouchableOpacity style={[styles.saveNoteBtn, { backgroundColor: C.textPrimary }]}>
             <Text style={styles.saveNoteBtnText}>Save notes</Text>
           </TouchableOpacity>
         </Card>

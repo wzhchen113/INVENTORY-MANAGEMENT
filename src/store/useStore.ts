@@ -58,6 +58,7 @@ interface StoreActions {
   setOrderSchedule: (day: string, vendors: OrderDayVendor[]) => void;
   submitOrder: (submission: Omit<OrderSubmission, 'id'>) => void;
   setTimezone: (tz: string) => void;
+  toggleDarkMode: () => void;
 
   // Audit
   addAuditEvent: (event: Omit<AuditEvent, 'id'>) => void;
@@ -110,6 +111,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
   orderSubmissions: [],
   timezone: 'America/New_York',
+  darkMode: false,
 
   // Auth
   login: (user) => {
@@ -441,6 +443,10 @@ export const useStore = create<FullStore>((set, get) => ({
 
   setTimezone: (tz) => {
     set({ timezone: tz });
+  },
+
+  toggleDarkMode: () => {
+    set((s) => ({ darkMode: !s.darkMode }));
   },
 
   // Audit

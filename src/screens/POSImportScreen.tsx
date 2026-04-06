@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const isWeb = Platform.OS === 'web';
 
@@ -56,6 +56,7 @@ function formatDisplayDate(iso: string) {
 
 export default function POSImportScreen() {
   const { recipes, importPOS, currentUser, currentStore } = useStore();
+  const C = useColors();
   const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
   const [filename, setFilename] = useState('');
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -206,19 +207,19 @@ export default function POSImportScreen() {
 
   if (step === 'done') {
     return (
-      <View style={styles.doneContainer}>
-        <View style={styles.doneCard}>
-          <View style={styles.doneIcon}>
-            <Ionicons name="checkmark" size={28} color={Colors.success} />
+      <View style={[styles.doneContainer, { backgroundColor: C.bgTertiary }]}>
+        <View style={[styles.doneCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+          <View style={[styles.doneIcon, { backgroundColor: C.successBg }]}>
+            <Ionicons name="checkmark" size={28} color={C.success} />
           </View>
-          <Text style={styles.doneTitle}>Import complete</Text>
-          <Text style={styles.doneSub}>
+          <Text style={[styles.doneTitle, { color: C.textPrimary }]}>Import complete</Text>
+          <Text style={[styles.doneSub, { color: C.textSecondary }]}>
             {rows.length} items processed for {formatDisplayDate(importDate)}.{'\n'}
             {matchedCount} recipe-matched items will deduct inventory.{'\n'}
             Reconciliation report updated.
           </Text>
           <TouchableOpacity
-            style={styles.doneBtn}
+            style={[styles.doneBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
             onPress={() => {
               setStep('upload');
               setRows([]);
@@ -226,7 +227,7 @@ export default function POSImportScreen() {
               setImportDate(todayISO());
             }}
           >
-            <Text style={styles.doneBtnText}>Import another file</Text>
+            <Text style={[styles.doneBtnText, { color: C.textPrimary }]}>Import another file</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -234,34 +235,34 @@ export default function POSImportScreen() {
   }
 
   return (
-    <WebScrollView id="pos-scroll" contentContainerStyle={styles.content}>
+    <WebScrollView id="pos-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {step === 'upload' && (
         <Card>
           <CardHeader title="Upload POS sales CSV" />
-          <View style={styles.adminNotice}>
-            <Text style={styles.adminNoticeText}>
+          <View style={[styles.adminNotice, { backgroundColor: C.warningBg }]}>
+            <Text style={[styles.adminNoticeText, { color: C.warning }]}>
               Admin only · {currentStore.name} · Logged to audit trail
             </Text>
           </View>
-          <TouchableOpacity style={styles.uploadZone} onPress={pickFile}>
-            <View style={styles.uploadIcon}>
-              <Ionicons name="cloud-upload-outline" size={28} color={Colors.textSecondary} />
+          <TouchableOpacity style={[styles.uploadZone, { borderColor: C.borderMedium }]} onPress={pickFile}>
+            <View style={[styles.uploadIcon, { backgroundColor: C.bgSecondary }]}>
+              <Ionicons name="cloud-upload-outline" size={28} color={C.textSecondary} />
             </View>
-            <Text style={styles.uploadTitle}>Tap to upload CSV file</Text>
-            <Text style={styles.uploadSub}>
+            <Text style={[styles.uploadTitle, { color: C.textPrimary }]}>Tap to upload CSV file</Text>
+            <Text style={[styles.uploadSub, { color: C.textSecondary }]}>
               Supports item reports and modifier reports
             </Text>
-            <Text style={styles.uploadSub}>
+            <Text style={[styles.uploadSub, { color: C.textSecondary }]}>
               From DoorDash, UberEats, GrubHub, Toast, Square, etc.
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.sampleBox}>
-            <Text style={styles.sampleTitle}>Supported formats</Text>
-            <Text style={styles.sampleSubtitle}>Item report</Text>
-            <Text style={styles.sampleRow}>Source, Item, Item price per order, Sold, Count</Text>
-            <Text style={styles.sampleSubtitle}>Modifier report</Text>
-            <Text style={styles.sampleRow}>Location, Modifier, Item, Source, Count, Date</Text>
+          <View style={[styles.sampleBox, { backgroundColor: C.bgSecondary }]}>
+            <Text style={[styles.sampleTitle, { color: C.textSecondary }]}>Supported formats</Text>
+            <Text style={[styles.sampleSubtitle, { color: C.textTertiary }]}>Item report</Text>
+            <Text style={[styles.sampleRow, { color: C.textTertiary }]}>Source, Item, Item price per order, Sold, Count</Text>
+            <Text style={[styles.sampleSubtitle, { color: C.textTertiary }]}>Modifier report</Text>
+            <Text style={[styles.sampleRow, { color: C.textTertiary }]}>Location, Modifier, Item, Source, Count, Date</Text>
           </View>
         </Card>
       )}
@@ -282,7 +283,7 @@ export default function POSImportScreen() {
             {/* Date picker + Summary stats */}
             <View style={styles.statsBar}>
               <View style={styles.datePicker}>
-                <Text style={styles.dateLabel}>Import date</Text>
+                <Text style={[styles.dateLabel, { color: C.textSecondary }]}>Import date</Text>
                 {isWeb ? (
                   <input
                     type="date"
@@ -291,54 +292,54 @@ export default function POSImportScreen() {
                     style={{
                       padding: '6px 10px',
                       borderRadius: 8,
-                      border: '1px solid rgba(0,0,0,0.15)',
+                      border: `1px solid ${C.borderMedium}`,
                       fontSize: 13,
                       fontFamily: 'inherit',
-                      backgroundColor: '#fff',
-                      color: '#1A1A18',
+                      backgroundColor: C.bgSecondary,
+                      color: C.textPrimary,
                       outline: 'none',
                     }}
                   />
                 ) : (
                   <TextInput
-                    style={styles.dateInput}
+                    style={[styles.dateInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                     value={importDate}
                     onChangeText={setImportDate}
                     placeholder="YYYY-MM-DD"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                   />
                 )}
               </View>
               <View style={styles.statChips}>
-                <View style={styles.statChip}>
-                  <Text style={styles.statVal}>{rows.length}</Text>
-                  <Text style={styles.statLabel}>Items</Text>
+                <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>
+                  <Text style={[styles.statVal, { color: C.textPrimary }]}>{rows.length}</Text>
+                  <Text style={[styles.statLabel, { color: C.textTertiary }]}>Items</Text>
                 </View>
-                <View style={styles.statChip}>
-                  <Text style={styles.statVal}>{totalQty}</Text>
-                  <Text style={styles.statLabel}>Total sold</Text>
+                <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>
+                  <Text style={[styles.statVal, { color: C.textPrimary }]}>{totalQty}</Text>
+                  <Text style={[styles.statLabel, { color: C.textTertiary }]}>Total sold</Text>
                 </View>
                 {totalRevenue > 0 && (
-                  <View style={styles.statChip}>
-                    <Text style={styles.statVal}>${totalRevenue.toLocaleString()}</Text>
-                    <Text style={styles.statLabel}>Revenue</Text>
+                  <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>
+                    <Text style={[styles.statVal, { color: C.textPrimary }]}>${totalRevenue.toLocaleString()}</Text>
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>Revenue</Text>
                   </View>
                 )}
-                <View style={[styles.statChip, { backgroundColor: Colors.successBg }]}>
-                  <Text style={[styles.statVal, { color: Colors.success }]}>{matchedCount}</Text>
-                  <Text style={styles.statLabel}>Matched</Text>
+                <View style={[styles.statChip, { backgroundColor: C.successBg }]}>
+                  <Text style={[styles.statVal, { color: C.success }]}>{matchedCount}</Text>
+                  <Text style={[styles.statLabel, { color: C.textTertiary }]}>Matched</Text>
                 </View>
-                <View style={[styles.statChip, rows.length - matchedCount > 0 ? { backgroundColor: Colors.warningBg } : {}]}>
-                  <Text style={[styles.statVal, rows.length - matchedCount > 0 ? { color: Colors.warning } : {}]}>
+                <View style={[styles.statChip, rows.length - matchedCount > 0 ? { backgroundColor: C.warningBg } : {}]}>
+                  <Text style={[styles.statVal, rows.length - matchedCount > 0 ? { color: C.warning } : {}]}>
                     {rows.length - matchedCount}
                   </Text>
-                  <Text style={styles.statLabel}>Unmatched</Text>
+                  <Text style={[styles.statLabel, { color: C.textTertiary }]}>Unmatched</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.infoBar}>
-              <Text style={styles.infoText}>
+            <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
+              <Text style={[styles.infoText, { color: C.info }]}>
                 {fileType === 'modifiers'
                   ? 'Modifiers matched to recipes will deduct ingredient quantities. Unmatched modifiers (customizations, removals) are skipped.'
                   : 'Items matched to recipes will deduct exact ingredient quantities. Unmatched items are recorded but won\'t affect inventory.'}
@@ -349,10 +350,10 @@ export default function POSImportScreen() {
             {rows.map((row, idx) => {
               const recipe = findRecipe(row.menuItem);
               return (
-                <View key={idx} style={styles.previewRow}>
+                <View key={idx} style={[styles.previewRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.previewName}>{row.menuItem}</Text>
-                    <Text style={styles.previewQty}>
+                    <Text style={[styles.previewName, { color: C.textPrimary }]}>{row.menuItem}</Text>
+                    <Text style={[styles.previewQty, { color: C.textSecondary }]}>
                       {row.qtySold} sold{row.revenue > 0 ? ` · $${row.revenue.toFixed(2)}` : ''}
                     </Text>
                   </View>
@@ -367,15 +368,15 @@ export default function POSImportScreen() {
 
           <View style={styles.actionRow}>
             <TouchableOpacity
-              style={styles.cancelBtn}
+              style={[styles.cancelBtn, { borderColor: C.borderMedium }]}
               onPress={() => {
                 setStep('upload');
                 setRows([]);
               }}
             >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
+              <Text style={[styles.cancelBtnText, { color: C.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.importBtn} onPress={handleImport}>
+            <TouchableOpacity style={[styles.importBtn, { backgroundColor: C.textPrimary }]} onPress={handleImport}>
               <Text style={styles.importBtnText}>
                 Import {rows.length} items · {formatDisplayDate(importDate)}
               </Text>

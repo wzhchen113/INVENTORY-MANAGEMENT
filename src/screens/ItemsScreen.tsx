@@ -7,13 +7,14 @@ import {
 import { useStore } from '../store/useStore';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
 const CATEGORIES = ['Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts'];
 
 export default function ItemsScreen() {
   const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem } = useStore();
+  const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
 
   const [search, setSearch] = useState('');
@@ -36,8 +37,8 @@ export default function ItemsScreen() {
   });
 
   const userColors: Record<string, string> = {
-    'Maria G.': Colors.userMaria, 'James T.': Colors.userJames,
-    'Admin': Colors.userAdmin, 'Ana R.': Colors.userAna,
+    'Maria G.': C.userMaria, 'James T.': C.userJames,
+    'Admin': C.userAdmin, 'Ana R.': C.userAna,
   };
 
   const openAdd = () => {
@@ -83,15 +84,15 @@ export default function ItemsScreen() {
   const renderItem = ({ item }: { item: InventoryItem }) => {
     const status = getItemStatus(item);
     const pct = item.parLevel > 0 ? Math.min(100, (item.currentStock / item.parLevel) * 100) : 100;
-    const color = userColors[item.lastUpdatedBy] || Colors.userAdmin;
+    const color = userColors[item.lastUpdatedBy] || C.userAdmin;
     const stockValue = (item.currentStock * item.costPerUnit).toFixed(2);
 
     return (
-      <View style={styles.itemCard}>
+      <View style={[styles.itemCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
         <View style={styles.itemTop}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.itemName}>{item.name}</Text>
-            <Text style={styles.itemCat}>{item.category} · {item.vendorName}</Text>
+            <Text style={[styles.itemName, { color: C.textPrimary }]}>{item.name}</Text>
+            <Text style={[styles.itemCat, { color: C.textSecondary }]}>{item.category} · {item.vendorName}</Text>
           </View>
           <StatusBadge status={status} />
         </View>
@@ -100,20 +101,20 @@ export default function ItemsScreen() {
 
         <View style={styles.itemStats}>
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>Stock</Text>
-            <Text style={styles.statValue}>{item.currentStock} {item.unit}</Text>
+            <Text style={[styles.statLabel, { color: C.textTertiary }]}>Stock</Text>
+            <Text style={[styles.statValue, { color: C.textPrimary }]}>{item.currentStock} {item.unit}</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>Par</Text>
-            <Text style={styles.statValue}>{item.parLevel} {item.unit}</Text>
+            <Text style={[styles.statLabel, { color: C.textTertiary }]}>Par</Text>
+            <Text style={[styles.statValue, { color: C.textPrimary }]}>{item.parLevel} {item.unit}</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>Cost/unit</Text>
-            <Text style={styles.statValue}>${item.costPerUnit.toFixed(2)}</Text>
+            <Text style={[styles.statLabel, { color: C.textTertiary }]}>Cost/unit</Text>
+            <Text style={[styles.statValue, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>Value</Text>
-            <Text style={styles.statValue}>${stockValue}</Text>
+            <Text style={[styles.statLabel, { color: C.textTertiary }]}>Value</Text>
+            <Text style={[styles.statValue, { color: C.textPrimary }]}>${stockValue}</Text>
           </View>
         </View>
 
@@ -121,11 +122,11 @@ export default function ItemsScreen() {
           <Badge label={`Expires ${item.expiryDate}`} variant="expired" />
         ) : null}
 
-        <View style={styles.itemFooter}>
+        <View style={[styles.itemFooter, { borderTopColor: C.borderLight }]}>
           <WhoChip name={item.lastUpdatedBy} color={color} time={item.lastUpdatedAt} />
           {isAdmin && (
-            <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(item)}>
-              <Text style={styles.editBtnText}>Edit</Text>
+            <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
+              <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Edit</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -134,19 +135,19 @@ export default function ItemsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       {/* Search bar */}
       <View style={styles.searchRow}>
         <TextInput
-          style={styles.search}
+          style={[styles.search, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, color: C.textPrimary }]}
           placeholder="Search items..."
-          placeholderTextColor={Colors.textTertiary}
+          placeholderTextColor={C.textTertiary}
           value={search}
           onChangeText={setSearch}
         />
         {isAdmin && (
-          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-            <Text style={styles.addBtnText}>+ Add item</Text>
+          <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
+            <Text style={[styles.addBtnText, { color: C.white }]}>+ Add item</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -157,10 +158,10 @@ export default function ItemsScreen() {
           {['', ...CATEGORIES].map((cat) => (
             <TouchableOpacity
               key={cat || 'all'}
-              style={[styles.catChip, catFilter === cat && styles.catChipActive]}
+              style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setCatFilter(cat)}
             >
-              <Text style={[styles.catChipText, catFilter === cat && styles.catChipTextActive]}>
+              <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === cat && [styles.catChipTextActive, { color: C.white }]]}>
                 {cat || 'All'}
               </Text>
             </TouchableOpacity>
@@ -170,7 +171,7 @@ export default function ItemsScreen() {
 
       <WebScrollView id="items-scroll" contentContainerStyle={styles.list}>
         {filtered.length === 0 ? (
-          <Text style={styles.empty}>No items found</Text>
+          <Text style={[styles.empty, { color: C.textTertiary }]}>No items found</Text>
         ) : (
           filtered.map((item) => (
             <View key={item.id}>{renderItem({ item })}</View>
@@ -180,11 +181,11 @@ export default function ItemsScreen() {
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{editItem ? 'Edit item' : 'Add item'}</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editItem ? 'Edit item' : 'Add item'}</Text>
             <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={styles.modalClose}>Cancel</Text>
+              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
@@ -197,35 +198,35 @@ export default function ItemsScreen() {
               { label: 'Usage per portion sold', key: 'usagePerPortion', placeholder: '0.5', keyboard: 'decimal-pad' },
             ].map((f) => (
               <View key={f.key} style={styles.formField}>
-                <Text style={styles.formLabel}>{f.label}</Text>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>{f.label}</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={(form as any)[f.key]}
                   onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))}
                   placeholder={f.placeholder}
-                  placeholderTextColor={Colors.textTertiary}
+                  placeholderTextColor={C.textTertiary}
                   keyboardType={(f.keyboard as any) || 'default'}
                 />
               </View>
             ))}
 
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Category</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 {CATEGORIES.map((cat) => (
                   <TouchableOpacity
                     key={cat}
-                    style={[styles.catChip, form.category === cat && styles.catChipActive, { marginRight: 6 }]}
+                    style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, form.category === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }], { marginRight: 6 }]}
                     onPress={() => setForm((p) => ({ ...p, category: cat }))}
                   >
-                    <Text style={[styles.catChipText, form.category === cat && styles.catChipTextActive]}>{cat}</Text>
+                    <Text style={[styles.catChipText, { color: C.textSecondary }, form.category === cat && [styles.catChipTextActive, { color: C.white }]]}>{cat}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>Save item</Text>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Save item</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

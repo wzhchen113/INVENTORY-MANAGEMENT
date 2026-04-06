@@ -11,12 +11,13 @@ import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
 import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
 
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
+  const C = useColors();
   const {
     recipes, inventory, prepRecipes,
     getRecipeCost, getRecipeFoodCostPct,
@@ -60,13 +61,13 @@ export function RecipesScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <View style={styles.infoBar}>
-        <Text style={styles.infoText}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
+        <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-          <Text style={styles.addRowText}>+ New recipe / menu item</Text>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+          <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
         </TouchableOpacity>
         {recipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
@@ -74,43 +75,43 @@ export function RecipesScreen() {
           const fcOk = fcPct < 35;
           const preps = recipe.prepItems || [];
           return (
-            <View key={recipe.id} style={styles.recipeCard}>
+            <View key={recipe.id} style={[styles.recipeCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
               <View style={styles.recipeTop}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.recipeName}>{recipe.menuItem}</Text>
-                  <Text style={styles.recipeCat}>{recipe.category}</Text>
+                  <Text style={[styles.recipeName, { color: C.textPrimary }]}>{recipe.menuItem}</Text>
+                  <Text style={[styles.recipeCat, { color: C.textSecondary }]}>{recipe.category}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.fcPct, { color: fcOk ? Colors.success : Colors.danger }]}>
+                  <Text style={[styles.fcPct, { color: fcOk ? C.success : C.danger }]}>
                     {fcPct.toFixed(1)}% food cost
                   </Text>
-                  <Text style={styles.recipePrices}>
+                  <Text style={[styles.recipePrices, { color: C.textSecondary }]}>
                     ${cost.toFixed(2)} cost · ${recipe.sellPrice.toFixed(2)} sell
                   </Text>
                 </View>
               </View>
-              <View style={styles.ingList}>
+              <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
                 {recipe.ingredients.map((ing, idx) => (
                   <View key={idx} style={styles.ingRow}>
-                    <Text style={styles.ingName}>{ing.itemName}</Text>
-                    <Text style={styles.ingQty}>{ing.quantity} {ing.unit}</Text>
+                    <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
+                    <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
                   </View>
                 ))}
                 {preps.map((prep, idx) => (
                   <View key={`prep-${idx}`} style={styles.ingRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <View style={styles.prepTag}><Text style={styles.prepTagText}>Prep</Text></View>
-                      <Text style={styles.ingName}>{prep.prepRecipeName}</Text>
+                      <View style={[styles.prepTag, { backgroundColor: C.infoBg }]}><Text style={[styles.prepTagText, { color: C.info }]}>Prep</Text></View>
+                      <Text style={[styles.ingName, { color: C.textPrimary }]}>{prep.prepRecipeName}</Text>
                     </View>
-                    <Text style={styles.ingQty}>{prep.quantity} {prep.unit}</Text>
+                    <Text style={[styles.ingQty, { color: C.textSecondary }]}>{prep.quantity} {prep.unit}</Text>
                   </View>
                 ))}
                 {recipe.ingredients.length === 0 && preps.length === 0 && (
-                  <Text style={styles.noIng}>No ingredients mapped yet — tap Edit to add</Text>
+                  <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
               </View>
-              <TouchableOpacity style={styles.editRecipeBtn} onPress={() => openIngredientEditor(recipe)}>
-                <Text style={styles.editRecipeBtnText}>Edit ingredients</Text>
+              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium }]} onPress={() => openIngredientEditor(recipe)}>
+                <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit ingredients</Text>
               </TouchableOpacity>
             </View>
           );
@@ -119,25 +120,25 @@ export function RecipesScreen() {
 
       {/* New recipe modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>New recipe</Text>
-            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={styles.modalClose}>Cancel</Text></TouchableOpacity>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>New recipe</Text>
+            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            <Text style={styles.formLabel}>Menu item name</Text>
-            <TextInput style={styles.formInput} value={menuItem} onChangeText={setMenuItem} placeholder="e.g. Grilled Chicken Plate" placeholderTextColor={Colors.textTertiary} />
-            <Text style={styles.formLabel}>Sell price ($)</Text>
-            <TextInput style={styles.formInput} value={sellPrice} onChangeText={setSellPrice} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={Colors.textTertiary} />
-            <Text style={styles.formLabel}>Category</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Menu item name</Text>
+            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={menuItem} onChangeText={setMenuItem} placeholder="e.g. Grilled Chicken Plate" placeholderTextColor={C.textTertiary} />
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
+            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={setSellPrice} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
             {['Mains', 'Salads', 'Starters', 'Desserts'].map((c) => (
-              <TouchableOpacity key={c} style={[styles.catPill, category === c && styles.catPillActive]} onPress={() => setCategory(c)}>
-                <Text style={[styles.catPillText, category === c && { color: Colors.white }]}>{c}</Text>
+              <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
+                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
               </TouchableOpacity>
             ))}
             <View style={styles.mfRow}>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.saveBtnText}>Save recipe</Text>
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
+                <Text style={[styles.saveBtnText, { color: C.white }]}>Save recipe</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -146,11 +147,11 @@ export function RecipesScreen() {
 
       {/* Edit ingredients modal */}
       <Modal visible={showIngModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit ingredients</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Edit ingredients</Text>
             <TouchableOpacity onPress={() => setShowIngModal(false)}>
-              <Text style={styles.modalClose}>Cancel</Text>
+              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
@@ -163,8 +164,8 @@ export function RecipesScreen() {
               availablePrepRecipes={prepRecipes}
               showPrepRecipes={true}
             />
-            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl }]} onPress={saveIngredients}>
-              <Text style={styles.saveBtnText}>Save ingredients</Text>
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={saveIngredients}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Save ingredients</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -175,6 +176,7 @@ export function RecipesScreen() {
 
 // ─── VENDORS ────────────────────────────────────────────────────────────────
 export function VendorsScreen() {
+  const C = useColors();
   const { vendors, addVendor } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
@@ -185,41 +187,41 @@ export function VendorsScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-          <Text style={styles.addRowText}>+ Add vendor</Text>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+          <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
         {vendors.map((vendor) => (
-          <View key={vendor.id} style={styles.vendorCard}>
+          <View key={vendor.id} style={[styles.vendorCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             <View style={styles.vendorTop}>
-              <View style={styles.vendorLogo}>
-                <Text style={styles.vendorLogoText}>{vendor.name.slice(0, 2).toUpperCase()}</Text>
+              <View style={[styles.vendorLogo, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[styles.vendorLogoText, { color: C.textSecondary }]}>{vendor.name.slice(0, 2).toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.vendorName}>{vendor.name}</Text>
-                <Text style={styles.vendorContact}>{vendor.contactName} · {vendor.phone}</Text>
+                <Text style={[styles.vendorName, { color: C.textPrimary }]}>{vendor.name}</Text>
+                <Text style={[styles.vendorContact, { color: C.textSecondary }]}>{vendor.contactName} · {vendor.phone}</Text>
               </View>
-              <View style={styles.leadBadge}>
-                <Text style={styles.leadText}>{vendor.leadTimeDays}d lead</Text>
+              <View style={[styles.leadBadge, { backgroundColor: C.infoBg }]}>
+                <Text style={[styles.leadText, { color: C.info }]}>{vendor.leadTimeDays}d lead</Text>
               </View>
             </View>
             <View style={styles.vendorMeta}>
-              <Text style={styles.metaLabel}>Account</Text>
-              <Text style={styles.metaValue}>{vendor.accountNumber}</Text>
-              <Text style={styles.metaLabel}>Categories</Text>
-              <Text style={styles.metaValue}>{vendor.categories.join(', ') || '—'}</Text>
-              <Text style={styles.metaLabel}>Last order</Text>
-              <Text style={styles.metaValue}>{vendor.lastOrderDate || '—'}</Text>
+              <Text style={[styles.metaLabel, { color: C.textTertiary }]}>Account</Text>
+              <Text style={[styles.metaValue, { color: C.textPrimary }]}>{vendor.accountNumber}</Text>
+              <Text style={[styles.metaLabel, { color: C.textTertiary }]}>Categories</Text>
+              <Text style={[styles.metaValue, { color: C.textPrimary }]}>{vendor.categories.join(', ') || '—'}</Text>
+              <Text style={[styles.metaLabel, { color: C.textTertiary }]}>Last order</Text>
+              <Text style={[styles.metaValue, { color: C.textPrimary }]}>{vendor.lastOrderDate || '—'}</Text>
             </View>
           </View>
         ))}
       </WebScrollView>
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add vendor</Text>
-            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={styles.modalClose}>Cancel</Text></TouchableOpacity>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Add vendor</Text>
+            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
             {[
@@ -231,12 +233,12 @@ export function VendorsScreen() {
               { label: 'Lead time (days)', key: 'leadTimeDays', keyboard: 'numeric' },
             ].map((f) => (
               <View key={f.key}>
-                <Text style={styles.formLabel}>{f.label}</Text>
-                <TextInput style={[styles.formInput, { marginBottom: Spacing.md }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={Colors.textTertiary} />
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>{f.label}</Text>
+                <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
               </View>
             ))}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>Save vendor</Text>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Save vendor</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -248,12 +250,13 @@ export function VendorsScreen() {
 // ─── RESTOCK REPORT ─────────────────────────────────────────────────────────
 // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
 export function AuditLogScreen() {
+  const C = useColors();
   const { auditLog } = useStore();
   const [filter, setFilter] = useState('');
 
   const userColors: Record<string, string> = {
-    Admin: Colors.userAdmin, 'Maria G.': Colors.userMaria,
-    'James T.': Colors.userJames, 'Ana R.': Colors.userAna,
+    Admin: C.userAdmin, 'Maria G.': C.userMaria,
+    'James T.': C.userJames, 'Ana R.': C.userAna,
   };
 
   const filtered = filter
@@ -261,19 +264,19 @@ export function AuditLogScreen() {
     : auditLog;
 
   const actionColor = (action: string) => {
-    if (action === 'EOD entry') return Colors.success;
-    if (action === 'Waste log') return Colors.warning;
-    if (action === 'POS import' || action === 'PO sent') return Colors.info;
+    if (action === 'EOD entry') return C.success;
+    if (action === 'Waste log') return C.warning;
+    if (action === 'POS import' || action === 'PO sent') return C.info;
     if (action === 'Item edit' || action === 'Item added') return '#7F77DD';
-    return Colors.textSecondary;
+    return C.textSecondary;
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScroll, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'Stock adjusted'].map((f) => (
-          <TouchableOpacity key={f || 'all'} style={[styles.filterChip, filter === f && styles.filterChipActive]} onPress={() => setFilter(f)}>
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f || 'All'}</Text>
+          <TouchableOpacity key={f || 'all'} style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === f && { backgroundColor: C.textPrimary }]} onPress={() => setFilter(f)}>
+            <Text style={[styles.filterText, { color: C.textSecondary }, filter === f && { color: C.white }]}>{f || 'All'}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -282,9 +285,9 @@ export function AuditLogScreen() {
           <EmptyState message="No audit events" />
         ) : (
           filtered.map((event) => {
-            const color = userColors[event.userName] || Colors.userAdmin;
+            const color = userColors[event.userName] || C.userAdmin;
             return (
-              <View key={event.id} style={styles.auditRow}>
+              <View key={event.id} style={[styles.auditRow, { borderBottomColor: C.borderLight }]}>
                 <View style={[styles.auditDot, { backgroundColor: actionColor(event.action) }]} />
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
@@ -292,10 +295,10 @@ export function AuditLogScreen() {
                     <View style={[styles.actionTag, { backgroundColor: actionColor(event.action) + '22' }]}>
                       <Text style={[styles.actionTagText, { color: actionColor(event.action) }]}>{event.action}</Text>
                     </View>
-                    <Text style={styles.auditStore}>{event.storeName}</Text>
+                    <Text style={[styles.auditStore, { color: C.textTertiary }]}>{event.storeName}</Text>
                   </View>
-                  <Text style={styles.auditDetail}>{event.detail} · {event.itemRef}</Text>
-                  <Text style={styles.auditMeta}>{event.value} · {event.timestamp}</Text>
+                  <Text style={[styles.auditDetail, { color: C.textPrimary }]}>{event.detail} · {event.itemRef}</Text>
+                  <Text style={[styles.auditMeta, { color: C.textTertiary }]}>{event.value} · {event.timestamp}</Text>
                 </View>
               </View>
             );
@@ -308,6 +311,7 @@ export function AuditLogScreen() {
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 export function ReportsScreen() {
+  const C = useColors();
   const [tab, setTab] = useState<'foodcost' | 'usage' | 'waste'>('foodcost');
   const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore } = useStore();
 
@@ -318,12 +322,12 @@ export function ReportsScreen() {
   );
 
   return (
-    <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+    <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg, backgroundColor: C.bgTertiary }}>
       {/* Tabs */}
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {(['foodcost', 'usage', 'waste'] as const).map((t) => (
-          <TouchableOpacity key={t} style={[styles.tabItem, tab === t && styles.tabItemActive]} onPress={() => setTab(t)}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
+          <TouchableOpacity key={t} style={[styles.tabItem, tab === t && { borderBottomColor: C.textPrimary }]} onPress={() => setTab(t)}>
+            <Text style={[styles.tabText, { color: C.textSecondary }, tab === t && { color: C.textPrimary }]}>
               {t === 'foodcost' ? 'Food cost' : t === 'usage' ? 'Usage' : 'Waste'}
             </Text>
           </TouchableOpacity>
@@ -344,12 +348,12 @@ export function ReportsScreen() {
               const pct = getRecipeFoodCostPct(r.id);
               const ok = pct < 35;
               return (
-                <View key={r.id} style={styles.reportRow}>
+                <View key={r.id} style={[styles.reportRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.reportName}>{r.menuItem}</Text>
-                    <Text style={styles.reportSub}>${cost.toFixed(2)} cost · ${r.sellPrice.toFixed(2)} sell</Text>
+                    <Text style={[styles.reportName, { color: C.textPrimary }]}>{r.menuItem}</Text>
+                    <Text style={[styles.reportSub, { color: C.textSecondary }]}>${cost.toFixed(2)} cost · ${r.sellPrice.toFixed(2)} sell</Text>
                   </View>
-                  <Text style={[styles.reportPct, { color: ok ? Colors.success : Colors.danger }]}>{pct.toFixed(1)}%</Text>
+                  <Text style={[styles.reportPct, { color: ok ? C.success : C.danger }]}>{pct.toFixed(1)}%</Text>
                 </View>
               );
             })}
@@ -364,11 +368,11 @@ export function ReportsScreen() {
               { cat: 'Dry goods', pct: 29.7, ok: true },
             ].map((c) => (
               <View key={c.cat} style={styles.catFcRow}>
-                <Text style={styles.catFcName}>{c.cat}</Text>
-                <View style={styles.fcBar}>
-                  <View style={[styles.fcFill, { width: `${Math.min(100, c.pct / 50 * 100)}%`, backgroundColor: c.ok ? Colors.success : Colors.danger }]} />
+                <Text style={[styles.catFcName, { color: C.textPrimary }]}>{c.cat}</Text>
+                <View style={[styles.fcBar, { backgroundColor: C.borderLight }]}>
+                  <View style={[styles.fcFill, { width: `${Math.min(100, c.pct / 50 * 100)}%`, backgroundColor: c.ok ? C.success : C.danger }]} />
                 </View>
-                <Text style={[styles.fcPctVal, { color: c.ok ? Colors.success : Colors.danger }]}>{c.pct}%</Text>
+                <Text style={[styles.fcPctVal, { color: c.ok ? C.success : C.danger }]}>{c.pct}%</Text>
               </View>
             ))}
           </Card>
@@ -384,16 +388,16 @@ export function ReportsScreen() {
             usageTrend.map((u) => {
               const maxVal = Math.max(...u.weeklyAmounts, 1);
               return (
-                <View key={u.itemId} style={styles.usageRow}>
+                <View key={u.itemId} style={[styles.usageRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.usageName}>{u.itemName}</Text>
-                    <Text style={styles.usageSub}>Avg: {u.average} {u.unit}/week</Text>
+                    <Text style={[styles.usageName, { color: C.textPrimary }]}>{u.itemName}</Text>
+                    <Text style={[styles.usageSub, { color: C.textSecondary }]}>Avg: {u.average} {u.unit}/week</Text>
                   </View>
                   <View style={styles.usageWeeks}>
                     {u.weeklyAmounts.map((v, i) => (
                       <View key={i} style={styles.weekCol}>
-                        <View style={[styles.weekBar, { height: Math.max(4, (v / maxVal) * 50), backgroundColor: i === u.weeklyAmounts.length - 1 ? Colors.info : Colors.borderMedium }]} />
-                        <Text style={styles.weekLabel}>W{i + 1}</Text>
+                        <View style={[styles.weekBar, { height: Math.max(4, (v / maxVal) * 50), backgroundColor: i === u.weeklyAmounts.length - 1 ? C.info : C.borderMedium }]} />
+                        <Text style={[styles.weekLabel, { color: C.textTertiary }]}>W{i + 1}</Text>
                       </View>
                     ))}
                   </View>
@@ -414,12 +418,12 @@ export function ReportsScreen() {
           <Card>
             <CardHeader title="Waste entries" />
             {wasteLog.map((e) => (
-              <View key={e.id} style={styles.wasteReportRow}>
+              <View key={e.id} style={[styles.wasteReportRow, { borderBottomColor: C.borderLight }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.reportName}>{e.itemName}</Text>
-                  <Text style={styles.reportSub}>{e.reason} · {e.quantity} {e.unit}</Text>
+                  <Text style={[styles.reportName, { color: C.textPrimary }]}>{e.itemName}</Text>
+                  <Text style={[styles.reportSub, { color: C.textSecondary }]}>{e.reason} · {e.quantity} {e.unit}</Text>
                 </View>
-                <Text style={[styles.reportPct, { color: Colors.warning }]}>${(e.quantity * e.costPerUnit).toFixed(2)}</Text>
+                <Text style={[styles.reportPct, { color: C.warning }]}>${(e.quantity * e.costPerUnit).toFixed(2)}</Text>
               </View>
             ))}
           </Card>
@@ -431,89 +435,90 @@ export function ReportsScreen() {
 
 // ─── USERS ──────────────────────────────────────────────────────────────────
 export function UsersScreen() {
+  const C = useColors();
   const { users, stores, currentUser, inviteUser } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'user' as 'admin' | 'user', storeIds: ['s1'] });
 
   const handleInvite = () => {
     if (!form.name || !form.email) { Alert.alert('Error', 'Name and email required'); return; }
-    inviteUser({ ...form, stores: form.storeIds, status: 'pending', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: Colors.userAdmin });
+    inviteUser({ ...form, stores: form.storeIds, status: 'pending', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: C.userAdmin });
     setShowModal(false);
   };
 
-  const userColors: Record<string, string> = { '#378ADD': Colors.userAdmin, '#1D9E75': Colors.userMaria, '#D85A30': Colors.userJames, '#D4537E': Colors.userAna };
+  const userColors: Record<string, string> = { '#378ADD': C.userAdmin, '#1D9E75': C.userMaria, '#D85A30': C.userJames, '#D4537E': C.userAna };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="users-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-          <Text style={styles.addRowText}>+ Invite user</Text>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+          <Text style={[styles.addRowText, { color: C.info }]}>+ Invite user</Text>
         </TouchableOpacity>
         {users.map((user) => (
-          <View key={user.id} style={styles.userCard}>
+          <View key={user.id} style={[styles.userCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             <View style={styles.userTop}>
               <View style={[styles.userAvatar, { backgroundColor: user.color + '22' }]}>
                 <Text style={[styles.userInitials, { color: user.color }]}>{user.initials}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.userName}>{user.name}</Text>
-                <Text style={styles.userEmail}>{user.email}</Text>
+                <Text style={[styles.userName, { color: C.textPrimary }]}>{user.name}</Text>
+                <Text style={[styles.userEmail, { color: C.textSecondary }]}>{user.email}</Text>
               </View>
               <Badge label={user.role === 'admin' ? 'Admin' : 'Store user'} variant={user.role === 'admin' ? 'admin' : 'user'} />
             </View>
             <View style={styles.userMeta}>
-              <Text style={styles.userMetaLabel}>Store access</Text>
+              <Text style={[styles.userMetaLabel, { color: C.textTertiary }]}>Store access</Text>
               <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
                 {user.stores.map((sid) => {
                   const store = stores.find((s) => s.id === sid);
                   return store ? (
-                    <View key={sid} style={styles.storeTag}>
-                      <Text style={styles.storeTagText}>{store.name}</Text>
+                    <View key={sid} style={[styles.storeTag, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                      <Text style={[styles.storeTagText, { color: C.textSecondary }]}>{store.name}</Text>
                     </View>
                   ) : null;
                 })}
               </View>
             </View>
-            <View style={styles.userFooter}>
+            <View style={[styles.userFooter, { borderTopColor: C.borderLight }]}>
               <Badge label={user.status === 'active' ? 'Active' : 'Pending invite'} variant={user.status === 'active' ? 'ok' : 'pending'} />
             </View>
           </View>
         ))}
       </WebScrollView>
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Invite user</Text>
-            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={styles.modalClose}>Cancel</Text></TouchableOpacity>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Invite user</Text>
+            <TouchableOpacity onPress={() => setShowModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            <Text style={styles.formLabel}>Full name</Text>
-            <TextInput style={[styles.formInput, { marginBottom: Spacing.md }]} value={form.name} onChangeText={(v) => setForm((p) => ({ ...p, name: v }))} placeholderTextColor={Colors.textTertiary} placeholder="e.g. Maria Garcia" />
-            <Text style={styles.formLabel}>Email address</Text>
-            <TextInput style={[styles.formInput, { marginBottom: Spacing.md }]} value={form.email} onChangeText={(v) => setForm((p) => ({ ...p, email: v }))} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={Colors.textTertiary} placeholder="maria@restaurant.com" />
-            <Text style={styles.formLabel}>Role</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Full name</Text>
+            <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={form.name} onChangeText={(v) => setForm((p) => ({ ...p, name: v }))} placeholderTextColor={C.textTertiary} placeholder="e.g. Maria Garcia" />
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Email address</Text>
+            <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={form.email} onChangeText={(v) => setForm((p) => ({ ...p, email: v }))} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.textTertiary} placeholder="maria@restaurant.com" />
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Role</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
               {(['user', 'admin'] as const).map((r) => (
-                <TouchableOpacity key={r} style={[styles.roleBtn, form.role === r && styles.roleBtnActive]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
-                  <Text style={[styles.roleBtnText, form.role === r && { color: Colors.white }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
+                <TouchableOpacity key={r} style={[styles.roleBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.role === r && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
+                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.white }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.formLabel}>Store access</Text>
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Store access</Text>
             {stores.map((store) => {
               const selected = form.storeIds.includes(store.id);
               return (
-                <TouchableOpacity key={store.id} style={[styles.storeSelector, selected && styles.storeSelectorActive]}
+                <TouchableOpacity key={store.id} style={[styles.storeSelector, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, selected && { borderColor: C.textPrimary, backgroundColor: C.textPrimary + '11' }]}
                   onPress={() => setForm((p) => ({ ...p, storeIds: selected ? p.storeIds.filter((s) => s !== store.id) : [...p.storeIds, store.id] }))}>
-                  <View style={[styles.checkbox, selected && styles.checkboxActive]}>
-                    {selected && <Text style={{ color: Colors.white, fontSize: 10 }}>✓</Text>}
+                  <View style={[styles.checkbox, { borderColor: C.borderMedium }, selected && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}>
+                    {selected && <Text style={{ color: C.white, fontSize: 10 }}>✓</Text>}
                   </View>
-                  <Text style={styles.storeName}>{store.name}</Text>
+                  <Text style={[styles.storeName, { color: C.textPrimary }]}>{store.name}</Text>
                 </TouchableOpacity>
               );
             })}
-            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl }]} onPress={handleInvite}>
-              <Text style={styles.saveBtnText}>Send invite</Text>
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={handleInvite}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Send invite</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

@@ -244,4 +244,5 @@ export interface AppState {
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
   timezone: string;
+  darkMode: boolean;
 }

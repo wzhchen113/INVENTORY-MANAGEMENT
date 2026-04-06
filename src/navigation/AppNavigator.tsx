@@ -2,7 +2,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
-  TextInput, Platform, Alert,
+  TextInput, Platform, Alert, Switch,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
-import { Colors, FontSize, Spacing, Radius } from '../theme/colors';
+import { Colors, FontSize, Spacing, Radius, useColors } from '../theme/colors';
 
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -45,25 +45,26 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 function StoreSelector() {
   const { currentStore, stores, currentUser, setCurrentStore } = useStore();
+  const C = useColors();
   const [open, setOpen] = useState(false);
   const isAdmin = currentUser?.role === 'admin';
   const userStores = isAdmin ? stores : stores.filter((s) => currentUser?.stores.includes(s.id));
 
   if (userStores.length <= 1) {
     return (
-      <View style={styles.storePill}>
-        <View style={styles.storePillDot} />
-        <Text style={styles.storePillText}>{currentStore.name || 'Store'}</Text>
+      <View style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+        <View style={[styles.storePillDot, { backgroundColor: C.success }]} />
+        <Text style={[styles.storePillText, { color: C.textPrimary }]}>{currentStore.name || 'Store'}</Text>
       </View>
     );
   }
 
   return (
     <>
-      <TouchableOpacity style={styles.storePill} onPress={() => setOpen(true)}>
-        <View style={styles.storePillDot} />
-        <Text style={styles.storePillText}>{currentStore.name || 'Store'}</Text>
-        <Ionicons name="chevron-down" size={12} color={Colors.textSecondary} />
+      <TouchableOpacity style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => setOpen(true)}>
+        <View style={[styles.storePillDot, { backgroundColor: C.success }]} />
+        <Text style={[styles.storePillText, { color: C.textPrimary }]}>{currentStore.name || 'Store'}</Text>
+        <Ionicons name="chevron-down" size={12} color={C.textSecondary} />
       </TouchableOpacity>
 
       <Modal visible={open} transparent animationType="fade">
@@ -72,29 +73,29 @@ function StoreSelector() {
           activeOpacity={1}
           onPress={() => setOpen(false)}
         >
-          <View style={styles.storeDropdown}>
-            <Text style={styles.storeDropdownTitle}>Switch store</Text>
+          <View style={[styles.storeDropdown, { backgroundColor: C.bgPrimary }]}>
+            <Text style={[styles.storeDropdownTitle, { color: C.textTertiary }]}>Switch store</Text>
             {userStores.map((store) => {
               const isActive = store.id === currentStore.id;
               return (
                 <TouchableOpacity
                   key={store.id}
-                  style={[styles.storeOption, isActive && styles.storeOptionActive]}
+                  style={[styles.storeOption, isActive && { backgroundColor: C.successBg }]}
                   onPress={() => {
                     setCurrentStore(store);
                     setOpen(false);
                   }}
                 >
-                  <View style={[styles.storeOptionDot, isActive && styles.storeOptionDotActive]} />
+                  <View style={[styles.storeOptionDot, isActive && { backgroundColor: C.success }]} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.storeOptionName, isActive && { fontWeight: '600' }]}>
+                    <Text style={[styles.storeOptionName, { color: C.textPrimary }, isActive && { fontWeight: '600' }]}>
                       {store.name}
                     </Text>
                     {store.address ? (
-                      <Text style={styles.storeOptionAddr}>{store.address}</Text>
+                      <Text style={[styles.storeOptionAddr, { color: C.textTertiary }]}>{store.address}</Text>
                     ) : null}
                   </View>
-                  {isActive && <Ionicons name="checkmark" size={16} color={Colors.success} />}
+                  {isActive && <Ionicons name="checkmark" size={16} color={C.success} />}
                 </TouchableOpacity>
               );
             })}
@@ -106,7 +107,8 @@ function StoreSelector() {
 }
 
 function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { currentUser, updateUser, logout } = useStore();
+  const { currentUser, updateUser, logout, darkMode, toggleDarkMode } = useStore();
+  const C = useColors();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
@@ -164,12 +166,12 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={sidebarStyles.overlay}>
         <TouchableOpacity style={sidebarStyles.backdrop} activeOpacity={1} onPress={handleClose} />
-        <View style={sidebarStyles.panel}>
+        <View style={[sidebarStyles.panel, { backgroundColor: C.bgPrimary }]}>
           {/* Header */}
-          <View style={sidebarStyles.header}>
-            <Text style={sidebarStyles.headerTitle}>Profile</Text>
-            <TouchableOpacity onPress={handleClose} style={sidebarStyles.closeBtn}>
-              <Ionicons name="close" size={20} color={Colors.textSecondary} />
+          <View style={[sidebarStyles.header, { borderBottomColor: C.borderLight }]}>
+            <Text style={[sidebarStyles.headerTitle, { color: C.textPrimary }]}>Profile</Text>
+            <TouchableOpacity onPress={handleClose} style={[sidebarStyles.closeBtn, { backgroundColor: C.bgSecondary }]}>
+              <Ionicons name="close" size={20} color={C.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -181,29 +183,29 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
                   {currentUser.initials}
                 </Text>
               </View>
-              <Text style={sidebarStyles.userName}>{currentUser.name}</Text>
-              <Text style={sidebarStyles.userEmail}>{currentUser.email}</Text>
-              <View style={sidebarStyles.roleBadge}>
-                <Text style={sidebarStyles.roleText}>
+              <Text style={[sidebarStyles.userName, { color: C.textPrimary }]}>{currentUser.name}</Text>
+              <Text style={[sidebarStyles.userEmail, { color: C.textTertiary }]}>{currentUser.email}</Text>
+              <View style={[sidebarStyles.roleBadge, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[sidebarStyles.roleText, { color: C.textSecondary }]}>
                   {currentUser.role === 'admin' ? 'Admin' : 'Team member'}
                 </Text>
               </View>
             </View>
 
             {/* Divider */}
-            <View style={sidebarStyles.divider} />
+            <View style={[sidebarStyles.divider, { backgroundColor: C.borderLight }]} />
 
             {/* Change Name */}
             <View style={sidebarStyles.section}>
-              <Text style={sidebarStyles.sectionTitle}>Display name</Text>
+              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Display name</Text>
               {editingName ? (
                 <View style={sidebarStyles.editGroup}>
                   <TextInput
-                    style={sidebarStyles.input}
+                    style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                     value={nameValue}
                     onChangeText={setNameValue}
                     placeholder="Enter new name"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                     autoFocus
                   />
                   <View style={sidebarStyles.editBtnRow}>
@@ -220,45 +222,45 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
                 </View>
               ) : (
                 <TouchableOpacity
-                  style={sidebarStyles.settingRow}
+                  style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
                   onPress={() => {
                     setNameValue(currentUser.name);
                     setEditingName(true);
                   }}
                 >
-                  <Text style={sidebarStyles.settingValue}>{currentUser.name}</Text>
-                  <Ionicons name="pencil-outline" size={14} color={Colors.textTertiary} />
+                  <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>{currentUser.name}</Text>
+                  <Ionicons name="pencil-outline" size={14} color={C.textTertiary} />
                 </TouchableOpacity>
               )}
             </View>
 
             {/* Change Password */}
             <View style={sidebarStyles.section}>
-              <Text style={sidebarStyles.sectionTitle}>Password</Text>
+              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Password</Text>
               {changingPassword ? (
                 <View style={sidebarStyles.editGroup}>
                   <TextInput
-                    style={sidebarStyles.input}
+                    style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                     value={currentPassword}
                     onChangeText={setCurrentPassword}
                     placeholder="Current password"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                     secureTextEntry
                   />
                   <TextInput
-                    style={sidebarStyles.input}
+                    style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                     value={newPassword}
                     onChangeText={setNewPassword}
                     placeholder="New password"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                     secureTextEntry
                   />
                   <TextInput
-                    style={sidebarStyles.input}
+                    style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     placeholder="Confirm new password"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                     secureTextEntry
                   />
                   <View style={sidebarStyles.editBtnRow}>
@@ -280,20 +282,37 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
                 </View>
               ) : (
                 <TouchableOpacity
-                  style={sidebarStyles.settingRow}
+                  style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
                   onPress={() => setChangingPassword(true)}
                 >
-                  <Text style={sidebarStyles.settingValue}>••••••••</Text>
-                  <Ionicons name="pencil-outline" size={14} color={Colors.textTertiary} />
+                  <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>••••••••</Text>
+                  <Ionicons name="pencil-outline" size={14} color={C.textTertiary} />
                 </TouchableOpacity>
               )}
             </View>
 
+            {/* Dark mode */}
+            <View style={sidebarStyles.section}>
+              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Appearance</Text>
+              <View style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name={darkMode ? 'moon' : 'sunny-outline'} size={16} color={C.textSecondary} />
+                  <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>Dark mode</Text>
+                </View>
+                <Switch
+                  value={darkMode}
+                  onValueChange={toggleDarkMode}
+                  trackColor={{ false: C.borderMedium, true: C.success }}
+                  thumbColor={C.white}
+                />
+              </View>
+            </View>
+
             {/* Divider */}
-            <View style={sidebarStyles.divider} />
+            <View style={[sidebarStyles.divider, { backgroundColor: C.borderLight }]} />
 
             {/* Sign out */}
-            <TouchableOpacity style={sidebarStyles.signOutBtn} onPress={handleSignOut}>
+            <TouchableOpacity style={[sidebarStyles.signOutBtn, { borderColor: C.danger, backgroundColor: C.dangerBg }]} onPress={handleSignOut}>
               <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
               <Text style={sidebarStyles.signOutText}>Sign out</Text>
             </TouchableOpacity>
@@ -337,6 +356,7 @@ function HeaderLeft() {
 
 function MoreScreen({ navigation }: any) {
   const { currentUser, logout } = useStore();
+  const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
 
   const items = [
@@ -357,24 +377,24 @@ function MoreScreen({ navigation }: any) {
   ];
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+    <ScrollView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <View style={styles.moreList}>
         {items.map((item) => (
           <TouchableOpacity
             key={item.screen}
-            style={styles.moreItem}
+            style={[styles.moreItem, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}
             onPress={() => navigation.navigate(item.screen)}
           >
-            <Ionicons name={item.icon} size={20} color={Colors.textSecondary} />
-            <Text style={styles.moreLabel}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+            <Ionicons name={item.icon} size={20} color={C.textSecondary} />
+            <Text style={[styles.moreLabel, { color: C.textPrimary }]}>{item.label}</Text>
+            <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
           </TouchableOpacity>
         ))}
       </View>
       <View style={styles.signOutSection}>
-        <TouchableOpacity style={styles.signOutBtn} onPress={logout}>
-          <Ionicons name="log-out-outline" size={16} color={Colors.danger} />
-          <Text style={styles.signOutText}>Sign out</Text>
+        <TouchableOpacity style={[styles.signOutBtn, { borderColor: C.dangerBg, backgroundColor: C.dangerBg }]} onPress={logout}>
+          <Ionicons name="log-out-outline" size={16} color={C.danger} />
+          <Text style={[styles.signOutText, { color: C.danger }]}>Sign out</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -390,22 +410,26 @@ const sharedHeaderOptions = {
 
 function TabNavigator() {
   const storeId = useStore((s) => s.currentStore.id);
+  const C = useColors();
   return (
     <Tab.Navigator
       key={storeId}
       screenOptions={({ route }) => ({
-        ...sharedHeaderOptions,
+        headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+        headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
+        headerTintColor: C.textPrimary,
+        headerRight: () => <HeaderRight />,
         headerLeft: () => <HeaderLeft />,
         headerTitle: '',
         tabBarStyle: {
-          backgroundColor: Colors.bgPrimary,
-          borderTopColor: Colors.borderLight,
+          backgroundColor: C.bgPrimary,
+          borderTopColor: C.borderLight,
           borderTopWidth: 0.5,
           height: 60,
           paddingBottom: 6,
         },
-        tabBarActiveTintColor: Colors.textPrimary,
-        tabBarInactiveTintColor: Colors.textTertiary,
+        tabBarActiveTintColor: C.textPrimary,
+        tabBarInactiveTintColor: C.textTertiary,
         tabBarLabelStyle: { fontSize: 10, fontWeight: '500' as const },
         tabBarIcon: ({ color, size }) => (
           <Ionicons name={TAB_ICONS[route.name] || 'ellipse-outline'} size={size - 2} color={color} />
@@ -423,6 +447,7 @@ function TabNavigator() {
 
 function AppStackNavigator() {
   const storeId = useStore((s) => s.currentStore?.id);
+  const C = useColors();
 
   const handleSync = useCallback(() => {
     console.log('[Realtime] Data changed on server');
@@ -431,8 +456,15 @@ function AppStackNavigator() {
   useRealtimeSync(storeId, handleSync);
   useJsonServerSync();
 
+  const dynamicHeaderOptions = {
+    headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+    headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
+    headerTintColor: C.textPrimary,
+    headerRight: () => <HeaderRight />,
+  };
+
   return (
-    <AppStack.Navigator key={storeId} screenOptions={sharedHeaderOptions}>
+    <AppStack.Navigator key={storeId} screenOptions={dynamicHeaderOptions}>
       <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
       <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
       <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients' }} />

@@ -7,7 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { calculateDynamicOrder, getDaysToCover, DynamicOrderLine } from '../lib/orderCalculator';
 import { Vendor } from '../types';
 
@@ -107,6 +107,7 @@ export default function OrderReportScreen() {
   const { inventory, vendors, currentStore } = useStore();
   const [selectedVendorId, setSelectedVendorId] = useState<string>('all');
   const [dateInput, setDateInput] = useState(toInputDate(new Date()));
+  const C = useColors();
 
   const orderDate = useMemo(() => parseInputDate(dateInput) || new Date(), [dateInput]);
 
@@ -167,11 +168,11 @@ export default function OrderReportScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       {/* Title bar */}
-      <View style={styles.titleBar}>
+      <View style={[styles.titleBar, { backgroundColor: C.textPrimary }]}>
         <View>
-          <Text style={styles.brandName}>2AM</Text>
+          <Text style={[styles.brandName, { color: C.white }]}>2AM</Text>
           <Text style={styles.reportTitle}>Daily Replenishment Guide</Text>
           <Text style={styles.reportSub}>
             {currentStore.name} · {formatDate(orderDate)}
@@ -182,23 +183,23 @@ export default function OrderReportScreen() {
       {/* Filters: Vendor + Date */}
       <View style={styles.filterRow}>
         <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Vendor</Text>
+          <Text style={[styles.filterLabel, { color: C.textTertiary }]}>Vendor</Text>
           <View style={styles.pillRow}>
             <TouchableOpacity
-              style={[styles.pill, selectedVendorId === 'all' && styles.pillActive]}
+              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }, selectedVendorId === 'all' && styles.pillActive, selectedVendorId === 'all' && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setSelectedVendorId('all')}
             >
-              <Text style={[styles.pillText, selectedVendorId === 'all' && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === 'all' && styles.pillTextActive]}>
                 All Vendors
               </Text>
             </TouchableOpacity>
             {activeVendors.map((v) => (
               <TouchableOpacity
                 key={v.id}
-                style={[styles.pill, selectedVendorId === v.id && styles.pillActive]}
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }, selectedVendorId === v.id && styles.pillActive, selectedVendorId === v.id && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setSelectedVendorId(v.id)}
               >
-                <Text style={[styles.pillText, selectedVendorId === v.id && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === v.id && styles.pillTextActive]}>
                   {v.name}
                 </Text>
               </TouchableOpacity>
@@ -207,7 +208,7 @@ export default function OrderReportScreen() {
         </View>
 
         <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Order Date</Text>
+          <Text style={[styles.filterLabel, { color: C.textTertiary }]}>Order Date</Text>
           {isWeb ? (
             <input
               type="date"
@@ -216,21 +217,21 @@ export default function OrderReportScreen() {
               style={{
                 padding: '8px 12px',
                 borderRadius: 8,
-                border: '1px solid rgba(0,0,0,0.15)',
+                border: `1px solid ${C.borderMedium}`,
                 fontSize: 13,
                 fontFamily: 'inherit',
-                backgroundColor: '#fff',
-                color: '#1A1A18',
+                backgroundColor: C.bgSecondary,
+                color: C.textPrimary,
                 outline: 'none',
               }}
             />
           ) : (
             <TextInput
-              style={styles.dateInput}
+              style={[styles.dateInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={dateInput}
               onChangeText={setDateInput}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
             />
           )}
         </View>
@@ -239,29 +240,29 @@ export default function OrderReportScreen() {
       {/* Summary KPIs + export */}
       <View style={styles.summaryRow}>
         <View style={styles.summaryCards}>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiValue}>{orderLines.length}</Text>
-            <Text style={styles.kpiLabel}>Items to order</Text>
+          <View style={[styles.kpi, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.kpiValue, { color: C.textPrimary }]}>{orderLines.length}</Text>
+            <Text style={[styles.kpiLabel, { color: C.textTertiary }]}>Items to order</Text>
           </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiValue}>{Object.keys(vendorGroups).length}</Text>
-            <Text style={styles.kpiLabel}>Vendors</Text>
+          <View style={[styles.kpi, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.kpiValue, { color: C.textPrimary }]}>{Object.keys(vendorGroups).length}</Text>
+            <Text style={[styles.kpiLabel, { color: C.textTertiary }]}>Vendors</Text>
           </View>
-          <View style={styles.kpi}>
-            <Text style={[styles.kpiValue, { color: Colors.danger }]}>${totalCost.toFixed(2)}</Text>
-            <Text style={styles.kpiLabel}>Est. total cost</Text>
+          <View style={[styles.kpi, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.kpiValue, { color: C.danger }]}>${totalCost.toFixed(2)}</Text>
+            <Text style={[styles.kpiLabel, { color: C.textTertiary }]}>Est. total cost</Text>
           </View>
         </View>
 
         {isWeb && (
           <View style={styles.exportRow}>
-            <TouchableOpacity style={styles.exportBtn} onPress={handleCSV}>
-              <Ionicons name="document-text-outline" size={16} color={Colors.success} />
-              <Text style={[styles.exportBtnText, { color: Colors.success }]}>Download CSV</Text>
+            <TouchableOpacity style={[styles.exportBtn, { borderColor: C.success, backgroundColor: C.successBg }]} onPress={handleCSV}>
+              <Ionicons name="document-text-outline" size={16} color={C.success} />
+              <Text style={[styles.exportBtnText, { color: C.success }]}>Download CSV</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.exportBtn, styles.exportBtnPdf]} onPress={handlePDF}>
-              <Ionicons name="download-outline" size={16} color={Colors.white} />
-              <Text style={[styles.exportBtnText, { color: Colors.white }]}>Download PDF</Text>
+            <TouchableOpacity style={[styles.exportBtn, styles.exportBtnPdf, { borderColor: C.textPrimary, backgroundColor: C.textPrimary }]} onPress={handlePDF}>
+              <Ionicons name="download-outline" size={16} color={C.white} />
+              <Text style={[styles.exportBtnText, { color: C.white }]}>Download PDF</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -271,66 +272,66 @@ export default function OrderReportScreen() {
       <WebScrollView id="order-report-scroll" contentContainerStyle={styles.list}>
         {orderLines.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="checkmark-circle" size={40} color={Colors.success} />
-            <Text style={styles.emptyTitle}>All stocked up!</Text>
-            <Text style={styles.emptyText}>All items are at or above dynamic par level for this order date.</Text>
+            <Ionicons name="checkmark-circle" size={40} color={C.success} />
+            <Text style={[styles.emptyTitle, { color: C.textPrimary }]}>All stocked up!</Text>
+            <Text style={[styles.emptyText, { color: C.textTertiary }]}>All items are at or above dynamic par level for this order date.</Text>
           </View>
         ) : (
           Object.entries(vendorGroups).map(([vendorName, { vendor, lines, daysToCover }]) => {
             const vendorTotal = lines.reduce((s, l) => s + l.estimatedCost, 0);
             const deliveryInfo = vendor?.deliveryDays?.join(', ') || 'N/A';
             return (
-              <View key={vendorName} style={styles.vendorSection}>
-                <View style={styles.vendorHeader}>
-                  <View style={styles.vendorIcon}>
-                    <Ionicons name="business-outline" size={14} color={Colors.textSecondary} />
+              <View key={vendorName} style={[styles.vendorSection, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+                <View style={[styles.vendorHeader, { backgroundColor: C.bgSecondary, borderBottomColor: C.borderLight }]}>
+                  <View style={[styles.vendorIcon, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+                    <Ionicons name="business-outline" size={14} color={C.textSecondary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.vendorName}>{vendorName}</Text>
-                    <Text style={styles.vendorSchedule}>
+                    <Text style={[styles.vendorName, { color: C.textPrimary }]}>{vendorName}</Text>
+                    <Text style={[styles.vendorSchedule, { color: C.textTertiary }]}>
                       Delivers: {deliveryInfo} · {daysToCover} days coverage
                     </Text>
                   </View>
-                  <Text style={styles.vendorCount}>{lines.length} items · ${vendorTotal.toFixed(2)}</Text>
+                  <Text style={[styles.vendorCount, { color: C.textTertiary }]}>{lines.length} items · ${vendorTotal.toFixed(2)}</Text>
                 </View>
 
                 {/* Table header */}
-                <View style={styles.tableHead}>
-                  <Text style={[styles.th, { flex: 2.2 }]}>Item</Text>
-                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>Daily Use</Text>
-                  <Text style={[styles.th, { flex: 0.7, textAlign: 'center' }]}>Days</Text>
-                  <Text style={[styles.th, { flex: 0.9, textAlign: 'center' }]}>Target Par</Text>
-                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>EOD Rem.</Text>
-                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center' }]}>Order Qty</Text>
-                  <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>Est. Cost</Text>
+                <View style={[styles.tableHead, { borderBottomColor: C.borderMedium }]}>
+                  <Text style={[styles.th, { flex: 2.2, color: C.textTertiary }]}>Item</Text>
+                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center', color: C.textTertiary }]}>Daily Use</Text>
+                  <Text style={[styles.th, { flex: 0.7, textAlign: 'center', color: C.textTertiary }]}>Days</Text>
+                  <Text style={[styles.th, { flex: 0.9, textAlign: 'center', color: C.textTertiary }]}>Target Par</Text>
+                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center', color: C.textTertiary }]}>EOD Rem.</Text>
+                  <Text style={[styles.th, { flex: 0.8, textAlign: 'center', color: C.textTertiary }]}>Order Qty</Text>
+                  <Text style={[styles.th, { flex: 1, textAlign: 'right', color: C.textTertiary }]}>Est. Cost</Text>
                 </View>
 
                 {/* Table rows */}
                 {lines.map((line, idx) => (
                   <View
                     key={line.itemId}
-                    style={[styles.tableRow, idx % 2 === 1 && styles.tableRowAlt]}
+                    style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 1 && styles.tableRowAlt, idx % 2 === 1 && { backgroundColor: C.bgSecondary + '80' }]}
                   >
                     <View style={{ flex: 2.2 }}>
-                      <Text style={styles.td}>{line.itemName}</Text>
-                      <Text style={styles.tdSub}>{line.category} · {line.unit}</Text>
+                      <Text style={[styles.td, { color: C.textPrimary }]}>{line.itemName}</Text>
+                      <Text style={[styles.tdSub, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
                     </View>
-                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center' }]}>
+                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
                       {line.dailyUsage}
                     </Text>
-                    <Text style={[styles.td, { flex: 0.7, textAlign: 'center' }]}>
+                    <Text style={[styles.td, { flex: 0.7, textAlign: 'center', color: C.textPrimary }]}>
                       {line.daysToCover}
                     </Text>
-                    <Text style={[styles.td, { flex: 0.9, textAlign: 'center', color: Colors.info }]}>
+                    <Text style={[styles.td, { flex: 0.9, textAlign: 'center', color: C.info }]}>
                       {line.dynamicPar}
                     </Text>
-                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center' }]}>
+                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
                       {line.eodRemaining}
                     </Text>
-                    <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center' }]}>
+                    <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center', color: C.danger }]}>
                       {line.orderQuantity}
                     </Text>
-                    <Text style={[styles.td, { flex: 1, textAlign: 'right' }]}>
+                    <Text style={[styles.td, { flex: 1, textAlign: 'right', color: C.textPrimary }]}>
                       ${line.estimatedCost.toFixed(2)}
                     </Text>
                   </View>

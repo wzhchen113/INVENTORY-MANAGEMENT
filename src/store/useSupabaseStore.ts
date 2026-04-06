@@ -63,6 +63,12 @@ interface SupabaseStoreActions {
   // Misc
   getFoodCostPercent: () => number;
   adjustStock: (id: string, newStock: number, by: string) => void;
+
+  // Orders & Settings
+  setOrderSchedule: (day: string, vendors: any[]) => void;
+  submitOrder: (submission: any) => void;
+  setTimezone: (tz: string) => void;
+  toggleDarkMode: () => void;
 }
 
 type FullStore = AppState & SupabaseStoreActions;
@@ -87,6 +93,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
   orderSubmissions: [],
   timezone: 'America/New_York',
+  darkMode: false,
   isLoading: false,
   error: null,
 
@@ -355,6 +362,17 @@ export const useStore = create<FullStore>((set, get) => ({
       ),
     }));
   },
+
+  // ── Orders & Settings ──────────────────────────────────
+  setOrderSchedule: (day, vendors) => {
+    set((s) => ({ orderSchedule: { ...s.orderSchedule, [day]: vendors } }));
+  },
+  submitOrder: (submission) => {
+    const id = `ord${Date.now()}`;
+    set((s) => ({ orderSubmissions: [...s.orderSubmissions, { ...submission, id }] }));
+  },
+  setTimezone: (tz) => set({ timezone: tz }),
+  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
 
   // ── Audit Log ─────────────────────────────────────────
   addAuditEvent: async (event) => {

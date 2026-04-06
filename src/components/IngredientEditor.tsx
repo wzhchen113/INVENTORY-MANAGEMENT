@@ -5,7 +5,7 @@ import {
   Modal, ScrollView, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem, PrepRecipe, RecipeIngredient, RecipePrepItem } from '../types';
 
 interface IngredientEditorProps {
@@ -28,6 +28,7 @@ export default function IngredientEditor({
   availablePrepRecipes = [],
   showPrepRecipes = false,
 }: IngredientEditorProps) {
+  const C = useColors();
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTab, setPickerTab] = useState<'items' | 'preps'>('items');
   const [search, setSearch] = useState('');
@@ -99,87 +100,91 @@ export default function IngredientEditor({
     <View>
       {/* Raw ingredients list */}
       {ingredients.length > 0 && (
-        <Text style={styles.sectionLabel}>INGREDIENTS</Text>
+        <Text style={[styles.sectionLabel, { color: C.textTertiary }]}>INGREDIENTS</Text>
       )}
       {ingredients.map((ing, idx) => (
-        <View key={`ing-${idx}`} style={styles.row}>
-          <Text style={styles.itemName} numberOfLines={1}>{ing.itemName}</Text>
+        <View key={`ing-${idx}`} style={[styles.row, { backgroundColor: C.bgSecondary }]}>
+          <Text style={[styles.itemName, { color: C.textPrimary }]} numberOfLines={1}>{ing.itemName}</Text>
           <TextInput
-            style={styles.qtyInput}
+            style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
             value={ing.quantity.toString()}
             onChangeText={(v) => updateIngredientQty(idx, v)}
             keyboardType="decimal-pad"
+            placeholderTextColor={C.textTertiary}
           />
           <TextInput
-            style={styles.unitInput}
+            style={[styles.unitInput, { color: C.textSecondary, backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
             value={ing.unit}
             onChangeText={(v) => updateIngredientUnit(idx, v)}
+            placeholderTextColor={C.textTertiary}
           />
           <TouchableOpacity onPress={() => removeIngredient(idx)} style={styles.removeBtn}>
-            <Ionicons name="close-circle" size={20} color={Colors.danger} />
+            <Ionicons name="close-circle" size={20} color={C.danger} />
           </TouchableOpacity>
         </View>
       ))}
 
       {/* Prep recipe items */}
       {showPrepRecipes && prepItems.length > 0 && (
-        <Text style={[styles.sectionLabel, { marginTop: Spacing.md }]}>PREP RECIPES</Text>
+        <Text style={[styles.sectionLabel, { marginTop: Spacing.md, color: C.textTertiary }]}>PREP RECIPES</Text>
       )}
       {showPrepRecipes && prepItems.map((prep, idx) => (
-        <View key={`prep-${idx}`} style={[styles.row, { backgroundColor: Colors.infoBg }]}>
-          <View style={styles.prepBadge}>
-            <Text style={styles.prepBadgeText}>Prep</Text>
+        <View key={`prep-${idx}`} style={[styles.row, { backgroundColor: C.infoBg }]}>
+          <View style={[styles.prepBadge, { backgroundColor: C.infoBg }]}>
+            <Text style={[styles.prepBadgeText, { color: C.info }]}>Prep</Text>
           </View>
-          <Text style={[styles.itemName, { flex: 1 }]} numberOfLines={1}>{prep.prepRecipeName}</Text>
+          <Text style={[styles.itemName, { flex: 1, color: C.textPrimary }]} numberOfLines={1}>{prep.prepRecipeName}</Text>
           <TextInput
-            style={styles.qtyInput}
+            style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
             value={prep.quantity.toString()}
             onChangeText={(v) => updatePrepQty(idx, v)}
             keyboardType="decimal-pad"
+            placeholderTextColor={C.textTertiary}
           />
           <TextInput
-            style={styles.unitInput}
+            style={[styles.unitInput, { color: C.textSecondary, backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
             value={prep.unit}
             onChangeText={(v) => updatePrepUnit(idx, v)}
+            placeholderTextColor={C.textTertiary}
           />
           <TouchableOpacity onPress={() => removePrepItem(idx)} style={styles.removeBtn}>
-            <Ionicons name="close-circle" size={20} color={Colors.danger} />
+            <Ionicons name="close-circle" size={20} color={C.danger} />
           </TouchableOpacity>
         </View>
       ))}
 
       {/* Add button */}
-      <TouchableOpacity style={styles.addBtn} onPress={() => setShowPicker(true)}>
-        <Ionicons name="add-circle-outline" size={16} color={Colors.info} />
-        <Text style={styles.addBtnText}>Add ingredient</Text>
+      <TouchableOpacity style={[styles.addBtn, { borderColor: C.borderLight }]} onPress={() => setShowPicker(true)}>
+        <Ionicons name="add-circle-outline" size={16} color={C.info} />
+        <Text style={[styles.addBtnText, { color: C.info }]}>Add ingredient</Text>
       </TouchableOpacity>
 
       {/* Picker Modal */}
       <Modal visible={showPicker} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.pickerContainer}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>Select ingredient</Text>
+        <View style={[styles.pickerContainer, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.pickerHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.pickerTitle, { color: C.textPrimary }]}>Select ingredient</Text>
             <TouchableOpacity onPress={() => { setShowPicker(false); setSearch(''); }}>
-              <Text style={styles.pickerClose}>Done</Text>
+              <Text style={[styles.pickerClose, { color: C.info }]}>Done</Text>
             </TouchableOpacity>
           </View>
 
           {/* Tabs for items vs preps */}
           {showPrepRecipes && (
-            <View style={styles.tabBar}>
+            <View style={[styles.tabBar, { borderBottomColor: C.borderLight }]}>
               <TouchableOpacity
-                style={[styles.tab, pickerTab === 'items' && styles.tabActive]}
+                style={[styles.tab, pickerTab === 'items' && [styles.tabActive, { borderBottomColor: C.textPrimary }]]}
                 onPress={() => setPickerTab('items')}
               >
-                <Text style={[styles.tabText, pickerTab === 'items' && styles.tabTextActive]}>
+                <Text style={[styles.tabText, { color: C.textSecondary }, pickerTab === 'items' && { color: C.textPrimary, fontWeight: '500' }]}>
                   Inventory items
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.tab, pickerTab === 'preps' && styles.tabActive]}
+                style={[styles.tab, pickerTab === 'preps' && [styles.tabActive, { borderBottomColor: C.textPrimary }]]}
                 onPress={() => setPickerTab('preps')}
               >
-                <Text style={[styles.tabText, pickerTab === 'preps' && styles.tabTextActive]}>
+                <Text style={[styles.tabText, { color: C.textSecondary }, pickerTab === 'preps' && { color: C.textPrimary, fontWeight: '500' }]}>
                   Prep recipes
                 </Text>
               </TouchableOpacity>
@@ -187,12 +192,12 @@ export default function IngredientEditor({
           )}
 
           {/* Search */}
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={16} color={Colors.textTertiary} />
+          <View style={[styles.searchBox, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+            <Ionicons name="search-outline" size={16} color={C.textTertiary} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: C.textPrimary }]}
               placeholder="Search..."
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               value={search}
               onChangeText={setSearch}
             />
@@ -206,24 +211,24 @@ export default function IngredientEditor({
                 items: availableItems.filter((i) => i.category === cat),
               }))).map(({ cat, items }) => (
                 <View key={cat}>
-                  <Text style={styles.catHeader}>{cat.toUpperCase()}</Text>
+                  <Text style={[styles.catHeader, { color: C.textTertiary }]}>{cat.toUpperCase()}</Text>
                   {items.map((item) => {
                     const alreadyAdded = ingredients.some((i) => i.itemId === item.id);
                     return (
                       <TouchableOpacity
                         key={item.id}
-                        style={[styles.pickerItem, alreadyAdded && { opacity: 0.4 }]}
+                        style={[styles.pickerItem, { borderBottomColor: C.borderLight }, alreadyAdded && { opacity: 0.4 }]}
                         onPress={() => addIngredient(item)}
                         disabled={alreadyAdded}
                       >
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.pickerItemName}>{item.name}</Text>
-                          <Text style={styles.pickerItemSub}>{item.unit} · ${item.costPerUnit.toFixed(2)}/{item.unit}</Text>
+                          <Text style={[styles.pickerItemName, { color: C.textPrimary }]}>{item.name}</Text>
+                          <Text style={[styles.pickerItemSub, { color: C.textSecondary }]}>{item.unit} · ${item.costPerUnit.toFixed(2)}/{item.unit}</Text>
                         </View>
                         {alreadyAdded ? (
-                          <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+                          <Ionicons name="checkmark-circle" size={18} color={C.success} />
                         ) : (
-                          <Ionicons name="add-circle-outline" size={18} color={Colors.info} />
+                          <Ionicons name="add-circle-outline" size={18} color={C.info} />
                         )}
                       </TouchableOpacity>
                     );
@@ -237,30 +242,30 @@ export default function IngredientEditor({
           {pickerTab === 'preps' && (
             <ScrollView contentContainerStyle={{ padding: Spacing.lg, paddingTop: 0 }}>
               {filteredPreps.length === 0 && (
-                <Text style={styles.emptyText}>No prep recipes available</Text>
+                <Text style={[styles.emptyText, { color: C.textTertiary }]}>No prep recipes available</Text>
               )}
               {filteredPreps.map((prep) => {
                 const alreadyAdded = prepItems.some((p) => p.prepRecipeId === prep.id);
                 return (
                   <TouchableOpacity
                     key={prep.id}
-                    style={[styles.pickerItem, alreadyAdded && { opacity: 0.4 }]}
+                    style={[styles.pickerItem, { borderBottomColor: C.borderLight }, alreadyAdded && { opacity: 0.4 }]}
                     onPress={() => addPrepItem(prep)}
                     disabled={alreadyAdded}
                   >
-                    <View style={styles.prepBadge}>
-                      <Text style={styles.prepBadgeText}>Prep</Text>
+                    <View style={[styles.prepBadge, { backgroundColor: C.infoBg }]}>
+                      <Text style={[styles.prepBadgeText, { color: C.info }]}>Prep</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.pickerItemName}>{prep.name}</Text>
-                      <Text style={styles.pickerItemSub}>
+                      <Text style={[styles.pickerItemName, { color: C.textPrimary }]}>{prep.name}</Text>
+                      <Text style={[styles.pickerItemSub, { color: C.textSecondary }]}>
                         Yields {prep.yieldQuantity} {prep.yieldUnit} · {prep.ingredients.length} ingredients
                       </Text>
                     </View>
                     {alreadyAdded ? (
-                      <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+                      <Ionicons name="checkmark-circle" size={18} color={C.success} />
                     ) : (
-                      <Ionicons name="add-circle-outline" size={18} color={Colors.info} />
+                      <Ionicons name="add-circle-outline" size={18} color={C.info} />
                     )}
                   </TouchableOpacity>
                 );

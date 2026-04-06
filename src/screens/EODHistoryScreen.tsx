@@ -7,11 +7,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { EODSubmission } from '../types';
 
 export default function EODHistoryScreen() {
   const { eodSubmissions, stores, users, inventory } = useStore();
+  const C = useColors();
   const [storeFilter, setStoreFilter] = useState('');
   const [userFilter, setUserFilter] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState<EODSubmission | null>(null);
@@ -51,15 +52,15 @@ export default function EODHistoryScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       {/* Store filter pills */}
       <View style={styles.pillWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
           <TouchableOpacity
-            style={[styles.pill, !storeFilter && styles.pillActive]}
+            style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !storeFilter && styles.pillActive, !storeFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setStoreFilter('')}
           >
-            <Text style={[styles.pillText, !storeFilter && styles.pillTextActive]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !storeFilter && styles.pillTextActive]}>
               All stores ({eodSubmissions.length})
             </Text>
           </TouchableOpacity>
@@ -70,10 +71,10 @@ export default function EODHistoryScreen() {
             return (
               <TouchableOpacity
                 key={store.id}
-                style={[styles.pill, isActive && styles.pillActive]}
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setStoreFilter(isActive ? '' : store.id)}
               >
-                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
                   {store.name} ({count})
                 </Text>
               </TouchableOpacity>
@@ -87,10 +88,10 @@ export default function EODHistoryScreen() {
         <View style={[styles.pillWrapper, { paddingTop: 0 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
             <TouchableOpacity
-              style={[styles.pill, !userFilter && styles.pillActive]}
+              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !userFilter && styles.pillActive, !userFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setUserFilter('')}
             >
-              <Text style={[styles.pillText, !userFilter && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !userFilter && styles.pillTextActive]}>
                 All users
               </Text>
             </TouchableOpacity>
@@ -102,10 +103,10 @@ export default function EODHistoryScreen() {
               return (
                 <TouchableOpacity
                   key={uid}
-                  style={[styles.pill, isActive && styles.pillActive]}
+                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setUserFilter(isActive ? '' : uid)}
                 >
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
                     {user.name} ({count})
                   </Text>
                 </TouchableOpacity>
@@ -117,7 +118,7 @@ export default function EODHistoryScreen() {
 
       {/* Summary */}
       <View style={styles.summaryBar}>
-        <Text style={styles.summaryText}>
+        <Text style={[styles.summaryText, { color: C.textTertiary }]}>
           {filtered.length} submission{filtered.length !== 1 ? 's' : ''}
         </Text>
       </View>
@@ -126,8 +127,8 @@ export default function EODHistoryScreen() {
       <WebScrollView id="eod-history-scroll" contentContainerStyle={styles.list}>
         {filtered.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="clipboard-outline" size={32} color={Colors.textTertiary} />
-            <Text style={styles.emptyText}>No EOD submissions found</Text>
+            <Ionicons name="clipboard-outline" size={32} color={C.textTertiary} />
+            <Text style={[styles.emptyText, { color: C.textTertiary }]}>No EOD submissions found</Text>
           </View>
         ) : (
           filtered.map((sub) => {
@@ -135,7 +136,7 @@ export default function EODHistoryScreen() {
             return (
               <TouchableOpacity
                 key={sub.id}
-                style={styles.card}
+                style={[styles.card, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
                 onPress={() => setSelectedSubmission(sub)}
                 activeOpacity={0.7}
               >
@@ -146,33 +147,33 @@ export default function EODHistoryScreen() {
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cardName}>{sub.submittedBy}</Text>
-                    <Text style={styles.cardMeta}>
+                    <Text style={[styles.cardName, { color: C.textPrimary }]}>{sub.submittedBy}</Text>
+                    <Text style={[styles.cardMeta, { color: C.textTertiary }]}>
                       {formatDate(sub.timestamp)} · {formatTime(sub.timestamp)}
                     </Text>
                   </View>
-                  <View style={styles.storeBadge}>
-                    <Text style={styles.storeBadgeText}>{sub.storeName}</Text>
+                  <View style={[styles.storeBadge, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                    <Text style={[styles.storeBadgeText, { color: C.textSecondary }]}>{sub.storeName}</Text>
                   </View>
                 </View>
-                <View style={styles.cardStats}>
+                <View style={[styles.cardStats, { borderTopColor: C.borderLight }]}>
                   <View style={styles.stat}>
-                    <Text style={styles.statValue}>{sub.itemCount}</Text>
-                    <Text style={styles.statLabel}>items counted</Text>
+                    <Text style={[styles.statValue, { color: C.textPrimary }]}>{sub.itemCount}</Text>
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>items counted</Text>
                   </View>
                   <View style={styles.stat}>
-                    <Text style={styles.statValue}>{sub.date}</Text>
-                    <Text style={styles.statLabel}>date</Text>
+                    <Text style={[styles.statValue, { color: C.textPrimary }]}>{sub.date}</Text>
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>date</Text>
                   </View>
                   <View style={styles.stat}>
-                    <View style={[styles.statusDot, { backgroundColor: sub.status === 'submitted' ? Colors.success : Colors.warning }]} />
-                    <Text style={styles.statLabel}>{sub.status}</Text>
+                    <View style={[styles.statusDot, { backgroundColor: sub.status === 'submitted' ? C.success : C.warning }]} />
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>{sub.status}</Text>
                   </View>
                 </View>
                 {sub.entries.some((e) => e.notes) && (
                   <View style={styles.notesHint}>
-                    <Ionicons name="chatbubble-outline" size={10} color={Colors.textTertiary} />
-                    <Text style={styles.notesHintText}>Has notes</Text>
+                    <Ionicons name="chatbubble-outline" size={10} color={C.textTertiary} />
+                    <Text style={[styles.notesHintText, { color: C.textTertiary }]}>Has notes</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -184,29 +185,29 @@ export default function EODHistoryScreen() {
       {/* Detail modal */}
       <Modal visible={!!selectedSubmission} animationType="slide" presentationStyle="pageSheet">
         {selectedSubmission && (
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
+          <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
               <View>
-                <Text style={styles.modalTitle}>EOD Count Detail</Text>
-                <Text style={styles.modalSub}>
+                <Text style={[styles.modalTitle, { color: C.textPrimary }]}>EOD Count Detail</Text>
+                <Text style={[styles.modalSub, { color: C.textTertiary }]}>
                   {selectedSubmission.storeName} · {formatDate(selectedSubmission.timestamp)}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setSelectedSubmission(null)}>
-                <Text style={styles.modalClose}>Done</Text>
+                <Text style={[styles.modalClose, { color: C.info }]}>Done</Text>
               </TouchableOpacity>
             </View>
 
             {/* Submitter info */}
-            <View style={styles.submitterRow}>
+            <View style={[styles.submitterRow, { backgroundColor: C.bgSecondary, borderBottomColor: C.borderLight }]}>
               <View style={[styles.avatar, { backgroundColor: getUserColor(selectedSubmission.submittedByUserId) + '22' }]}>
                 <Text style={[styles.avatarText, { color: getUserColor(selectedSubmission.submittedByUserId) }]}>
                   {getUserInitials(selectedSubmission.submittedByUserId)}
                 </Text>
               </View>
               <View>
-                <Text style={styles.submitterName}>{selectedSubmission.submittedBy}</Text>
-                <Text style={styles.submitterTime}>
+                <Text style={[styles.submitterName, { color: C.textPrimary }]}>{selectedSubmission.submittedBy}</Text>
+                <Text style={[styles.submitterTime, { color: C.textTertiary }]}>
                   Submitted {formatTime(selectedSubmission.timestamp)} · {selectedSubmission.itemCount} items
                 </Text>
               </View>
@@ -214,19 +215,19 @@ export default function EODHistoryScreen() {
 
             <ScrollView contentContainerStyle={styles.modalBody}>
               {/* Entries table */}
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, { flex: 2 }]}>Item</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Remaining</Text>
+              <View style={[styles.tableHeader, { borderBottomColor: C.borderMedium }]}>
+                <Text style={[styles.tableHeaderText, { flex: 2, color: C.textTertiary }]}>Item</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right', color: C.textTertiary }]}>Remaining</Text>
               </View>
               {selectedSubmission.entries.map((entry) => (
-                <View key={entry.id} style={styles.tableRow}>
+                <View key={entry.id} style={[styles.tableRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 2 }}>
-                    <Text style={styles.entryName}>{entry.itemName}</Text>
+                    <Text style={[styles.entryName, { color: C.textPrimary }]}>{entry.itemName}</Text>
                     {entry.notes ? (
-                      <Text style={styles.entryNote}>{entry.notes}</Text>
+                      <Text style={[styles.entryNote, { color: C.textTertiary }]}>{entry.notes}</Text>
                     ) : null}
                   </View>
-                  <Text style={styles.entryValue}>
+                  <Text style={[styles.entryValue, { color: C.textPrimary }]}>
                     {entry.actualRemaining} {entry.unit}
                   </Text>
                 </View>

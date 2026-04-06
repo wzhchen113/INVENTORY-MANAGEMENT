@@ -8,11 +8,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
 
 export default function EODCountScreen() {
   const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, vendors } = useStore();
+  const C = useColors();
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
@@ -211,28 +212,28 @@ export default function EODCountScreen() {
     ].sort();
 
     return (
-      <WebScrollView id="eod-submitted-scroll" contentContainerStyle={styles.content}>
+      <WebScrollView id="eod-submitted-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
         {/* Summary header */}
-        <View style={styles.submittedHeader}>
-          <View style={styles.doneIcon}>
-            <Ionicons name="checkmark-circle" size={28} color={Colors.success} />
+        <View style={[styles.submittedHeader, { backgroundColor: C.successBg }]}>
+          <View style={[styles.doneIcon, { backgroundColor: C.bgPrimary }]}>
+            <Ionicons name="checkmark-circle" size={28} color={C.success} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.submittedTitle}>EOD count submitted</Text>
-            <Text style={styles.submittedMeta}>
+            <Text style={[styles.submittedTitle, { color: C.success }]}>EOD count submitted</Text>
+            <Text style={[styles.submittedMeta, { color: C.textSecondary }]}>
               Submitted {submittedAt}
               {wasEdited ? `  ·  Last edited ${lastEdited}` : ''}
             </Text>
-            <Text style={styles.submittedMeta}>
+            <Text style={[styles.submittedMeta, { color: C.textSecondary }]}>
               {myTodaySubmission.entries.length} item(s) counted by {currentUser?.name}
             </Text>
           </View>
         </View>
 
         {/* Edit button */}
-        <TouchableOpacity style={styles.editBtn} onPress={startEditing}>
-          <Ionicons name="create-outline" size={16} color={Colors.info} />
-          <Text style={styles.editBtnText}>Edit today's count</Text>
+        <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.infoBg, borderColor: C.info + '33' }]} onPress={startEditing}>
+          <Ionicons name="create-outline" size={16} color={C.info} />
+          <Text style={[styles.editBtnText, { color: C.info }]}>Edit today's count</Text>
         </TouchableOpacity>
 
         {/* Submitted entries grouped by category */}
@@ -245,14 +246,14 @@ export default function EODCountScreen() {
             <Card key={cat} style={{ marginBottom: Spacing.md }}>
               <CardHeader title={cat} />
               {catEntries.map((entry) => (
-                <View key={entry.itemId} style={styles.submittedRow}>
+                <View key={entry.itemId} style={[styles.submittedRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.itemName}>{entry.itemName}</Text>
+                    <Text style={[styles.itemName, { color: C.textPrimary }]}>{entry.itemName}</Text>
                     {entry.notes ? (
-                      <Text style={styles.entryNote}>{entry.notes}</Text>
+                      <Text style={[styles.entryNote, { color: C.textTertiary }]}>{entry.notes}</Text>
                     ) : null}
                   </View>
-                  <Text style={styles.submittedValue}>
+                  <Text style={[styles.submittedValue, { color: C.textPrimary }]}>
                     {entry.actualRemaining} {entry.unit}
                   </Text>
                 </View>
@@ -276,10 +277,10 @@ export default function EODCountScreen() {
     ].sort();
 
     return (
-      <WebScrollView id="eod-edit-scroll" contentContainerStyle={styles.content}>
-        <View style={styles.editingBanner}>
-          <Ionicons name="create-outline" size={16} color={Colors.warning} />
-          <Text style={styles.editingBannerText}>
+      <WebScrollView id="eod-edit-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
+        <View style={[styles.editingBanner, { backgroundColor: C.warningBg }]}>
+          <Ionicons name="create-outline" size={16} color={C.warning} />
+          <Text style={[styles.editingBannerText, { color: C.warning }]}>
             Editing today's count · Changes will update the timestamp
           </Text>
         </View>
@@ -295,28 +296,28 @@ export default function EODCountScreen() {
               {catEntries.map((entry) => {
                 const item = inventory.find((i) => i.id === entry.itemId);
                 return (
-                  <View key={entry.itemId} style={styles.itemRow}>
+                  <View key={entry.itemId} style={[styles.itemRow, { borderBottomColor: C.borderLight }]}>
                     <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{entry.itemName}</Text>
-                      <Text style={styles.itemUnit}>
+                      <Text style={[styles.itemName, { color: C.textPrimary }]}>{entry.itemName}</Text>
+                      <Text style={[styles.itemUnit, { color: C.textTertiary }]}>
                         Expected: {item?.currentStock ?? '?'} {entry.unit}
                       </Text>
                     </View>
                     <View style={styles.inputGroup}>
                       <TextInput
-                        style={styles.countInput}
+                        style={[styles.countInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                         keyboardType="decimal-pad"
                         value={editCounts[entry.itemId] ?? String(entry.actualRemaining)}
                         onChangeText={(v) =>
                           setEditCounts((prev) => ({ ...prev, [entry.itemId]: v }))
                         }
                       />
-                      <Text style={styles.unitLabel}>{entry.unit}</Text>
+                      <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{entry.unit}</Text>
                     </View>
                     <TextInput
-                      style={styles.noteInput}
+                      style={[styles.noteInput, { color: C.textSecondary, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
                       placeholder="Note..."
-                      placeholderTextColor={Colors.textTertiary}
+                      placeholderTextColor={C.textTertiary}
                       value={editNotes[entry.itemId] ?? entry.notes}
                       onChangeText={(v) =>
                         setEditNotes((prev) => ({ ...prev, [entry.itemId]: v }))
@@ -331,16 +332,16 @@ export default function EODCountScreen() {
 
         <View style={styles.submitRow}>
           <TouchableOpacity
-            style={styles.draftBtn}
+            style={[styles.draftBtn, { borderColor: C.borderMedium }]}
             onPress={() => {
               setIsEditing(false);
               setEditCounts({});
               setEditNotes({});
             }}
           >
-            <Text style={styles.draftBtnText}>Cancel</Text>
+            <Text style={[styles.draftBtnText, { color: C.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.submitBtn} onPress={handleUpdate}>
+          <TouchableOpacity style={[styles.submitBtn, { backgroundColor: C.textPrimary }]} onPress={handleUpdate}>
             <Text style={styles.submitBtnText}>Save changes</Text>
           </TouchableOpacity>
         </View>
@@ -352,17 +353,17 @@ export default function EODCountScreen() {
 
   // ── New count view ──────────────────────────────────────
   return (
-    <WebScrollView id="eod-count-scroll" contentContainerStyle={styles.content}>
+    <WebScrollView id="eod-count-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Attribution notice */}
-      <View style={styles.notice}>
-        <View style={[styles.noticeAvatar, { backgroundColor: (currentUser?.color || Colors.info) + '33' }]}>
-          <Text style={[styles.noticeAvatarText, { color: currentUser?.color || Colors.info }]}>
+      <View style={[styles.notice, { backgroundColor: C.infoBg }]}>
+        <View style={[styles.noticeAvatar, { backgroundColor: (currentUser?.color || C.info) + '33' }]}>
+          <Text style={[styles.noticeAvatarText, { color: currentUser?.color || C.info }]}>
             {currentUser?.initials}
           </Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.noticeTitle}>Submitting as {currentUser?.name}</Text>
-          <Text style={styles.noticeSub}>
+          <Text style={[styles.noticeTitle, { color: C.info }]}>Submitting as {currentUser?.name}</Text>
+          <Text style={[styles.noticeSub, { color: C.info }]}>
             All entries are timestamped and visible to admins ·{' '}
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </Text>
@@ -370,18 +371,18 @@ export default function EODCountScreen() {
       </View>
 
       {/* Search bar */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={16} color={Colors.textTertiary} />
+      <View style={[styles.searchBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+        <Ionicons name="search-outline" size={16} color={C.textTertiary} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: C.textPrimary }]}
           placeholder="Search items..."
-          placeholderTextColor={Colors.textTertiary}
+          placeholderTextColor={C.textTertiary}
           value={search}
           onChangeText={setSearch}
         />
         {search ? (
           <TouchableOpacity onPress={() => setSearch('')}>
-            <Ionicons name="close-circle" size={16} color={Colors.textTertiary} />
+            <Ionicons name="close-circle" size={16} color={C.textTertiary} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -390,10 +391,10 @@ export default function EODCountScreen() {
       <View style={styles.pillWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
           <TouchableOpacity
-            style={[styles.pill, !selectedCategory && styles.pillActive]}
+            style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !selectedCategory && styles.pillActive, !selectedCategory && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setSelectedCategory(null)}
           >
-            <Text style={[styles.pillText, !selectedCategory && styles.pillTextActive]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !selectedCategory && styles.pillTextActive]}>
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
@@ -403,10 +404,10 @@ export default function EODCountScreen() {
             return (
               <TouchableOpacity
                 key={cat}
-                style={[styles.pill, isActive && styles.pillActive]}
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setSelectedCategory(isActive ? null : cat)}
               >
-                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
                   {cat} ({count})
                 </Text>
               </TouchableOpacity>
@@ -420,10 +421,10 @@ export default function EODCountScreen() {
         <View style={styles.pillWrapper}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
             <TouchableOpacity
-              style={[styles.pill, !vendorFilter && styles.pillActive]}
+              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !vendorFilter && styles.pillActive, !vendorFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, !vendorFilter && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && styles.pillTextActive]}>
                 All vendors
               </Text>
             </TouchableOpacity>
@@ -432,10 +433,10 @@ export default function EODCountScreen() {
               return (
                 <TouchableOpacity
                   key={v}
-                  style={[styles.pill, isActive && styles.pillActive]}
+                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setVendorFilter(isActive ? '' : v)}
                 >
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>
@@ -447,14 +448,14 @@ export default function EODCountScreen() {
 
       {/* Progress indicator */}
       <View style={styles.progressRow}>
-        <Text style={styles.progressText}>
+        <Text style={[styles.progressText, { color: C.textSecondary }]}>
           {filledCount} of {storeInventory.length} items counted
         </Text>
-        <View style={styles.progressBar}>
+        <View style={[styles.progressBar, { backgroundColor: C.borderLight }]}>
           <View
             style={[
               styles.progressFill,
-              { width: `${storeInventory.length > 0 ? (filledCount / storeInventory.length) * 100 : 0}%` },
+              { width: `${storeInventory.length > 0 ? (filledCount / storeInventory.length) * 100 : 0}%`, backgroundColor: C.success },
             ]}
           />
         </View>
@@ -465,31 +466,32 @@ export default function EODCountScreen() {
         const catItems = filteredItems.filter((i) => i.category === cat);
         return (
           <Card key={cat} style={{ marginBottom: Spacing.md }}>
-            <CardHeader title={cat} rightContent={<Text style={styles.catCount}>{catItems.length} items</Text>} />
+            <CardHeader title={cat} rightContent={<Text style={[styles.catCount, { color: C.textTertiary }]}>{catItems.length} items</Text>} />
             {catItems.map((item) => (
-              <View key={item.id} style={styles.itemRow}>
+              <View key={item.id} style={[styles.itemRow, { borderBottomColor: C.borderLight }]}>
                 <View style={styles.itemInfo}>
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <Text style={styles.itemUnit}>Expected: {item.currentStock} {item.unit}</Text>
+                  <Text style={[styles.itemName, { color: C.textPrimary }]}>{item.name}</Text>
+                  <Text style={[styles.itemUnit, { color: C.textTertiary }]}>Expected: {item.currentStock} {item.unit}</Text>
                 </View>
                 <View style={styles.inputGroup}>
                   <TextInput
                     style={[
                       styles.countInput,
-                      counts[item.id] ? styles.countInputFilled : null,
+                      { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium },
+                      counts[item.id] ? [styles.countInputFilled, { borderColor: C.success, backgroundColor: C.successBg }] : null,
                     ]}
                     placeholder="0"
-                    placeholderTextColor={Colors.textTertiary}
+                    placeholderTextColor={C.textTertiary}
                     keyboardType="decimal-pad"
                     value={counts[item.id] || ''}
                     onChangeText={(v) => updateCount(item.id, v)}
                   />
-                  <Text style={styles.unitLabel}>{item.unit}</Text>
+                  <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{item.unit}</Text>
                 </View>
                 <TextInput
-                  style={styles.noteInput}
+                  style={[styles.noteInput, { color: C.textSecondary, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
                   placeholder="Note..."
-                  placeholderTextColor={Colors.textTertiary}
+                  placeholderTextColor={C.textTertiary}
                   value={notes[item.id] || ''}
                   onChangeText={(v) => setNotes((prev) => ({ ...prev, [item.id]: v }))}
                 />
@@ -501,7 +503,7 @@ export default function EODCountScreen() {
 
       {/* Submit row */}
       <View style={styles.submitRow}>
-        <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
+        <TouchableOpacity style={[styles.submitBtn, { backgroundColor: C.textPrimary }]} onPress={handleSubmit}>
           <Text style={styles.submitBtnText}>
             Submit count ({filledCount} item{filledCount !== 1 ? 's' : ''})
           </Text>

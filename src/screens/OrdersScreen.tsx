@@ -8,7 +8,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { OrderDayVendor, Vendor } from '../types';
 import { calculateDynamicOrder, DynamicOrderLine } from '../lib/orderCalculator';
 
@@ -139,6 +139,7 @@ export default function OrdersScreen() {
     orderSchedule, orderSubmissions,
     setOrderSchedule, submitOrder, timezone, setTimezone,
   } = useStore();
+  const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
   const todayName = getDayName(timezone);
   const todayISO = getNowInTZ(timezone).toISOString().split('T')[0];
@@ -256,17 +257,17 @@ export default function OrdersScreen() {
   // ── RENDER ─────────────────────────────────────────────────
   // ═════════════════════════════════════════════════════════════
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       {/* ── Timezone bar ── */}
-      <TouchableOpacity style={styles.tzBar} onPress={() => isAdmin && setShowTZModal(true)}>
-        <Ionicons name="time-outline" size={14} color={Colors.textTertiary} />
-        <Text style={styles.tzText}>{currentTZLabel}</Text>
-        <Text style={styles.tzDate}>
+      <TouchableOpacity style={[styles.tzBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]} onPress={() => isAdmin && setShowTZModal(true)}>
+        <Ionicons name="time-outline" size={14} color={C.textTertiary} />
+        <Text style={[styles.tzText, { color: C.textSecondary }]}>{currentTZLabel}</Text>
+        <Text style={[styles.tzDate, { color: C.textTertiary }]}>
           {getNowInTZ(timezone).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
           {' \u00B7 '}
           {getNowInTZ(timezone).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
         </Text>
-        {isAdmin && <Ionicons name="chevron-forward" size={12} color={Colors.textTertiary} />}
+        {isAdmin && <Ionicons name="chevron-forward" size={12} color={C.textTertiary} />}
       </TouchableOpacity>
 
       {/* ── Weekly schedule ── */}
@@ -277,30 +278,30 @@ export default function OrdersScreen() {
           const dateStr = getDateForDay(day, timezone);
 
           return (
-            <View key={day} style={[styles.dayCard, isToday && styles.dayCardToday]}>
+            <View key={day} style={[styles.dayCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isToday && styles.dayCardToday, isToday && { borderColor: C.info }]}>
               <View style={styles.dayHeader}>
                 <View style={styles.dayHeaderLeft}>
-                  <Text style={[styles.dayName, isToday && styles.dayNameToday]}>{day}</Text>
-                  <Text style={styles.dayDate}>{dateStr}</Text>
+                  <Text style={[styles.dayName, { color: C.textPrimary }, isToday && styles.dayNameToday, isToday && { color: C.info }]}>{day}</Text>
+                  <Text style={[styles.dayDate, { color: C.textTertiary }]}>{dateStr}</Text>
                   {isToday && (
-                    <View style={styles.todayBadge}>
-                      <Text style={styles.todayBadgeText}>Today</Text>
+                    <View style={[styles.todayBadge, { backgroundColor: C.infoBg }]}>
+                      <Text style={[styles.todayBadgeText, { color: C.info }]}>Today</Text>
                     </View>
                   )}
                 </View>
                 {isAdmin && (
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(day)}>
-                    <Ionicons name="create-outline" size={14} color={Colors.textSecondary} />
+                  <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(day)}>
+                    <Ionicons name="create-outline" size={14} color={C.textSecondary} />
                   </TouchableOpacity>
                 )}
               </View>
 
               {vendors.length === 0 ? (
                 <View style={styles.noVendors}>
-                  <Text style={styles.noVendorsText}>No orders scheduled</Text>
+                  <Text style={[styles.noVendorsText, { color: C.textTertiary }]}>No orders scheduled</Text>
                   {isAdmin && (
                     <TouchableOpacity onPress={() => openEdit(day)}>
-                      <Text style={styles.addVendorLink}>+ Add vendor</Text>
+                      <Text style={[styles.addVendorLink, { color: C.info }]}>+ Add vendor</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -312,32 +313,32 @@ export default function OrdersScreen() {
                   return (
                     <TouchableOpacity
                       key={idx}
-                      style={styles.vendorRow}
+                      style={[styles.vendorRow, { borderTopColor: C.borderLight }]}
                       activeOpacity={0.6}
                       onPress={() => openDetail(day, vendor.vendorName)}
                     >
                       <View style={styles.vendorInfo}>
                         {needsAttention && (
-                          <Ionicons name="alert-circle" size={18} color={Colors.warning} style={{ marginRight: 6 }} />
+                          <Ionicons name="alert-circle" size={18} color={C.warning} style={{ marginRight: 6 }} />
                         )}
                         {submitted && (
-                          <Ionicons name="checkmark-circle" size={18} color={Colors.success} style={{ marginRight: 6 }} />
+                          <Ionicons name="checkmark-circle" size={18} color={C.success} style={{ marginRight: 6 }} />
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.vendorName}>{vendor.vendorName}</Text>
-                          <Text style={styles.deliveryText}>Delivery by {vendor.deliveryDay}</Text>
+                          <Text style={[styles.vendorName, { color: C.textPrimary }]}>{vendor.vendorName}</Text>
+                          <Text style={[styles.deliveryText, { color: C.textTertiary }]}>Delivery by {vendor.deliveryDay}</Text>
                         </View>
                       </View>
                       {submitted ? (
-                        <View style={styles.submittedBadge}>
-                          <Text style={styles.submittedText}>Submitted</Text>
+                        <View style={[styles.submittedBadge, { backgroundColor: C.successBg }]}>
+                          <Text style={[styles.submittedText, { color: C.success }]}>Submitted</Text>
                         </View>
                       ) : isToday ? (
-                        <View style={styles.pendingBadge}>
-                          <Text style={styles.pendingText}>Pending</Text>
+                        <View style={[styles.pendingBadge, { backgroundColor: C.warningBg }]}>
+                          <Text style={[styles.pendingText, { color: C.warning }]}>Pending</Text>
                         </View>
                       ) : null}
-                      <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} style={{ marginLeft: 8 }} />
+                      <Ionicons name="chevron-forward" size={16} color={C.textTertiary} style={{ marginLeft: 8 }} />
                     </TouchableOpacity>
                   );
                 })
@@ -351,56 +352,56 @@ export default function OrdersScreen() {
       {/* ── DETAIL MODAL — Suggested Order for Vendor ──────── */}
       {/* ═══════════════════════════════════════════════════════ */}
       <Modal visible={detailOpen} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
           {/* Header */}
-          <View style={styles.detailHeader}>
+          <View style={[styles.detailHeader, { borderBottomColor: C.borderLight }]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.detailTitle}>{detailVendorName}</Text>
-              <Text style={styles.detailSubtitle}>
+              <Text style={[styles.detailTitle, { color: C.textPrimary }]}>{detailVendorName}</Text>
+              <Text style={[styles.detailSubtitle, { color: C.textTertiary }]}>
                 {detailDay} · {formatDate(detailDate)} · {currentStore.name}
               </Text>
             </View>
             <View style={styles.detailHeaderActions}>
               {isWeb && detailLines.length > 0 && (
                 <>
-                  <TouchableOpacity style={styles.exportBtn} onPress={handleCSV}>
-                    <Ionicons name="download-outline" size={15} color={Colors.textSecondary} />
-                    <Text style={styles.exportBtnText}>CSV</Text>
+                  <TouchableOpacity style={[styles.exportBtn, { borderColor: C.borderLight, backgroundColor: C.bgSecondary }]} onPress={handleCSV}>
+                    <Ionicons name="download-outline" size={15} color={C.textSecondary} />
+                    <Text style={[styles.exportBtnText, { color: C.textSecondary }]}>CSV</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.exportBtn} onPress={handlePDF}>
-                    <Ionicons name="document-text-outline" size={15} color={Colors.textSecondary} />
-                    <Text style={styles.exportBtnText}>PDF</Text>
+                  <TouchableOpacity style={[styles.exportBtn, { borderColor: C.borderLight, backgroundColor: C.bgSecondary }]} onPress={handlePDF}>
+                    <Ionicons name="document-text-outline" size={15} color={C.textSecondary} />
+                    <Text style={[styles.exportBtnText, { color: C.textSecondary }]}>PDF</Text>
                   </TouchableOpacity>
                 </>
               )}
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setDetailOpen(false)}>
-                <Ionicons name="close" size={20} color={Colors.textSecondary} />
+              <TouchableOpacity style={[styles.closeBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => setDetailOpen(false)}>
+                <Ionicons name="close" size={20} color={C.textSecondary} />
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Summary stats */}
-          <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{detailLines.length}</Text>
-              <Text style={styles.statLabel}>Items</Text>
+          <View style={[styles.statsRow, { borderBottomColor: C.borderLight }]}>
+            <View style={[styles.statBox, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+              <Text style={[styles.statValue, { color: C.textPrimary }]}>{detailLines.length}</Text>
+              <Text style={[styles.statLabel, { color: C.textTertiary }]}>Items</Text>
             </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{detailDaysCover}</Text>
-              <Text style={styles.statLabel}>Days cover</Text>
+            <View style={[styles.statBox, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+              <Text style={[styles.statValue, { color: C.textPrimary }]}>{detailDaysCover}</Text>
+              <Text style={[styles.statLabel, { color: C.textTertiary }]}>Days cover</Text>
             </View>
-            <View style={[styles.statBox, { flex: 1.5 }]}>
-              <Text style={[styles.statValue, { color: Colors.danger }]}>
+            <View style={[styles.statBox, { flex: 1.5, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+              <Text style={[styles.statValue, { color: C.danger }]}>
                 ${detailTotalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
-              <Text style={styles.statLabel}>Est. total</Text>
+              <Text style={[styles.statLabel, { color: C.textTertiary }]}>Est. total</Text>
             </View>
             {detailSubmitted && detailSubmission && (
-              <View style={[styles.statBox, { backgroundColor: Colors.successBg }]}>
-                <Text style={[styles.statValue, { color: Colors.success, fontSize: FontSize.sm }]}>
+              <View style={[styles.statBox, { backgroundColor: C.successBg, borderColor: C.borderLight }]}>
+                <Text style={[styles.statValue, { color: C.success, fontSize: FontSize.sm }]}>
                   {detailSubmission.submittedAt}
                 </Text>
-                <Text style={styles.statLabel}>by {detailSubmission.submittedBy}</Text>
+                <Text style={[styles.statLabel, { color: C.textTertiary }]}>by {detailSubmission.submittedBy}</Text>
               </View>
             )}
           </View>
@@ -409,61 +410,61 @@ export default function OrdersScreen() {
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }}>
             {!detailVendor ? (
               <View style={styles.emptyDetail}>
-                <Ionicons name="alert-circle-outline" size={40} color={Colors.textTertiary} />
-                <Text style={styles.emptyTitle}>Vendor not found</Text>
-                <Text style={styles.emptyText}>
+                <Ionicons name="alert-circle-outline" size={40} color={C.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: C.textPrimary }]}>Vendor not found</Text>
+                <Text style={[styles.emptyText, { color: C.textTertiary }]}>
                   "{detailVendorName}" doesn't match any vendor in your system.{'\n'}
                   Add this vendor under More &gt; Vendors and assign inventory items to it.
                 </Text>
               </View>
             ) : detailLines.length === 0 ? (
               <View style={styles.emptyDetail}>
-                <Ionicons name="checkmark-circle-outline" size={40} color={Colors.success} />
-                <Text style={styles.emptyTitle}>No items to order</Text>
-                <Text style={styles.emptyText}>
+                <Ionicons name="checkmark-circle-outline" size={40} color={C.success} />
+                <Text style={[styles.emptyTitle, { color: C.textPrimary }]}>No items to order</Text>
+                <Text style={[styles.emptyText, { color: C.textTertiary }]}>
                   All {detailVendorName} items are sufficiently stocked for the next {detailDaysCover} days.
                 </Text>
               </View>
             ) : (
               <>
                 {/* Table header */}
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.th, { flex: 2.5 }]}>Item</Text>
-                  <Text style={[styles.th, styles.thCenter]}>EOD</Text>
-                  <Text style={[styles.th, styles.thCenter]}>Par</Text>
-                  <Text style={[styles.th, styles.thCenter, { fontWeight: '700' }]}>Order</Text>
-                  <Text style={[styles.th, styles.thRight]}>Cost</Text>
+                <View style={[styles.tableHeader, { backgroundColor: C.bgSecondary, borderBottomColor: C.borderLight }]}>
+                  <Text style={[styles.th, { flex: 2.5, color: C.textSecondary }]}>Item</Text>
+                  <Text style={[styles.th, styles.thCenter, { color: C.textSecondary }]}>EOD</Text>
+                  <Text style={[styles.th, styles.thCenter, { color: C.textSecondary }]}>Par</Text>
+                  <Text style={[styles.th, styles.thCenter, { fontWeight: '700', color: C.textSecondary }]}>Order</Text>
+                  <Text style={[styles.th, styles.thRight, { color: C.textSecondary }]}>Cost</Text>
                 </View>
 
                 {/* Table rows */}
                 {detailLines.map((line, idx) => (
-                  <View key={line.itemId} style={[styles.tableRow, idx % 2 === 0 && styles.tableRowAlt]}>
+                  <View key={line.itemId} style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 0 && styles.tableRowAlt, idx % 2 === 0 && { backgroundColor: C.bgTertiary }]}>
                     <View style={{ flex: 2.5 }}>
-                      <Text style={styles.tdName}>{line.itemName}</Text>
-                      <Text style={styles.tdMeta}>{line.category} · {line.unit}</Text>
+                      <Text style={[styles.tdName, { color: C.textPrimary }]}>{line.itemName}</Text>
+                      <Text style={[styles.tdMeta, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
                     </View>
-                    <Text style={[styles.td, styles.tdCenter]}>{line.eodRemaining}</Text>
-                    <Text style={[styles.td, styles.tdCenter]}>{line.dynamicPar}</Text>
+                    <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.eodRemaining}</Text>
+                    <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.dynamicPar}</Text>
                     <View style={styles.orderQtyCell}>
-                      <Text style={styles.orderQtyText}>{line.orderQuantity}</Text>
+                      <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{line.orderQuantity}</Text>
                     </View>
-                    <Text style={[styles.td, styles.tdRight]}>
+                    <Text style={[styles.td, styles.tdRight, { color: C.textPrimary }]}>
                       ${line.estimatedCost.toFixed(2)}
                     </Text>
                   </View>
                 ))}
 
                 {/* Totals row */}
-                <View style={styles.totalRow}>
-                  <Text style={[styles.totalLabel, { flex: 2.5 }]}>
+                <View style={[styles.totalRow, { backgroundColor: C.bgSecondary, borderTopColor: C.borderMedium }]}>
+                  <Text style={[styles.totalLabel, { flex: 2.5, color: C.textSecondary }]}>
                     Total ({detailLines.length} items)
                   </Text>
-                  <Text style={styles.totalLabel} />
-                  <Text style={styles.totalLabel} />
-                  <Text style={[styles.totalValue, styles.tdCenter]}>
+                  <Text style={[styles.totalLabel, { color: C.textSecondary }]} />
+                  <Text style={[styles.totalLabel, { color: C.textSecondary }]} />
+                  <Text style={[styles.totalValue, styles.tdCenter, { color: C.textPrimary }]}>
                     {detailLines.reduce((s, l) => s + l.orderQuantity, 0)}
                   </Text>
-                  <Text style={[styles.totalValue, styles.tdRight]}>
+                  <Text style={[styles.totalValue, styles.tdRight, { color: C.textPrimary }]}>
                     ${detailTotalCost.toFixed(2)}
                   </Text>
                 </View>
@@ -472,18 +473,18 @@ export default function OrdersScreen() {
           </ScrollView>
 
           {/* Footer — Submit button */}
-          <View style={styles.detailFooter}>
+          <View style={[styles.detailFooter, { borderTopColor: C.borderLight, backgroundColor: C.bgPrimary }]}>
             {detailSubmitted ? (
-              <View style={styles.submittedFooter}>
-                <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-                <Text style={styles.submittedFooterText}>
+              <View style={[styles.submittedFooter, { backgroundColor: C.successBg }]}>
+                <Ionicons name="checkmark-circle" size={20} color={C.success} />
+                <Text style={[styles.submittedFooterText, { color: C.success }]}>
                   Submitted by {detailSubmission?.submittedBy} at {detailSubmission?.submittedAt}
                 </Text>
               </View>
             ) : (
-              <TouchableOpacity style={styles.markSubmittedBtn} onPress={handleMarkSubmitted}>
-                <Ionicons name="checkmark-circle-outline" size={20} color={Colors.white} />
-                <Text style={styles.markSubmittedText}>Mark Order as Submitted</Text>
+              <TouchableOpacity style={[styles.markSubmittedBtn, { backgroundColor: C.success }]} onPress={handleMarkSubmitted}>
+                <Ionicons name="checkmark-circle-outline" size={20} color={C.white} />
+                <Text style={[styles.markSubmittedText, { color: C.white }]}>Mark Order as Submitted</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -494,38 +495,38 @@ export default function OrdersScreen() {
       {/* ── EDIT SCHEDULE MODAL ───────────────────────────────  */}
       {/* ═══════════════════════════════════════════════════════ */}
       <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.editModalHeader}>
-            <Text style={styles.editModalTitle}>{editDay} - Vendors</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.editModalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.editModalTitle, { color: C.textPrimary }]}>{editDay} - Vendors</Text>
             <TouchableOpacity onPress={() => setShowEditModal(false)}>
-              <Text style={styles.editModalCancel}>Cancel</Text>
+              <Text style={[styles.editModalCancel, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.editModalBody}>
             {editVendors.map((vendor, idx) => (
-              <View key={idx} style={styles.vendorEditRow}>
+              <View key={idx} style={[styles.vendorEditRow, { borderBottomColor: C.borderLight }]}>
                 <View style={styles.vendorEditFields}>
                   <View style={styles.formField}>
-                    <Text style={styles.formLabel}>Vendor name</Text>
+                    <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor name</Text>
                     <TextInput
-                      style={styles.formInput}
+                      style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                       value={vendor.vendorName}
                       onChangeText={(v) => updateVendorRow(idx, 'vendorName', v)}
                       placeholder="e.g. US Foods"
-                      placeholderTextColor={Colors.textTertiary}
+                      placeholderTextColor={C.textTertiary}
                     />
                   </View>
                   <View style={styles.formField}>
-                    <Text style={styles.formLabel}>Delivery by</Text>
+                    <Text style={[styles.formLabel, { color: C.textSecondary }]}>Delivery by</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.chipRow}>
                         {DAYS.map((d) => (
                           <TouchableOpacity
                             key={d}
-                            style={[styles.chip, vendor.deliveryDay === d && styles.chipActive]}
+                            style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, vendor.deliveryDay === d && styles.chipActive, vendor.deliveryDay === d && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                             onPress={() => updateVendorRow(idx, 'deliveryDay', d)}
                           >
-                            <Text style={[styles.chipText, vendor.deliveryDay === d && styles.chipTextActive]}>
+                            <Text style={[styles.chipText, { color: C.textSecondary }, vendor.deliveryDay === d && styles.chipTextActive, vendor.deliveryDay === d && { color: C.white }]}>
                               {d.slice(0, 3)}
                             </Text>
                           </TouchableOpacity>
@@ -534,18 +535,18 @@ export default function OrdersScreen() {
                     </ScrollView>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.removeBtn} onPress={() => removeVendorRow(idx)}>
-                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                <TouchableOpacity style={[styles.removeBtn, { backgroundColor: C.dangerBg }]} onPress={() => removeVendorRow(idx)}>
+                  <Ionicons name="trash-outline" size={16} color={C.danger} />
                 </TouchableOpacity>
               </View>
             ))}
 
-            <TouchableOpacity style={styles.addRowBtn} onPress={addVendorRow}>
-              <Text style={styles.addRowBtnText}>+ Add vendor</Text>
+            <TouchableOpacity style={[styles.addRowBtn, { borderColor: C.borderLight }]} onPress={addVendorRow}>
+              <Text style={[styles.addRowBtnText, { color: C.info }]}>+ Add vendor</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.saveBtn} onPress={saveSchedule}>
-              <Text style={styles.saveBtnText}>Save</Text>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={saveSchedule}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Save</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -554,18 +555,18 @@ export default function OrdersScreen() {
       {/* ── Timezone Modal ── */}
       <Modal visible={showTZModal} animationType="fade" transparent>
         <TouchableOpacity style={styles.tzOverlay} activeOpacity={1} onPress={() => setShowTZModal(false)}>
-          <View style={styles.tzDropdown}>
-            <Text style={styles.tzDropdownTitle}>Time zone</Text>
+          <View style={[styles.tzDropdown, { backgroundColor: C.bgPrimary }]}>
+            <Text style={[styles.tzDropdownTitle, { color: C.textTertiary }]}>Time zone</Text>
             {TIMEZONES.map((tz) => {
               const active = tz.value === timezone;
               return (
                 <TouchableOpacity
                   key={tz.value}
-                  style={[styles.tzOption, active && styles.tzOptionActive]}
+                  style={[styles.tzOption, active && styles.tzOptionActive, active && { backgroundColor: C.successBg }]}
                   onPress={() => { setTimezone(tz.value); setShowTZModal(false); }}
                 >
-                  <Text style={[styles.tzOptionText, active && { fontWeight: '600' }]}>{tz.label}</Text>
-                  {active && <Ionicons name="checkmark" size={16} color={Colors.success} />}
+                  <Text style={[styles.tzOptionText, { color: C.textPrimary }, active && { fontWeight: '600' }]}>{tz.label}</Text>
+                  {active && <Ionicons name="checkmark" size={16} color={C.success} />}
                 </TouchableOpacity>
               );
             })}

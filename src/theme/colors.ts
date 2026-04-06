@@ -1,6 +1,8 @@
 // src/theme/colors.ts
+import { useStore } from '../store/useStore';
 
-export const Colors = {
+// ── Light palette ────────────────────────────────────────────
+export const LightColors = {
   // Backgrounds
   bgPrimary: '#FFFFFF',
   bgSecondary: '#F5F5F3',
@@ -42,6 +44,61 @@ export const Colors = {
   black: '#000000',
 };
 
+// ── Dark palette ─────────────────────────────────────────────
+export const DarkColors: typeof LightColors = {
+  // Backgrounds
+  bgPrimary: '#1A1A1E',
+  bgSecondary: '#242428',
+  bgTertiary: '#111114',
+
+  // Text
+  textPrimary: '#E8E8E6',
+  textSecondary: '#A0A09B',
+  textTertiary: '#6B6A65',
+
+  // Brand
+  brand: '#E8E8E6',
+
+  // Semantic
+  success: '#5CB832',
+  successBg: '#1A2E12',
+  warning: '#D4940F',
+  warningBg: '#2E2410',
+  danger: '#D84B4B',
+  dangerBg: '#2E1414',
+  info: '#4A9FE8',
+  infoBg: '#12223A',
+
+  // Borders
+  borderLight: 'rgba(255,255,255,0.08)',
+  borderMedium: 'rgba(255,255,255,0.15)',
+
+  // User colors
+  userAdmin: '#5AAAF0',
+  userMaria: '#3BBF8E',
+  userJames: '#E87A50',
+  userAna: '#E87098',
+  userKevin: '#9A93EE',
+
+  // Chart colors
+  chart: ['#5AAAF0', '#3BBF8E', '#E87A50', '#E87098', '#9A93EE', '#D49030'],
+
+  white: '#FFFFFF',
+  black: '#000000',
+};
+
+// ── Static reference (for non-hook contexts: StyleSheet, top-level) ──
+// This is the light palette by default. Components should use useColors() for reactivity.
+export const Colors = LightColors;
+
+// ── Reactive hook ────────────────────────────────────────────
+// Use this inside components so they re-render when dark mode toggles.
+export function useColors() {
+  const darkMode = useStore((s) => s.darkMode);
+  return darkMode ? DarkColors : LightColors;
+}
+
+// ── Design tokens (unchanged) ────────────────────────────────
 export const Spacing = {
   xs: 4,
   sm: 8,

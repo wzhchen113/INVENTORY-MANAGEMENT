@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
-import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { USERS, STORES } from '../data/seed';
 
 export default function LoginScreen() {
@@ -15,6 +15,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const login = useStore((s) => s.login);
+  const C = useColors();
 
   const handleLogin = async () => {
     if (!email.trim()) {
@@ -44,53 +45,53 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: C.bgTertiary }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
-          <View style={styles.logoIcon}>
+          <View style={[styles.logoIcon, { backgroundColor: C.textPrimary }]}>
             <Text style={styles.logoIconText}>2AM</Text>
           </View>
-          <Text style={styles.logoTitle}>2AM Inventory</Text>
-          <Text style={styles.logoSub}>Restaurant management system</Text>
+          <Text style={[styles.logoTitle, { color: C.textPrimary }]}>2AM Inventory</Text>
+          <Text style={[styles.logoSub, { color: C.textSecondary }]}>Restaurant management system</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.formTitle}>Sign in</Text>
+        <View style={[styles.card, { backgroundColor: C.bgPrimary }]}>
+          <Text style={[styles.formTitle, { color: C.textPrimary }]}>Sign in</Text>
 
           {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
+            <View style={[styles.errorBox, { backgroundColor: C.dangerBg }]}>
+              <Text style={[styles.errorText, { color: C.danger }]}>{error}</Text>
             </View>
           ) : null}
 
           <View style={styles.field}>
-            <Text style={styles.label}>Email address</Text>
+            <Text style={[styles.label, { color: C.textSecondary }]}>Email address</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={email}
               onChangeText={setEmail}
               placeholder="your@email.com"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               autoCapitalize="none"
               keyboardType="email-address"
             />
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={[styles.label, { color: C.textSecondary }]}>Password</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={password}
               onChangeText={setPassword}
               placeholder="••••••••"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               secureTextEntry
             />
           </View>
 
-          <TouchableOpacity style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
+          <TouchableOpacity style={[styles.loginBtn, { backgroundColor: C.textPrimary }]} onPress={handleLogin} disabled={loading}>
             {loading ? (
-              <ActivityIndicator size="small" color={Colors.white} />
+              <ActivityIndicator size="small" color={C.white} />
             ) : (
               <Text style={styles.loginBtnText}>Sign in</Text>
             )}
@@ -98,8 +99,8 @@ export default function LoginScreen() {
         </View>
 
         {__DEV__ && (
-          <View style={styles.demoSection}>
-            <Text style={styles.demoTitle}>Demo accounts (dev only)</Text>
+          <View style={[styles.demoSection, { backgroundColor: C.bgPrimary }]}>
+            <Text style={[styles.demoTitle, { color: C.textTertiary }]}>Demo accounts (dev only)</Text>
             {USERS.map((u) => {
               const storeNames = u.stores
                 .map((sid) => STORES.find((s) => s.id === sid)?.name)
@@ -108,15 +109,15 @@ export default function LoginScreen() {
                 ? 'Admin · All stores'
                 : `${storeNames.join(', ')} user`;
               return (
-                <TouchableOpacity key={u.email} style={styles.demoUser} onPress={() => quickLogin(u.email)}>
+                <TouchableOpacity key={u.email} style={[styles.demoUser, { borderBottomColor: C.borderLight }]} onPress={() => quickLogin(u.email)}>
                   <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
                     <Text style={[styles.demoAvatarText, { color: u.color }]}>
                       {u.initials}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.demoName}>{u.name}</Text>
-                    <Text style={styles.demoEmail}>{u.email}</Text>
+                    <Text style={[styles.demoName, { color: C.textPrimary }]}>{u.name}</Text>
+                    <Text style={[styles.demoEmail, { color: C.textSecondary }]}>{u.email}</Text>
                   </View>
                   <View style={[styles.rolePill, { backgroundColor: u.color + '22' }]}>
                     <Text style={[styles.rolePillText, { color: u.color }]}>{roleLabel}</Text>

@@ -9,7 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, KpiCard, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 export default function DashboardScreen() {
   const nav = useNavigation<any>();
@@ -17,6 +17,8 @@ export default function DashboardScreen() {
     currentUser, currentStore, stores, inventory, wasteLog,
     eodSubmissions, getItemStatus, addStore,
   } = useStore();
+
+  const C = useColors();
 
   const isAdmin = currentUser?.role === 'admin';
   const [showAddStore, setShowAddStore] = useState(false);
@@ -82,22 +84,22 @@ export default function DashboardScreen() {
   };
 
   return (
-    <WebScrollView id="dashboard-scroll" contentContainerStyle={styles.content}>
+    <WebScrollView id="dashboard-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Store info bar */}
       <View style={styles.storeInfoBar}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.storeTitle}>{currentStore.name}</Text>
+          <Text style={[styles.storeTitle, { color: C.textPrimary }]}>{currentStore.name}</Text>
           {currentStore.address ? (
-            <Text style={styles.storeAddr}>{currentStore.address}</Text>
+            <Text style={[styles.storeAddr, { color: C.textTertiary }]}>{currentStore.address}</Text>
           ) : null}
         </View>
-        <Text style={styles.storeItemCount}>
+        <Text style={[styles.storeItemCount, { color: C.textTertiary }]}>
           {storeInventory.length} item{storeInventory.length !== 1 ? 's' : ''}
         </Text>
         {isAdmin && (
-          <TouchableOpacity style={styles.addStoreBtn} onPress={() => setShowAddStore(true)}>
-            <Ionicons name="add" size={14} color={Colors.white} />
-            <Text style={styles.addStoreBtnText}>Add store</Text>
+          <TouchableOpacity style={[styles.addStoreBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowAddStore(true)}>
+            <Ionicons name="add" size={14} color={C.white} />
+            <Text style={[styles.addStoreBtnText, { color: C.white }]}>Add store</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -138,15 +140,15 @@ export default function DashboardScreen() {
         <Card>
           <CardHeader title="Stock alerts" right={
             <TouchableOpacity onPress={() => nav.navigate('Items')}>
-              <Text style={styles.link}>View all</Text>
+              <Text style={[styles.link, { color: C.info }]}>View all</Text>
             </TouchableOpacity>
           } />
           {lowItems.slice(0, 5).map((item) => {
             const status = getItemStatus(item);
             return (
-              <View key={item.id} style={[styles.alertRow, { backgroundColor: status === 'out' ? Colors.dangerBg : Colors.warningBg }]}>
-                <View style={[styles.alertDot, { backgroundColor: status === 'out' ? Colors.danger : Colors.warning }]} />
-                <Text style={[styles.alertText, { color: status === 'out' ? Colors.danger : Colors.warning }]}>
+              <View key={item.id} style={[styles.alertRow, { backgroundColor: status === 'out' ? C.dangerBg : C.warningBg }]}>
+                <View style={[styles.alertDot, { backgroundColor: status === 'out' ? C.danger : C.warning }]} />
+                <Text style={[styles.alertText, { color: status === 'out' ? C.danger : C.warning }]}>
                   <Text style={{ fontWeight: '600' }}>{item.name}</Text>
                   {' — '}{item.currentStock} {item.unit} left (par: {item.parLevel})
                 </Text>
@@ -161,9 +163,9 @@ export default function DashboardScreen() {
         <Card>
           <CardHeader title="Expiring soon" />
           {expiringItems.map((item) => (
-            <View key={item.id} style={[styles.alertRow, { backgroundColor: Colors.warningBg }]}>
-              <View style={[styles.alertDot, { backgroundColor: Colors.warning }]} />
-              <Text style={[styles.alertText, { color: Colors.warning }]}>
+            <View key={item.id} style={[styles.alertRow, { backgroundColor: C.warningBg }]}>
+              <View style={[styles.alertDot, { backgroundColor: C.warning }]} />
+              <Text style={[styles.alertText, { color: C.warning }]}>
                 <Text style={{ fontWeight: '600' }}>{item.name}</Text>{' — '}expires {item.expiryDate}
               </Text>
             </View>
@@ -182,22 +184,22 @@ export default function DashboardScreen() {
       <Card>
         <CardHeader title="Quick actions" />
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('EODCount')}>
-            <Text style={styles.qaText}>Submit EOD count</Text>
+          <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('EODCount')}>
+            <Text style={[styles.qaText, { color: C.textPrimary }]}>Submit EOD count</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('WasteLog')}>
-            <Text style={styles.qaText}>Log waste</Text>
+          <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('WasteLog')}>
+            <Text style={[styles.qaText, { color: C.textPrimary }]}>Log waste</Text>
           </TouchableOpacity>
           {isAdmin && (
             <>
-              <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('Ingredients')}>
-                <Text style={styles.qaText}>Manage ingredients</Text>
+              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Ingredients')}>
+                <Text style={[styles.qaText, { color: C.textPrimary }]}>Manage ingredients</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('POSImport')}>
-                <Text style={styles.qaText}>Import POS CSV</Text>
+              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('POSImport')}>
+                <Text style={[styles.qaText, { color: C.textPrimary }]}>Import POS CSV</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('Restock')}>
-                <Text style={styles.qaText}>Restock report</Text>
+              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Restock')}>
+                <Text style={[styles.qaText, { color: C.textPrimary }]}>Restock report</Text>
               </TouchableOpacity>
             </>
           )}
@@ -208,36 +210,36 @@ export default function DashboardScreen() {
 
       {/* Add Store Modal */}
       <Modal visible={showAddStore} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add store</Text>
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Add store</Text>
             <TouchableOpacity onPress={() => setShowAddStore(false)}>
-              <Text style={styles.modalCancel}>Cancel</Text>
+              <Text style={[styles.modalCancel, { color: C.info }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.modalBody}>
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Store name *</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Store name *</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                 value={newStoreName}
                 onChangeText={setNewStoreName}
                 placeholder="e.g. Downtown, Bel Air, Columbia"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
               />
             </View>
             <View style={styles.formField}>
-              <Text style={styles.formLabel}>Address</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Address</Text>
               <TextInput
-                style={styles.formInput}
+                style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
                 value={newStoreAddress}
                 onChangeText={setNewStoreAddress}
                 placeholder="123 Main St, City MD 21000"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
               />
             </View>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleAddStore}>
-              <Text style={styles.saveBtnText}>Add store</Text>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAddStore}>
+              <Text style={[styles.saveBtnText, { color: C.white }]}>Add store</Text>
             </TouchableOpacity>
           </View>
         </View>

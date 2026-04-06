@@ -4,7 +4,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, ViewStyle, TextStyle,
 } from 'react-native';
-import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
+import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { ItemStatus } from '../types';
 
 // ─── Card ────────────────────────────────────────────────
@@ -13,21 +13,27 @@ interface CardProps {
   style?: ViewStyle;
   padding?: number;
 }
-export const Card: React.FC<CardProps> = ({ children, style, padding = Spacing.md }) => (
-  <View style={[styles.card, { padding }, style]}>{children}</View>
-);
+export const Card: React.FC<CardProps> = ({ children, style, padding = Spacing.md }) => {
+  const C = useColors();
+  return (
+    <View style={[styles.card, { padding, backgroundColor: C.bgPrimary, borderColor: C.borderLight }, style]}>{children}</View>
+  );
+};
 
 // ─── CardHeader ──────────────────────────────────────────
 interface CardHeaderProps {
   title: string;
   right?: React.ReactNode;
 }
-export const CardHeader: React.FC<CardHeaderProps> = ({ title, right }) => (
-  <View style={styles.cardHeader}>
-    <Text style={styles.cardTitle}>{title}</Text>
-    {right}
-  </View>
-);
+export const CardHeader: React.FC<CardHeaderProps> = ({ title, right }) => {
+  const C = useColors();
+  return (
+    <View style={styles.cardHeader}>
+      <Text style={[styles.cardTitle, { color: C.textPrimary }]}>{title}</Text>
+      {right}
+    </View>
+  );
+};
 
 // ─── KPI Card ─────────────────────────────────────────────
 interface KpiCardProps {
@@ -37,17 +43,18 @@ interface KpiCardProps {
   variant?: 'default' | 'success' | 'warning' | 'danger';
 }
 export const KpiCard: React.FC<KpiCardProps> = ({ label, value, sub, variant = 'default' }) => {
+  const C = useColors();
   const valueColor = {
-    default: Colors.textPrimary,
-    success: Colors.success,
-    warning: Colors.warning,
-    danger: Colors.danger,
+    default: C.textPrimary,
+    success: C.success,
+    warning: C.warning,
+    danger: C.danger,
   }[variant];
   return (
-    <View style={styles.kpi}>
-      <Text style={styles.kpiLabel}>{label}</Text>
+    <View style={[styles.kpi, { backgroundColor: C.bgSecondary }]}>
+      <Text style={[styles.kpiLabel, { color: C.textSecondary }]}>{label}</Text>
       <Text style={[styles.kpiValue, { color: valueColor }]}>{value}</Text>
-      {sub ? <Text style={styles.kpiSub}>{sub}</Text> : null}
+      {sub ? <Text style={[styles.kpiSub, { color: C.textTertiary }]}>{sub}</Text> : null}
     </View>
   );
 };
@@ -60,21 +67,22 @@ interface BadgeProps {
   variant: BadgeVariant;
 }
 export const Badge: React.FC<BadgeProps> = ({ label, variant }) => {
+  const C = useColors();
   const conf: Record<BadgeVariant, { bg: string; text: string }> = {
-    ok:       { bg: Colors.successBg, text: Colors.success },
-    low:      { bg: Colors.warningBg, text: Colors.warning },
-    out:      { bg: Colors.dangerBg, text: Colors.danger },
-    admin:    { bg: Colors.infoBg, text: Colors.info },
-    user:     { bg: Colors.successBg, text: Colors.success },
+    ok:       { bg: C.successBg, text: C.success },
+    low:      { bg: C.warningBg, text: C.warning },
+    out:      { bg: C.dangerBg, text: C.danger },
+    admin:    { bg: C.infoBg, text: C.info },
+    user:     { bg: C.successBg, text: C.success },
     draft:    { bg: '#F1EFE8', text: '#444441' },
-    sent:     { bg: Colors.infoBg, text: Colors.info },
-    received: { bg: Colors.successBg, text: Colors.success },
-    partial:  { bg: Colors.warningBg, text: Colors.warning },
-    match:    { bg: Colors.successBg, text: Colors.success },
-    mismatch: { bg: Colors.dangerBg, text: Colors.danger },
-    review:   { bg: Colors.warningBg, text: Colors.warning },
-    pending:  { bg: Colors.warningBg, text: Colors.warning },
-    expired:  { bg: Colors.dangerBg, text: Colors.danger },
+    sent:     { bg: C.infoBg, text: C.info },
+    received: { bg: C.successBg, text: C.success },
+    partial:  { bg: C.warningBg, text: C.warning },
+    match:    { bg: C.successBg, text: C.success },
+    mismatch: { bg: C.dangerBg, text: C.danger },
+    review:   { bg: C.warningBg, text: C.warning },
+    pending:  { bg: C.warningBg, text: C.warning },
+    expired:  { bg: C.dangerBg, text: C.danger },
   };
   const { bg, text } = conf[variant] || conf.ok;
   return (
@@ -86,6 +94,7 @@ export const Badge: React.FC<BadgeProps> = ({ label, variant }) => {
 
 // ─── Status Badge ────────────────────────────────────────
 export const StatusBadge: React.FC<{ status: ItemStatus }> = ({ status }) => {
+  const C = useColors();
   const map: Record<ItemStatus, { label: string; variant: BadgeVariant }> = {
     ok: { label: 'OK', variant: 'ok' },
     low: { label: 'Low', variant: 'low' },
@@ -101,15 +110,18 @@ interface WhoChipProps {
   color: string;
   time?: string;
 }
-export const WhoChip: React.FC<WhoChipProps> = ({ name, color, time }) => (
-  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-    <View style={[styles.whoChip, { borderColor: Colors.borderLight }]}>
-      <View style={[styles.whoDot, { backgroundColor: color }]} />
-      <Text style={styles.whoText}>{name}</Text>
+export const WhoChip: React.FC<WhoChipProps> = ({ name, color, time }) => {
+  const C = useColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <View style={[styles.whoChip, { borderColor: C.borderLight, backgroundColor: C.bgSecondary }]}>
+        <View style={[styles.whoDot, { backgroundColor: color }]} />
+        <Text style={[styles.whoText, { color: C.textSecondary }]}>{name}</Text>
+      </View>
+      {time ? <Text style={[styles.timeText, { color: C.textTertiary }]}>{time}</Text> : null}
     </View>
-    {time ? <Text style={styles.timeText}>{time}</Text> : null}
-  </View>
-);
+  );
+};
 
 // ─── Progress Bar ─────────────────────────────────────────
 interface ProgressBarProps {
@@ -117,9 +129,10 @@ interface ProgressBarProps {
   status: ItemStatus;
 }
 export const ProgressBar: React.FC<ProgressBarProps> = ({ value, status }) => {
-  const color = { ok: Colors.success, low: Colors.warning, out: Colors.danger }[status];
+  const C = useColors();
+  const color = { ok: C.success, low: C.warning, out: C.danger }[status];
   return (
-    <View style={styles.progressBg}>
+    <View style={[styles.progressBg, { backgroundColor: C.borderLight }]}>
       <View style={[styles.progressFill, { width: `${Math.min(100, value)}%`, backgroundColor: color }]} />
     </View>
   );
@@ -138,15 +151,16 @@ interface ButtonProps {
 export const Button: React.FC<ButtonProps> = ({
   title, onPress, variant = 'secondary', size = 'md', loading, disabled, style,
 }) => {
-  const bg = { primary: Colors.textPrimary, secondary: Colors.bgPrimary, danger: Colors.dangerBg }[variant];
-  const textColor = { primary: Colors.white, secondary: Colors.textPrimary, danger: Colors.danger }[variant];
+  const C = useColors();
+  const bg = { primary: C.textPrimary, secondary: C.bgPrimary, danger: C.dangerBg }[variant];
+  const textColor = { primary: C.white, secondary: C.textPrimary, danger: C.danger }[variant];
   const pad = { sm: { paddingVertical: 5, paddingHorizontal: 10 }, md: { paddingVertical: 8, paddingHorizontal: 14 }, lg: { paddingVertical: 11, paddingHorizontal: 18 } }[size];
   const fontSize = { sm: FontSize.xs, md: FontSize.sm, lg: FontSize.base }[size];
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled || loading}
-      style={[styles.button, { backgroundColor: bg, ...pad, opacity: disabled ? 0.5 : 1 }, style]}
+      style={[styles.button, { backgroundColor: bg, borderColor: C.borderMedium, ...pad, opacity: disabled ? 0.5 : 1 }, style]}
     >
       {loading ? (
         <ActivityIndicator size="small" color={textColor} />
@@ -158,16 +172,22 @@ export const Button: React.FC<ButtonProps> = ({
 };
 
 // ─── Section Header ───────────────────────────────────────
-export const SectionHeader: React.FC<{ title: string; style?: ViewStyle }> = ({ title, style }) => (
-  <Text style={[styles.sectionHeader, style]}>{title.toUpperCase()}</Text>
-);
+export const SectionHeader: React.FC<{ title: string; style?: ViewStyle }> = ({ title, style }) => {
+  const C = useColors();
+  return (
+    <Text style={[styles.sectionHeader, { color: C.textTertiary }, style]}>{title.toUpperCase()}</Text>
+  );
+};
 
 // ─── Empty State ──────────────────────────────────────────
-export const EmptyState: React.FC<{ message: string }> = ({ message }) => (
-  <View style={styles.emptyState}>
-    <Text style={styles.emptyText}>{message}</Text>
-  </View>
-);
+export const EmptyState: React.FC<{ message: string }> = ({ message }) => {
+  const C = useColors();
+  return (
+    <View style={styles.emptyState}>
+      <Text style={[styles.emptyText, { color: C.textTertiary }]}>{message}</Text>
+    </View>
+  );
+};
 
 // ─── Row ──────────────────────────────────────────────────
 export const Row: React.FC<{ children: React.ReactNode; style?: ViewStyle }> = ({ children, style }) => (
@@ -175,9 +195,12 @@ export const Row: React.FC<{ children: React.ReactNode; style?: ViewStyle }> = (
 );
 
 // ─── Divider ─────────────────────────────────────────────
-export const Divider: React.FC = () => (
-  <View style={{ height: 0.5, backgroundColor: Colors.borderLight, marginVertical: Spacing.xs }} />
-);
+export const Divider: React.FC = () => {
+  const C = useColors();
+  return (
+    <View style={{ height: 0.5, backgroundColor: C.borderLight, marginVertical: Spacing.xs }} />
+  );
+};
 
 // ─── Styles ──────────────────────────────────────────────
 const styles = StyleSheet.create({
