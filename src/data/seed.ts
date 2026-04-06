@@ -2,7 +2,7 @@
 import {
   User, Store, InventoryItem, Recipe, Vendor,
   WasteEntry, AuditEvent, PrepRecipe,
-  EODSubmission,
+  EODSubmission, POSImport,
 } from '../types';
 
 export const STORES: Store[] = [
@@ -819,4 +819,128 @@ export const AUDIT_LOG: AuditEvent[] = [
   { id: 'a30', timestamp: '2026-03-30T14:00:00.000Z', userId: 'u1', userName: 'Admin (Owner)', userRole: 'admin', storeId: 's2', storeName: 'Baltimore', action: 'Item edit', detail: 'Cost updated', itemRef: 'Snow Crab Legs', value: '$22.00/lbs' },
   { id: 'a31', timestamp: '2026-04-03T09:00:00.000Z', userId: 'u1', userName: 'Admin (Owner)', userRole: 'admin', storeId: 's2', storeName: 'Baltimore', action: 'Stock adjusted', detail: 'Manual count correction', itemRef: 'Beef Patty', value: '180 each' },
   { id: 'a32', timestamp: '2026-04-02T12:00:00.000Z', userId: 'u1', userName: 'Admin (Owner)', userRole: 'admin', storeId: 's2', storeName: 'Baltimore', action: 'Item added', detail: 'New item created', itemRef: 'Sausage', value: '50 each' },
+];
+
+// POS Sales Imports — 6 days of data for Towson, 2 days for Baltimore
+// Menu items mapped to recipe IDs from RECIPES array
+export const POS_IMPORTS: POSImport[] = [
+  {
+    id: 'pos1', filename: 'towson_apr04.csv', importedAt: '2026-04-04T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-04', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 32, revenue: 415.68, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 18, revenue: 233.82, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 15, revenue: 179.85, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 12, revenue: 107.88, recipeId: 'r22', recipeMapped: true },
+      { menuItem: '10 Wings', qtySold: 8, revenue: 111.92, recipeId: 'r24', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 10, revenue: 129.90, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'Fried Shrimp Basket', qtySold: 6, revenue: 74.94, recipeId: 'r28', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 28, revenue: 139.72, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 22, revenue: 54.78, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Chicken Sandwich', qtySold: 14, revenue: 167.86, recipeId: 'r5', recipeMapped: true },
+      { menuItem: 'Mac N Cheese', qtySold: 10, revenue: 59.90, recipeId: 'r43', recipeMapped: true },
+      { menuItem: 'Crabmeat Fries', qtySold: 5, revenue: 74.95, recipeId: 'r33', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 15, revenue: 29.85, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos2', filename: 'towson_apr03.csv', importedAt: '2026-04-03T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-03', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 28, revenue: 363.72, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 15, revenue: 194.85, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 12, revenue: 143.88, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 14, revenue: 125.86, recipeId: 'r22', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 8, revenue: 103.92, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'Fried Shrimp Basket', qtySold: 8, revenue: 99.92, recipeId: 'r28', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 25, revenue: 124.75, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 20, revenue: 49.80, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Chicken Sandwich', qtySold: 10, revenue: 119.90, recipeId: 'r5', recipeMapped: true },
+      { menuItem: 'Surf & Turf', qtySold: 4, revenue: 79.96, recipeId: 'r32', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 12, revenue: 23.88, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos3', filename: 'towson_apr02.csv', importedAt: '2026-04-02T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-02', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 25, revenue: 324.75, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 12, revenue: 155.88, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 10, revenue: 119.90, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 10, revenue: 89.90, recipeId: 'r22', recipeMapped: true },
+      { menuItem: '6 Wings', qtySold: 6, revenue: 53.94, recipeId: 'r23', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 7, revenue: 90.93, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 22, revenue: 109.78, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 18, revenue: 44.82, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Chicken Tender Basket', qtySold: 8, revenue: 75.92, recipeId: 'r30', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 10, revenue: 19.90, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos4', filename: 'towson_apr01.csv', importedAt: '2026-04-01T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-01', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 30, revenue: 389.70, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 16, revenue: 207.84, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 14, revenue: 167.86, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 16, revenue: 143.84, recipeId: 'r22', recipeMapped: true },
+      { menuItem: '20 Wings', qtySold: 3, revenue: 59.97, recipeId: 'r25', recipeMapped: true },
+      { menuItem: 'Chicken Gyro', qtySold: 9, revenue: 107.91, recipeId: 'r15', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 11, revenue: 142.89, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 30, revenue: 149.70, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 24, revenue: 59.76, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Shrimp Over Rice', qtySold: 5, revenue: 69.95, recipeId: 'r13', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 14, revenue: 27.86, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos5', filename: 'towson_mar31.csv', importedAt: '2026-03-31T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-03-31', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 22, revenue: 285.78, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 10, revenue: 129.90, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 8, revenue: 95.92, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 8, revenue: 71.92, recipeId: 'r22', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 6, revenue: 77.94, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 18, revenue: 89.82, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 14, revenue: 34.86, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 8, revenue: 15.92, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos6', filename: 'towson_mar30.csv', importedAt: '2026-03-30T23:30:00.000Z', importedBy: 'Admin (Owner)', date: '2026-03-30', storeId: 's1',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 35, revenue: 454.65, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Philly Cheesesteak', qtySold: 20, revenue: 259.80, recipeId: 'r2', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 16, revenue: 191.84, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 18, revenue: 161.82, recipeId: 'r22', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 12, revenue: 155.88, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'Fried Shrimp Basket', qtySold: 10, revenue: 124.90, recipeId: 'r28', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 35, revenue: 174.65, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 28, revenue: 69.72, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Chicken Sandwich', qtySold: 16, revenue: 191.84, recipeId: 'r5', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 18, revenue: 35.82, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  // Baltimore POS
+  {
+    id: 'pos7', filename: 'baltimore_apr04.csv', importedAt: '2026-04-04T23:45:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-04', storeId: 's2',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 26, revenue: 337.74, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 14, revenue: 181.86, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 12, revenue: 143.88, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 10, revenue: 89.90, recipeId: 'r22', recipeMapped: true },
+      { menuItem: 'Fried Shrimp Basket', qtySold: 7, revenue: 87.43, recipeId: 'r28', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 24, revenue: 119.76, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 18, revenue: 44.82, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 10, revenue: 19.90, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
+  {
+    id: 'pos8', filename: 'baltimore_apr03.csv', importedAt: '2026-04-03T23:45:00.000Z', importedBy: 'Admin (Owner)', date: '2026-04-03', storeId: 's2',
+    items: [
+      { menuItem: '2AM Cheeseburger', qtySold: 22, revenue: 285.78, recipeId: 'r1', recipeMapped: true },
+      { menuItem: 'Lamb Gyro', qtySold: 10, revenue: 129.90, recipeId: 'r14', recipeMapped: true },
+      { menuItem: 'Chicken Over Rice', qtySold: 10, revenue: 119.90, recipeId: 'r9', recipeMapped: true },
+      { menuItem: 'Wings', qtySold: 12, revenue: 107.88, recipeId: 'r22', recipeMapped: true },
+      { menuItem: 'French Fries', qtySold: 20, revenue: 99.80, recipeId: 'r38', recipeMapped: true },
+      { menuItem: 'Can Soda', qtySold: 15, revenue: 37.35, recipeId: 'r45', recipeMapped: true },
+      { menuItem: 'Bottled Water', qtySold: 8, revenue: 15.92, recipeId: 'r46', recipeMapped: true },
+    ],
+  },
 ];

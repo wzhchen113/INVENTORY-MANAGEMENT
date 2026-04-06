@@ -13,6 +13,7 @@ import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
+import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
 
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
@@ -308,9 +309,13 @@ export function AuditLogScreen() {
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 export function ReportsScreen() {
   const [tab, setTab] = useState<'foodcost' | 'usage' | 'waste'>('foodcost');
-  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog } = useStore();
+  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore } = useStore();
 
   const totalWaste = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
+  const usageTrend = React.useMemo(
+    () => calculateWeeklyUsageTrend(posImports, recipes, currentStore.id, 4),
+    [posImports, recipes, currentStore.id]
+  );
 
   return (
     <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
@@ -372,28 +377,30 @@ export function ReportsScreen() {
 
       {tab === 'usage' && (
         <Card>
-          <CardHeader title="Weekly usage — top items" />
-          {[
-            { name: 'Chicken breast', wk1: 22, wk2: 18, wk3: 24, wk4: 18, avg: 20.5, unit: 'lbs' },
-            { name: 'Ground beef', wk1: 14, wk2: 16, wk3: 12, wk4: 16, avg: 14.5, unit: 'lbs' },
-            { name: 'Salmon fillet', wk1: 6, wk2: 8, wk3: 10, wk4: 4, avg: 7, unit: 'lbs' },
-            { name: 'Romaine lettuce', wk1: 4, wk2: 4, wk3: 5, wk4: 4, avg: 4.3, unit: 'cases' },
-          ].map((u) => (
-            <View key={u.name} style={styles.usageRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.usageName}>{u.name}</Text>
-                <Text style={styles.usageSub}>Avg: {u.avg} {u.unit}/week</Text>
-              </View>
-              <View style={styles.usageWeeks}>
-                {[u.wk1, u.wk2, u.wk3, u.wk4].map((v, i) => (
-                  <View key={i} style={styles.weekCol}>
-                    <View style={[styles.weekBar, { height: Math.max(4, v * 3), backgroundColor: i === 3 ? Colors.info : Colors.borderMedium }]} />
-                    <Text style={styles.weekLabel}>W{i + 1}</Text>
+          <CardHeader title={`Weekly ingredient usage — ${currentStore.name}`} />
+          {usageTrend.length === 0 ? (
+            <EmptyState message="No POS data imported yet. Import sales from the POS screen to see usage trends." />
+          ) : (
+            usageTrend.map((u) => {
+              const maxVal = Math.max(...u.weeklyAmounts, 1);
+              return (
+                <View key={u.itemId} style={styles.usageRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.usageName}>{u.itemName}</Text>
+                    <Text style={styles.usageSub}>Avg: {u.average} {u.unit}/week</Text>
                   </View>
-                ))}
-              </View>
-            </View>
-          ))}
+                  <View style={styles.usageWeeks}>
+                    {u.weeklyAmounts.map((v, i) => (
+                      <View key={i} style={styles.weekCol}>
+                        <View style={[styles.weekBar, { height: Math.max(4, (v / maxVal) * 50), backgroundColor: i === u.weeklyAmounts.length - 1 ? Colors.info : Colors.borderMedium }]} />
+                        <Text style={styles.weekLabel}>W{i + 1}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              );
+            })
+          )}
         </Card>
       )}
 

@@ -9,7 +9,7 @@ import {
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
   WASTE_LOG, AUDIT_LOG, PREP_RECIPES,
-  EOD_SUBMISSIONS,
+  EOD_SUBMISSIONS, POS_IMPORTS,
 } from '../data/seed';
 
 interface StoreActions {
@@ -97,7 +97,7 @@ export const useStore = create<FullStore>((set, get) => ({
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
   vendors: VENDORS,
-  posImports: [],
+  posImports: POS_IMPORTS,
   auditLog: AUDIT_LOG,
   orderSchedule: {
     Monday: [{ vendorName: 'US Foods', deliveryDay: 'Wednesday' }],
