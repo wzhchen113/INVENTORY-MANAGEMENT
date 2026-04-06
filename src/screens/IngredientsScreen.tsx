@@ -1,0 +1,498 @@
+// src/screens/IngredientsScreen.tsx
+import React, { useState, useMemo } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TextInput,
+  TouchableOpacity, Modal, Alert, Platform,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useStore } from '../store/useStore';
+import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
+import { InventoryItem } from '../types';
+import { WebScrollView } from '../components/WebScrollView';
+
+const CATEGORIES = [
+  'Protein', 'Seafood', 'Produce', 'Dairy',
+  'Dry goods', 'Bakery', 'Spices', 'Condiments',
+];
+
+const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
+
+export default function IngredientsScreen() {
+  const { currentUser, currentStore, stores, inventory, addItem, updateItem } = useStore();
+  const isAdmin = currentUser?.role === 'admin';
+
+  const storeInventory = useMemo(
+    () => inventory.filter((i) => i.storeId === currentStore.id),
+    [inventory, currentStore.id]
+  );
+
+  const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+
+  const [form, setForm] = useState({
+    name: '',
+    category: 'Protein',
+    unit: 'lbs',
+    costPerUnit: '',
+    currentStock: '',
+    parLevel: '',
+  });
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+
+  const filtered = useMemo(() => {
+    return storeInventory.filter((item) => {
+      if (search) {
+        const q = search.toLowerCase();
+        if (!item.name.toLowerCase().includes(q) && !item.category.toLowerCase().includes(q)) {
+          return false;
+        }
+      }
+      if (catFilter && item.category !== catFilter) return false;
+      return true;
+    });
+  }, [storeInventory, search, catFilter]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    storeInventory.forEach((i) => {
+      counts[i.category] = (counts[i.category] || 0) + 1;
+    });
+    return counts;
+  }, [storeInventory]);
+
+  const toggleStore = (id: string) => {
+    setSelectedStoreIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllStores = () => {
+    if (selectedStoreIds.length === stores.length) {
+      setSelectedStoreIds([]);
+    } else {
+      setSelectedStoreIds(stores.map((s) => s.id));
+    }
+  };
+
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '' });
+    setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
+    setShowModal(true);
+  };
+
+  const openEdit = (item: InventoryItem) => {
+    setEditItem(item);
+    setForm({
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      costPerUnit: String(item.costPerUnit),
+      currentStock: String(item.currentStock),
+      parLevel: String(item.parLevel),
+    });
+    setSelectedStoreIds([item.storeId]);
+    setShowModal(true);
+  };
+
+  const handleSave = () => {
+    if (!form.name.trim()) {
+      if (Platform.OS === 'web') alert('Ingredient name is required');
+      else Alert.alert('Error', 'Ingredient name is required');
+      return;
+    }
+    if (!form.costPerUnit || parseFloat(form.costPerUnit) <= 0) {
+      if (Platform.OS === 'web') alert('Cost per unit is required');
+      else Alert.alert('Error', 'Cost per unit is required');
+      return;
+    }
+
+    if (editItem) {
+      // Edit: update single item
+      updateItem(editItem.id, {
+        name: form.name.trim(),
+        category: form.category,
+        unit: form.unit,
+        costPerUnit: parseFloat(form.costPerUnit) || 0,
+        currentStock: parseFloat(form.currentStock) || 0,
+        parLevel: parseFloat(form.parLevel) || 0,
+        lastUpdatedBy: currentUser?.name || '',
+        lastUpdatedAt: new Date().toISOString(),
+      });
+    } else {
+      // Add: create in all selected stores
+      if (selectedStoreIds.length === 0) {
+        if (Platform.OS === 'web') alert('Select at least one store');
+        else Alert.alert('Error', 'Select at least one store');
+        return;
+      }
+
+      for (const storeId of selectedStoreIds) {
+        addItem({
+          name: form.name.trim(),
+          category: form.category,
+          unit: form.unit,
+          costPerUnit: parseFloat(form.costPerUnit) || 0,
+          currentStock: parseFloat(form.currentStock) || 0,
+          parLevel: parseFloat(form.parLevel) || 0,
+          vendorId: '',
+          vendorName: '',
+          usagePerPortion: 0,
+          lastUpdatedBy: currentUser?.name || '',
+          lastUpdatedAt: new Date().toISOString(),
+          eodRemaining: parseFloat(form.currentStock) || 0,
+          storeId,
+          expiryDate: '',
+        });
+      }
+    }
+    setShowModal(false);
+  };
+
+  const renderItem = ({ item }: { item: InventoryItem }) => (
+    <View style={styles.row}>
+      <View style={styles.rowLeft}>
+        <Text style={styles.rowName}>{item.name}</Text>
+        <Text style={styles.rowMeta}>
+          {item.category} · {item.currentStock} {item.unit}
+          {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
+        </Text>
+      </View>
+      <View style={styles.rowRight}>
+        <Text style={styles.rowCost}>${item.costPerUnit.toFixed(2)}</Text>
+        <Text style={styles.rowCostLabel}>per {item.unit}</Text>
+      </View>
+      {isAdmin && (
+        <TouchableOpacity style={styles.rowEditBtn} onPress={() => openEdit(item)}>
+          <Ionicons name="create-outline" size={14} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      {/* Header row */}
+      <View style={styles.headerRow}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={16} color={Colors.textTertiary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search ingredients..."
+            placeholderTextColor={Colors.textTertiary}
+            value={search}
+            onChangeText={setSearch}
+          />
+          {search ? (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={16} color={Colors.textTertiary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {isAdmin && (
+          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+            <Ionicons name="add" size={18} color={Colors.white} />
+            <Text style={styles.addBtnText}>Add</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Category pills */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillScroll} contentContainerStyle={styles.pillRow}>
+        <TouchableOpacity
+          style={[styles.pill, !catFilter && styles.pillActive]}
+          onPress={() => setCatFilter('')}
+        >
+          <Text style={[styles.pillText, !catFilter && styles.pillTextActive]}>
+            All ({storeInventory.length})
+          </Text>
+        </TouchableOpacity>
+        {CATEGORIES.filter((c) => categoryCounts[c]).map((cat) => {
+          const isActive = catFilter === cat;
+          return (
+            <TouchableOpacity
+              key={cat}
+              style={[styles.pill, isActive && styles.pillActive]}
+              onPress={() => setCatFilter(isActive ? '' : cat)}
+            >
+              <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                {cat} ({categoryCounts[cat] || 0})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Summary bar */}
+      <View style={styles.summaryBar}>
+        <Text style={styles.summaryText}>
+          {filtered.length} ingredient{filtered.length !== 1 ? 's' : ''}
+        </Text>
+        {!isAdmin && (
+          <View style={styles.readOnlyBadge}>
+            <Ionicons name="lock-closed-outline" size={10} color={Colors.textTertiary} />
+            <Text style={styles.readOnlyText}>View only</Text>
+          </View>
+        )}
+      </View>
+
+      {/* List */}
+      <WebScrollView id="ingredients-scroll" contentContainerStyle={styles.list}>
+        {filtered.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="restaurant-outline" size={32} color={Colors.textTertiary} />
+            <Text style={styles.emptyText}>No ingredients found</Text>
+            {isAdmin && (
+              <TouchableOpacity style={styles.emptyBtn} onPress={openAdd}>
+                <Text style={styles.emptyBtnText}>Add your first ingredient</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          filtered.map((item) => (
+            <View key={item.id}>{renderItem({ item })}</View>
+          ))
+        )}
+      </WebScrollView>
+
+      {/* Add/Edit Modal */}
+      <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {editItem ? 'Edit ingredient' : 'Add ingredient'}
+            </Text>
+            <TouchableOpacity onPress={() => setShowModal(false)}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            {/* Store selection — only for new items */}
+            {!editItem && (
+              <View style={styles.formField}>
+                <View style={styles.storeLabelRow}>
+                  <Text style={styles.formLabel}>Add to stores *</Text>
+                  <TouchableOpacity onPress={selectAllStores}>
+                    <Text style={styles.selectAllText}>
+                      {selectedStoreIds.length === stores.length ? 'Deselect all' : 'Select all'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.storeGrid}>
+                  {stores.map((store) => {
+                    const isSelected = selectedStoreIds.includes(store.id);
+                    return (
+                      <TouchableOpacity
+                        key={store.id}
+                        style={[styles.storeChip, isSelected && styles.storeChipActive]}
+                        onPress={() => toggleStore(store.id)}
+                      >
+                        <View style={[styles.storeChipCheck, isSelected && styles.storeChipCheckActive]}>
+                          {isSelected && <Ionicons name="checkmark" size={10} color={Colors.white} />}
+                        </View>
+                        <Text style={[styles.storeChipText, isSelected && styles.storeChipTextActive]}>
+                          {store.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={styles.storeHint}>
+                  {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
+                </Text>
+              </View>
+            )}
+
+            {/* Name */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Ingredient name *</Text>
+              <TextInput
+                style={styles.formInput}
+                value={form.name}
+                onChangeText={(v) => setForm((p) => ({ ...p, name: v }))}
+                placeholder="e.g. Chicken breast"
+                placeholderTextColor={Colors.textTertiary}
+              />
+            </View>
+
+            {/* Category */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  {CATEGORIES.map((cat) => (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.chip, form.category === cat && styles.chipActive]}
+                      onPress={() => setForm((p) => ({ ...p, category: cat }))}
+                    >
+                      <Text style={[styles.chipText, form.category === cat && styles.chipTextActive]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            {/* Unit */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Unit</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  {UNITS.map((u) => (
+                    <TouchableOpacity
+                      key={u}
+                      style={[styles.chip, form.unit === u && styles.chipActive]}
+                      onPress={() => setForm((p) => ({ ...p, unit: u }))}
+                    >
+                      <Text style={[styles.chipText, form.unit === u && styles.chipTextActive]}>
+                        {u}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            {/* Cost */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Cost per unit ($) *</Text>
+              <TextInput
+                style={styles.formInput}
+                value={form.costPerUnit}
+                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: v }))}
+                placeholder="0.00"
+                placeholderTextColor={Colors.textTertiary}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            {/* Current stock */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Current stock</Text>
+              <TextInput
+                style={styles.formInput}
+                value={form.currentStock}
+                onChangeText={(v) => setForm((p) => ({ ...p, currentStock: v }))}
+                placeholder="0"
+                placeholderTextColor={Colors.textTertiary}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            {/* Par level */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Par level (minimum stock)</Text>
+              <TextInput
+                style={styles.formInput}
+                value={form.parLevel}
+                onChangeText={(v) => setForm((p) => ({ ...p, parLevel: v }))}
+                placeholder="0"
+                placeholderTextColor={Colors.textTertiary}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            {/* Save button */}
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <Text style={styles.saveBtnText}>
+                {editItem
+                  ? 'Save changes'
+                  : selectedStoreIds.length > 1
+                    ? `Add to ${selectedStoreIds.length} stores`
+                    : 'Add ingredient'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.bgTertiary },
+
+  // Header
+  headerRow: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.lg, paddingBottom: 0 },
+  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 8, borderWidth: 0.5, borderColor: Colors.borderLight },
+  searchInput: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary, padding: 0 },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8 },
+  addBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+
+  // Pills
+  pillScroll: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, maxHeight: 40 },
+  pillRow: { gap: Spacing.sm },
+  pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
+  pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
+  pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
+  pillTextActive: { color: Colors.white },
+
+  // Summary
+  summaryBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
+  summaryText: { fontSize: FontSize.xs, color: Colors.textTertiary },
+  readOnlyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.bgSecondary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.round },
+  readOnlyText: { fontSize: 9, color: Colors.textTertiary, fontWeight: '500' },
+
+  // List
+  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
+  rowLeft: { flex: 1 },
+  rowName: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary },
+  rowMeta: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 },
+  rowRight: { alignItems: 'flex-end', marginRight: Spacing.sm },
+  rowCost: { fontSize: FontSize.base, fontWeight: '600', color: Colors.textPrimary },
+  rowCostLabel: { fontSize: 9, color: Colors.textTertiary },
+  rowEditBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.bgSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: Colors.borderLight },
+
+  // Empty
+  emptyBox: { alignItems: 'center', paddingVertical: Spacing.xxxl * 2 },
+  emptyText: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md },
+  emptyBtn: { marginTop: Spacing.md, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 16, paddingVertical: 8 },
+  emptyBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+
+  // Modal
+  modal: { flex: 1, backgroundColor: Colors.bgPrimary },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textPrimary },
+  modalCancel: { fontSize: FontSize.base, color: Colors.info },
+  modalBody: { padding: Spacing.lg },
+
+  // Form
+  formField: { marginBottom: Spacing.lg },
+  formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 6 },
+  formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
+  chipRow: { flexDirection: 'row', gap: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight },
+  chipActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
+  chipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  chipTextActive: { color: Colors.white, fontWeight: '500' },
+  saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
+  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+
+  // Store selection
+  storeLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  selectAllText: { fontSize: FontSize.xs, color: Colors.info, fontWeight: '500' },
+  storeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  storeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: Radius.md, backgroundColor: Colors.bgSecondary,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    minWidth: 120,
+  },
+  storeChipActive: { backgroundColor: Colors.successBg, borderColor: Colors.success },
+  storeChipCheck: {
+    width: 18, height: 18, borderRadius: 4,
+    borderWidth: 1.5, borderColor: Colors.borderMedium,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  storeChipCheckActive: { backgroundColor: Colors.success, borderColor: Colors.success },
+  storeChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  storeChipTextActive: { color: Colors.textPrimary },
+  storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
+});

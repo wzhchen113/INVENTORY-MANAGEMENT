@@ -7,6 +7,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 
 export default function ReceivingScreen() {
@@ -83,7 +84,7 @@ export default function ReceivingScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <WebScrollView id="receiving-scroll" contentContainerStyle={styles.content}>
       <Card>
         <CardHeader
           title={`Receiving ${po.poNumber}`}
@@ -171,7 +172,7 @@ export default function ReceivingScreen() {
       </View>
 
       <View style={{ height: 40 }} />
-    </ScrollView>
+    </WebScrollView>
   );
 }
 

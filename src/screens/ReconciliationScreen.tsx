@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const MOCK_LINES = [
@@ -33,7 +34,7 @@ export default function ReconciliationScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <WebScrollView id="recon-scroll" contentContainerStyle={styles.content}>
       {/* Summary bar */}
       <View style={styles.summaryBar}>
         <View style={styles.summaryItem}>
@@ -128,7 +129,7 @@ export default function ReconciliationScreen() {
       </Card>
 
       <View style={{ height: 32 }} />
-    </ScrollView>
+    </WebScrollView>
   );
 }
 

@@ -49,6 +49,9 @@ interface StoreActions {
   // POS Import
   importPOS: (posImport: Omit<POSImport, 'id'>) => void;
 
+  // Stores
+  addStore: (store: Omit<Store, 'id'>) => void;
+
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
@@ -262,8 +265,29 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // EOD
   submitEOD: (submission) => {
-    const id = makeId('eod', Date.now());
-    set((s) => ({ eodSubmissions: [{ ...submission, id }, ...s.eodSubmissions] }));
+    // Check if this is an update to an existing submission
+    const existing = get().eodSubmissions.find(
+      (s) =>
+        s.submittedByUserId === submission.submittedByUserId &&
+        s.storeId === submission.storeId &&
+        s.date === submission.date
+    );
+
+    if (existing) {
+      // Update existing submission
+      set((s) => ({
+        eodSubmissions: s.eodSubmissions.map((sub) =>
+          sub.id === existing.id
+            ? { ...sub, entries: submission.entries, timestamp: submission.timestamp }
+            : sub
+        ),
+      }));
+    } else {
+      // New submission
+      const id = makeId('eod', Date.now());
+      set((s) => ({ eodSubmissions: [{ ...submission, id }, ...s.eodSubmissions] }));
+    }
+
     submission.entries.forEach((entry) => {
       set((s) => ({
         inventory: s.inventory.map((item) =>
@@ -285,7 +309,7 @@ export const useStore = create<FullStore>((set, get) => ({
         storeId: submission.storeId,
         storeName: submission.storeName,
         action: 'EOD entry',
-        detail: 'Remaining count submitted',
+        detail: existing ? 'Count updated' : 'Remaining count submitted',
         itemRef: entry.itemName,
         value: `${entry.actualRemaining} ${entry.unit}`,
       });
@@ -404,6 +428,12 @@ export const useStore = create<FullStore>((set, get) => ({
       itemRef: posImport.filename,
       value: `${posImport.items.length} items`,
     });
+  },
+
+  // Stores
+  addStore: (store) => {
+    const id = `s${Date.now()}`;
+    set((s) => ({ stores: [...s.stores, { ...store, id }] }));
   },
 
   // Users

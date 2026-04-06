@@ -10,6 +10,7 @@ import {
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, PurchaseOrder, RecipeIngredient, RecipePrepItem } from '../types';
 
@@ -62,22 +63,17 @@ export function RecipesScreen() {
       <View style={styles.infoBar}>
         <Text style={styles.infoText}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
-      <FlatList
-        data={recipes}
-        keyExtractor={(r) => r.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        ListHeaderComponent={
-          <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-            <Text style={styles.addRowText}>+ New recipe / menu item</Text>
-          </TouchableOpacity>
-        }
-        renderItem={({ item: recipe }) => {
+      <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
+          <Text style={styles.addRowText}>+ New recipe / menu item</Text>
+        </TouchableOpacity>
+        {recipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
           const fcOk = fcPct < 35;
           const preps = recipe.prepItems || [];
           return (
-            <View style={styles.recipeCard}>
+            <View key={recipe.id} style={styles.recipeCard}>
               <View style={styles.recipeTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.recipeName}>{recipe.menuItem}</Text>
@@ -117,8 +113,8 @@ export function RecipesScreen() {
               </TouchableOpacity>
             </View>
           );
-        }}
-      />
+        })}
+      </WebScrollView>
 
       {/* New recipe modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
@@ -189,17 +185,12 @@ export function VendorsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <FlatList
-        data={vendors}
-        keyExtractor={(v) => v.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        ListHeaderComponent={
-          <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-            <Text style={styles.addRowText}>+ Add vendor</Text>
-          </TouchableOpacity>
-        }
-        renderItem={({ item: vendor }) => (
-          <View style={styles.vendorCard}>
+      <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
+          <Text style={styles.addRowText}>+ Add vendor</Text>
+        </TouchableOpacity>
+        {vendors.map((vendor) => (
+          <View key={vendor.id} style={styles.vendorCard}>
             <View style={styles.vendorTop}>
               <View style={styles.vendorLogo}>
                 <Text style={styles.vendorLogoText}>{vendor.name.slice(0, 2).toUpperCase()}</Text>
@@ -221,8 +212,8 @@ export function VendorsScreen() {
               <Text style={styles.metaValue}>{vendor.lastOrderDate || '—'}</Text>
             </View>
           </View>
-        )}
-      />
+        ))}
+      </WebScrollView>
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
@@ -275,48 +266,48 @@ export function PurchaseOrdersScreen() {
           <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>History ({history.length})</Text>
         </TouchableOpacity>
       </View>
-      <FlatList
-        data={shown}
-        keyExtractor={(p) => p.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        renderItem={({ item: po }) => (
-          <View style={styles.poCard}>
-            <View style={styles.poTop}>
-              <View>
-                <Text style={styles.poNum}>{po.poNumber}</Text>
-                <Text style={styles.poVendor}>{po.vendorName}</Text>
+      <WebScrollView id="po-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        {shown.length === 0 ? (
+          <EmptyState message="No purchase orders" />
+        ) : (
+          shown.map((po) => (
+            <View key={po.id} style={styles.poCard}>
+              <View style={styles.poTop}>
+                <View>
+                  <Text style={styles.poNum}>{po.poNumber}</Text>
+                  <Text style={styles.poVendor}>{po.vendorName}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={statusVariant(po.status) as any} />
+                  <Text style={styles.poCost}>${po.totalCost.toFixed(2)}</Text>
+                </View>
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={statusVariant(po.status) as any} />
-                <Text style={styles.poCost}>${po.totalCost.toFixed(2)}</Text>
+              <View style={styles.poMeta}>
+                <View style={styles.poMetaItem}>
+                  <Text style={styles.poMetaLabel}>Created by</Text>
+                  <WhoChip name={po.createdBy} color={Colors.userAdmin} />
+                </View>
+                <View style={styles.poMetaItem}>
+                  <Text style={styles.poMetaLabel}>Delivery</Text>
+                  <Text style={styles.poMetaValue}>{po.expectedDelivery}</Text>
+                </View>
+                <View style={styles.poMetaItem}>
+                  <Text style={styles.poMetaLabel}>Items</Text>
+                  <Text style={styles.poMetaValue}>{po.items.length}</Text>
+                </View>
               </View>
+              {po.status === 'draft' && (
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPress={() => updatePOStatus(po.id, 'sent')}
+                >
+                  <Text style={styles.sendBtnText}>Send to vendor</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <View style={styles.poMeta}>
-              <View style={styles.poMetaItem}>
-                <Text style={styles.poMetaLabel}>Created by</Text>
-                <WhoChip name={po.createdBy} color={Colors.userAdmin} />
-              </View>
-              <View style={styles.poMetaItem}>
-                <Text style={styles.poMetaLabel}>Delivery</Text>
-                <Text style={styles.poMetaValue}>{po.expectedDelivery}</Text>
-              </View>
-              <View style={styles.poMetaItem}>
-                <Text style={styles.poMetaLabel}>Items</Text>
-                <Text style={styles.poMetaValue}>{po.items.length}</Text>
-              </View>
-            </View>
-            {po.status === 'draft' && (
-              <TouchableOpacity
-                style={styles.sendBtn}
-                onPress={() => updatePOStatus(po.id, 'sent')}
-              >
-                <Text style={styles.sendBtnText}>Send to vendor</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          ))
         )}
-        ListEmptyComponent={<EmptyState message="No purchase orders" />}
-      />
+      </WebScrollView>
     </View>
   );
 }
@@ -332,56 +323,56 @@ export function RestockScreen() {
   };
 
   return (
-    <FlatList
-      data={needRestock}
-      keyExtractor={(i) => i.id}
-      contentContainerStyle={{ padding: Spacing.lg }}
-      ListHeaderComponent={
+    <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
+      <WebScrollView id="restock-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         <View style={styles.infoBar}>
           <Text style={styles.infoText}>{needRestock.length} items need restocking. Generate a PO directly from this list.</Text>
         </View>
-      }
-      renderItem={({ item }) => {
-        const status = getItemStatus(item);
-        const orderQty = Math.max(0, item.parLevel * 2 - item.currentStock);
-        const estCost = (orderQty * item.costPerUnit).toFixed(2);
-        const color = userColors[item.lastUpdatedBy] || Colors.userAdmin;
-        return (
-          <View style={styles.restockCard}>
-            <View style={styles.restockTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.restockName}>{item.name}</Text>
-                <Text style={styles.restockVendor}>{item.vendorName}</Text>
+        {needRestock.length === 0 ? (
+          <EmptyState message="All items are above par level" />
+        ) : (
+          needRestock.map((item) => {
+            const status = getItemStatus(item);
+            const orderQty = Math.max(0, item.parLevel * 2 - item.currentStock);
+            const estCost = (orderQty * item.costPerUnit).toFixed(2);
+            const color = userColors[item.lastUpdatedBy] || Colors.userAdmin;
+            return (
+              <View key={item.id} style={styles.restockCard}>
+                <View style={styles.restockTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.restockName}>{item.name}</Text>
+                    <Text style={styles.restockVendor}>{item.vendorName}</Text>
+                  </View>
+                  <Badge label={status === 'out' ? 'Out' : 'Low'} variant={status} />
+                </View>
+                <View style={styles.restockStats}>
+                  <View style={styles.restockStat}>
+                    <Text style={styles.restockStatLabel}>Current</Text>
+                    <Text style={styles.restockStatValue}>{item.currentStock} {item.unit}</Text>
+                  </View>
+                  <View style={styles.restockStat}>
+                    <Text style={styles.restockStatLabel}>Par</Text>
+                    <Text style={styles.restockStatValue}>{item.parLevel} {item.unit}</Text>
+                  </View>
+                  <View style={styles.restockStat}>
+                    <Text style={styles.restockStatLabel}>EOD remaining</Text>
+                    <Text style={styles.restockStatValue}>{item.eodRemaining} {item.unit}</Text>
+                  </View>
+                  <View style={styles.restockStat}>
+                    <Text style={[styles.restockStatValue, { color: Colors.danger, fontWeight: '600' }]}>{Math.ceil(orderQty)} {item.unit}</Text>
+                    <Text style={styles.restockStatLabel}>Order qty</Text>
+                  </View>
+                </View>
+                <View style={styles.restockFooter}>
+                  <WhoChip name={item.lastUpdatedBy} color={color} time={`EOD: ${item.lastUpdatedAt}`} />
+                  <Text style={[styles.estCost, { color: Colors.textSecondary }]}>Est. ${estCost}</Text>
+                </View>
               </View>
-              <Badge label={status === 'out' ? 'Out' : 'Low'} variant={status} />
-            </View>
-            <View style={styles.restockStats}>
-              <View style={styles.restockStat}>
-                <Text style={styles.restockStatLabel}>Current</Text>
-                <Text style={styles.restockStatValue}>{item.currentStock} {item.unit}</Text>
-              </View>
-              <View style={styles.restockStat}>
-                <Text style={styles.restockStatLabel}>Par</Text>
-                <Text style={styles.restockStatValue}>{item.parLevel} {item.unit}</Text>
-              </View>
-              <View style={styles.restockStat}>
-                <Text style={styles.restockStatLabel}>EOD remaining</Text>
-                <Text style={styles.restockStatValue}>{item.eodRemaining} {item.unit}</Text>
-              </View>
-              <View style={styles.restockStat}>
-                <Text style={[styles.restockStatValue, { color: Colors.danger, fontWeight: '600' }]}>{Math.ceil(orderQty)} {item.unit}</Text>
-                <Text style={styles.restockStatLabel}>Order qty</Text>
-              </View>
-            </View>
-            <View style={styles.restockFooter}>
-              <WhoChip name={item.lastUpdatedBy} color={color} time={`EOD: ${item.lastUpdatedAt}`} />
-              <Text style={[styles.estCost, { color: Colors.textSecondary }]}>Est. ${estCost}</Text>
-            </View>
-          </View>
-        );
-      }}
-      ListEmptyComponent={<EmptyState message="All items are above par level" />}
-    />
+            );
+          })
+        )}
+      </WebScrollView>
+    </View>
   );
 }
 
@@ -416,31 +407,31 @@ export function AuditLogScreen() {
           </TouchableOpacity>
         ))}
       </ScrollView>
-      <FlatList
-        data={filtered}
-        keyExtractor={(e) => e.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        renderItem={({ item: event }) => {
-          const color = userColors[event.userName] || Colors.userAdmin;
-          return (
-            <View style={styles.auditRow}>
-              <View style={[styles.auditDot, { backgroundColor: actionColor(event.action) }]} />
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <WhoChip name={event.userName} color={color} />
-                  <View style={[styles.actionTag, { backgroundColor: actionColor(event.action) + '22' }]}>
-                    <Text style={[styles.actionTagText, { color: actionColor(event.action) }]}>{event.action}</Text>
+      <WebScrollView id="audit-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        {filtered.length === 0 ? (
+          <EmptyState message="No audit events" />
+        ) : (
+          filtered.map((event) => {
+            const color = userColors[event.userName] || Colors.userAdmin;
+            return (
+              <View key={event.id} style={styles.auditRow}>
+                <View style={[styles.auditDot, { backgroundColor: actionColor(event.action) }]} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <WhoChip name={event.userName} color={color} />
+                    <View style={[styles.actionTag, { backgroundColor: actionColor(event.action) + '22' }]}>
+                      <Text style={[styles.actionTagText, { color: actionColor(event.action) }]}>{event.action}</Text>
+                    </View>
+                    <Text style={styles.auditStore}>{event.storeName}</Text>
                   </View>
-                  <Text style={styles.auditStore}>{event.storeName}</Text>
+                  <Text style={styles.auditDetail}>{event.detail} · {event.itemRef}</Text>
+                  <Text style={styles.auditMeta}>{event.value} · {event.timestamp}</Text>
                 </View>
-                <Text style={styles.auditDetail}>{event.detail} · {event.itemRef}</Text>
-                <Text style={styles.auditMeta}>{event.value} · {event.timestamp}</Text>
               </View>
-            </View>
-          );
-        }}
-        ListEmptyComponent={<EmptyState message="No audit events" />}
-      />
+            );
+          })
+        )}
+      </WebScrollView>
     </View>
   );
 }
@@ -453,7 +444,7 @@ export function ReportsScreen() {
   const totalWaste = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: Colors.bgTertiary }} contentContainerStyle={{ padding: Spacing.lg }}>
+    <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
       {/* Tabs */}
       <View style={styles.tabBar}>
         {(['foodcost', 'usage', 'waste'] as const).map((t) => (
@@ -558,7 +549,7 @@ export function ReportsScreen() {
           </Card>
         </>
       )}
-    </ScrollView>
+    </WebScrollView>
   );
 }
 
@@ -578,17 +569,12 @@ export function UsersScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bgTertiary }}>
-      <FlatList
-        data={users}
-        keyExtractor={(u) => u.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        ListHeaderComponent={
-          <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
-            <Text style={styles.addRowText}>+ Invite user</Text>
-          </TouchableOpacity>
-        }
-        renderItem={({ item: user }) => (
-          <View style={styles.userCard}>
+      <WebScrollView id="users-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        <TouchableOpacity style={styles.addRow} onPress={() => setShowModal(true)}>
+          <Text style={styles.addRowText}>+ Invite user</Text>
+        </TouchableOpacity>
+        {users.map((user) => (
+          <View key={user.id} style={styles.userCard}>
             <View style={styles.userTop}>
               <View style={[styles.userAvatar, { backgroundColor: user.color + '22' }]}>
                 <Text style={[styles.userInitials, { color: user.color }]}>{user.initials}</Text>
@@ -616,8 +602,8 @@ export function UsersScreen() {
               <Badge label={user.status === 'active' ? 'Active' : 'Pending invite'} variant={user.status === 'active' ? 'ok' : 'pending'} />
             </View>
           </View>
-        )}
-      />
+        ))}
+      </WebScrollView>
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>

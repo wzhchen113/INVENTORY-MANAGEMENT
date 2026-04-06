@@ -8,6 +8,7 @@ import { useStore } from '../store/useStore';
 import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
+import { WebScrollView } from '../components/WebScrollView';
 
 const PREP_CATEGORIES = ['Marinades', 'Sauces', 'Bases', 'Seasonings', 'Prep'];
 
@@ -130,85 +131,72 @@ export default function PrepRecipesScreen() {
       </ScrollView>
 
       {/* List */}
-      <FlatList
-        data={filtered}
-        keyExtractor={(pr) => pr.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        ListHeaderComponent={
-          isAdmin ? (
-            <TouchableOpacity style={styles.addRow} onPress={openNew}>
-              <Text style={styles.addRowText}>+ New prep recipe</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-        ListEmptyComponent={
+      <WebScrollView id="prep-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        {isAdmin && (
+          <TouchableOpacity style={styles.addRow} onPress={openNew}>
+            <Text style={styles.addRowText}>+ New prep recipe</Text>
+          </TouchableOpacity>
+        )}
+        {filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No prep recipes yet</Text>
           </View>
-        }
-        renderItem={({ item: pr }) => {
-          const batchCost = getPrepRecipeCost(pr.id);
-          const costPerUnit = getPrepRecipeCostPerUnit(pr.id);
-          return (
-            <View style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.cardName}>{pr.name}</Text>
-                  <Text style={styles.cardCategory}>{pr.category}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <View style={styles.yieldBadge}>
-                    <Text style={styles.yieldBadgeText}>
-                      Yields {pr.yieldQuantity} {pr.yieldUnit}
-                    </Text>
+        ) : (
+          filtered.map((pr) => {
+            const batchCost = getPrepRecipeCost(pr.id);
+            const costPerUnit = getPrepRecipeCostPerUnit(pr.id);
+            return (
+              <View key={pr.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardName}>{pr.name}</Text>
+                    <Text style={styles.cardCategory}>{pr.category}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <View style={styles.yieldBadge}>
+                      <Text style={styles.yieldBadgeText}>
+                        Yields {pr.yieldQuantity} {pr.yieldUnit}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-
-              {/* Ingredients */}
-              <View style={styles.ingList}>
-                {pr.ingredients.map((ing, idx) => (
-                  <View key={idx} style={styles.ingRow}>
-                    <Text style={styles.ingName}>{ing.itemName}</Text>
-                    <Text style={styles.ingQty}>{ing.quantity} {ing.unit}</Text>
+                <View style={styles.ingList}>
+                  {pr.ingredients.map((ing, idx) => (
+                    <View key={idx} style={styles.ingRow}>
+                      <Text style={styles.ingName}>{ing.itemName}</Text>
+                      <Text style={styles.ingQty}>{ing.quantity} {ing.unit}</Text>
+                    </View>
+                  ))}
+                  {pr.ingredients.length === 0 && (
+                    <Text style={styles.noIng}>No ingredients added yet</Text>
+                  )}
+                </View>
+                <View style={styles.costRow}>
+                  <View style={styles.costItem}>
+                    <Text style={styles.costLabel}>Batch cost</Text>
+                    <Text style={styles.costValue}>${batchCost.toFixed(2)}</Text>
                   </View>
-                ))}
-                {pr.ingredients.length === 0 && (
-                  <Text style={styles.noIng}>No ingredients added yet</Text>
+                  <View style={styles.costItem}>
+                    <Text style={styles.costLabel}>Cost per {pr.yieldUnit}</Text>
+                    <Text style={styles.costValue}>${costPerUnit.toFixed(2)}</Text>
+                  </View>
+                </View>
+                {pr.notes ? <Text style={styles.notes}>{pr.notes}</Text> : null}
+                {isAdmin && (
+                  <View style={styles.actions}>
+                    <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(pr)}>
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(pr)}>
+                      <Text style={styles.deleteBtnText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
-
-              {/* Cost info */}
-              <View style={styles.costRow}>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>Batch cost</Text>
-                  <Text style={styles.costValue}>${batchCost.toFixed(2)}</Text>
-                </View>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>Cost per {pr.yieldUnit}</Text>
-                  <Text style={styles.costValue}>${costPerUnit.toFixed(2)}</Text>
-                </View>
-              </View>
-
-              {pr.notes ? (
-                <Text style={styles.notes}>{pr.notes}</Text>
-              ) : null}
-
-              {/* Admin actions */}
-              {isAdmin && (
-                <View style={styles.actions}>
-                  <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(pr)}>
-                    <Text style={styles.editBtnText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(pr)}>
-                    <Text style={styles.deleteBtnText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          );
-        }}
-      />
+            );
+          })
+        )}
+      </WebScrollView>
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">

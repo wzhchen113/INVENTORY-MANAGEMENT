@@ -6,13 +6,14 @@ import {
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
 const CATEGORIES = ['Protein', 'Produce', 'Dairy', 'Dry goods', 'Seafood', 'Bakery', 'Spices'];
 
 export default function ItemsScreen() {
-  const { currentUser, inventory, getItemStatus, addItem, updateItem } = useStore();
+  const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem } = useStore();
   const isAdmin = currentUser?.role === 'admin';
 
   const [search, setSearch] = useState('');
@@ -26,7 +27,9 @@ export default function ItemsScreen() {
     currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '',
   });
 
-  const filtered = inventory.filter((item) => {
+  const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
+
+  const filtered = storeInventory.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (catFilter && item.category !== catFilter) return false;
     return true;
@@ -162,13 +165,15 @@ export default function ItemsScreen() {
         ))}
       </ScrollView>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>No items found</Text>}
-      />
+      <WebScrollView id="items-scroll" contentContainerStyle={styles.list}>
+        {filtered.length === 0 ? (
+          <Text style={styles.empty}>No items found</Text>
+        ) : (
+          filtered.map((item) => (
+            <View key={item.id}>{renderItem({ item })}</View>
+          ))
+        )}
+      </WebScrollView>
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">

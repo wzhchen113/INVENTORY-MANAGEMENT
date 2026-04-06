@@ -4,21 +4,24 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Modal, TextInput, FlatList, Alert,
 } from 'react-native';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { WasteReason } from '../types';
 
 const REASONS: WasteReason[] = ['Expired', 'Dropped/spilled', 'Over-prepped', 'Quality issue', 'Theft', 'Other'];
 
 export default function WasteLogScreen() {
-  const { currentUser, inventory, wasteLog, logWaste } = useStore();
+  const { currentUser, currentStore, inventory, wasteLog, logWaste } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ itemId: '', qty: '', reason: 'Expired' as WasteReason, notes: '' });
   const [reasonFilter, setReasonFilter] = useState('');
 
-  const totalValue = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
-  const filtered = wasteLog.filter((e) => !reasonFilter || e.reason === reasonFilter);
+  const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
+  const storeWaste = wasteLog.filter((w) => w.storeId === currentStore.id);
+  const totalValue = storeWaste.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
+  const filtered = storeWaste.filter((e) => !reasonFilter || e.reason === reasonFilter);
 
   const userColors: Record<string, string> = {
     'Maria G.': Colors.userMaria, 'James T.': Colors.userJames,
@@ -26,7 +29,7 @@ export default function WasteLogScreen() {
   };
 
   const handleLog = () => {
-    const item = inventory.find((i) => i.id === form.itemId);
+    const item = storeInventory.find((i) => i.id === form.itemId);
     if (!item) { Alert.alert('Error', 'Please select an item'); return; }
     const qty = parseFloat(form.qty);
     if (!qty || qty <= 0) { Alert.alert('Error', 'Enter a valid quantity'); return; }
@@ -36,7 +39,7 @@ export default function WasteLogScreen() {
       costPerUnit: item.costPerUnit, reason: form.reason,
       loggedBy: currentUser?.name || '', loggedByUserId: currentUser?.id || '',
       timestamp: `Today · ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
-      notes: form.notes, storeId: 's1',
+      notes: form.notes, storeId: currentStore.id,
     });
     setShowModal(false);
     setForm({ itemId: '', qty: '', reason: 'Expired', notes: '' });
@@ -81,32 +84,32 @@ export default function WasteLogScreen() {
         ))}
       </ScrollView>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(e) => e.id}
-        contentContainerStyle={{ padding: Spacing.lg }}
-        renderItem={({ item: entry }) => {
-          const color = userColors[entry.loggedBy] || Colors.userAdmin;
-          const cost = (entry.quantity * entry.costPerUnit).toFixed(2);
-          return (
-            <View style={styles.entryCard}>
-              <View style={styles.entryTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.entryName}>{entry.itemName}</Text>
-                  <Text style={styles.entryQty}>{entry.quantity} {entry.unit} · ${cost}</Text>
+      <WebScrollView id="waste-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
+        {filtered.length === 0 ? (
+          <Text style={styles.empty}>No waste entries yet</Text>
+        ) : (
+          filtered.map((entry) => {
+            const color = userColors[entry.loggedBy] || Colors.userAdmin;
+            const cost = (entry.quantity * entry.costPerUnit).toFixed(2);
+            return (
+              <View key={entry.id} style={styles.entryCard}>
+                <View style={styles.entryTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.entryName}>{entry.itemName}</Text>
+                    <Text style={styles.entryQty}>{entry.quantity} {entry.unit} · ${cost}</Text>
+                  </View>
+                  <Badge label={entry.reason} variant={reasonBadgeVariant(entry.reason) as any} />
                 </View>
-                <Badge label={entry.reason} variant={reasonBadgeVariant(entry.reason) as any} />
+                {entry.notes ? <Text style={styles.entryNotes}>{entry.notes}</Text> : null}
+                <View style={styles.entryFooter}>
+                  <WhoChip name={entry.loggedBy} color={color} />
+                  <Text style={styles.entryTime}>{entry.timestamp}</Text>
+                </View>
               </View>
-              {entry.notes ? <Text style={styles.entryNotes}>{entry.notes}</Text> : null}
-              <View style={styles.entryFooter}>
-                <WhoChip name={entry.loggedBy} color={color} />
-                <Text style={styles.entryTime}>{entry.timestamp}</Text>
-              </View>
-            </View>
-          );
-        }}
-        ListEmptyComponent={<Text style={styles.empty}>No waste entries yet</Text>}
-      />
+            );
+          })
+        )}
+      </WebScrollView>
 
       {/* Log waste modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
@@ -121,7 +124,7 @@ export default function WasteLogScreen() {
             {/* Item picker */}
             <Text style={styles.formLabel}>Item *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
-              {inventory.map((item) => (
+              {storeInventory.map((item) => (
                 <TouchableOpacity
                   key={item.id}
                   style={[styles.itemChip, form.itemId === item.id && styles.itemChipActive]}

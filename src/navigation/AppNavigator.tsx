@@ -1,6 +1,6 @@
 // src/navigation/AppNavigator.tsx
-import React, { useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -18,6 +18,7 @@ import WasteLogScreen from '../screens/WasteLogScreen';
 import POSImportScreen from '../screens/POSImportScreen';
 import ReconciliationScreen from '../screens/ReconciliationScreen';
 import PrepRecipesScreen from '../screens/PrepRecipesScreen';
+import IngredientsScreen from '../screens/IngredientsScreen';
 import {
   RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
   RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
@@ -35,6 +36,68 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   More: 'menu-outline',
 };
 
+function StoreSelector() {
+  const { currentStore, stores, currentUser, setCurrentStore } = useStore();
+  const [open, setOpen] = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+  const userStores = isAdmin ? stores : stores.filter((s) => currentUser?.stores.includes(s.id));
+
+  if (userStores.length <= 1) {
+    return (
+      <View style={styles.storePill}>
+        <View style={styles.storePillDot} />
+        <Text style={styles.storePillText}>{currentStore.name || 'Store'}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <TouchableOpacity style={styles.storePill} onPress={() => setOpen(true)}>
+        <View style={styles.storePillDot} />
+        <Text style={styles.storePillText}>{currentStore.name || 'Store'}</Text>
+        <Ionicons name="chevron-down" size={12} color={Colors.textSecondary} />
+      </TouchableOpacity>
+
+      <Modal visible={open} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.storeOverlay}
+          activeOpacity={1}
+          onPress={() => setOpen(false)}
+        >
+          <View style={styles.storeDropdown}>
+            <Text style={styles.storeDropdownTitle}>Switch store</Text>
+            {userStores.map((store) => {
+              const isActive = store.id === currentStore.id;
+              return (
+                <TouchableOpacity
+                  key={store.id}
+                  style={[styles.storeOption, isActive && styles.storeOptionActive]}
+                  onPress={() => {
+                    setCurrentStore(store);
+                    setOpen(false);
+                  }}
+                >
+                  <View style={[styles.storeOptionDot, isActive && styles.storeOptionDotActive]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.storeOptionName, isActive && { fontWeight: '600' }]}>
+                      {store.name}
+                    </Text>
+                    {store.address ? (
+                      <Text style={styles.storeOptionAddr}>{store.address}</Text>
+                    ) : null}
+                  </View>
+                  {isActive && <Ionicons name="checkmark" size={16} color={Colors.success} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+}
+
 function HeaderRight() {
   const currentUser = useStore((s) => s.currentUser);
   return (
@@ -46,11 +109,20 @@ function HeaderRight() {
   );
 }
 
+function HeaderLeft() {
+  return (
+    <View style={{ marginLeft: 16 }}>
+      <StoreSelector />
+    </View>
+  );
+}
+
 function MoreScreen({ navigation }: any) {
   const { currentUser, logout } = useStore();
   const isAdmin = currentUser?.role === 'admin';
 
   const items = [
+    { label: 'Ingredients', screen: 'Ingredients', icon: 'nutrition-outline' as const },
     { label: 'Prep Recipes', screen: 'PrepRecipes', icon: 'flask-outline' as const },
     { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
     { label: 'Restock Report', screen: 'Restock', icon: 'arrow-down-circle-outline' as const },
@@ -102,6 +174,8 @@ function TabNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         ...sharedHeaderOptions,
+        headerLeft: () => <HeaderLeft />,
+        headerTitle: '',
         tabBarStyle: {
           backgroundColor: Colors.bgPrimary,
           borderTopColor: Colors.borderLight,
@@ -129,11 +203,7 @@ function TabNavigator() {
 function AppStackNavigator() {
   const storeId = useStore((s) => s.currentStore?.id);
 
-  // Real-time sync: when Supabase data changes, this callback fires.
-  // For now it's a no-op with the seed store; it will reload data when
-  // connected to the Supabase store.
   const handleSync = useCallback(() => {
-    // Will be wired to store.loadAll() when using Supabase store
     console.log('[Realtime] Data changed on server');
   }, []);
 
@@ -142,6 +212,7 @@ function AppStackNavigator() {
   return (
     <AppStack.Navigator screenOptions={sharedHeaderOptions}>
       <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+      <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients' }} />
       <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
       <AppStack.Screen name="Vendors" component={VendorsScreen} />
@@ -189,4 +260,40 @@ const styles = StyleSheet.create({
   signOutText: { fontSize: FontSize.sm, color: Colors.danger, fontWeight: '500' },
   headerAvatar: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   headerAvatarText: { fontSize: 10, fontWeight: '600' },
+
+  // Store selector
+  storePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.bgSecondary, borderRadius: Radius.round,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 0.5, borderColor: Colors.borderLight,
+  },
+  storePillDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.success },
+  storePillText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textPrimary },
+
+  // Store dropdown
+  storeOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-start', paddingTop: 60, paddingHorizontal: Spacing.lg,
+  },
+  storeDropdown: {
+    backgroundColor: Colors.bgPrimary, borderRadius: Radius.xl,
+    padding: Spacing.lg, maxWidth: 360,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+  },
+  storeDropdownTitle: {
+    fontSize: FontSize.xs, fontWeight: '600', color: Colors.textTertiary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing.md,
+  },
+  storeOption: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.md, marginBottom: 2,
+  },
+  storeOptionActive: { backgroundColor: Colors.successBg },
+  storeOptionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.borderMedium },
+  storeOptionDotActive: { backgroundColor: Colors.success },
+  storeOptionName: { fontSize: FontSize.sm, color: Colors.textPrimary },
+  storeOptionAddr: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 1 },
 });

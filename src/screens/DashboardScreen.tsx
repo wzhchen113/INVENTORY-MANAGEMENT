@@ -1,49 +1,148 @@
 // src/screens/DashboardScreen.tsx
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  Modal, TextInput, Alert, Platform,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, KpiCard, Badge, WhoChip, EmptyState } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
-import { InventoryItem } from '../types';
 
 export default function DashboardScreen() {
   const nav = useNavigation<any>();
-  const { currentUser, inventory, wasteLog, purchaseOrders, eodSubmissions,
-          getLowStockItems, getInventoryValue, getItemStatus } = useStore();
+  const {
+    currentUser, currentStore, stores, inventory, wasteLog,
+    purchaseOrders, eodSubmissions, getItemStatus, addStore,
+  } = useStore();
 
   const isAdmin = currentUser?.role === 'admin';
-  const lowItems = getLowStockItems();
-  const inventoryValue = getInventoryValue();
-  const wasteValue = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
-  const openPOs = purchaseOrders.filter((p) => p.status !== 'received');
+  const [showAddStore, setShowAddStore] = useState(false);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [newStoreAddress, setNewStoreAddress] = useState('');
 
-  const expiringItems = inventory.filter(
-    (i) => i.expiryDate && i.expiryDate.length > 0
+  // Filter data for the currently selected store
+  const storeInventory = useMemo(
+    () => inventory.filter((i) => i.storeId === currentStore.id),
+    [inventory, currentStore.id]
   );
 
-  const userColors: Record<string, string> = {
-    'Maria G.': Colors.userMaria,
-    'James T.': Colors.userJames,
-    'Admin': Colors.userAdmin,
-    'Ana R.': Colors.userAna,
+  const storeWaste = useMemo(
+    () => wasteLog.filter((w) => w.storeId === currentStore.id),
+    [wasteLog, currentStore.id]
+  );
+
+  const storePOs = useMemo(
+    () => purchaseOrders.filter((p) => p.storeId === currentStore.id),
+    [purchaseOrders, currentStore.id]
+  );
+
+  const storeEOD = useMemo(
+    () => eodSubmissions.filter((e) => e.storeId === currentStore.id),
+    [eodSubmissions, currentStore.id]
+  );
+
+  const lowItems = useMemo(
+    () => storeInventory.filter((i) => {
+      const s = getItemStatus(i);
+      return s === 'low' || s === 'out';
+    }),
+    [storeInventory, getItemStatus]
+  );
+
+  const inventoryValue = useMemo(
+    () => storeInventory.reduce((sum, i) => sum + i.currentStock * i.costPerUnit, 0),
+    [storeInventory]
+  );
+
+  const wasteValue = useMemo(
+    () => storeWaste.reduce((sum, e) => sum + e.quantity * e.costPerUnit, 0),
+    [storeWaste]
+  );
+
+  const expiringItems = useMemo(
+    () => storeInventory.filter((i) => i.expiryDate && i.expiryDate.length > 0),
+    [storeInventory]
+  );
+
+  const openPOs = useMemo(
+    () => storePOs.filter((p) => p.status !== 'received'),
+    [storePOs]
+  );
+
+  const foodCostPct = storeInventory.length > 0 ? 31.4 : 0;
+
+  const handleAddStore = () => {
+    if (!newStoreName.trim()) {
+      if (Platform.OS === 'web') alert('Store name is required');
+      else Alert.alert('Error', 'Store name is required');
+      return;
+    }
+    addStore({
+      name: newStoreName.trim(),
+      address: newStoreAddress.trim(),
+      status: 'active',
+    });
+    setNewStoreName('');
+    setNewStoreAddress('');
+    setShowAddStore(false);
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* KPI Row */}
-      <View style={styles.kpiRow}>
-        <KpiCard label="Food cost %" value="31.4%" sub="Target 28–35%" variant="success" />
-        <View style={{ width: Spacing.sm }} />
-        <KpiCard label="Waste value" value={`$${wasteValue.toFixed(0)}`} sub="This week" variant="warning" />
-      </View>
-      <View style={styles.kpiRow}>
-        <KpiCard label="Low / out of stock" value={String(lowItems.length)} sub="items need attention" variant={lowItems.length > 0 ? 'danger' : 'success'} />
-        <View style={{ width: Spacing.sm }} />
-        <KpiCard label="Inventory value" value={`$${inventoryValue.toFixed(0)}`} sub="on hand" />
+    <WebScrollView id="dashboard-scroll" contentContainerStyle={styles.content}>
+      {/* Store info bar */}
+      <View style={styles.storeInfoBar}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.storeTitle}>{currentStore.name}</Text>
+          {currentStore.address ? (
+            <Text style={styles.storeAddr}>{currentStore.address}</Text>
+          ) : null}
+        </View>
+        <Text style={styles.storeItemCount}>
+          {storeInventory.length} item{storeInventory.length !== 1 ? 's' : ''}
+        </Text>
+        {isAdmin && (
+          <TouchableOpacity style={styles.addStoreBtn} onPress={() => setShowAddStore(true)}>
+            <Ionicons name="add" size={14} color={Colors.white} />
+            <Text style={styles.addStoreBtnText}>Add store</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Alerts */}
+      {/* KPI Row */}
+      <View style={styles.kpiRow}>
+        <KpiCard
+          label="Food cost %"
+          value={storeInventory.length > 0 ? `${foodCostPct.toFixed(1)}%` : '—'}
+          sub="Target 28–35%"
+          variant="success"
+        />
+        <View style={{ width: Spacing.sm }} />
+        <KpiCard
+          label="Waste value"
+          value={`$${wasteValue.toFixed(0)}`}
+          sub="This week"
+          variant={wasteValue > 0 ? 'warning' : 'default'}
+        />
+      </View>
+      <View style={styles.kpiRow}>
+        <KpiCard
+          label="Low / out of stock"
+          value={String(lowItems.length)}
+          sub="items need attention"
+          variant={lowItems.length > 0 ? 'danger' : 'success'}
+        />
+        <View style={{ width: Spacing.sm }} />
+        <KpiCard
+          label="Inventory value"
+          value={`$${inventoryValue.toFixed(0)}`}
+          sub="on hand"
+        />
+      </View>
+
+      {/* Stock alerts */}
       {lowItems.length > 0 && (
         <Card>
           <CardHeader title="Stock alerts" right={
@@ -81,48 +180,29 @@ export default function DashboardScreen() {
         </Card>
       )}
 
-      {/* EOD Submissions */}
-      <Card>
-        <CardHeader title="Today's EOD submissions" right={
-          <TouchableOpacity onPress={() => nav.navigate('EODCount')}>
-            <Text style={styles.link}>{isAdmin ? 'View' : 'Submit'}</Text>
-          </TouchableOpacity>
-        } />
-        {[
-          { name: 'Maria G.', store: 'Towson', items: 15, time: '4:12 PM', status: 'ok', color: Colors.userMaria },
-          { name: 'James T.', store: 'Towson', items: 15, time: '4:31 PM', status: 'ok', color: Colors.userJames },
-          { name: 'Ana R.', store: 'Baltimore', items: 0, time: '—', status: 'pending', color: Colors.userAna },
-        ].map((row) => (
-          <View key={row.name} style={styles.tableRow}>
-            <WhoChip name={row.name} color={row.color} />
-            <Text style={styles.tableCell}>{row.store}</Text>
-            <Text style={styles.tableCell}>{row.items > 0 ? `${row.items} items` : '—'}</Text>
-            <Text style={styles.tableCell}>{row.time}</Text>
-            <Badge label={row.status === 'ok' ? 'Done' : 'Pending'} variant={row.status as any} />
-          </View>
-        ))}
-      </Card>
-
       {/* Open POs — admin only */}
-      {isAdmin && (
+      {isAdmin && openPOs.length > 0 && (
         <Card>
           <CardHeader title="Open purchase orders" right={
             <TouchableOpacity onPress={() => nav.navigate('PurchaseOrders')}>
               <Text style={styles.link}>View all</Text>
             </TouchableOpacity>
           } />
-          {openPOs.length === 0 ? (
-            <EmptyState message="No open purchase orders" />
-          ) : (
-            openPOs.map((po) => (
-              <View key={po.id} style={styles.tableRow}>
-                <Text style={[styles.tableName, { flex: 1.5 }]}>{po.vendorName}</Text>
-                <Text style={styles.tableCell}>${po.totalCost.toFixed(0)}</Text>
-                <Text style={styles.tableCell}>{po.expectedDelivery}</Text>
-                <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={po.status as any} />
-              </View>
-            ))
-          )}
+          {openPOs.map((po) => (
+            <View key={po.id} style={styles.tableRow}>
+              <Text style={[styles.tableName, { flex: 1.5 }]}>{po.vendorName}</Text>
+              <Text style={styles.tableCell}>${po.totalCost.toFixed(0)}</Text>
+              <Text style={styles.tableCell}>{po.expectedDelivery}</Text>
+              <Badge label={po.status.charAt(0).toUpperCase() + po.status.slice(1)} variant={po.status as any} />
+            </View>
+          ))}
+        </Card>
+      )}
+
+      {/* Empty store */}
+      {storeInventory.length === 0 && (
+        <Card>
+          <EmptyState message={`No inventory for ${currentStore.name} yet. Go to Ingredients to add items.`} />
         </Card>
       )}
 
@@ -138,6 +218,9 @@ export default function DashboardScreen() {
           </TouchableOpacity>
           {isAdmin && (
             <>
+              <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('Ingredients')}>
+                <Text style={styles.qaText}>Manage ingredients</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.qa} onPress={() => nav.navigate('POSImport')}>
                 <Text style={styles.qaText}>Import POS CSV</Text>
               </TouchableOpacity>
@@ -148,22 +231,96 @@ export default function DashboardScreen() {
           )}
         </View>
       </Card>
-    </ScrollView>
+
+      <View style={{ height: 40 }} />
+
+      {/* Add Store Modal */}
+      <Modal visible={showAddStore} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add store</Text>
+            <TouchableOpacity onPress={() => setShowAddStore(false)}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.modalBody}>
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Store name *</Text>
+              <TextInput
+                style={styles.formInput}
+                value={newStoreName}
+                onChangeText={setNewStoreName}
+                placeholder="e.g. Downtown, Bel Air, Columbia"
+                placeholderTextColor={Colors.textTertiary}
+              />
+            </View>
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Address</Text>
+              <TextInput
+                style={styles.formInput}
+                value={newStoreAddress}
+                onChangeText={setNewStoreAddress}
+                placeholder="123 Main St, City MD 21000"
+                placeholderTextColor={Colors.textTertiary}
+              />
+            </View>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleAddStore}>
+              <Text style={styles.saveBtnText}>Add store</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </WebScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgTertiary },
   content: { padding: Spacing.lg },
+
+  // Store info
+  storeInfoBar: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    marginBottom: Spacing.md, paddingVertical: Spacing.sm,
+  },
+  storeTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textPrimary },
+  storeAddr: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 1 },
+  storeItemCount: { fontSize: FontSize.xs, color: Colors.textTertiary },
+  addStoreBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.textPrimary, borderRadius: Radius.md,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  addStoreBtnText: { color: Colors.white, fontSize: FontSize.xs, fontWeight: '500' },
+
+  // KPIs
   kpiRow: { flexDirection: 'row', marginBottom: Spacing.sm },
+
+  // Alerts
   alertRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 6, marginBottom: 4 },
   alertDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
   alertText: { fontSize: FontSize.sm, flex: 1 },
+
+  // Tables
   tableRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
   tableName: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary, flex: 1 },
   tableCell: { fontSize: FontSize.sm, color: Colors.textSecondary, flex: 1 },
   link: { fontSize: FontSize.sm, color: Colors.info },
+
+  // Quick actions
   quickActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   qa: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.md, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 0.5, borderColor: Colors.borderLight },
   qaText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '500' },
+
+  // Modal
+  modal: { flex: 1, backgroundColor: Colors.bgPrimary },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textPrimary },
+  modalCancel: { fontSize: FontSize.base, color: Colors.info },
+  modalBody: { padding: Spacing.lg },
+  formField: { marginBottom: Spacing.lg },
+  formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 6 },
+  formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
+  saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
+  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
 });

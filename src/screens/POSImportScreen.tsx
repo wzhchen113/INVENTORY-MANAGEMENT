@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { useStore } from '../store/useSupabaseStore';
+import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
+import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 
 interface ParsedRow {
@@ -102,7 +103,7 @@ export default function POSImportScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <WebScrollView id="pos-scroll" contentContainerStyle={styles.content}>
       {step === 'upload' && (
         <Card>
           <CardHeader title="Upload POS sales CSV" />
@@ -166,7 +167,7 @@ export default function POSImportScreen() {
           </View>
         </>
       )}
-    </ScrollView>
+    </WebScrollView>
   );
 }
 
