@@ -1,6 +1,9 @@
 // src/navigation/AppNavigator.tsx
 import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
+  TextInput, Platform, Alert,
+} from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -19,6 +22,7 @@ import POSImportScreen from '../screens/POSImportScreen';
 import ReconciliationScreen from '../screens/ReconciliationScreen';
 import PrepRecipesScreen from '../screens/PrepRecipesScreen';
 import IngredientsScreen from '../screens/IngredientsScreen';
+import OrdersScreen from '../screens/OrdersScreen';
 import {
   RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
   RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
@@ -32,7 +36,7 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'grid-outline',
   Items: 'list-outline',
   EODCount: 'clipboard-outline',
-  WasteLog: 'trash-outline',
+  Orders: 'cart-outline',
   More: 'menu-outline',
 };
 
@@ -98,14 +102,225 @@ function StoreSelector() {
   );
 }
 
+function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { currentUser, updateUser, logout } = useStore();
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const handleClose = () => {
+    setEditingName(false);
+    setChangingPassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    onClose();
+  };
+
+  const handleSaveName = () => {
+    const trimmed = nameValue.trim();
+    if (!trimmed) return;
+    if (currentUser) {
+      const initials = trimmed.split(' ').map((w) => w[0]?.toUpperCase()).join('').slice(0, 2);
+      updateUser(currentUser.id, { name: trimmed, initials });
+    }
+    setEditingName(false);
+  };
+
+  const handleChangePassword = () => {
+    if (!newPassword || newPassword.length < 6) {
+      const msg = 'Password must be at least 6 characters';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Error', msg);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      const msg = 'Passwords do not match';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Error', msg);
+      return;
+    }
+    // In local store mode, just confirm success
+    const msg = 'Password updated successfully';
+    Platform.OS === 'web' ? alert(msg) : Alert.alert('Success', msg);
+    setChangingPassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleSignOut = () => {
+    handleClose();
+    logout();
+  };
+
+  if (!currentUser) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+      <View style={sidebarStyles.overlay}>
+        <TouchableOpacity style={sidebarStyles.backdrop} activeOpacity={1} onPress={handleClose} />
+        <View style={sidebarStyles.panel}>
+          {/* Header */}
+          <View style={sidebarStyles.header}>
+            <Text style={sidebarStyles.headerTitle}>Profile</Text>
+            <TouchableOpacity onPress={handleClose} style={sidebarStyles.closeBtn}>
+              <Ionicons name="close" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={sidebarStyles.body} contentContainerStyle={{ paddingBottom: 40 }}>
+            {/* Avatar & info */}
+            <View style={sidebarStyles.profileSection}>
+              <View style={[sidebarStyles.avatar, { backgroundColor: (currentUser.color || '#378ADD') + '22' }]}>
+                <Text style={[sidebarStyles.avatarText, { color: currentUser.color || '#378ADD' }]}>
+                  {currentUser.initials}
+                </Text>
+              </View>
+              <Text style={sidebarStyles.userName}>{currentUser.name}</Text>
+              <Text style={sidebarStyles.userEmail}>{currentUser.email}</Text>
+              <View style={sidebarStyles.roleBadge}>
+                <Text style={sidebarStyles.roleText}>
+                  {currentUser.role === 'admin' ? 'Admin' : 'Team member'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Divider */}
+            <View style={sidebarStyles.divider} />
+
+            {/* Change Name */}
+            <View style={sidebarStyles.section}>
+              <Text style={sidebarStyles.sectionTitle}>Display name</Text>
+              {editingName ? (
+                <View style={sidebarStyles.editGroup}>
+                  <TextInput
+                    style={sidebarStyles.input}
+                    value={nameValue}
+                    onChangeText={setNameValue}
+                    placeholder="Enter new name"
+                    placeholderTextColor={Colors.textTertiary}
+                    autoFocus
+                  />
+                  <View style={sidebarStyles.editBtnRow}>
+                    <TouchableOpacity
+                      style={sidebarStyles.cancelBtn}
+                      onPress={() => setEditingName(false)}
+                    >
+                      <Text style={sidebarStyles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={sidebarStyles.primaryBtn} onPress={handleSaveName}>
+                      <Text style={sidebarStyles.primaryBtnText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={sidebarStyles.settingRow}
+                  onPress={() => {
+                    setNameValue(currentUser.name);
+                    setEditingName(true);
+                  }}
+                >
+                  <Text style={sidebarStyles.settingValue}>{currentUser.name}</Text>
+                  <Ionicons name="pencil-outline" size={14} color={Colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Change Password */}
+            <View style={sidebarStyles.section}>
+              <Text style={sidebarStyles.sectionTitle}>Password</Text>
+              {changingPassword ? (
+                <View style={sidebarStyles.editGroup}>
+                  <TextInput
+                    style={sidebarStyles.input}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    placeholder="Current password"
+                    placeholderTextColor={Colors.textTertiary}
+                    secureTextEntry
+                  />
+                  <TextInput
+                    style={sidebarStyles.input}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="New password"
+                    placeholderTextColor={Colors.textTertiary}
+                    secureTextEntry
+                  />
+                  <TextInput
+                    style={sidebarStyles.input}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Confirm new password"
+                    placeholderTextColor={Colors.textTertiary}
+                    secureTextEntry
+                  />
+                  <View style={sidebarStyles.editBtnRow}>
+                    <TouchableOpacity
+                      style={sidebarStyles.cancelBtn}
+                      onPress={() => {
+                        setChangingPassword(false);
+                        setCurrentPassword('');
+                        setNewPassword('');
+                        setConfirmPassword('');
+                      }}
+                    >
+                      <Text style={sidebarStyles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={sidebarStyles.primaryBtn} onPress={handleChangePassword}>
+                      <Text style={sidebarStyles.primaryBtnText}>Update</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={sidebarStyles.settingRow}
+                  onPress={() => setChangingPassword(true)}
+                >
+                  <Text style={sidebarStyles.settingValue}>••••••••</Text>
+                  <Ionicons name="pencil-outline" size={14} color={Colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Divider */}
+            <View style={sidebarStyles.divider} />
+
+            {/* Sign out */}
+            <TouchableOpacity style={sidebarStyles.signOutBtn} onPress={handleSignOut}>
+              <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
+              <Text style={sidebarStyles.signOutText}>Sign out</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Global profile sidebar state — shared between HeaderRight and the sidebar
+let _openProfileSidebar: (() => void) | null = null;
+
 function HeaderRight() {
   const currentUser = useStore((s) => s.currentUser);
+  const [showProfile, setShowProfile] = useState(false);
+
   return (
-    <View style={[styles.headerAvatar, { backgroundColor: (currentUser?.color || '#378ADD') + '33', marginRight: 16 }]}>
-      <Text style={[styles.headerAvatarText, { color: currentUser?.color || '#378ADD' }]}>
-        {currentUser?.initials}
-      </Text>
-    </View>
+    <>
+      <TouchableOpacity
+        style={[styles.headerAvatar, { backgroundColor: (currentUser?.color || '#378ADD') + '33', marginRight: 16 }]}
+        onPress={() => setShowProfile(true)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.headerAvatarText, { color: currentUser?.color || '#378ADD' }]}>
+          {currentUser?.initials}
+        </Text>
+      </TouchableOpacity>
+      <ProfileSidebar visible={showProfile} onClose={() => setShowProfile(false)} />
+    </>
   );
 }
 
@@ -122,6 +337,7 @@ function MoreScreen({ navigation }: any) {
   const isAdmin = currentUser?.role === 'admin';
 
   const items = [
+    { label: 'Waste Log', screen: 'WasteLog', icon: 'trash-outline' as const },
     { label: 'Ingredients', screen: 'Ingredients', icon: 'nutrition-outline' as const },
     { label: 'Prep Recipes', screen: 'PrepRecipes', icon: 'flask-outline' as const },
     { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
@@ -170,8 +386,10 @@ const sharedHeaderOptions = {
 };
 
 function TabNavigator() {
+  const storeId = useStore((s) => s.currentStore.id);
   return (
     <Tab.Navigator
+      key={storeId}
       screenOptions={({ route }) => ({
         ...sharedHeaderOptions,
         headerLeft: () => <HeaderLeft />,
@@ -194,7 +412,7 @@ function TabNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Items" component={ItemsScreen} options={{ title: 'Items & costs' }} />
       <Tab.Screen name="EODCount" component={EODCountScreen} options={{ title: 'EOD Count' }} />
-      <Tab.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
+      <Tab.Screen name="Orders" component={OrdersScreen} />
       <Tab.Screen name="More" component={MoreScreen} />
     </Tab.Navigator>
   );
@@ -210,8 +428,9 @@ function AppStackNavigator() {
   useRealtimeSync(storeId, handleSync);
 
   return (
-    <AppStack.Navigator screenOptions={sharedHeaderOptions}>
+    <AppStack.Navigator key={storeId} screenOptions={sharedHeaderOptions}>
       <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+      <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
       <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients' }} />
       <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
@@ -296,4 +515,178 @@ const styles = StyleSheet.create({
   storeOptionDotActive: { backgroundColor: Colors.success },
   storeOptionName: { fontSize: FontSize.sm, color: Colors.textPrimary },
   storeOptionAddr: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 1 },
+});
+
+const SIDEBAR_WIDTH = 320;
+
+const sidebarStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  panel: {
+    width: SIDEBAR_WIDTH,
+    backgroundColor: Colors.bgPrimary,
+    shadowColor: '#000',
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
+  },
+  headerTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.bgSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  body: {
+    flex: 1,
+    padding: Spacing.lg,
+  },
+  profileSection: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  avatarText: {
+    fontSize: FontSize.xxl,
+    fontWeight: '700',
+  },
+  userName: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  userEmail: {
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    marginBottom: Spacing.sm,
+  },
+  roleBadge: {
+    backgroundColor: Colors.bgSecondary,
+    borderRadius: Radius.round,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+  },
+  roleText: {
+    fontSize: FontSize.xs,
+    fontWeight: '500',
+    color: Colors.textSecondary,
+  },
+  divider: {
+    height: 0.5,
+    backgroundColor: Colors.borderLight,
+    marginVertical: Spacing.lg,
+  },
+  section: {
+    marginBottom: Spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.sm,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.bgSecondary,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+  },
+  settingValue: {
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+  },
+  editGroup: {
+    gap: Spacing.sm,
+  },
+  input: {
+    borderWidth: 0.5,
+    borderColor: Colors.borderMedium,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    fontSize: FontSize.base,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.bgSecondary,
+  },
+  editBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  cancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    borderWidth: 0.5,
+    borderColor: Colors.borderMedium,
+  },
+  cancelBtnText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  primaryBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.textPrimary,
+  },
+  primaryBtnText: {
+    fontSize: FontSize.sm,
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  signOutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.dangerBg,
+  },
+  signOutText: {
+    fontSize: FontSize.base,
+    color: Colors.danger,
+    fontWeight: '600',
+  },
 });

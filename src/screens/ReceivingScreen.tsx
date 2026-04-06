@@ -12,12 +12,12 @@ import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 
 export default function ReceivingScreen() {
   const nav = useNavigation();
-  const { purchaseOrders, receivePO, currentUser } = useStore();
+  const { purchaseOrders, receivePO, currentUser, currentStore } = useStore();
   const [received, setReceived] = useState<Record<string, string>>({});
   const [done, setDone] = useState(false);
 
-  // Find the most recently sent PO
-  const po = purchaseOrders.find((p) => p.status === 'sent');
+  // Find the most recently sent PO for the current store
+  const po = purchaseOrders.find((p) => p.status === 'sent' && p.storeId === currentStore.id);
 
   if (!po) {
     return (

@@ -12,13 +12,13 @@ import { WebScrollView } from '../components/WebScrollView';
 
 const CATEGORIES = [
   'Protein', 'Seafood', 'Produce', 'Dairy',
-  'Dry goods', 'Bakery', 'Spices', 'Condiments',
+  'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts',
 ];
 
 const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
 
 export default function IngredientsScreen() {
-  const { currentUser, currentStore, stores, inventory, addItem, updateItem } = useStore();
+  const { currentUser, currentStore, stores, inventory, vendors, addItem, updateItem, deleteItem } = useStore();
   const isAdmin = currentUser?.role === 'admin';
 
   const storeInventory = useMemo(
@@ -28,6 +28,7 @@ export default function IngredientsScreen() {
 
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
 
@@ -38,6 +39,8 @@ export default function IngredientsScreen() {
     costPerUnit: '',
     currentStock: '',
     parLevel: '',
+    vendorId: '',
+    vendorName: '',
   });
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
@@ -50,9 +53,10 @@ export default function IngredientsScreen() {
         }
       }
       if (catFilter && item.category !== catFilter) return false;
+      if (vendorFilter && item.vendorName !== vendorFilter) return false;
       return true;
     });
-  }, [storeInventory, search, catFilter]);
+  }, [storeInventory, search, catFilter, vendorFilter]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -61,6 +65,21 @@ export default function IngredientsScreen() {
     });
     return counts;
   }, [storeInventory]);
+
+  const vendorCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    storeInventory.forEach((i) => {
+      if (i.vendorName) {
+        counts[i.vendorName] = (counts[i.vendorName] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [storeInventory]);
+
+  const vendorNames = useMemo(
+    () => Object.keys(vendorCounts).sort(),
+    [vendorCounts]
+  );
 
   const toggleStore = (id: string) => {
     setSelectedStoreIds((prev) =>
@@ -78,7 +97,7 @@ export default function IngredientsScreen() {
 
   const openAdd = () => {
     setEditItem(null);
-    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '' });
+    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '' });
     setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
     setShowModal(true);
   };
@@ -92,8 +111,14 @@ export default function IngredientsScreen() {
       costPerUnit: String(item.costPerUnit),
       currentStock: String(item.currentStock),
       parLevel: String(item.parLevel),
+      vendorId: item.vendorId,
+      vendorName: item.vendorName,
     });
-    setSelectedStoreIds([item.storeId]);
+    // Find all stores that already have this ingredient (by name)
+    const storesWithItem = inventory
+      .filter((i) => i.name.toLowerCase() === item.name.toLowerCase())
+      .map((i) => i.storeId);
+    setSelectedStoreIds([...new Set(storesWithItem)]);
     setShowModal(true);
   };
 
@@ -109,26 +134,65 @@ export default function IngredientsScreen() {
       return;
     }
 
+    if (selectedStoreIds.length === 0) {
+      if (Platform.OS === 'web') alert('Select at least one store');
+      else Alert.alert('Error', 'Select at least one store');
+      return;
+    }
+
     if (editItem) {
-      // Edit: update single item
-      updateItem(editItem.id, {
-        name: form.name.trim(),
-        category: form.category,
-        unit: form.unit,
-        costPerUnit: parseFloat(form.costPerUnit) || 0,
-        currentStock: parseFloat(form.currentStock) || 0,
-        parLevel: parseFloat(form.parLevel) || 0,
-        lastUpdatedBy: currentUser?.name || '',
-        lastUpdatedAt: new Date().toISOString(),
+      // Find all existing copies of this ingredient across stores
+      const existingItems = inventory.filter(
+        (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
+      );
+      const existingStoreIds = existingItems.map((i) => i.storeId);
+
+      // Update properties on all existing copies that are still selected
+      existingItems.forEach((item) => {
+        if (selectedStoreIds.includes(item.storeId)) {
+          updateItem(item.id, {
+            name: form.name.trim(),
+            category: form.category,
+            unit: form.unit,
+            costPerUnit: parseFloat(form.costPerUnit) || 0,
+            parLevel: parseFloat(form.parLevel) || 0,
+            vendorId: form.vendorId,
+            vendorName: form.vendorName,
+            lastUpdatedBy: currentUser?.name || '',
+            lastUpdatedAt: new Date().toISOString(),
+          });
+        }
       });
+
+      // Delete from stores that were deselected
+      existingItems.forEach((item) => {
+        if (!selectedStoreIds.includes(item.storeId)) {
+          deleteItem(item.id);
+        }
+      });
+
+      // Add to newly selected stores
+      const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
+      for (const storeId of newStoreIds) {
+        addItem({
+          name: form.name.trim(),
+          category: form.category,
+          unit: form.unit,
+          costPerUnit: parseFloat(form.costPerUnit) || 0,
+          currentStock: 0,
+          parLevel: parseFloat(form.parLevel) || 0,
+          vendorId: form.vendorId,
+          vendorName: form.vendorName,
+          usagePerPortion: editItem.usagePerPortion,
+          lastUpdatedBy: currentUser?.name || '',
+          lastUpdatedAt: new Date().toISOString(),
+          eodRemaining: 0,
+          storeId,
+          expiryDate: '',
+        });
+      }
     } else {
       // Add: create in all selected stores
-      if (selectedStoreIds.length === 0) {
-        if (Platform.OS === 'web') alert('Select at least one store');
-        else Alert.alert('Error', 'Select at least one store');
-        return;
-      }
-
       for (const storeId of selectedStoreIds) {
         addItem({
           name: form.name.trim(),
@@ -137,8 +201,8 @@ export default function IngredientsScreen() {
           costPerUnit: parseFloat(form.costPerUnit) || 0,
           currentStock: parseFloat(form.currentStock) || 0,
           parLevel: parseFloat(form.parLevel) || 0,
-          vendorId: '',
-          vendorName: '',
+          vendorId: form.vendorId,
+          vendorName: form.vendorName,
           usagePerPortion: 0,
           lastUpdatedBy: currentUser?.name || '',
           lastUpdatedAt: new Date().toISOString(),
@@ -151,6 +215,31 @@ export default function IngredientsScreen() {
     setShowModal(false);
   };
 
+  const handleDeleteEntirely = () => {
+    if (!editItem) return;
+    const allCopies = inventory.filter(
+      (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
+    );
+    const doDelete = () => {
+      allCopies.forEach((item) => deleteItem(item.id));
+      setShowModal(false);
+    };
+    if (Platform.OS === 'web') {
+      if (confirm(`Delete "${editItem.name}" from all ${allCopies.length} store(s)? This cannot be undone.`)) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete ingredient',
+        `Delete "${editItem.name}" from all ${allCopies.length} store(s)? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ]
+      );
+    }
+  };
+
   const renderItem = ({ item }: { item: InventoryItem }) => (
     <View style={styles.row}>
       <View style={styles.rowLeft}>
@@ -158,6 +247,7 @@ export default function IngredientsScreen() {
         <Text style={styles.rowMeta}>
           {item.category} · {item.currentStock} {item.unit}
           {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
+          {item.vendorName ? ` · ${item.vendorName}` : ''}
         </Text>
       </View>
       <View style={styles.rowRight}>
@@ -200,30 +290,62 @@ export default function IngredientsScreen() {
       </View>
 
       {/* Category pills */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillScroll} contentContainerStyle={styles.pillRow}>
-        <TouchableOpacity
-          style={[styles.pill, !catFilter && styles.pillActive]}
-          onPress={() => setCatFilter('')}
-        >
-          <Text style={[styles.pillText, !catFilter && styles.pillTextActive]}>
-            All ({storeInventory.length})
-          </Text>
-        </TouchableOpacity>
-        {CATEGORIES.filter((c) => categoryCounts[c]).map((cat) => {
-          const isActive = catFilter === cat;
-          return (
+      <View style={styles.pillWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+          <TouchableOpacity
+            style={[styles.pill, !catFilter && styles.pillActive]}
+            onPress={() => setCatFilter('')}
+          >
+            <Text style={[styles.pillText, !catFilter && styles.pillTextActive]}>
+              All ({storeInventory.length})
+            </Text>
+          </TouchableOpacity>
+          {CATEGORIES.filter((c) => categoryCounts[c]).map((cat) => {
+            const isActive = catFilter === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                style={[styles.pill, isActive && styles.pillActive]}
+                onPress={() => setCatFilter(isActive ? '' : cat)}
+              >
+                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  {cat} ({categoryCounts[cat] || 0})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Vendor pills */}
+      {vendorNames.length > 0 && (
+        <View style={[styles.pillWrapper, { paddingTop: 0 }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
             <TouchableOpacity
-              key={cat}
-              style={[styles.pill, isActive && styles.pillActive]}
-              onPress={() => setCatFilter(isActive ? '' : cat)}
+              style={[styles.pill, !vendorFilter && styles.pillActive]}
+              onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                {cat} ({categoryCounts[cat] || 0})
+              <Text style={[styles.pillText, !vendorFilter && styles.pillTextActive]}>
+                All vendors
               </Text>
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+            {vendorNames.map((v) => {
+              const isActive = vendorFilter === v;
+              return (
+                <TouchableOpacity
+                  key={v}
+                  style={[styles.pill, isActive && styles.pillActive]}
+                  onPress={() => setVendorFilter(isActive ? '' : v)}
+                >
+                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                    {v} ({vendorCounts[v]})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Summary bar */}
       <View style={styles.summaryBar}>
@@ -270,41 +392,41 @@ export default function IngredientsScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.modalBody}>
-            {/* Store selection — only for new items */}
-            {!editItem && (
-              <View style={styles.formField}>
-                <View style={styles.storeLabelRow}>
-                  <Text style={styles.formLabel}>Add to stores *</Text>
-                  <TouchableOpacity onPress={selectAllStores}>
-                    <Text style={styles.selectAllText}>
-                      {selectedStoreIds.length === stores.length ? 'Deselect all' : 'Select all'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.storeGrid}>
-                  {stores.map((store) => {
-                    const isSelected = selectedStoreIds.includes(store.id);
-                    return (
-                      <TouchableOpacity
-                        key={store.id}
-                        style={[styles.storeChip, isSelected && styles.storeChipActive]}
-                        onPress={() => toggleStore(store.id)}
-                      >
-                        <View style={[styles.storeChipCheck, isSelected && styles.storeChipCheckActive]}>
-                          {isSelected && <Ionicons name="checkmark" size={10} color={Colors.white} />}
-                        </View>
-                        <Text style={[styles.storeChipText, isSelected && styles.storeChipTextActive]}>
-                          {store.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <Text style={styles.storeHint}>
-                  {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
+            {/* Store selection */}
+            <View style={styles.formField}>
+              <View style={styles.storeLabelRow}>
+                <Text style={styles.formLabel}>
+                  {editItem ? 'Stores *' : 'Add to stores *'}
                 </Text>
+                <TouchableOpacity onPress={selectAllStores}>
+                  <Text style={styles.selectAllText}>
+                    {selectedStoreIds.length === stores.length ? 'Deselect all' : 'Select all'}
+                  </Text>
+                </TouchableOpacity>
               </View>
-            )}
+              <View style={styles.storeGrid}>
+                {stores.map((store) => {
+                  const isSelected = selectedStoreIds.includes(store.id);
+                  return (
+                    <TouchableOpacity
+                      key={store.id}
+                      style={[styles.storeChip, isSelected && styles.storeChipActive]}
+                      onPress={() => toggleStore(store.id)}
+                    >
+                      <View style={[styles.storeChipCheck, isSelected && styles.storeChipCheckActive]}>
+                        {isSelected && <Ionicons name="checkmark" size={10} color={Colors.white} />}
+                      </View>
+                      <Text style={[styles.storeChipText, isSelected && styles.storeChipTextActive]}>
+                        {store.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.storeHint}>
+                {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
+              </Text>
+            </View>
 
             {/* Name */}
             <View style={styles.formField}>
@@ -358,6 +480,32 @@ export default function IngredientsScreen() {
               </ScrollView>
             </View>
 
+            {/* Vendor */}
+            <View style={styles.formField}>
+              <Text style={styles.formLabel}>Vendor</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  <TouchableOpacity
+                    style={[styles.chip, !form.vendorId && styles.chipActive]}
+                    onPress={() => setForm((p) => ({ ...p, vendorId: '', vendorName: '' }))}
+                  >
+                    <Text style={[styles.chipText, !form.vendorId && styles.chipTextActive]}>None</Text>
+                  </TouchableOpacity>
+                  {vendors.map((v) => (
+                    <TouchableOpacity
+                      key={v.id}
+                      style={[styles.chip, form.vendorId === v.id && styles.chipActive]}
+                      onPress={() => setForm((p) => ({ ...p, vendorId: v.id, vendorName: v.name }))}
+                    >
+                      <Text style={[styles.chipText, form.vendorId === v.id && styles.chipTextActive]}>
+                        {v.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
             {/* Cost */}
             <View style={styles.formField}>
               <Text style={styles.formLabel}>Cost per unit ($) *</Text>
@@ -401,12 +549,20 @@ export default function IngredientsScreen() {
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
               <Text style={styles.saveBtnText}>
                 {editItem
-                  ? 'Save changes'
+                  ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
                   : selectedStoreIds.length > 1
                     ? `Add to ${selectedStoreIds.length} stores`
                     : 'Add ingredient'}
               </Text>
             </TouchableOpacity>
+
+            {/* Delete button — admin only, edit mode only */}
+            {editItem && isAdmin && (
+              <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteEntirely}>
+                <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                <Text style={styles.deleteBtnText}>Delete from all stores</Text>
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -425,8 +581,8 @@ const styles = StyleSheet.create({
   addBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
 
   // Pills
-  pillScroll: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, maxHeight: 40 },
-  pillRow: { gap: Spacing.sm },
+  pillWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  pillRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
@@ -473,6 +629,8 @@ const styles = StyleSheet.create({
   chipTextActive: { color: Colors.white, fontWeight: '500' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
   saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },
+  deleteBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
 
   // Store selection
   storeLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },

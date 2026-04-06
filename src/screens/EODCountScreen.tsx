@@ -12,11 +12,12 @@ import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { EODEntry } from '../types';
 
 export default function EODCountScreen() {
-  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD } = useStore();
+  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, vendors } = useStore();
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [vendorFilter, setVendorFilter] = useState('');
 
   const todayISO = new Date().toISOString().split('T')[0];
 
@@ -42,10 +43,26 @@ export default function EODCountScreen() {
     [storeInventory]
   );
 
+  const vendorCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    storeInventory.forEach((i) => {
+      if (i.vendorName) counts[i.vendorName] = (counts[i.vendorName] || 0) + 1;
+    });
+    return counts;
+  }, [storeInventory]);
+
+  const vendorNames = useMemo(
+    () => Object.keys(vendorCounts).sort(),
+    [vendorCounts]
+  );
+
   const filteredItems = useMemo(() => {
     let items = storeInventory;
     if (selectedCategory) {
       items = items.filter((i) => i.category === selectedCategory);
+    }
+    if (vendorFilter) {
+      items = items.filter((i) => i.vendorName === vendorFilter);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -56,7 +73,7 @@ export default function EODCountScreen() {
       );
     }
     return items;
-  }, [inventory, selectedCategory, search]);
+  }, [storeInventory, selectedCategory, vendorFilter, search]);
 
   const filteredCategories = useMemo(() => {
     const cats = [...new Set(filteredItems.map((i) => i.category))];
@@ -370,31 +387,63 @@ export default function EODCountScreen() {
       </View>
 
       {/* Category filter pills */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillScroll} contentContainerStyle={styles.pillRow}>
-        <TouchableOpacity
-          style={[styles.pill, !selectedCategory && styles.pillActive]}
-          onPress={() => setSelectedCategory(null)}
-        >
-          <Text style={[styles.pillText, !selectedCategory && styles.pillTextActive]}>
-            All ({storeInventory.length})
-          </Text>
-        </TouchableOpacity>
-        {categories.map((cat) => {
-          const count = inventory.filter((i) => i.category === cat).length;
-          const isActive = selectedCategory === cat;
-          return (
+      <View style={styles.pillWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+          <TouchableOpacity
+            style={[styles.pill, !selectedCategory && styles.pillActive]}
+            onPress={() => setSelectedCategory(null)}
+          >
+            <Text style={[styles.pillText, !selectedCategory && styles.pillTextActive]}>
+              All ({storeInventory.length})
+            </Text>
+          </TouchableOpacity>
+          {categories.map((cat) => {
+            const count = inventory.filter((i) => i.category === cat).length;
+            const isActive = selectedCategory === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                style={[styles.pill, isActive && styles.pillActive]}
+                onPress={() => setSelectedCategory(isActive ? null : cat)}
+              >
+                <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                  {cat} ({count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Vendor filter pills */}
+      {vendorNames.length > 0 && (
+        <View style={styles.pillWrapper}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
             <TouchableOpacity
-              key={cat}
-              style={[styles.pill, isActive && styles.pillActive]}
-              onPress={() => setSelectedCategory(isActive ? null : cat)}
+              style={[styles.pill, !vendorFilter && styles.pillActive]}
+              onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                {cat} ({count})
+              <Text style={[styles.pillText, !vendorFilter && styles.pillTextActive]}>
+                All vendors
               </Text>
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+            {vendorNames.map((v) => {
+              const isActive = vendorFilter === v;
+              return (
+                <TouchableOpacity
+                  key={v}
+                  style={[styles.pill, isActive && styles.pillActive]}
+                  onPress={() => setVendorFilter(isActive ? '' : v)}
+                >
+                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                    {v} ({vendorCounts[v]})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Progress indicator */}
       <View style={styles.progressRow}>
@@ -480,8 +529,8 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary, padding: 0 },
 
   // Category pills
-  pillScroll: { marginBottom: Spacing.md, maxHeight: 36 },
-  pillRow: { gap: Spacing.sm, paddingRight: Spacing.md },
+  pillWrapper: { marginBottom: Spacing.md },
+  pillRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingRight: Spacing.md },
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },

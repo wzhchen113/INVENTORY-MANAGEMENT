@@ -1,0 +1,26 @@
+{
+  "inventory": [
+    { "id": 1, "name": "Beef Patty", "stock": 200, "vendor": "Sysco" },
+    { "id": 2, "name": "Chicken Wings", "stock": 80, "vendor": "Sysco" },
+    { "id": 3, "name": "Grilled Chicken", "stock": 60, "vendor": "Sysco" },
+    { "id": 4, "name": "Snow Crab Legs", "stock": 15, "vendor": "US Foods" },
+    { "id": 5, "name": "Fried Shrimp", "stock": 30, "vendor": "US Foods" },
+    { "id": 6, "name": "Lettuce", "stock": 40, "vendor": "Local Farms Co." },
+    { "id": 7, "name": "Tomato", "stock": 60, "vendor": "Local Farms Co." },
+    { "id": 8, "name": "American Cheese", "stock": 300, "vendor": "Sysco" },
+    { "id": 9, "name": "Cheddar Cheese", "stock": 15, "vendor": "Sysco" },
+    { "id": 10, "name": "Gyro Meat (Lamb/Beef)", "stock": 40, "vendor": "Sysco" }
+  ],
+  "menus": [
+    { "id": 1, "dish": "Classic Burger", "category": "Burgers", "price": 10.99 },
+    { "id": 2, "dish": "Chicken Tender Basket", "category": "Chicken", "price": 9.49 },
+    { "id": 3, "dish": "Wings (6pc)", "category": "Chicken", "price": 8.99 },
+    { "id": 4, "dish": "Wings (10pc)", "category": "Chicken", "price": 13.99 },
+    { "id": 5, "dish": "Grilled Chicken Wrap", "category": "Wraps", "price": 10.49 },
+    { "id": 6, "dish": "Gyro Platter", "category": "Platters", "price": 12.99 },
+    { "id": 7, "dish": "Crab Cake Sandwich", "category": "Seafood", "price": 14.99 },
+    { "id": 8, "dish": "Fried Shrimp Basket", "category": "Seafood", "price": 12.49 },
+    { "id": 9, "dish": "Steak & Cheese Sub", "category": "Subs", "price": 11.49 },
+    { "id": 10, "dish": "Garden Salad", "category": "Salads", "price": 7.99 }
+  ]
+}

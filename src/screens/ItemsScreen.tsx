@@ -10,7 +10,7 @@ import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
-const CATEGORIES = ['Protein', 'Produce', 'Dairy', 'Dry goods', 'Seafood', 'Bakery', 'Spices'];
+const CATEGORIES = ['Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts'];
 
 export default function ItemsScreen() {
   const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem } = useStore();
@@ -151,19 +151,21 @@ export default function ItemsScreen() {
       </View>
 
       {/* Category filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
-        {['', ...CATEGORIES].map((cat) => (
-          <TouchableOpacity
-            key={cat || 'all'}
-            style={[styles.catChip, catFilter === cat && styles.catChipActive]}
-            onPress={() => setCatFilter(cat)}
-          >
-            <Text style={[styles.catChipText, catFilter === cat && styles.catChipTextActive]}>
-              {cat || 'All'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={styles.catWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
+          {['', ...CATEGORIES].map((cat) => (
+            <TouchableOpacity
+              key={cat || 'all'}
+              style={[styles.catChip, catFilter === cat && styles.catChipActive]}
+              onPress={() => setCatFilter(cat)}
+            >
+              <Text style={[styles.catChipText, catFilter === cat && styles.catChipTextActive]}>
+                {cat || 'All'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       <WebScrollView id="items-scroll" contentContainerStyle={styles.list}>
         {filtered.length === 0 ? (
@@ -237,7 +239,8 @@ const styles = StyleSheet.create({
   search: { flex: 1, backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 8, fontSize: FontSize.base, borderWidth: 0.5, borderColor: Colors.borderLight, color: Colors.textPrimary },
   addBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8, justifyContent: 'center' },
   addBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
-  catScroll: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  catWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  catRow: { flexDirection: 'row', alignItems: 'center' },
   catChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   catChipActive: { backgroundColor: Colors.textPrimary },
   catChipText: { fontSize: FontSize.xs, color: Colors.textSecondary },

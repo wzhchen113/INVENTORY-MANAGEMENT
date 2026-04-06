@@ -4,6 +4,7 @@ import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
   EODSubmission, Vendor, PurchaseOrder, POSImport,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
+  OrderDayVendor, OrderSubmission,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -19,6 +20,7 @@ interface StoreActions {
   // Inventory
   addItem: (item: Omit<InventoryItem, 'id'>) => void;
   updateItem: (id: string, updates: Partial<InventoryItem>) => void;
+  deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
 
@@ -55,6 +57,11 @@ interface StoreActions {
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
+
+  // Orders
+  setOrderSchedule: (day: string, vendors: OrderDayVendor[]) => void;
+  submitOrder: (submission: Omit<OrderSubmission, 'id'>) => void;
+  setTimezone: (tz: string) => void;
 
   // Audit
   addAuditEvent: (event: Omit<AuditEvent, 'id'>) => void;
@@ -98,9 +105,23 @@ export const useStore = create<FullStore>((set, get) => ({
   purchaseOrders: PURCHASE_ORDERS,
   posImports: [],
   auditLog: AUDIT_LOG,
+  orderSchedule: {
+    Monday: [{ vendorName: 'US Foods', deliveryDay: 'Wednesday' }],
+    Tuesday: [{ vendorName: 'Sysco', deliveryDay: 'Thursday' }],
+    Wednesday: [{ vendorName: 'Local Farms Co.', deliveryDay: 'Friday' }],
+    Thursday: [],
+    Friday: [],
+    Saturday: [],
+    Sunday: [],
+  },
+  orderSubmissions: [],
+  timezone: 'America/New_York',
 
   // Auth
-  login: (user) => set({ currentUser: user }),
+  login: (user) => {
+    const userStore = STORES.find((s) => user.stores.includes(s.id)) || STORES[0];
+    set({ currentUser: user, currentStore: userStore });
+  },
   logout: () => set({ currentUser: null }),
   setCurrentStore: (store) => set({ currentStore: store }),
 
@@ -140,6 +161,25 @@ export const useStore = create<FullStore>((set, get) => ({
       detail: 'Item updated',
       itemRef: get().inventory.find((i) => i.id === id)?.name || id,
       value: JSON.stringify(updates),
+    });
+  },
+
+  deleteItem: (id) => {
+    const item = get().inventory.find((i) => i.id === id);
+    set((s) => ({
+      inventory: s.inventory.filter((i) => i.id !== id),
+    }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Item deleted',
+      detail: 'Item removed from store',
+      itemRef: item?.name || id,
+      value: '',
     });
   },
 
@@ -458,6 +498,22 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       users: s.users.map((u) => (u.id === id ? { ...u, ...updates } : u)),
     }));
+  },
+
+  // Orders
+  setOrderSchedule: (day, vendors) => {
+    set((s) => ({
+      orderSchedule: { ...s.orderSchedule, [day]: vendors },
+    }));
+  },
+
+  submitOrder: (submission) => {
+    const id = `ord${Date.now()}`;
+    set((s) => ({ orderSubmissions: [...s.orderSubmissions, { ...submission, id }] }));
+  },
+
+  setTimezone: (tz) => {
+    set({ timezone: tz });
   },
 
   // Audit

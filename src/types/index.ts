@@ -219,6 +219,7 @@ export type AuditAction =
   | 'EOD entry'
   | 'Item edit'
   | 'Item added'
+  | 'Item deleted'
   | 'POS import'
   | 'Waste log'
   | 'PO created'
@@ -236,6 +237,25 @@ export interface Store {
   status: 'active' | 'inactive';
 }
 
+export interface OrderDayVendor {
+  vendorName: string;
+  deliveryDay: string;
+}
+
+export interface OrderSchedule {
+  [day: string]: OrderDayVendor[];
+}
+
+export interface OrderSubmission {
+  id: string;
+  storeId: string;
+  day: string;
+  date: string;
+  vendorName: string;
+  submittedBy: string;
+  submittedAt: string;
+}
+
 export interface AppState {
   currentUser: User | null;
   currentStore: Store;
@@ -250,4 +270,7 @@ export interface AppState {
   purchaseOrders: PurchaseOrder[];
   posImports: POSImport[];
   auditLog: AuditEvent[];
+  orderSchedule: OrderSchedule;
+  orderSubmissions: OrderSubmission[];
+  timezone: string;
 }

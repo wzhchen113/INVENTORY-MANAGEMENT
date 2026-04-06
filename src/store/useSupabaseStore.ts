@@ -87,6 +87,12 @@ export const useStore = create<FullStore>((set, get) => ({
   purchaseOrders: [],
   posImports: [],
   auditLog: [],
+  orderSchedule: {
+    Monday: [], Tuesday: [], Wednesday: [], Thursday: [],
+    Friday: [], Saturday: [], Sunday: [],
+  },
+  orderSubmissions: [],
+  timezone: 'America/New_York',
   isLoading: false,
   error: null,
 

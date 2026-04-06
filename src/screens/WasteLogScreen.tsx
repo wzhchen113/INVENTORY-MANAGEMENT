@@ -70,19 +70,21 @@ export default function WasteLogScreen() {
       </View>
 
       {/* Reason filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        {['', ...REASONS].map((r) => (
-          <TouchableOpacity
-            key={r || 'all'}
-            style={[styles.filterChip, reasonFilter === r && styles.filterChipActive]}
-            onPress={() => setReasonFilter(r)}
-          >
-            <Text style={[styles.filterText, reasonFilter === r && styles.filterTextActive]}>
-              {r || 'All reasons'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={styles.filterWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          {['', ...REASONS].map((r) => (
+            <TouchableOpacity
+              key={r || 'all'}
+              style={[styles.filterChip, reasonFilter === r && styles.filterChipActive]}
+              onPress={() => setReasonFilter(r)}
+            >
+              <Text style={[styles.filterText, reasonFilter === r && styles.filterTextActive]}>
+                {r || 'All reasons'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       <WebScrollView id="waste-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         {filtered.length === 0 ? (
@@ -192,7 +194,8 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 9, color: Colors.textTertiary, marginTop: 2 },
   logBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingVertical: 7, paddingHorizontal: 14 },
   logBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
-  filterScroll: { backgroundColor: Colors.bgPrimary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  filterWrapper: { backgroundColor: Colors.bgPrimary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  filterRow: { flexDirection: 'row', alignItems: 'center' },
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },

@@ -7,7 +7,7 @@ import {
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
 import { Colors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
-import { USERS } from '../data/seed';
+import { USERS, STORES } from '../data/seed';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -48,9 +48,9 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <View style={styles.logoIcon}>
-            <Text style={styles.logoIconText}>TI</Text>
+            <Text style={styles.logoIconText}>2AM</Text>
           </View>
-          <Text style={styles.logoTitle}>Towson Inventory</Text>
+          <Text style={styles.logoTitle}>2AM Inventory</Text>
           <Text style={styles.logoSub}>Restaurant management system</Text>
         </View>
 
@@ -100,27 +100,30 @@ export default function LoginScreen() {
         {__DEV__ && (
           <View style={styles.demoSection}>
             <Text style={styles.demoTitle}>Demo accounts (dev only)</Text>
-            {[
-              { label: 'Admin (Owner)', email: 'admin@towson.com', role: 'Admin', color: Colors.userAdmin },
-              { label: 'Maria Garcia', email: 'maria@towson.com', role: 'Store user', color: Colors.userMaria },
-              { label: 'James Thompson', email: 'james@towson.com', role: 'Store user', color: Colors.userJames },
-              { label: 'Ana Rivera', email: 'ana@baltimore.com', role: 'Store user', color: Colors.userAna },
-            ].map((u) => (
-              <TouchableOpacity key={u.email} style={styles.demoUser} onPress={() => quickLogin(u.email)}>
-                <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
-                  <Text style={[styles.demoAvatarText, { color: u.color }]}>
-                    {u.label.split(' ').map((w) => w[0]).join('').slice(0, 2)}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.demoName}>{u.label}</Text>
-                  <Text style={styles.demoEmail}>{u.email}</Text>
-                </View>
-                <View style={[styles.rolePill, { backgroundColor: u.color + '22' }]}>
-                  <Text style={[styles.rolePillText, { color: u.color }]}>{u.role}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+            {USERS.map((u) => {
+              const storeNames = u.stores
+                .map((sid) => STORES.find((s) => s.id === sid)?.name)
+                .filter(Boolean);
+              const roleLabel = u.role === 'admin'
+                ? 'Admin · All stores'
+                : `${storeNames.join(', ')} user`;
+              return (
+                <TouchableOpacity key={u.email} style={styles.demoUser} onPress={() => quickLogin(u.email)}>
+                  <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
+                    <Text style={[styles.demoAvatarText, { color: u.color }]}>
+                      {u.initials}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.demoName}>{u.name}</Text>
+                    <Text style={styles.demoEmail}>{u.email}</Text>
+                  </View>
+                  <View style={[styles.rolePill, { backgroundColor: u.color + '22' }]}>
+                    <Text style={[styles.rolePillText, { color: u.color }]}>{roleLabel}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
       </ScrollView>

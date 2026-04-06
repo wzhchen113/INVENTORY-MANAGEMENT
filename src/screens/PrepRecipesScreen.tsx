@@ -112,23 +112,25 @@ export default function PrepRecipesScreen() {
           onChangeText={setSearch}
         />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        <TouchableOpacity
-          style={[styles.filterChip, !filter && styles.filterChipActive]}
-          onPress={() => setFilter('')}
-        >
-          <Text style={[styles.filterText, !filter && styles.filterTextActive]}>All</Text>
-        </TouchableOpacity>
-        {PREP_CATEGORIES.map((c) => (
+      <View style={styles.filterWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           <TouchableOpacity
-            key={c}
-            style={[styles.filterChip, filter === c && styles.filterChipActive]}
-            onPress={() => setFilter(filter === c ? '' : c)}
+            style={[styles.filterChip, !filter && styles.filterChipActive]}
+            onPress={() => setFilter('')}
           >
-            <Text style={[styles.filterText, filter === c && styles.filterTextActive]}>{c}</Text>
+            <Text style={[styles.filterText, !filter && styles.filterTextActive]}>All</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {PREP_CATEGORIES.map((c) => (
+            <TouchableOpacity
+              key={c}
+              style={[styles.filterChip, filter === c && styles.filterChipActive]}
+              onPress={() => setFilter(filter === c ? '' : c)}
+            >
+              <Text style={[styles.filterText, filter === c && styles.filterTextActive]}>{c}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* List */}
       <WebScrollView id="prep-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
@@ -290,7 +292,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, padding: Spacing.md,
     fontSize: FontSize.base, color: Colors.textPrimary, borderWidth: 0.5, borderColor: Colors.borderLight,
   },
-  filterScroll: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, flexGrow: 0 },
+  filterWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  filterRow: { flexDirection: 'row', alignItems: 'center' },
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
