@@ -1,15 +1,17 @@
 {
   "inventory": [
-    { "id": 1, "name": "Beef Patty", "stock": 200, "vendor": "Sysco" },
-    { "id": 2, "name": "Chicken Wings", "stock": 80, "vendor": "Sysco" },
-    { "id": 3, "name": "Grilled Chicken", "stock": 60, "vendor": "Sysco" },
-    { "id": 4, "name": "Snow Crab Legs", "stock": 15, "vendor": "US Foods" },
-    { "id": 5, "name": "Fried Shrimp", "stock": 30, "vendor": "US Foods" },
-    { "id": 6, "name": "Lettuce", "stock": 40, "vendor": "Local Farms Co." },
-    { "id": 7, "name": "Tomato", "stock": 60, "vendor": "Local Farms Co." },
-    { "id": 8, "name": "American Cheese", "stock": 300, "vendor": "Sysco" },
-    { "id": 9, "name": "Cheddar Cheese", "stock": 15, "vendor": "Sysco" },
-    { "id": 10, "name": "Gyro Meat (Lamb/Beef)", "stock": 40, "vendor": "Sysco" }
+    { "id": 1, "name": "Beef Patty", "stock": 200, "vendor": "Sysco", "storeId": "s1" },
+    { "id": 2, "name": "Chicken Wings", "stock": 80, "vendor": "Sysco", "storeId": "s1" },
+    { "id": 3, "name": "Grilled Chicken", "stock": 60, "vendor": "Sysco", "storeId": "s1" },
+    { "id": 4, "name": "Snow Crab Legs", "stock": 15, "vendor": "US Foods", "storeId": "s1" },
+    { "id": 5, "name": "Fried Shrimp", "stock": 30, "vendor": "US Foods", "storeId": "s1" },
+    { "id": 6, "name": "Lettuce", "stock": 40, "vendor": "Local Farms Co.", "storeId": "s1" },
+    { "id": 7, "name": "Tomato", "stock": 60, "vendor": "Local Farms Co.", "storeId": "s1" },
+    { "id": 8, "name": "American Cheese", "stock": 300, "vendor": "Sysco", "storeId": "s1" },
+    { "id": 9, "name": "Cheddar Cheese", "stock": 15, "vendor": "Sysco", "storeId": "s2" },
+    { "id": 10, "name": "Gyro Meat (Lamb/Beef)", "stock": 40, "vendor": "Sysco", "storeId": "s2" },
+    { "id": 11, "name": "Beef Patty", "stock": 180, "vendor": "Sysco", "storeId": "s2" },
+    { "id": 12, "name": "Fried Shrimp", "stock": 25, "vendor": "US Foods", "storeId": "s2" }
   ],
   "menus": [
     { "id": 1, "dish": "Classic Burger", "category": "Burgers", "price": 10.99 },
@@ -22,5 +24,134 @@
     { "id": 8, "dish": "Fried Shrimp Basket", "category": "Seafood", "price": 12.49 },
     { "id": 9, "dish": "Steak & Cheese Sub", "category": "Subs", "price": 11.49 },
     { "id": 10, "dish": "Garden Salad", "category": "Salads", "price": 7.99 }
+  ],
+  "eodSubmissions": [
+    {
+      "id": "eod1",
+      "date": "2026-04-04",
+      "storeId": "s1",
+      "storeName": "Towson",
+      "submittedBy": "Maria Garcia",
+      "submittedByUserId": "u2",
+      "timestamp": "2026-04-04T23:05:00.000Z",
+      "itemCount": 6,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-1", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 142, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "" },
+        { "id": "eod-i4-1", "itemId": "i4", "itemName": "Chicken Wings", "actualRemaining": 38, "unit": "lbs", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "Ran low during dinner rush" },
+        { "id": "eod-i9-1", "itemId": "i9", "itemName": "Grilled Chicken", "actualRemaining": 22, "unit": "lbs", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "" },
+        { "id": "eod-i26-1", "itemId": "i26", "itemName": "Lettuce", "actualRemaining": 18, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "" },
+        { "id": "eod-i34-1", "itemId": "i34", "itemName": "American Cheese", "actualRemaining": 210, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "" },
+        { "id": "eod-i17-1", "itemId": "i17", "itemName": "Fried Shrimp", "actualRemaining": 12, "unit": "lbs", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-04T23:05:00.000Z", "date": "2026-04-04", "storeId": "s1", "notes": "Need to reorder" }
+      ]
+    },
+    {
+      "id": "eod2",
+      "date": "2026-04-03",
+      "storeId": "s1",
+      "storeName": "Towson",
+      "submittedBy": "James Thompson",
+      "submittedByUserId": "u3",
+      "timestamp": "2026-04-03T23:15:00.000Z",
+      "itemCount": 5,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-2", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 158, "unit": "each", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-03T23:15:00.000Z", "date": "2026-04-03", "storeId": "s1", "notes": "" },
+        { "id": "eod-i4-2", "itemId": "i4", "itemName": "Chicken Wings", "actualRemaining": 52, "unit": "lbs", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-03T23:15:00.000Z", "date": "2026-04-03", "storeId": "s1", "notes": "" },
+        { "id": "eod-i20-2", "itemId": "i20", "itemName": "Snow Crab Legs", "actualRemaining": 8, "unit": "lbs", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-03T23:15:00.000Z", "date": "2026-04-03", "storeId": "s1", "notes": "Running low" },
+        { "id": "eod-i33-2", "itemId": "i33", "itemName": "Tomato", "actualRemaining": 35, "unit": "each", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-03T23:15:00.000Z", "date": "2026-04-03", "storeId": "s1", "notes": "" },
+        { "id": "eod-i37-2", "itemId": "i37", "itemName": "Milk", "actualRemaining": 3, "unit": "gal", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-03T23:15:00.000Z", "date": "2026-04-03", "storeId": "s1", "notes": "Almost out" }
+      ]
+    },
+    {
+      "id": "eod3",
+      "date": "2026-04-02",
+      "storeId": "s1",
+      "storeName": "Towson",
+      "submittedBy": "Maria Garcia",
+      "submittedByUserId": "u2",
+      "timestamp": "2026-04-02T23:00:00.000Z",
+      "itemCount": 4,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-3", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 175, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-02T23:00:00.000Z", "date": "2026-04-02", "storeId": "s1", "notes": "" },
+        { "id": "eod-i9-3", "itemId": "i9", "itemName": "Grilled Chicken", "actualRemaining": 40, "unit": "lbs", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-02T23:00:00.000Z", "date": "2026-04-02", "storeId": "s1", "notes": "" },
+        { "id": "eod-i26-3", "itemId": "i26", "itemName": "Lettuce", "actualRemaining": 28, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-02T23:00:00.000Z", "date": "2026-04-02", "storeId": "s1", "notes": "" },
+        { "id": "eod-i34-3", "itemId": "i34", "itemName": "American Cheese", "actualRemaining": 245, "unit": "each", "submittedBy": "Maria Garcia", "submittedByUserId": "u2", "timestamp": "2026-04-02T23:00:00.000Z", "date": "2026-04-02", "storeId": "s1", "notes": "" }
+      ]
+    },
+    {
+      "id": "eod4",
+      "date": "2026-04-04",
+      "storeId": "s2",
+      "storeName": "Baltimore",
+      "submittedBy": "Ana Rivera",
+      "submittedByUserId": "u4",
+      "timestamp": "2026-04-04T23:30:00.000Z",
+      "itemCount": 5,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-4", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 120, "unit": "each", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-04T23:30:00.000Z", "date": "2026-04-04", "storeId": "s2", "notes": "" },
+        { "id": "eod-i11-4", "itemId": "i11", "itemName": "Gyro Meat (Lamb/Beef)", "actualRemaining": 18, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-04T23:30:00.000Z", "date": "2026-04-04", "storeId": "s2", "notes": "" },
+        { "id": "eod-i20-4", "itemId": "i20", "itemName": "Snow Crab Legs", "actualRemaining": 5, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-04T23:30:00.000Z", "date": "2026-04-04", "storeId": "s2", "notes": "Discarded 3 lbs due to quality" },
+        { "id": "eod-i17-4", "itemId": "i17", "itemName": "Fried Shrimp", "actualRemaining": 15, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-04T23:30:00.000Z", "date": "2026-04-04", "storeId": "s2", "notes": "" },
+        { "id": "eod-i35-4", "itemId": "i35", "itemName": "Butter", "actualRemaining": 6, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-04T23:30:00.000Z", "date": "2026-04-04", "storeId": "s2", "notes": "" }
+      ]
+    },
+    {
+      "id": "eod5",
+      "date": "2026-04-03",
+      "storeId": "s2",
+      "storeName": "Baltimore",
+      "submittedBy": "Ana Rivera",
+      "submittedByUserId": "u4",
+      "timestamp": "2026-04-03T23:20:00.000Z",
+      "itemCount": 4,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-5", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 148, "unit": "each", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-03T23:20:00.000Z", "date": "2026-04-03", "storeId": "s2", "notes": "" },
+        { "id": "eod-i11-5", "itemId": "i11", "itemName": "Gyro Meat (Lamb/Beef)", "actualRemaining": 25, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-03T23:20:00.000Z", "date": "2026-04-03", "storeId": "s2", "notes": "" },
+        { "id": "eod-i28-5", "itemId": "i28", "itemName": "Mushrooms", "actualRemaining": 4, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-03T23:20:00.000Z", "date": "2026-04-03", "storeId": "s2", "notes": "Getting low" },
+        { "id": "eod-i22-5", "itemId": "i22", "itemName": "Coleslaw", "actualRemaining": 8, "unit": "lbs", "submittedBy": "Ana Rivera", "submittedByUserId": "u4", "timestamp": "2026-04-03T23:20:00.000Z", "date": "2026-04-03", "storeId": "s2", "notes": "" }
+      ]
+    },
+    {
+      "id": "eod6",
+      "date": "2026-04-01",
+      "storeId": "s1",
+      "storeName": "Towson",
+      "submittedBy": "James Thompson",
+      "submittedByUserId": "u3",
+      "timestamp": "2026-04-01T22:45:00.000Z",
+      "itemCount": 3,
+      "status": "submitted",
+      "entries": [
+        { "id": "eod-i1-6", "itemId": "i1", "itemName": "Beef Patty", "actualRemaining": 185, "unit": "each", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-01T22:45:00.000Z", "date": "2026-04-01", "storeId": "s1", "notes": "" },
+        { "id": "eod-i4-6", "itemId": "i4", "itemName": "Chicken Wings", "actualRemaining": 65, "unit": "lbs", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-01T22:45:00.000Z", "date": "2026-04-01", "storeId": "s1", "notes": "" },
+        { "id": "eod-i37-6", "itemId": "i37", "itemName": "Milk", "actualRemaining": 5, "unit": "gal", "submittedBy": "James Thompson", "submittedByUserId": "u3", "timestamp": "2026-04-01T22:45:00.000Z", "date": "2026-04-01", "storeId": "s1", "notes": "" }
+      ]
+    }
+  ],
+  "wasteLog": [
+    { "id": "w1", "itemName": "Beef Patty", "quantity": 8, "unit": "each", "costPerUnit": 2.5, "reason": "Expired", "loggedBy": "Maria Garcia", "storeId": "s1", "timestamp": "2026-04-04T21:30:00.000Z" },
+    { "id": "w2", "itemName": "Grilled Chicken", "quantity": 3, "unit": "lbs", "costPerUnit": 5.5, "reason": "Over-prepped", "loggedBy": "Maria Garcia", "storeId": "s1", "timestamp": "2026-04-04T22:00:00.000Z" },
+    { "id": "w3", "itemName": "Snow Crab Legs", "quantity": 3, "unit": "lbs", "costPerUnit": 22.0, "reason": "Quality issue", "loggedBy": "Ana Rivera", "storeId": "s2", "timestamp": "2026-04-04T20:30:00.000Z" },
+    { "id": "w4", "itemName": "Gyro Meat (Lamb/Beef)", "quantity": 4, "unit": "lbs", "costPerUnit": 8.5, "reason": "Over-prepped", "loggedBy": "Ana Rivera", "storeId": "s2", "timestamp": "2026-04-02T21:15:00.000Z" }
+  ],
+  "purchaseOrders": [
+    { "id": "po1", "poNumber": "PO-2026-001", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "received", "totalCost": 485.00, "createdAt": "2026-03-28T10:00:00.000Z" },
+    { "id": "po2", "poNumber": "PO-2026-002", "vendorName": "US Foods", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "received", "totalCost": 612.50, "createdAt": "2026-03-30T09:00:00.000Z" },
+    { "id": "po3", "poNumber": "PO-2026-004", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s1", "status": "sent", "totalCost": 372.00, "createdAt": "2026-04-03T10:00:00.000Z" },
+    { "id": "po4", "poNumber": "PO-2026-006", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "received", "totalCost": 535.50, "createdAt": "2026-03-29T10:30:00.000Z" },
+    { "id": "po5", "poNumber": "PO-2026-007", "vendorName": "US Foods", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "received", "totalCost": 530.00, "createdAt": "2026-04-01T09:00:00.000Z" },
+    { "id": "po6", "poNumber": "PO-2026-008", "vendorName": "Sysco", "createdBy": "Admin (Owner)", "storeId": "s2", "status": "sent", "totalCost": 289.00, "createdAt": "2026-04-04T11:00:00.000Z" }
+  ],
+  "auditLog": [
+    { "id": "a1", "timestamp": "2026-04-04T23:05:00.000Z", "userName": "Maria Garcia", "storeId": "s1", "storeName": "Towson", "action": "EOD entry", "detail": "Remaining count submitted", "itemRef": "6 items" },
+    { "id": "a2", "timestamp": "2026-04-04T21:30:00.000Z", "userName": "Maria Garcia", "storeId": "s1", "storeName": "Towson", "action": "Waste log", "detail": "Expired logged", "itemRef": "Beef Patty", "value": "8 each" },
+    { "id": "a3", "timestamp": "2026-04-04T23:30:00.000Z", "userName": "Ana Rivera", "storeId": "s2", "storeName": "Baltimore", "action": "EOD entry", "detail": "Remaining count submitted", "itemRef": "5 items" },
+    { "id": "a4", "timestamp": "2026-04-04T20:30:00.000Z", "userName": "Ana Rivera", "storeId": "s2", "storeName": "Baltimore", "action": "Waste log", "detail": "Quality issue logged", "itemRef": "Snow Crab Legs", "value": "3 lbs" },
+    { "id": "a5", "timestamp": "2026-04-03T23:15:00.000Z", "userName": "James Thompson", "storeId": "s1", "storeName": "Towson", "action": "EOD entry", "detail": "Remaining count submitted", "itemRef": "5 items" },
+    { "id": "a6", "timestamp": "2026-04-03T23:20:00.000Z", "userName": "Ana Rivera", "storeId": "s2", "storeName": "Baltimore", "action": "EOD entry", "detail": "Remaining count submitted", "itemRef": "4 items" }
   ]
 }

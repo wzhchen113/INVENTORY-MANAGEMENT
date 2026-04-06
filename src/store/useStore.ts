@@ -9,6 +9,7 @@ import {
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
   WASTE_LOG, PURCHASE_ORDERS, AUDIT_LOG, PREP_RECIPES,
+  EOD_SUBMISSIONS,
 } from '../data/seed';
 
 interface StoreActions {
@@ -100,7 +101,7 @@ export const useStore = create<FullStore>((set, get) => ({
   recipes: RECIPES,
   prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
-  eodSubmissions: [],
+  eodSubmissions: EOD_SUBMISSIONS,
   vendors: VENDORS,
   purchaseOrders: PURCHASE_ORDERS,
   posImports: [],

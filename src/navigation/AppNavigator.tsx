@@ -23,6 +23,7 @@ import ReconciliationScreen from '../screens/ReconciliationScreen';
 import PrepRecipesScreen from '../screens/PrepRecipesScreen';
 import IngredientsScreen from '../screens/IngredientsScreen';
 import OrdersScreen from '../screens/OrdersScreen';
+import EODHistoryScreen from '../screens/EODHistoryScreen';
 import {
   RecipesScreen, VendorsScreen, PurchaseOrdersScreen,
   RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen,
@@ -343,6 +344,7 @@ function MoreScreen({ navigation }: any) {
     { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
     { label: 'Restock Report', screen: 'Restock', icon: 'arrow-down-circle-outline' as const },
     ...(isAdmin ? [
+      { label: 'EOD History', screen: 'EODHistory', icon: 'calendar-outline' as const },
       { label: 'Vendors', screen: 'Vendors', icon: 'business-outline' as const },
       { label: 'Purchase Orders', screen: 'PurchaseOrders', icon: 'document-text-outline' as const },
       { label: 'POS Import', screen: 'POSImport', icon: 'cloud-upload-outline' as const },
@@ -433,6 +435,7 @@ function AppStackNavigator() {
       <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
       <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients' }} />
       <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes' }} />
+      <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
       <AppStack.Screen name="Vendors" component={VendorsScreen} />
       <AppStack.Screen name="PurchaseOrders" component={PurchaseOrdersScreen} options={{ title: 'Purchase orders' }} />

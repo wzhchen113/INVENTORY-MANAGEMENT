@@ -2,6 +2,7 @@
 import {
   User, Store, InventoryItem, Recipe, Vendor,
   WasteEntry, PurchaseOrder, AuditEvent, PrepRecipe,
+  EODSubmission,
 } from '../types';
 
 export const STORES: Store[] = [
@@ -817,6 +818,84 @@ export const PURCHASE_ORDERS: PurchaseOrder[] = [
       { itemId: 'i8', itemName: 'Fried Chicken Breast', unit: 'each', orderedQty: 50, costPerUnit: 2.8 },
       { itemId: 'i14', itemName: 'Shaved Steak', unit: 'lbs', orderedQty: 15, costPerUnit: 9.0 },
       { itemId: 'i37', itemName: 'Milk', unit: 'gal', orderedQty: 6, costPerUnit: 4.0 },
+    ],
+  },
+];
+
+export const EOD_SUBMISSIONS: EODSubmission[] = [
+  // Towson — Maria Garcia, Apr 4
+  {
+    id: 'eod1', date: '2026-04-04', storeId: 's1', storeName: 'Towson',
+    submittedBy: 'Maria Garcia', submittedByUserId: 'u2',
+    timestamp: '2026-04-04T23:05:00.000Z', itemCount: 6, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-1', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 142, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: '' },
+      { id: 'eod-i4-1', itemId: 'i4', itemName: 'Chicken Wings', actualRemaining: 38, unit: 'lbs', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: 'Ran low during dinner rush' },
+      { id: 'eod-i9-1', itemId: 'i9', itemName: 'Grilled Chicken', actualRemaining: 22, unit: 'lbs', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: '' },
+      { id: 'eod-i26-1', itemId: 'i26', itemName: 'Lettuce', actualRemaining: 18, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: '' },
+      { id: 'eod-i34-1', itemId: 'i34', itemName: 'American Cheese', actualRemaining: 210, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: '' },
+      { id: 'eod-i17-1', itemId: 'i17', itemName: 'Fried Shrimp', actualRemaining: 12, unit: 'lbs', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-04T23:05:00.000Z', date: '2026-04-04', storeId: 's1', notes: 'Need to reorder' },
+    ],
+  },
+  // Towson — James Thompson, Apr 3
+  {
+    id: 'eod2', date: '2026-04-03', storeId: 's1', storeName: 'Towson',
+    submittedBy: 'James Thompson', submittedByUserId: 'u3',
+    timestamp: '2026-04-03T23:15:00.000Z', itemCount: 5, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-2', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 158, unit: 'each', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-03T23:15:00.000Z', date: '2026-04-03', storeId: 's1', notes: '' },
+      { id: 'eod-i4-2', itemId: 'i4', itemName: 'Chicken Wings', actualRemaining: 52, unit: 'lbs', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-03T23:15:00.000Z', date: '2026-04-03', storeId: 's1', notes: '' },
+      { id: 'eod-i20-2', itemId: 'i20', itemName: 'Snow Crab Legs', actualRemaining: 8, unit: 'lbs', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-03T23:15:00.000Z', date: '2026-04-03', storeId: 's1', notes: 'Running low' },
+      { id: 'eod-i33-2', itemId: 'i33', itemName: 'Tomato', actualRemaining: 35, unit: 'each', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-03T23:15:00.000Z', date: '2026-04-03', storeId: 's1', notes: '' },
+      { id: 'eod-i37-2', itemId: 'i37', itemName: 'Milk', actualRemaining: 3, unit: 'gal', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-03T23:15:00.000Z', date: '2026-04-03', storeId: 's1', notes: 'Almost out' },
+    ],
+  },
+  // Towson — Maria Garcia, Apr 2
+  {
+    id: 'eod3', date: '2026-04-02', storeId: 's1', storeName: 'Towson',
+    submittedBy: 'Maria Garcia', submittedByUserId: 'u2',
+    timestamp: '2026-04-02T23:00:00.000Z', itemCount: 4, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-3', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 175, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-02T23:00:00.000Z', date: '2026-04-02', storeId: 's1', notes: '' },
+      { id: 'eod-i9-3', itemId: 'i9', itemName: 'Grilled Chicken', actualRemaining: 40, unit: 'lbs', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-02T23:00:00.000Z', date: '2026-04-02', storeId: 's1', notes: '' },
+      { id: 'eod-i26-3', itemId: 'i26', itemName: 'Lettuce', actualRemaining: 28, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-02T23:00:00.000Z', date: '2026-04-02', storeId: 's1', notes: '' },
+      { id: 'eod-i34-3', itemId: 'i34', itemName: 'American Cheese', actualRemaining: 245, unit: 'each', submittedBy: 'Maria Garcia', submittedByUserId: 'u2', timestamp: '2026-04-02T23:00:00.000Z', date: '2026-04-02', storeId: 's1', notes: '' },
+    ],
+  },
+  // Towson — James Thompson, Apr 1
+  {
+    id: 'eod6', date: '2026-04-01', storeId: 's1', storeName: 'Towson',
+    submittedBy: 'James Thompson', submittedByUserId: 'u3',
+    timestamp: '2026-04-01T22:45:00.000Z', itemCount: 3, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-6', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 185, unit: 'each', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-01T22:45:00.000Z', date: '2026-04-01', storeId: 's1', notes: '' },
+      { id: 'eod-i4-6', itemId: 'i4', itemName: 'Chicken Wings', actualRemaining: 65, unit: 'lbs', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-01T22:45:00.000Z', date: '2026-04-01', storeId: 's1', notes: '' },
+      { id: 'eod-i37-6', itemId: 'i37', itemName: 'Milk', actualRemaining: 5, unit: 'gal', submittedBy: 'James Thompson', submittedByUserId: 'u3', timestamp: '2026-04-01T22:45:00.000Z', date: '2026-04-01', storeId: 's1', notes: '' },
+    ],
+  },
+  // Baltimore — Ana Rivera, Apr 4
+  {
+    id: 'eod4', date: '2026-04-04', storeId: 's2', storeName: 'Baltimore',
+    submittedBy: 'Ana Rivera', submittedByUserId: 'u4',
+    timestamp: '2026-04-04T23:30:00.000Z', itemCount: 5, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-4', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 120, unit: 'each', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-04T23:30:00.000Z', date: '2026-04-04', storeId: 's2', notes: '' },
+      { id: 'eod-i11-4', itemId: 'i11', itemName: 'Gyro Meat (Lamb/Beef)', actualRemaining: 18, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-04T23:30:00.000Z', date: '2026-04-04', storeId: 's2', notes: '' },
+      { id: 'eod-i20-4', itemId: 'i20', itemName: 'Snow Crab Legs', actualRemaining: 5, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-04T23:30:00.000Z', date: '2026-04-04', storeId: 's2', notes: 'Discarded 3 lbs due to quality' },
+      { id: 'eod-i17-4', itemId: 'i17', itemName: 'Fried Shrimp', actualRemaining: 15, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-04T23:30:00.000Z', date: '2026-04-04', storeId: 's2', notes: '' },
+      { id: 'eod-i35-4', itemId: 'i35', itemName: 'Butter', actualRemaining: 6, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-04T23:30:00.000Z', date: '2026-04-04', storeId: 's2', notes: '' },
+    ],
+  },
+  // Baltimore — Ana Rivera, Apr 3
+  {
+    id: 'eod5', date: '2026-04-03', storeId: 's2', storeName: 'Baltimore',
+    submittedBy: 'Ana Rivera', submittedByUserId: 'u4',
+    timestamp: '2026-04-03T23:20:00.000Z', itemCount: 4, status: 'submitted',
+    entries: [
+      { id: 'eod-i1-5', itemId: 'i1', itemName: 'Beef Patty', actualRemaining: 148, unit: 'each', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-03T23:20:00.000Z', date: '2026-04-03', storeId: 's2', notes: '' },
+      { id: 'eod-i11-5', itemId: 'i11', itemName: 'Gyro Meat (Lamb/Beef)', actualRemaining: 25, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-03T23:20:00.000Z', date: '2026-04-03', storeId: 's2', notes: '' },
+      { id: 'eod-i28-5', itemId: 'i28', itemName: 'Mushrooms', actualRemaining: 4, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-03T23:20:00.000Z', date: '2026-04-03', storeId: 's2', notes: 'Getting low' },
+      { id: 'eod-i22-5', itemId: 'i22', itemName: 'Coleslaw', actualRemaining: 8, unit: 'lbs', submittedBy: 'Ana Rivera', submittedByUserId: 'u4', timestamp: '2026-04-03T23:20:00.000Z', date: '2026-04-03', storeId: 's2', notes: '' },
     ],
   },
 ];
