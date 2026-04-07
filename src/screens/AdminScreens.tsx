@@ -17,6 +17,8 @@ import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
 import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
 
+const RECIPE_CATEGORIES = ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'];
+
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
   const C = useColors();
@@ -42,9 +44,17 @@ export function RecipesScreen() {
   const [editPrepItems, setEditPrepItems] = useState<RecipePrepItem[]>([]);
 
   const [dupWarning, setDupWarning] = useState('');
+  const [catFilter, setCatFilter] = useState('');
 
-  // Show recipes for the currently selected store
+  // Show recipes for the currently selected store, filtered by category
   const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
+  const filteredRecipes = catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes;
+
+  // Compute category counts for filter chips
+  const categoryCounts = RECIPE_CATEGORIES.map((cat) => ({
+    cat,
+    count: storeRecipes.filter((r) => r.category === cat).length,
+  })).filter((c) => c.count > 0);
 
   const toggleStore = (id: string) => {
     setSelectedStoreIds((prev) =>
@@ -208,11 +218,36 @@ export function RecipesScreen() {
       <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
         <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
+      {/* Category filter */}
+      <View style={{ paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary }]}
+            onPress={() => setCatFilter('')}
+          >
+            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.white, fontWeight: '500' }]}>
+              All ({storeRecipes.length})
+            </Text>
+          </TouchableOpacity>
+          {categoryCounts.map(({ cat, count }) => (
+            <TouchableOpacity
+              key={cat}
+              style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && { backgroundColor: C.textPrimary }]}
+              onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
+            >
+              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.white, fontWeight: '500' }]}>
+                {cat} ({count})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
         </TouchableOpacity>
-        {storeRecipes.map((recipe) => {
+        {filteredRecipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
           const fcOk = fcPct < 35;
@@ -264,7 +299,7 @@ export function RecipesScreen() {
             </View>
           );
         })}
-        {storeRecipes.length === 0 && (
+        {filteredRecipes.length === 0 && (
           <Card>
             <EmptyState message={`No recipes for ${currentStore.name} yet. Tap + to add one.`} />
           </Card>
@@ -320,7 +355,7 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={(v) => setSellPrice(numericFilter(v))} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-            {['Mains', 'Salads', 'Starters', 'Desserts', 'Sandwiches & Burgers', 'Over Rice Platters'].map((c) => (
+            {RECIPE_CATEGORIES.map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
                 <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
               </TouchableOpacity>
@@ -866,4 +901,6 @@ const styles = StyleSheet.create({
   storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
   deleteRecipeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },
   deleteRecipeBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
+  filterChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 0.5, borderColor: Colors.borderLight },
+  filterChipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
 });
