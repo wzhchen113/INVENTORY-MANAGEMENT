@@ -8,6 +8,7 @@ import {
   FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
@@ -141,7 +142,7 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Menu item name</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={menuItem} onChangeText={setMenuItem} placeholder="e.g. Grilled Chicken Plate" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
-            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={setSellPrice} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
+            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={(v) => setSellPrice(numericFilter(v))} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
             {['Mains', 'Salads', 'Starters', 'Desserts'].map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
@@ -267,7 +268,7 @@ export function VendorsScreen() {
             ].map((f) => (
               <View key={f.key}>
                 <Text style={[styles.formLabel, { color: C.textSecondary }]}>{f.label}</Text>
-                <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
+                <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: f.keyboard ? numericFilter(v) : v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
               </View>
             ))}
             {dupWarning ? (

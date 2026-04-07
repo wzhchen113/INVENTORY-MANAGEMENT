@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
@@ -543,7 +544,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.costPerUnit}
-                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: numericFilter(v) }))}
                 placeholder="0.00"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -556,7 +557,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.currentStock}
-                onChangeText={(v) => setForm((p) => ({ ...p, currentStock: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, currentStock: numericFilter(v) }))}
                 placeholder="0"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -569,7 +570,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.parLevel}
-                onChangeText={(v) => setForm((p) => ({ ...p, parLevel: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, parLevel: numericFilter(v) }))}
                 placeholder="0"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"

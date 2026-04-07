@@ -5,6 +5,7 @@ import {
   TextInput, StyleSheet, Alert,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
@@ -254,7 +255,7 @@ export default function PrepRecipesScreen() {
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={yieldQty}
-                  onChangeText={setYieldQty}
+                  onChangeText={(v) => setYieldQty(numericFilter(v))}
                   keyboardType="decimal-pad"
                   placeholder="40"
                   placeholderTextColor={C.textTertiary}

@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
+import { numericFilter } from '../utils';
 import { InventoryItem, PrepRecipe, RecipeIngredient, RecipePrepItem } from '../types';
 
 interface IngredientEditorProps {
@@ -108,7 +109,7 @@ export default function IngredientEditor({
           <TextInput
             style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
             value={ing.quantity.toString()}
-            onChangeText={(v) => updateIngredientQty(idx, v)}
+            onChangeText={(v) => updateIngredientQty(idx, numericFilter(v))}
             keyboardType="decimal-pad"
             placeholderTextColor={C.textTertiary}
           />
@@ -137,7 +138,7 @@ export default function IngredientEditor({
           <TextInput
             style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
             value={prep.quantity.toString()}
-            onChangeText={(v) => updatePrepQty(idx, v)}
+            onChangeText={(v) => updatePrepQty(idx, numericFilter(v))}
             keyboardType="decimal-pad"
             placeholderTextColor={C.textTertiary}
           />

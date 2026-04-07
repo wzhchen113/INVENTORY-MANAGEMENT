@@ -5,6 +5,7 @@ import {
   TouchableOpacity, Modal, Alert, FlatList,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
@@ -218,7 +219,7 @@ export default function ItemsScreen() {
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={(form as any)[f.key]}
-                  onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))}
+                  onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: f.keyboard ? numericFilter(v) : v }))}
                   placeholder={f.placeholder}
                   placeholderTextColor={C.textTertiary}
                   keyboardType={(f.keyboard as any) || 'default'}
