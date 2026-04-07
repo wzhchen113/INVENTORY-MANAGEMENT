@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Modal, Alert, FlatList, Platform,
+  TouchableOpacity, Modal, Alert, FlatList,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
@@ -43,12 +43,14 @@ export default function ItemsScreen() {
 
   const openAdd = () => {
     setEditItem(null);
+    setDupWarning('');
     setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '' });
     setShowModal(true);
   };
 
   const openEdit = (item: InventoryItem) => {
     setEditItem(item);
+    setDupWarning('');
     setForm({
       name: item.name, category: item.category, unit: item.unit,
       costPerUnit: String(item.costPerUnit), currentStock: String(item.currentStock),
@@ -58,30 +60,10 @@ export default function ItemsScreen() {
     setShowModal(true);
   };
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!form.name.trim()) { Alert.alert('Error', 'Item name is required'); return; }
-
-    const doSave = () => {
-      const data = {
-        name: form.name.trim(), category: form.category, unit: form.unit,
-        costPerUnit: parseFloat(form.costPerUnit) || 0,
-        currentStock: parseFloat(form.currentStock) || 0,
-        parLevel: parseFloat(form.parLevel) || 0,
-        vendorId: 'v1', vendorName: form.vendorName,
-        usagePerPortion: parseFloat(form.usagePerPortion) || 0,
-        lastUpdatedBy: currentUser?.name || 'Admin',
-        lastUpdatedAt: new Date().toLocaleTimeString(),
-        eodRemaining: parseFloat(form.currentStock) || 0,
-        averageDailyUsage: 0, safetyStock: 0,
-        storeId: 's1', expiryDate: '',
-      };
-      if (editItem) {
-        updateItem(editItem.id, data);
-      } else {
-        addItem(data);
-      }
-      setShowModal(false);
-    };
 
     const trimmedName = form.name.trim().toLowerCase();
     const duplicate = storeInventory.some(
@@ -89,18 +71,30 @@ export default function ItemsScreen() {
     );
 
     if (duplicate) {
-      const msg = `An item named "${form.name.trim()}" already exists. Save anyway?`;
-      if (Platform.OS === 'web') {
-        if (confirm(msg)) doSave();
-      } else {
-        Alert.alert('Duplicate Name', msg, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Save Anyway', onPress: doSave },
-        ]);
-      }
-    } else {
-      doSave();
+      setDupWarning(`An item named "${form.name.trim()}" already exists.`);
+      return;
     }
+    setDupWarning('');
+
+    const data = {
+      name: form.name.trim(), category: form.category, unit: form.unit,
+      costPerUnit: parseFloat(form.costPerUnit) || 0,
+      currentStock: parseFloat(form.currentStock) || 0,
+      parLevel: parseFloat(form.parLevel) || 0,
+      vendorId: 'v1', vendorName: form.vendorName,
+      usagePerPortion: parseFloat(form.usagePerPortion) || 0,
+      lastUpdatedBy: currentUser?.name || 'Admin',
+      lastUpdatedAt: new Date().toLocaleTimeString(),
+      eodRemaining: parseFloat(form.currentStock) || 0,
+      averageDailyUsage: 0, safetyStock: 0,
+      storeId: 's1', expiryDate: '',
+    };
+    if (editItem) {
+      updateItem(editItem.id, data);
+    } else {
+      addItem(data);
+    }
+    setShowModal(false);
   };
 
   const renderItem = ({ item }: { item: InventoryItem }) => {
@@ -247,6 +241,12 @@ export default function ItemsScreen() {
               </ScrollView>
             </View>
 
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
+
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={[styles.saveBtnText, { color: C.white }]}>Save item</Text>
             </TouchableOpacity>
@@ -292,4 +292,6 @@ const styles = StyleSheet.create({
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.md },
   saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

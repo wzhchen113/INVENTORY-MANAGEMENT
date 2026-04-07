@@ -34,33 +34,25 @@ export function RecipesScreen() {
   const [editIngredients, setEditIngredients] = useState<RecipeIngredient[]>([]);
   const [editPrepItems, setEditPrepItems] = useState<RecipePrepItem[]>([]);
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!menuItem.trim()) { Alert.alert('Error', 'Recipe name required'); return; }
-
-    const doSave = () => {
-      addRecipe({
-        menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
-        ingredients: [], prepItems: [], storeId: 's1',
-      });
-      setMenuItem(''); setSellPrice(''); setShowModal(false);
-    };
 
     const trimmedName = menuItem.trim().toLowerCase();
     const duplicate = recipes.some((r) => r.menuItem.toLowerCase() === trimmedName);
 
     if (duplicate) {
-      const msg = `A recipe named "${menuItem.trim()}" already exists. Save anyway?`;
-      if (Platform.OS === 'web') {
-        if (confirm(msg)) doSave();
-      } else {
-        Alert.alert('Duplicate Name', msg, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Save Anyway', onPress: doSave },
-        ]);
-      }
-    } else {
-      doSave();
+      setDupWarning(`A recipe named "${menuItem.trim()}" already exists.`);
+      return;
     }
+    setDupWarning('');
+
+    addRecipe({
+      menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
+      ingredients: [], prepItems: [], storeId: 's1',
+    });
+    setMenuItem(''); setSellPrice(''); setShowModal(false);
   };
 
   const openIngredientEditor = (recipe: Recipe) => {
@@ -86,7 +78,7 @@ export function RecipesScreen() {
         <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => { setDupWarning(''); setShowModal(true); }}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
         </TouchableOpacity>
         {recipes.map((recipe) => {
@@ -156,6 +148,11 @@ export function RecipesScreen() {
                 <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
               </TouchableOpacity>
             ))}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
             <View style={styles.mfRow}>
               <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
                 <Text style={[styles.saveBtnText, { color: C.white }]}>Save recipe</Text>
@@ -199,6 +196,7 @@ export function VendorsScreen() {
   const C = useColors();
   const { vendors, addVendor } = useStore();
   const [showModal, setShowModal] = useState(false);
+  const [dupWarning, setDupWarning] = useState('');
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
 
   const handleSave = () => {
@@ -208,33 +206,23 @@ export function VendorsScreen() {
       return;
     }
 
-    const doSave = () => {
-      addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
-      setShowModal(false);
-    };
-
     const trimmedName = form.name.trim().toLowerCase();
     const duplicate = vendors.some((v) => v.name.toLowerCase() === trimmedName);
 
     if (duplicate) {
-      const msg = `A vendor named "${form.name.trim()}" already exists. Add anyway?`;
-      if (Platform.OS === 'web') {
-        if (confirm(msg)) doSave();
-      } else {
-        Alert.alert('Duplicate Name', msg, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Add Anyway', onPress: doSave },
-        ]);
-      }
-    } else {
-      doSave();
+      setDupWarning(`A vendor named "${form.name.trim()}" already exists.`);
+      return;
     }
+    setDupWarning('');
+
+    addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
+    setShowModal(false);
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => { setDupWarning(''); setShowModal(true); }}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
         {vendors.map((vendor) => (
@@ -282,6 +270,11 @@ export function VendorsScreen() {
                 <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
               </View>
             ))}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={[styles.saveBtnText, { color: C.white }]}>Save vendor</Text>
             </TouchableOpacity>
@@ -670,4 +663,6 @@ const styles = StyleSheet.create({
   checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.borderMedium, alignItems: 'center', justifyContent: 'center' },
   checkboxActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   storeName: { fontSize: FontSize.sm, color: Colors.textPrimary },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

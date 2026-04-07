@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
-  TextInput, StyleSheet, Alert, Platform,
+  TextInput, StyleSheet, Alert,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
@@ -42,6 +42,7 @@ export default function PrepRecipesScreen() {
 
   const openNew = () => {
     setEditingId(null);
+    setDupWarning('');
     setName('');
     setCategory('Marinades');
     setYieldQty('');
@@ -53,6 +54,7 @@ export default function PrepRecipesScreen() {
 
   const openEdit = (pr: PrepRecipe) => {
     setEditingId(pr.id);
+    setDupWarning('');
     setName(pr.name);
     setCategory(pr.category);
     setYieldQty(pr.yieldQuantity.toString());
@@ -62,31 +64,12 @@ export default function PrepRecipesScreen() {
     setShowModal(true);
   };
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!name.trim()) { Alert.alert('Error', 'Name required'); return; }
     if (!yieldQty || parseFloat(yieldQty) <= 0) { Alert.alert('Error', 'Yield quantity required'); return; }
     if (!yieldUnit.trim()) { Alert.alert('Error', 'Yield unit required'); return; }
-
-    const doSave = () => {
-      const data = {
-        name: name.trim(),
-        category,
-        yieldQuantity: parseFloat(yieldQty),
-        yieldUnit: yieldUnit.trim(),
-        notes: notes.trim(),
-        ingredients: formIngredients,
-        storeId: 's1',
-        createdBy: currentUser?.name || 'Admin',
-        createdAt: new Date().toLocaleDateString(),
-      };
-
-      if (editingId) {
-        updatePrepRecipe(editingId, data);
-      } else {
-        addPrepRecipe(data);
-      }
-      setShowModal(false);
-    };
 
     const trimmedName = name.trim().toLowerCase();
     const duplicate = prepRecipes.some(
@@ -94,18 +77,29 @@ export default function PrepRecipesScreen() {
     );
 
     if (duplicate) {
-      const msg = `A prep recipe named "${name.trim()}" already exists. Save anyway?`;
-      if (Platform.OS === 'web') {
-        if (confirm(msg)) doSave();
-      } else {
-        Alert.alert('Duplicate Name', msg, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Save Anyway', onPress: doSave },
-        ]);
-      }
-    } else {
-      doSave();
+      setDupWarning(`A prep recipe named "${name.trim()}" already exists.`);
+      return;
     }
+    setDupWarning('');
+
+    const data = {
+      name: name.trim(),
+      category,
+      yieldQuantity: parseFloat(yieldQty),
+      yieldUnit: yieldUnit.trim(),
+      notes: notes.trim(),
+      ingredients: formIngredients,
+      storeId: 's1',
+      createdBy: currentUser?.name || 'Admin',
+      createdAt: new Date().toLocaleDateString(),
+    };
+
+    if (editingId) {
+      updatePrepRecipe(editingId, data);
+    } else {
+      addPrepRecipe(data);
+    }
+    setShowModal(false);
   };
 
   const handleDelete = (pr: PrepRecipe) => {
@@ -296,6 +290,12 @@ export default function PrepRecipesScreen() {
               availableItems={inventory}
             />
 
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
+
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>{editingId ? 'Update prep recipe' : 'Save prep recipe'}</Text>
             </TouchableOpacity>
@@ -359,4 +359,6 @@ const styles = StyleSheet.create({
   yieldRow: { flexDirection: 'row' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxxl },
   saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

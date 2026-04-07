@@ -98,6 +98,7 @@ export default function IngredientsScreen() {
 
   const openAdd = () => {
     setEditItem(null);
+    setDupWarning('');
     setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '' });
     setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
     setShowModal(true);
@@ -105,6 +106,7 @@ export default function IngredientsScreen() {
 
   const openEdit = (item: InventoryItem) => {
     setEditItem(item);
+    setDupWarning('');
     setForm({
       name: item.name,
       category: item.category,
@@ -122,6 +124,8 @@ export default function IngredientsScreen() {
     setSelectedStoreIds([...new Set(storesWithItem)]);
     setShowModal(true);
   };
+
+  const [dupWarning, setDupWarning] = useState('');
 
   const handleSave = () => {
     if (!form.name.trim()) {
@@ -141,86 +145,6 @@ export default function IngredientsScreen() {
       return;
     }
 
-    const doSave = () => {
-      if (editItem) {
-        // Find all existing copies of this ingredient across stores
-        const existingItems = inventory.filter(
-          (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
-        );
-        const existingStoreIds = existingItems.map((i) => i.storeId);
-
-        // Update properties on all existing copies that are still selected
-        existingItems.forEach((item) => {
-          if (selectedStoreIds.includes(item.storeId)) {
-            updateItem(item.id, {
-              name: form.name.trim(),
-              category: form.category,
-              unit: form.unit,
-              costPerUnit: parseFloat(form.costPerUnit) || 0,
-              parLevel: parseFloat(form.parLevel) || 0,
-              vendorId: form.vendorId,
-              vendorName: form.vendorName,
-              lastUpdatedBy: currentUser?.name || '',
-              lastUpdatedAt: new Date().toISOString(),
-            });
-          }
-        });
-
-        // Delete from stores that were deselected
-        existingItems.forEach((item) => {
-          if (!selectedStoreIds.includes(item.storeId)) {
-            deleteItem(item.id);
-          }
-        });
-
-        // Add to newly selected stores
-        const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
-        for (const storeId of newStoreIds) {
-          addItem({
-            name: form.name.trim(),
-            category: form.category,
-            unit: form.unit,
-            costPerUnit: parseFloat(form.costPerUnit) || 0,
-            currentStock: 0,
-            parLevel: parseFloat(form.parLevel) || 0,
-            averageDailyUsage: 0,
-            safetyStock: 0,
-            vendorId: form.vendorId,
-            vendorName: form.vendorName,
-            usagePerPortion: editItem.usagePerPortion,
-            lastUpdatedBy: currentUser?.name || '',
-            lastUpdatedAt: new Date().toISOString(),
-            eodRemaining: 0,
-            storeId,
-            expiryDate: '',
-          });
-        }
-      } else {
-        // Add: create in all selected stores
-        for (const storeId of selectedStoreIds) {
-          addItem({
-            name: form.name.trim(),
-            category: form.category,
-            unit: form.unit,
-            costPerUnit: parseFloat(form.costPerUnit) || 0,
-            currentStock: parseFloat(form.currentStock) || 0,
-            parLevel: parseFloat(form.parLevel) || 0,
-            averageDailyUsage: 0,
-            safetyStock: 0,
-            vendorId: form.vendorId,
-            vendorName: form.vendorName,
-            usagePerPortion: 0,
-            lastUpdatedBy: currentUser?.name || '',
-            lastUpdatedAt: new Date().toISOString(),
-            eodRemaining: parseFloat(form.currentStock) || 0,
-            storeId,
-            expiryDate: '',
-          });
-        }
-      }
-      setShowModal(false);
-    };
-
     // Check for duplicate names within ingredients only, per selected store
     const trimmedName = form.name.trim().toLowerCase();
     const duplicateStoreNames: string[] = [];
@@ -238,18 +162,88 @@ export default function IngredientsScreen() {
     }
 
     if (duplicateStoreNames.length > 0) {
-      const msg = `An ingredient named "${form.name.trim()}" already exists in: ${duplicateStoreNames.join(', ')}. Save anyway?`;
-      if (Platform.OS === 'web') {
-        if (confirm(msg)) doSave();
-      } else {
-        Alert.alert('Duplicate Name', msg, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Save Anyway', onPress: doSave },
-        ]);
+      setDupWarning(`An ingredient named "${form.name.trim()}" already exists in: ${duplicateStoreNames.join(', ')}.`);
+      return;
+    }
+    setDupWarning('');
+
+    if (editItem) {
+      // Find all existing copies of this ingredient across stores
+      const existingItems = inventory.filter(
+        (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
+      );
+      const existingStoreIds = existingItems.map((i) => i.storeId);
+
+      // Update properties on all existing copies that are still selected
+      existingItems.forEach((item) => {
+        if (selectedStoreIds.includes(item.storeId)) {
+          updateItem(item.id, {
+            name: form.name.trim(),
+            category: form.category,
+            unit: form.unit,
+            costPerUnit: parseFloat(form.costPerUnit) || 0,
+            parLevel: parseFloat(form.parLevel) || 0,
+            vendorId: form.vendorId,
+            vendorName: form.vendorName,
+            lastUpdatedBy: currentUser?.name || '',
+            lastUpdatedAt: new Date().toISOString(),
+          });
+        }
+      });
+
+      // Delete from stores that were deselected
+      existingItems.forEach((item) => {
+        if (!selectedStoreIds.includes(item.storeId)) {
+          deleteItem(item.id);
+        }
+      });
+
+      // Add to newly selected stores
+      const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
+      for (const storeId of newStoreIds) {
+        addItem({
+          name: form.name.trim(),
+          category: form.category,
+          unit: form.unit,
+          costPerUnit: parseFloat(form.costPerUnit) || 0,
+          currentStock: 0,
+          parLevel: parseFloat(form.parLevel) || 0,
+          averageDailyUsage: 0,
+          safetyStock: 0,
+          vendorId: form.vendorId,
+          vendorName: form.vendorName,
+          usagePerPortion: editItem.usagePerPortion,
+          lastUpdatedBy: currentUser?.name || '',
+          lastUpdatedAt: new Date().toISOString(),
+          eodRemaining: 0,
+          storeId,
+          expiryDate: '',
+        });
       }
     } else {
-      doSave();
+      // Add: create in all selected stores
+      for (const storeId of selectedStoreIds) {
+        addItem({
+          name: form.name.trim(),
+          category: form.category,
+          unit: form.unit,
+          costPerUnit: parseFloat(form.costPerUnit) || 0,
+          currentStock: parseFloat(form.currentStock) || 0,
+          parLevel: parseFloat(form.parLevel) || 0,
+          averageDailyUsage: 0,
+          safetyStock: 0,
+          vendorId: form.vendorId,
+          vendorName: form.vendorName,
+          usagePerPortion: 0,
+          lastUpdatedBy: currentUser?.name || '',
+          lastUpdatedAt: new Date().toISOString(),
+          eodRemaining: parseFloat(form.currentStock) || 0,
+          storeId,
+          expiryDate: '',
+        });
+      }
     }
+    setShowModal(false);
   };
 
   const handleDeleteEntirely = () => {
@@ -583,6 +577,12 @@ export default function IngredientsScreen() {
             </View>
 
             {/* Save button */}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
+
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>
                 {editItem
@@ -690,4 +690,6 @@ const styles = StyleSheet.create({
   storeChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   storeChipTextActive: { color: Colors.textPrimary },
   storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });
