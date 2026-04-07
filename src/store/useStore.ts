@@ -28,6 +28,7 @@ interface StoreActions {
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   updateRecipe: (id: string, updates: Partial<Recipe>) => void;
+  deleteRecipe: (id: string) => void;
 
   // Prep Recipes
   addPrepRecipe: (recipe: Omit<PrepRecipe, 'id'>) => void;
@@ -227,6 +228,23 @@ export const useStore = create<FullStore>((set, get) => ({
       action: 'Recipe saved',
       detail: 'Recipe updated',
       itemRef: get().recipes.find((r) => r.id === id)?.menuItem || id,
+      value: '',
+    });
+  },
+
+  deleteRecipe: (id) => {
+    const recipe = get().recipes.find((r) => r.id === id);
+    set((s) => ({ recipes: s.recipes.filter((r) => r.id !== id) }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Recipe deleted',
+      detail: 'Recipe removed',
+      itemRef: recipe?.menuItem || id,
       value: '',
     });
   },
