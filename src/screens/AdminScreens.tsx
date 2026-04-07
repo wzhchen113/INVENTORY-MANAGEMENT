@@ -17,16 +17,15 @@ import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
 import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
 
-const RECIPE_CATEGORIES = ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'];
-
 // ─── RECIPES ────────────────────────────────────────────────────────────────
 export function RecipesScreen() {
   const C = useColors();
   const {
     currentUser, currentStore, stores,
-    recipes, inventory, prepRecipes,
+    recipes, recipeCategories, inventory, prepRecipes,
     getRecipeCost, getRecipeFoodCostPct,
     addRecipe, updateRecipe, deleteRecipe,
+    addRecipeCategory, updateRecipeCategory, deleteRecipeCategory,
   } = useStore();
   const isAdmin = currentUser?.role === 'admin';
 
@@ -34,7 +33,7 @@ export function RecipesScreen() {
   const [editItem, setEditItem] = useState<Recipe | null>(null);
   const [menuItem, setMenuItem] = useState('');
   const [sellPrice, setSellPrice] = useState('');
-  const [category, setCategory] = useState('Mains');
+  const [category, setCategory] = useState(recipeCategories[0] || 'Mains');
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
   // Ingredient editing state
@@ -46,12 +45,18 @@ export function RecipesScreen() {
   const [dupWarning, setDupWarning] = useState('');
   const [catFilter, setCatFilter] = useState('');
 
+  // Category management modal state
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+
   // Show recipes for the currently selected store, filtered by category
   const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
   const filteredRecipes = catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes;
 
   // Compute category counts for filter chips
-  const categoryCounts = RECIPE_CATEGORIES.map((cat) => ({
+  const categoryCounts = recipeCategories.map((cat) => ({
     cat,
     count: storeRecipes.filter((r) => r.category === cat).length,
   })).filter((c) => c.count > 0);
@@ -75,7 +80,7 @@ export function RecipesScreen() {
     setDupWarning('');
     setMenuItem('');
     setSellPrice('');
-    setCategory('Mains');
+    setCategory(recipeCategories[0] || 'Mains');
     setSelectedStoreIds(stores.map((s) => s.id));
     setShowModal(true);
   };
@@ -219,8 +224,8 @@ export function RecipesScreen() {
         <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
       {/* Category filter */}
-      <View style={{ paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, gap: Spacing.sm }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
@@ -241,6 +246,11 @@ export function RecipesScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+        {isAdmin && (
+          <TouchableOpacity onPress={() => { setNewCatName(''); setEditingCat(null); setShowCatModal(true); }}>
+            <Ionicons name="settings-outline" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
@@ -355,7 +365,7 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={(v) => setSellPrice(numericFilter(v))} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-            {RECIPE_CATEGORIES.map((c) => (
+            {recipeCategories.map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
                 <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
               </TouchableOpacity>
@@ -410,6 +420,115 @@ export function RecipesScreen() {
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={saveIngredients}>
               <Text style={[styles.saveBtnText, { color: C.white }]}>Save ingredients</Text>
             </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Manage categories modal */}
+      <Modal visible={showCatModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Manage categories</Text>
+            <TouchableOpacity onPress={() => setShowCatModal(false)}>
+              <Text style={[styles.modalClose, { color: C.info }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            {/* Add new category */}
+            <View style={styles.catAddRow}>
+              <TextInput
+                style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={newCatName}
+                onChangeText={setNewCatName}
+                placeholder="New category name"
+                placeholderTextColor={C.textTertiary}
+              />
+              <TouchableOpacity
+                style={[styles.catAddBtn, { backgroundColor: C.textPrimary, opacity: newCatName.trim() ? 1 : 0.4 }]}
+                onPress={() => {
+                  const name = newCatName.trim();
+                  if (!name) return;
+                  if (recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                    if (Platform.OS === 'web') alert('Category already exists');
+                    else Alert.alert('Error', 'Category already exists');
+                    return;
+                  }
+                  addRecipeCategory(name);
+                  setNewCatName('');
+                }}
+                disabled={!newCatName.trim()}
+              >
+                <Text style={{ color: C.white, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Category list */}
+            {recipeCategories.map((cat) => {
+              const inUse = recipes.some((r) => r.category === cat);
+              const isEditing = editingCat === cat;
+              return (
+                <View key={cat} style={[styles.catManageRow, { borderBottomColor: C.borderLight }]}>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                      value={editingCatName}
+                      onChangeText={setEditingCatName}
+                      autoFocus
+                    />
+                  ) : (
+                    <Text style={[styles.catManageName, { color: C.textPrimary }]}>{cat}</Text>
+                  )}
+                  {inUse && !isEditing && (
+                    <Text style={[styles.catManageCount, { color: C.textTertiary }]}>
+                      {recipes.filter((r) => r.category === cat).length} recipe{recipes.filter((r) => r.category === cat).length !== 1 ? 's' : ''}
+                    </Text>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    {isEditing ? (
+                      <>
+                        <TouchableOpacity onPress={() => {
+                          const name = editingCatName.trim();
+                          if (!name) return;
+                          if (name !== cat && recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                            if (Platform.OS === 'web') alert('Category already exists');
+                            else Alert.alert('Error', 'Category already exists');
+                            return;
+                          }
+                          updateRecipeCategory(cat, name);
+                          if (catFilter === cat) setCatFilter(name);
+                          setEditingCat(null);
+                        }}>
+                          <Ionicons name="checkmark-circle" size={22} color={C.success} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setEditingCat(null)}>
+                          <Ionicons name="close-circle" size={22} color={C.textTertiary} />
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity onPress={() => { setEditingCat(cat); setEditingCatName(cat); }}>
+                          <Ionicons name="pencil-outline" size={18} color={C.textSecondary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (inUse) {
+                              if (Platform.OS === 'web') alert(`Cannot delete "${cat}" — it's used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
+                              else Alert.alert('Cannot delete', `"${cat}" is used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
+                              return;
+                            }
+                            deleteRecipeCategory(cat);
+                            if (catFilter === cat) setCatFilter('');
+                          }}
+                          style={{ opacity: inUse ? 0.3 : 1 }}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={C.danger} />
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </ScrollView>
         </View>
       </Modal>
@@ -903,4 +1022,9 @@ const styles = StyleSheet.create({
   deleteRecipeBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
   filterChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  catAddRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
+  catAddBtn: { borderRadius: Radius.md, paddingHorizontal: Spacing.lg, justifyContent: 'center', alignItems: 'center' },
+  catManageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  catManageName: { flex: 1, fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
+  catManageCount: { fontSize: FontSize.xs, color: Colors.textTertiary },
 });
