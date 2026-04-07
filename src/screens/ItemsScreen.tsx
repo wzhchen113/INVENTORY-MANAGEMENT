@@ -5,6 +5,7 @@ import {
   TouchableOpacity, Modal, Alert, FlatList,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
@@ -43,12 +44,14 @@ export default function ItemsScreen() {
 
   const openAdd = () => {
     setEditItem(null);
+    setDupWarning('');
     setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '' });
     setShowModal(true);
   };
 
   const openEdit = (item: InventoryItem) => {
     setEditItem(item);
+    setDupWarning('');
     setForm({
       name: item.name, category: item.category, unit: item.unit,
       costPerUnit: String(item.costPerUnit), currentStock: String(item.currentStock),
@@ -58,8 +61,22 @@ export default function ItemsScreen() {
     setShowModal(true);
   };
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!form.name.trim()) { Alert.alert('Error', 'Item name is required'); return; }
+
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicate = storeInventory.some(
+      (i) => i.name.toLowerCase() === trimmedName && (!editItem || i.id !== editItem.id)
+    );
+
+    if (duplicate) {
+      setDupWarning(`An item named "${form.name.trim()}" already exists.`);
+      return;
+    }
+    setDupWarning('');
+
     const data = {
       name: form.name.trim(), category: form.category, unit: form.unit,
       costPerUnit: parseFloat(form.costPerUnit) || 0,
@@ -202,7 +219,7 @@ export default function ItemsScreen() {
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={(form as any)[f.key]}
-                  onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))}
+                  onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: f.keyboard ? numericFilter(v) : v }))}
                   placeholder={f.placeholder}
                   placeholderTextColor={C.textTertiary}
                   keyboardType={(f.keyboard as any) || 'default'}
@@ -224,6 +241,12 @@ export default function ItemsScreen() {
                 ))}
               </ScrollView>
             </View>
+
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={[styles.saveBtnText, { color: C.white }]}>Save item</Text>
@@ -270,4 +293,6 @@ const styles = StyleSheet.create({
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.md },
   saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

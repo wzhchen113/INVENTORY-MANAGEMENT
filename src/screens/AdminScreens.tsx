@@ -5,9 +5,11 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  FlatList, TextInput, Modal, Alert,
+  FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
+import { Ionicons } from '@expo/vector-icons';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
@@ -19,14 +21,20 @@ import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
 export function RecipesScreen() {
   const C = useColors();
   const {
-    recipes, inventory, prepRecipes,
+    currentUser, currentStore, stores,
+    recipes, recipeCategories, inventory, prepRecipes,
     getRecipeCost, getRecipeFoodCostPct,
-    addRecipe, updateRecipe,
+    addRecipe, updateRecipe, deleteRecipe,
+    addRecipeCategory, updateRecipeCategory, deleteRecipeCategory,
   } = useStore();
+  const isAdmin = currentUser?.role === 'admin';
+
   const [showModal, setShowModal] = useState(false);
+  const [editItem, setEditItem] = useState<Recipe | null>(null);
   const [menuItem, setMenuItem] = useState('');
   const [sellPrice, setSellPrice] = useState('');
-  const [category, setCategory] = useState('Mains');
+  const [category, setCategory] = useState(recipeCategories[0] || 'Mains');
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
   // Ingredient editing state
   const [showIngModal, setShowIngModal] = useState(false);
@@ -34,13 +42,164 @@ export function RecipesScreen() {
   const [editIngredients, setEditIngredients] = useState<RecipeIngredient[]>([]);
   const [editPrepItems, setEditPrepItems] = useState<RecipePrepItem[]>([]);
 
+  const [dupWarning, setDupWarning] = useState('');
+  const [catFilter, setCatFilter] = useState('');
+
+  // Category management modal state
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catWarning, setCatWarning] = useState('');
+
+  // Show recipes for the currently selected store, filtered by category
+  const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
+  const filteredRecipes = catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes;
+
+  // Compute category counts for filter chips
+  const categoryCounts = recipeCategories.map((cat) => ({
+    cat,
+    count: storeRecipes.filter((r) => r.category === cat).length,
+  })).filter((c) => c.count > 0);
+
+  const toggleStore = (id: string) => {
+    setSelectedStoreIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllStores = () => {
+    if (selectedStoreIds.length === stores.length) {
+      setSelectedStoreIds([]);
+    } else {
+      setSelectedStoreIds(stores.map((s) => s.id));
+    }
+  };
+
+  const openAdd = () => {
+    setEditItem(null);
+    setDupWarning('');
+    setMenuItem('');
+    setSellPrice('');
+    setCategory(recipeCategories[0] || 'Mains');
+    setSelectedStoreIds(stores.map((s) => s.id));
+    setShowModal(true);
+  };
+
+  const openEdit = (recipe: Recipe) => {
+    setEditItem(recipe);
+    setDupWarning('');
+    setMenuItem(recipe.menuItem);
+    setSellPrice(String(recipe.sellPrice));
+    setCategory(recipe.category);
+    // Find all stores that already have this recipe (by name)
+    const storesWithRecipe = recipes
+      .filter((r) => r.menuItem.toLowerCase() === recipe.menuItem.toLowerCase())
+      .map((r) => r.storeId);
+    setSelectedStoreIds([...new Set(storesWithRecipe)]);
+    setShowModal(true);
+  };
+
   const handleSave = () => {
     if (!menuItem.trim()) { Alert.alert('Error', 'Recipe name required'); return; }
-    addRecipe({
-      menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
-      ingredients: [], prepItems: [], storeId: 's1',
-    });
-    setMenuItem(''); setSellPrice(''); setShowModal(false);
+    if (selectedStoreIds.length === 0) {
+      if (Platform.OS === 'web') alert('Select at least one store');
+      else Alert.alert('Error', 'Select at least one store');
+      return;
+    }
+
+    // Check for duplicate names per selected store
+    const trimmedName = menuItem.trim().toLowerCase();
+    const duplicateStoreNames: string[] = [];
+    for (const storeId of selectedStoreIds) {
+      const exists = recipes.some(
+        (r) =>
+          r.storeId === storeId &&
+          r.menuItem.toLowerCase() === trimmedName &&
+          (!editItem || r.menuItem.toLowerCase() !== editItem.menuItem.toLowerCase())
+      );
+      if (exists) {
+        const store = stores.find((s) => s.id === storeId);
+        if (store) duplicateStoreNames.push(store.name);
+      }
+    }
+
+    if (duplicateStoreNames.length > 0) {
+      setDupWarning(`A recipe named "${menuItem.trim()}" already exists in: ${duplicateStoreNames.join(', ')}.`);
+      return;
+    }
+    setDupWarning('');
+
+    if (editItem) {
+      // Find all existing copies across stores
+      const existingRecipes = recipes.filter(
+        (r) => r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase()
+      );
+      const existingStoreIds = existingRecipes.map((r) => r.storeId);
+
+      // Update existing copies in selected stores
+      existingRecipes.forEach((r) => {
+        if (selectedStoreIds.includes(r.storeId)) {
+          updateRecipe(r.id, {
+            menuItem: menuItem.trim(),
+            category,
+            sellPrice: parseFloat(sellPrice) || 0,
+          });
+        }
+      });
+
+      // Delete from deselected stores
+      existingRecipes.forEach((r) => {
+        if (!selectedStoreIds.includes(r.storeId)) {
+          deleteRecipe(r.id);
+        }
+      });
+
+      // Add to newly selected stores (copy ingredients from original)
+      const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
+      for (const storeId of newStoreIds) {
+        addRecipe({
+          menuItem: menuItem.trim(),
+          category,
+          sellPrice: parseFloat(sellPrice) || 0,
+          ingredients: [...editItem.ingredients],
+          prepItems: [...(editItem.prepItems || [])],
+          storeId,
+        });
+      }
+    } else {
+      // Add: create in all selected stores
+      for (const storeId of selectedStoreIds) {
+        addRecipe({
+          menuItem: menuItem.trim(),
+          category,
+          sellPrice: parseFloat(sellPrice) || 0,
+          ingredients: [],
+          prepItems: [],
+          storeId,
+        });
+      }
+    }
+    setShowModal(false);
+  };
+
+  const handleDeleteEntirely = () => {
+    if (!editItem) return;
+    const allCopies = recipes.filter(
+      (r) => r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase()
+    );
+    const doDelete = () => {
+      allCopies.forEach((r) => deleteRecipe(r.id));
+      setShowModal(false);
+    };
+    if (Platform.OS === 'web') {
+      if (confirm(`Delete "${editItem.menuItem}" from all stores? This cannot be undone.`)) doDelete();
+    } else {
+      Alert.alert('Delete recipe', `Delete "${editItem.menuItem}" from all stores? This cannot be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]);
+    }
   };
 
   const openIngredientEditor = (recipe: Recipe) => {
@@ -65,11 +224,41 @@ export function RecipesScreen() {
       <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
         <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
+      {/* Category filter */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, gap: Spacing.sm }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} style={{ flex: 1 }}>
+          <TouchableOpacity
+            style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary }]}
+            onPress={() => setCatFilter('')}
+          >
+            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.white, fontWeight: '500' }]}>
+              All ({storeRecipes.length})
+            </Text>
+          </TouchableOpacity>
+          {categoryCounts.map(({ cat, count }) => (
+            <TouchableOpacity
+              key={cat}
+              style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && { backgroundColor: C.textPrimary }]}
+              onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
+            >
+              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.white, fontWeight: '500' }]}>
+                {cat} ({count})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        {isAdmin && (
+          <TouchableOpacity onPress={() => { setNewCatName(''); setEditingCat(null); setCatWarning(''); setShowCatModal(true); }}>
+            <Ionicons name="settings-outline" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
         </TouchableOpacity>
-        {recipes.map((recipe) => {
+        {filteredRecipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
           const fcOk = fcPct < 35;
@@ -110,37 +299,102 @@ export function RecipesScreen() {
                   <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
               </View>
-              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium }]} onPress={() => openIngredientEditor(recipe)}>
-                <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit ingredients</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium, flex: 1 }]} onPress={() => openEdit(recipe)}>
+                  <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit recipe</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium, flex: 1 }]} onPress={() => openIngredientEditor(recipe)}>
+                  <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit ingredients</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           );
         })}
+        {filteredRecipes.length === 0 && (
+          <Card>
+            <EmptyState message={`No recipes for ${currentStore.name} yet. Tap + to add one.`} />
+          </Card>
+        )}
       </WebScrollView>
 
-      {/* New recipe modal */}
+      {/* New / Edit recipe modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
           <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>New recipe</Text>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editItem ? 'Edit recipe' : 'New recipe'}</Text>
             <TouchableOpacity onPress={() => setShowModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            {/* Store selection */}
+            <View style={styles.formField}>
+              <View style={styles.storeLabelRow}>
+                <Text style={[styles.formLabel, { color: C.textSecondary, marginBottom: 0 }]}>
+                  {editItem ? 'Stores *' : 'Add to stores *'}
+                </Text>
+                <TouchableOpacity onPress={selectAllStores}>
+                  <Text style={[styles.selectAllText, { color: C.info }]}>
+                    {selectedStoreIds.length === stores.length ? 'Deselect all' : 'Select all'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.storeGrid}>
+                {stores.map((store) => {
+                  const isSelected = selectedStoreIds.includes(store.id);
+                  return (
+                    <TouchableOpacity
+                      key={store.id}
+                      style={[styles.storeChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, isSelected && { backgroundColor: C.successBg, borderColor: C.success }]}
+                      onPress={() => toggleStore(store.id)}
+                    >
+                      <View style={[styles.storeChipCheck, { borderColor: C.borderMedium }, isSelected && { backgroundColor: C.success, borderColor: C.success }]}>
+                        {isSelected && <Ionicons name="checkmark" size={10} color={C.white} />}
+                      </View>
+                      <Text style={[styles.storeChipText, { color: C.textSecondary }, isSelected && { color: C.textPrimary }]}>
+                        {store.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={[styles.storeHint, { color: C.textTertiary }]}>
+                {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
+              </Text>
+            </View>
+
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Menu item name</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={menuItem} onChangeText={setMenuItem} placeholder="e.g. Grilled Chicken Plate" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
-            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={setSellPrice} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
+            <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={(v) => setSellPrice(numericFilter(v))} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-            {['Mains', 'Salads', 'Starters', 'Desserts'].map((c) => (
+            {recipeCategories.map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
                 <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
               </TouchableOpacity>
             ))}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
             <View style={styles.mfRow}>
               <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-                <Text style={[styles.saveBtnText, { color: C.white }]}>Save recipe</Text>
+                <Text style={[styles.saveBtnText, { color: C.white }]}>
+                  {editItem
+                    ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
+                    : selectedStoreIds.length > 1
+                      ? `Add to ${selectedStoreIds.length} stores`
+                      : 'Save recipe'}
+                </Text>
               </TouchableOpacity>
             </View>
+
+            {/* Delete button — edit mode only */}
+            {editItem && isAdmin && (
+              <TouchableOpacity style={[styles.deleteRecipeBtn, { borderColor: C.danger }]} onPress={handleDeleteEntirely}>
+                <Ionicons name="trash-outline" size={16} color={C.danger} />
+                <Text style={[styles.deleteRecipeBtnText, { color: C.danger }]}>Delete from all stores</Text>
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -170,6 +424,121 @@ export function RecipesScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Manage categories modal */}
+      <Modal visible={showCatModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Manage categories</Text>
+            <TouchableOpacity onPress={() => setShowCatModal(false)}>
+              <Text style={[styles.modalClose, { color: C.info }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            {/* Add new category */}
+            <View style={styles.catAddRow}>
+              <TextInput
+                style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={newCatName}
+                onChangeText={setNewCatName}
+                placeholder="New category name"
+                placeholderTextColor={C.textTertiary}
+              />
+              <TouchableOpacity
+                style={[styles.catAddBtn, { backgroundColor: C.textPrimary, opacity: newCatName.trim() ? 1 : 0.4 }]}
+                onPress={() => {
+                  const name = newCatName.trim();
+                  if (!name) return;
+                  if (recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                    setCatWarning(`Category "${name}" already exists.`);
+                    return;
+                  }
+                  setCatWarning('');
+                  addRecipeCategory(name);
+                  setNewCatName('');
+                }}
+                disabled={!newCatName.trim()}
+              >
+                <Text style={{ color: C.white, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            {catWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{catWarning}</Text>
+              </View>
+            ) : null}
+
+            {/* Category list */}
+            {recipeCategories.map((cat) => {
+              const inUse = recipes.some((r) => r.category === cat);
+              const isEditing = editingCat === cat;
+              return (
+                <View key={cat} style={[styles.catManageRow, { borderBottomColor: C.borderLight }]}>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                      value={editingCatName}
+                      onChangeText={setEditingCatName}
+                      autoFocus
+                    />
+                  ) : (
+                    <Text style={[styles.catManageName, { color: C.textPrimary }]}>{cat}</Text>
+                  )}
+                  {inUse && !isEditing && (
+                    <Text style={[styles.catManageCount, { color: C.textTertiary }]}>
+                      {recipes.filter((r) => r.category === cat).length} recipe{recipes.filter((r) => r.category === cat).length !== 1 ? 's' : ''}
+                    </Text>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    {isEditing ? (
+                      <>
+                        <TouchableOpacity onPress={() => {
+                          const name = editingCatName.trim();
+                          if (!name) return;
+                          if (name !== cat && recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                            setCatWarning(`Category "${name}" already exists.`);
+                            return;
+                          }
+                          setCatWarning('');
+                          updateRecipeCategory(cat, name);
+                          if (catFilter === cat) setCatFilter(name);
+                          setEditingCat(null);
+                        }}>
+                          <Ionicons name="checkmark-circle" size={22} color={C.success} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setEditingCat(null)}>
+                          <Ionicons name="close-circle" size={22} color={C.textTertiary} />
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity onPress={() => { setEditingCat(cat); setEditingCatName(cat); }}>
+                          <Ionicons name="pencil-outline" size={18} color={C.textSecondary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (inUse) {
+                              setCatWarning(`Cannot delete "${cat}" — it's used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
+                              return;
+                            }
+                            setCatWarning('');
+                            deleteRecipeCategory(cat);
+                            if (catFilter === cat) setCatFilter('');
+                          }}
+                          style={{ opacity: inUse ? 0.3 : 1 }}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={C.danger} />
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -179,9 +548,25 @@ export function VendorsScreen() {
   const C = useColors();
   const { vendors, addVendor } = useStore();
   const [showModal, setShowModal] = useState(false);
+  const [dupWarning, setDupWarning] = useState('');
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
 
   const handleSave = () => {
+    if (!form.name.trim()) {
+      if (Platform.OS === 'web') alert('Vendor name is required');
+      else Alert.alert('Error', 'Vendor name is required');
+      return;
+    }
+
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicate = vendors.some((v) => v.name.toLowerCase() === trimmedName);
+
+    if (duplicate) {
+      setDupWarning(`A vendor named "${form.name.trim()}" already exists.`);
+      return;
+    }
+    setDupWarning('');
+
     addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
     setShowModal(false);
   };
@@ -189,7 +574,7 @@ export function VendorsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => { setDupWarning(''); setShowModal(true); }}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
         {vendors.map((vendor) => (
@@ -234,9 +619,14 @@ export function VendorsScreen() {
             ].map((f) => (
               <View key={f.key}>
                 <Text style={[styles.formLabel, { color: C.textSecondary }]}>{f.label}</Text>
-                <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
+                <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: f.keyboard ? numericFilter(v) : v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
               </View>
             ))}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={[styles.saveBtnText, { color: C.white }]}>Save vendor</Text>
             </TouchableOpacity>
@@ -625,4 +1015,23 @@ const styles = StyleSheet.create({
   checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.borderMedium, alignItems: 'center', justifyContent: 'center' },
   checkboxActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   storeName: { fontSize: FontSize.sm, color: Colors.textPrimary },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
+  formField: { marginBottom: Spacing.md },
+  storeLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  selectAllText: { fontSize: FontSize.xs, color: Colors.info, fontWeight: '500' },
+  storeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  storeChip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: Radius.md, borderWidth: 1, backgroundColor: Colors.bgSecondary, borderColor: Colors.borderLight },
+  storeChipCheck: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: Colors.borderMedium, alignItems: 'center', justifyContent: 'center' },
+  storeChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
+  deleteRecipeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },
+  deleteRecipeBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
+  filterChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 0.5, borderColor: Colors.borderLight },
+  filterChipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  catAddRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
+  catAddBtn: { borderRadius: Radius.md, paddingHorizontal: Spacing.lg, justifyContent: 'center', alignItems: 'center' },
+  catManageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  catManageName: { flex: 1, fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
+  catManageCount: { fontSize: FontSize.xs, color: Colors.textTertiary },
 });

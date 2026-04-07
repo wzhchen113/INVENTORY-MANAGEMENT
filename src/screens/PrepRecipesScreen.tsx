@@ -5,6 +5,7 @@ import {
   TextInput, StyleSheet, Alert,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
@@ -42,6 +43,7 @@ export default function PrepRecipesScreen() {
 
   const openNew = () => {
     setEditingId(null);
+    setDupWarning('');
     setName('');
     setCategory('Marinades');
     setYieldQty('');
@@ -53,6 +55,7 @@ export default function PrepRecipesScreen() {
 
   const openEdit = (pr: PrepRecipe) => {
     setEditingId(pr.id);
+    setDupWarning('');
     setName(pr.name);
     setCategory(pr.category);
     setYieldQty(pr.yieldQuantity.toString());
@@ -62,10 +65,23 @@ export default function PrepRecipesScreen() {
     setShowModal(true);
   };
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!name.trim()) { Alert.alert('Error', 'Name required'); return; }
     if (!yieldQty || parseFloat(yieldQty) <= 0) { Alert.alert('Error', 'Yield quantity required'); return; }
     if (!yieldUnit.trim()) { Alert.alert('Error', 'Yield unit required'); return; }
+
+    const trimmedName = name.trim().toLowerCase();
+    const duplicate = prepRecipes.some(
+      (pr) => pr.name.toLowerCase() === trimmedName && (!editingId || pr.id !== editingId)
+    );
+
+    if (duplicate) {
+      setDupWarning(`A prep recipe named "${name.trim()}" already exists.`);
+      return;
+    }
+    setDupWarning('');
 
     const data = {
       name: name.trim(),
@@ -239,7 +255,7 @@ export default function PrepRecipesScreen() {
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={yieldQty}
-                  onChangeText={setYieldQty}
+                  onChangeText={(v) => setYieldQty(numericFilter(v))}
                   keyboardType="decimal-pad"
                   placeholder="40"
                   placeholderTextColor={C.textTertiary}
@@ -274,6 +290,12 @@ export default function PrepRecipesScreen() {
               onIngredientsChange={setFormIngredients}
               availableItems={inventory}
             />
+
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>{editingId ? 'Update prep recipe' : 'Save prep recipe'}</Text>
@@ -338,4 +360,6 @@ const styles = StyleSheet.create({
   yieldRow: { flexDirection: 'row' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxxl },
   saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

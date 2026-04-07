@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Card, CardHeader } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
@@ -309,7 +310,7 @@ export default function EODCountScreen() {
                         keyboardType="decimal-pad"
                         value={editCounts[entry.itemId] ?? String(entry.actualRemaining)}
                         onChangeText={(v) =>
-                          setEditCounts((prev) => ({ ...prev, [entry.itemId]: v }))
+                          setEditCounts((prev) => ({ ...prev, [entry.itemId]: numericFilter(v) }))
                         }
                       />
                       <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{entry.unit}</Text>
@@ -484,7 +485,7 @@ export default function EODCountScreen() {
                     placeholderTextColor={C.textTertiary}
                     keyboardType="decimal-pad"
                     value={counts[item.id] || ''}
-                    onChangeText={(v) => updateCount(item.id, v)}
+                    onChangeText={(v) => updateCount(item.id, numericFilter(v))}
                   />
                   <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{item.unit}</Text>
                 </View>

@@ -1,6 +1,10 @@
 // src/utils/index.ts
 import { InventoryItem, Recipe, WasteEntry } from '../types';
 
+/** Filter input to only allow numeric values (digits and one decimal point) */
+export const numericFilter = (value: string): string =>
+  value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+
 /** Format a number as US currency */
 export const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);

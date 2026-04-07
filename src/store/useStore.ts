@@ -25,9 +25,15 @@ interface StoreActions {
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
 
+  // Recipe Categories
+  addRecipeCategory: (name: string) => void;
+  updateRecipeCategory: (oldName: string, newName: string) => void;
+  deleteRecipeCategory: (name: string) => void;
+
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   updateRecipe: (id: string, updates: Partial<Recipe>) => void;
+  deleteRecipe: (id: string) => void;
 
   // Prep Recipes
   addPrepRecipe: (recipe: Omit<PrepRecipe, 'id'>) => void;
@@ -94,6 +100,7 @@ export const useStore = create<FullStore>((set, get) => ({
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
+  recipeCategories: ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'],
   prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
@@ -195,6 +202,22 @@ export const useStore = create<FullStore>((set, get) => ({
     return 'ok';
   },
 
+  // Recipe Categories
+  addRecipeCategory: (name) => {
+    set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
+  },
+
+  updateRecipeCategory: (oldName, newName) => {
+    set((s) => ({
+      recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
+      recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
+    }));
+  },
+
+  deleteRecipeCategory: (name) => {
+    set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
+  },
+
   // Recipes
   addRecipe: (recipe) => {
     const id = makeId('r', ++recipeCounter);
@@ -227,6 +250,23 @@ export const useStore = create<FullStore>((set, get) => ({
       action: 'Recipe saved',
       detail: 'Recipe updated',
       itemRef: get().recipes.find((r) => r.id === id)?.menuItem || id,
+      value: '',
+    });
+  },
+
+  deleteRecipe: (id) => {
+    const recipe = get().recipes.find((r) => r.id === id);
+    set((s) => ({ recipes: s.recipes.filter((r) => r.id !== id) }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Recipe deleted',
+      detail: 'Recipe removed',
+      itemRef: recipe?.menuItem || id,
       value: '',
     });
   },

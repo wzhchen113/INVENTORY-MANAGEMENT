@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
@@ -98,6 +99,7 @@ export default function IngredientsScreen() {
 
   const openAdd = () => {
     setEditItem(null);
+    setDupWarning('');
     setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '' });
     setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
     setShowModal(true);
@@ -105,6 +107,7 @@ export default function IngredientsScreen() {
 
   const openEdit = (item: InventoryItem) => {
     setEditItem(item);
+    setDupWarning('');
     setForm({
       name: item.name,
       category: item.category,
@@ -123,6 +126,8 @@ export default function IngredientsScreen() {
     setShowModal(true);
   };
 
+  const [dupWarning, setDupWarning] = useState('');
+
   const handleSave = () => {
     if (!form.name.trim()) {
       if (Platform.OS === 'web') alert('Ingredient name is required');
@@ -140,6 +145,28 @@ export default function IngredientsScreen() {
       else Alert.alert('Error', 'Select at least one store');
       return;
     }
+
+    // Check for duplicate names within ingredients only, per selected store
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicateStoreNames: string[] = [];
+    for (const storeId of selectedStoreIds) {
+      const exists = inventory.some(
+        (i) =>
+          i.storeId === storeId &&
+          i.name.toLowerCase() === trimmedName &&
+          (!editItem || i.name.toLowerCase() !== editItem.name.toLowerCase())
+      );
+      if (exists) {
+        const store = stores.find((s) => s.id === storeId);
+        if (store) duplicateStoreNames.push(store.name);
+      }
+    }
+
+    if (duplicateStoreNames.length > 0) {
+      setDupWarning(`An ingredient named "${form.name.trim()}" already exists in: ${duplicateStoreNames.join(', ')}.`);
+      return;
+    }
+    setDupWarning('');
 
     if (editItem) {
       // Find all existing copies of this ingredient across stores
@@ -517,7 +544,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.costPerUnit}
-                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: numericFilter(v) }))}
                 placeholder="0.00"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -530,7 +557,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.currentStock}
-                onChangeText={(v) => setForm((p) => ({ ...p, currentStock: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, currentStock: numericFilter(v) }))}
                 placeholder="0"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -543,7 +570,7 @@ export default function IngredientsScreen() {
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.parLevel}
-                onChangeText={(v) => setForm((p) => ({ ...p, parLevel: v }))}
+                onChangeText={(v) => setForm((p) => ({ ...p, parLevel: numericFilter(v) }))}
                 placeholder="0"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -551,6 +578,12 @@ export default function IngredientsScreen() {
             </View>
 
             {/* Save button */}
+            {dupWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              </View>
+            ) : null}
+
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
               <Text style={styles.saveBtnText}>
                 {editItem
@@ -658,4 +691,6 @@ const styles = StyleSheet.create({
   storeChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   storeChipTextActive: { color: Colors.textPrimary },
   storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
+  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
+  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });
