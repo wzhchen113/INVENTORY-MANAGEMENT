@@ -7,9 +7,10 @@ interface WebScrollViewProps {
   children: React.ReactNode;
   contentContainerStyle?: ViewStyle;
   id?: string;
+  keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
 }
 
-export function WebScrollView({ children, contentContainerStyle, id = 'web-scroll' }: WebScrollViewProps) {
+export function WebScrollView({ children, contentContainerStyle, id = 'web-scroll', keyboardShouldPersistTaps }: WebScrollViewProps) {
   const wrapId = id + '-wrap';
   const scrollId = id;
 
@@ -46,7 +47,7 @@ export function WebScrollView({ children, contentContainerStyle, id = 'web-scrol
   }
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={contentContainerStyle}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={contentContainerStyle} keyboardShouldPersistTaps={keyboardShouldPersistTaps}>
       {children}
     </ScrollView>
   );

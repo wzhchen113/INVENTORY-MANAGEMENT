@@ -2,8 +2,9 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
 } from 'react-native';
+import { WebScrollView } from '../components/WebScrollView';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
@@ -46,7 +47,7 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: C.bgTertiary }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <WebScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" id="login-scroll">
         <View style={styles.logo}>
           <View style={[styles.logoIcon, { backgroundColor: C.textPrimary }]}>
             <Text style={styles.logoIconText}>2AM</Text>
@@ -127,7 +128,7 @@ export default function LoginScreen() {
             })}
           </View>
         )}
-      </ScrollView>
+      </WebScrollView>
     </KeyboardAvoidingView>
   );
 }
