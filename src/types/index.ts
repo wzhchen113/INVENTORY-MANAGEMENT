@@ -235,6 +235,7 @@ export interface AppState {
   users: User[];
   inventory: InventoryItem[];
   recipes: Recipe[];
+  recipeCategories: string[];
   prepRecipes: PrepRecipe[];
   wasteLog: WasteEntry[];
   eodSubmissions: EODSubmission[];

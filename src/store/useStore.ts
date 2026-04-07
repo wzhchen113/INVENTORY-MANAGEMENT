@@ -25,6 +25,11 @@ interface StoreActions {
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
 
+  // Recipe Categories
+  addRecipeCategory: (name: string) => void;
+  updateRecipeCategory: (oldName: string, newName: string) => void;
+  deleteRecipeCategory: (name: string) => void;
+
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   updateRecipe: (id: string, updates: Partial<Recipe>) => void;
@@ -95,6 +100,7 @@ export const useStore = create<FullStore>((set, get) => ({
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
+  recipeCategories: ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'],
   prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
@@ -194,6 +200,22 @@ export const useStore = create<FullStore>((set, get) => ({
     if (item.currentStock <= 0) return 'out';
     if (item.currentStock < item.parLevel) return 'low';
     return 'ok';
+  },
+
+  // Recipe Categories
+  addRecipeCategory: (name) => {
+    set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
+  },
+
+  updateRecipeCategory: (oldName, newName) => {
+    set((s) => ({
+      recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
+      recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
+    }));
+  },
+
+  deleteRecipeCategory: (name) => {
+    set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
   },
 
   // Recipes
