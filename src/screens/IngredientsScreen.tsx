@@ -141,83 +141,115 @@ export default function IngredientsScreen() {
       return;
     }
 
-    if (editItem) {
-      // Find all existing copies of this ingredient across stores
-      const existingItems = inventory.filter(
-        (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
-      );
-      const existingStoreIds = existingItems.map((i) => i.storeId);
+    const doSave = () => {
+      if (editItem) {
+        // Find all existing copies of this ingredient across stores
+        const existingItems = inventory.filter(
+          (i) => i.name.toLowerCase() === editItem.name.toLowerCase()
+        );
+        const existingStoreIds = existingItems.map((i) => i.storeId);
 
-      // Update properties on all existing copies that are still selected
-      existingItems.forEach((item) => {
-        if (selectedStoreIds.includes(item.storeId)) {
-          updateItem(item.id, {
+        // Update properties on all existing copies that are still selected
+        existingItems.forEach((item) => {
+          if (selectedStoreIds.includes(item.storeId)) {
+            updateItem(item.id, {
+              name: form.name.trim(),
+              category: form.category,
+              unit: form.unit,
+              costPerUnit: parseFloat(form.costPerUnit) || 0,
+              parLevel: parseFloat(form.parLevel) || 0,
+              vendorId: form.vendorId,
+              vendorName: form.vendorName,
+              lastUpdatedBy: currentUser?.name || '',
+              lastUpdatedAt: new Date().toISOString(),
+            });
+          }
+        });
+
+        // Delete from stores that were deselected
+        existingItems.forEach((item) => {
+          if (!selectedStoreIds.includes(item.storeId)) {
+            deleteItem(item.id);
+          }
+        });
+
+        // Add to newly selected stores
+        const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
+        for (const storeId of newStoreIds) {
+          addItem({
             name: form.name.trim(),
             category: form.category,
             unit: form.unit,
             costPerUnit: parseFloat(form.costPerUnit) || 0,
+            currentStock: 0,
             parLevel: parseFloat(form.parLevel) || 0,
+            averageDailyUsage: 0,
+            safetyStock: 0,
             vendorId: form.vendorId,
             vendorName: form.vendorName,
+            usagePerPortion: editItem.usagePerPortion,
             lastUpdatedBy: currentUser?.name || '',
             lastUpdatedAt: new Date().toISOString(),
+            eodRemaining: 0,
+            storeId,
+            expiryDate: '',
           });
         }
-      });
-
-      // Delete from stores that were deselected
-      existingItems.forEach((item) => {
-        if (!selectedStoreIds.includes(item.storeId)) {
-          deleteItem(item.id);
+      } else {
+        // Add: create in all selected stores
+        for (const storeId of selectedStoreIds) {
+          addItem({
+            name: form.name.trim(),
+            category: form.category,
+            unit: form.unit,
+            costPerUnit: parseFloat(form.costPerUnit) || 0,
+            currentStock: parseFloat(form.currentStock) || 0,
+            parLevel: parseFloat(form.parLevel) || 0,
+            averageDailyUsage: 0,
+            safetyStock: 0,
+            vendorId: form.vendorId,
+            vendorName: form.vendorName,
+            usagePerPortion: 0,
+            lastUpdatedBy: currentUser?.name || '',
+            lastUpdatedAt: new Date().toISOString(),
+            eodRemaining: parseFloat(form.currentStock) || 0,
+            storeId,
+            expiryDate: '',
+          });
         }
-      });
-
-      // Add to newly selected stores
-      const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
-      for (const storeId of newStoreIds) {
-        addItem({
-          name: form.name.trim(),
-          category: form.category,
-          unit: form.unit,
-          costPerUnit: parseFloat(form.costPerUnit) || 0,
-          currentStock: 0,
-          parLevel: parseFloat(form.parLevel) || 0,
-          averageDailyUsage: 0,
-          safetyStock: 0,
-          vendorId: form.vendorId,
-          vendorName: form.vendorName,
-          usagePerPortion: editItem.usagePerPortion,
-          lastUpdatedBy: currentUser?.name || '',
-          lastUpdatedAt: new Date().toISOString(),
-          eodRemaining: 0,
-          storeId,
-          expiryDate: '',
-        });
       }
-    } else {
-      // Add: create in all selected stores
-      for (const storeId of selectedStoreIds) {
-        addItem({
-          name: form.name.trim(),
-          category: form.category,
-          unit: form.unit,
-          costPerUnit: parseFloat(form.costPerUnit) || 0,
-          currentStock: parseFloat(form.currentStock) || 0,
-          parLevel: parseFloat(form.parLevel) || 0,
-          averageDailyUsage: 0,
-          safetyStock: 0,
-          vendorId: form.vendorId,
-          vendorName: form.vendorName,
-          usagePerPortion: 0,
-          lastUpdatedBy: currentUser?.name || '',
-          lastUpdatedAt: new Date().toISOString(),
-          eodRemaining: parseFloat(form.currentStock) || 0,
-          storeId,
-          expiryDate: '',
-        });
+      setShowModal(false);
+    };
+
+    // Check for duplicate names within ingredients only, per selected store
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicateStoreNames: string[] = [];
+    for (const storeId of selectedStoreIds) {
+      const exists = inventory.some(
+        (i) =>
+          i.storeId === storeId &&
+          i.name.toLowerCase() === trimmedName &&
+          (!editItem || i.name.toLowerCase() !== editItem.name.toLowerCase())
+      );
+      if (exists) {
+        const store = stores.find((s) => s.id === storeId);
+        if (store) duplicateStoreNames.push(store.name);
       }
     }
-    setShowModal(false);
+
+    if (duplicateStoreNames.length > 0) {
+      const msg = `An ingredient named "${form.name.trim()}" already exists in: ${duplicateStoreNames.join(', ')}. Save anyway?`;
+      if (Platform.OS === 'web') {
+        if (confirm(msg)) doSave();
+      } else {
+        Alert.alert('Duplicate Name', msg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save Anyway', onPress: doSave },
+        ]);
+      }
+    } else {
+      doSave();
+    }
   };
 
   const handleDeleteEntirely = () => {

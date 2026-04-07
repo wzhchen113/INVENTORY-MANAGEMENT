@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Modal, Alert, FlatList,
+  TouchableOpacity, Modal, Alert, FlatList, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
@@ -60,25 +60,47 @@ export default function ItemsScreen() {
 
   const handleSave = () => {
     if (!form.name.trim()) { Alert.alert('Error', 'Item name is required'); return; }
-    const data = {
-      name: form.name.trim(), category: form.category, unit: form.unit,
-      costPerUnit: parseFloat(form.costPerUnit) || 0,
-      currentStock: parseFloat(form.currentStock) || 0,
-      parLevel: parseFloat(form.parLevel) || 0,
-      vendorId: 'v1', vendorName: form.vendorName,
-      usagePerPortion: parseFloat(form.usagePerPortion) || 0,
-      lastUpdatedBy: currentUser?.name || 'Admin',
-      lastUpdatedAt: new Date().toLocaleTimeString(),
-      eodRemaining: parseFloat(form.currentStock) || 0,
-      averageDailyUsage: 0, safetyStock: 0,
-      storeId: 's1', expiryDate: '',
+
+    const doSave = () => {
+      const data = {
+        name: form.name.trim(), category: form.category, unit: form.unit,
+        costPerUnit: parseFloat(form.costPerUnit) || 0,
+        currentStock: parseFloat(form.currentStock) || 0,
+        parLevel: parseFloat(form.parLevel) || 0,
+        vendorId: 'v1', vendorName: form.vendorName,
+        usagePerPortion: parseFloat(form.usagePerPortion) || 0,
+        lastUpdatedBy: currentUser?.name || 'Admin',
+        lastUpdatedAt: new Date().toLocaleTimeString(),
+        eodRemaining: parseFloat(form.currentStock) || 0,
+        averageDailyUsage: 0, safetyStock: 0,
+        storeId: 's1', expiryDate: '',
+      };
+      if (editItem) {
+        updateItem(editItem.id, data);
+      } else {
+        addItem(data);
+      }
+      setShowModal(false);
     };
-    if (editItem) {
-      updateItem(editItem.id, data);
+
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicate = storeInventory.some(
+      (i) => i.name.toLowerCase() === trimmedName && (!editItem || i.id !== editItem.id)
+    );
+
+    if (duplicate) {
+      const msg = `An item named "${form.name.trim()}" already exists. Save anyway?`;
+      if (Platform.OS === 'web') {
+        if (confirm(msg)) doSave();
+      } else {
+        Alert.alert('Duplicate Name', msg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save Anyway', onPress: doSave },
+        ]);
+      }
     } else {
-      addItem(data);
+      doSave();
     }
-    setShowModal(false);
   };
 
   const renderItem = ({ item }: { item: InventoryItem }) => {

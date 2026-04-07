@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  FlatList, TextInput, Modal, Alert,
+  FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
@@ -36,11 +36,31 @@ export function RecipesScreen() {
 
   const handleSave = () => {
     if (!menuItem.trim()) { Alert.alert('Error', 'Recipe name required'); return; }
-    addRecipe({
-      menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
-      ingredients: [], prepItems: [], storeId: 's1',
-    });
-    setMenuItem(''); setSellPrice(''); setShowModal(false);
+
+    const doSave = () => {
+      addRecipe({
+        menuItem: menuItem.trim(), category, sellPrice: parseFloat(sellPrice) || 0,
+        ingredients: [], prepItems: [], storeId: 's1',
+      });
+      setMenuItem(''); setSellPrice(''); setShowModal(false);
+    };
+
+    const trimmedName = menuItem.trim().toLowerCase();
+    const duplicate = recipes.some((r) => r.menuItem.toLowerCase() === trimmedName);
+
+    if (duplicate) {
+      const msg = `A recipe named "${menuItem.trim()}" already exists. Save anyway?`;
+      if (Platform.OS === 'web') {
+        if (confirm(msg)) doSave();
+      } else {
+        Alert.alert('Duplicate Name', msg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save Anyway', onPress: doSave },
+        ]);
+      }
+    } else {
+      doSave();
+    }
   };
 
   const openIngredientEditor = (recipe: Recipe) => {
@@ -182,8 +202,33 @@ export function VendorsScreen() {
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
 
   const handleSave = () => {
-    addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
-    setShowModal(false);
+    if (!form.name.trim()) {
+      if (Platform.OS === 'web') alert('Vendor name is required');
+      else Alert.alert('Error', 'Vendor name is required');
+      return;
+    }
+
+    const doSave = () => {
+      addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
+      setShowModal(false);
+    };
+
+    const trimmedName = form.name.trim().toLowerCase();
+    const duplicate = vendors.some((v) => v.name.toLowerCase() === trimmedName);
+
+    if (duplicate) {
+      const msg = `A vendor named "${form.name.trim()}" already exists. Add anyway?`;
+      if (Platform.OS === 'web') {
+        if (confirm(msg)) doSave();
+      } else {
+        Alert.alert('Duplicate Name', msg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add Anyway', onPress: doSave },
+        ]);
+      }
+    } else {
+      doSave();
+    }
   };
 
   return (

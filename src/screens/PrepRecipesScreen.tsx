@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
-  TextInput, StyleSheet, Alert,
+  TextInput, StyleSheet, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
@@ -67,24 +67,45 @@ export default function PrepRecipesScreen() {
     if (!yieldQty || parseFloat(yieldQty) <= 0) { Alert.alert('Error', 'Yield quantity required'); return; }
     if (!yieldUnit.trim()) { Alert.alert('Error', 'Yield unit required'); return; }
 
-    const data = {
-      name: name.trim(),
-      category,
-      yieldQuantity: parseFloat(yieldQty),
-      yieldUnit: yieldUnit.trim(),
-      notes: notes.trim(),
-      ingredients: formIngredients,
-      storeId: 's1',
-      createdBy: currentUser?.name || 'Admin',
-      createdAt: new Date().toLocaleDateString(),
+    const doSave = () => {
+      const data = {
+        name: name.trim(),
+        category,
+        yieldQuantity: parseFloat(yieldQty),
+        yieldUnit: yieldUnit.trim(),
+        notes: notes.trim(),
+        ingredients: formIngredients,
+        storeId: 's1',
+        createdBy: currentUser?.name || 'Admin',
+        createdAt: new Date().toLocaleDateString(),
+      };
+
+      if (editingId) {
+        updatePrepRecipe(editingId, data);
+      } else {
+        addPrepRecipe(data);
+      }
+      setShowModal(false);
     };
 
-    if (editingId) {
-      updatePrepRecipe(editingId, data);
+    const trimmedName = name.trim().toLowerCase();
+    const duplicate = prepRecipes.some(
+      (pr) => pr.name.toLowerCase() === trimmedName && (!editingId || pr.id !== editingId)
+    );
+
+    if (duplicate) {
+      const msg = `A prep recipe named "${name.trim()}" already exists. Save anyway?`;
+      if (Platform.OS === 'web') {
+        if (confirm(msg)) doSave();
+      } else {
+        Alert.alert('Duplicate Name', msg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save Anyway', onPress: doSave },
+        ]);
+      }
     } else {
-      addPrepRecipe(data);
+      doSave();
     }
-    setShowModal(false);
   };
 
   const handleDelete = (pr: PrepRecipe) => {
