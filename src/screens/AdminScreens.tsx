@@ -50,6 +50,7 @@ export function RecipesScreen() {
   const [newCatName, setNewCatName] = useState('');
   const [editingCat, setEditingCat] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
+  const [catWarning, setCatWarning] = useState('');
 
   // Show recipes for the currently selected store, filtered by category
   const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
@@ -247,7 +248,7 @@ export function RecipesScreen() {
           ))}
         </ScrollView>
         {isAdmin && (
-          <TouchableOpacity onPress={() => { setNewCatName(''); setEditingCat(null); setShowCatModal(true); }}>
+          <TouchableOpacity onPress={() => { setNewCatName(''); setEditingCat(null); setCatWarning(''); setShowCatModal(true); }}>
             <Ionicons name="settings-outline" size={18} color={C.textSecondary} />
           </TouchableOpacity>
         )}
@@ -449,10 +450,10 @@ export function RecipesScreen() {
                   const name = newCatName.trim();
                   if (!name) return;
                   if (recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-                    if (Platform.OS === 'web') alert('Category already exists');
-                    else Alert.alert('Error', 'Category already exists');
+                    setCatWarning(`Category "${name}" already exists.`);
                     return;
                   }
+                  setCatWarning('');
                   addRecipeCategory(name);
                   setNewCatName('');
                 }}
@@ -461,6 +462,12 @@ export function RecipesScreen() {
                 <Text style={{ color: C.white, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
               </TouchableOpacity>
             </View>
+
+            {catWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{catWarning}</Text>
+              </View>
+            ) : null}
 
             {/* Category list */}
             {recipeCategories.map((cat) => {
@@ -490,10 +497,10 @@ export function RecipesScreen() {
                           const name = editingCatName.trim();
                           if (!name) return;
                           if (name !== cat && recipeCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-                            if (Platform.OS === 'web') alert('Category already exists');
-                            else Alert.alert('Error', 'Category already exists');
+                            setCatWarning(`Category "${name}" already exists.`);
                             return;
                           }
+                          setCatWarning('');
                           updateRecipeCategory(cat, name);
                           if (catFilter === cat) setCatFilter(name);
                           setEditingCat(null);
@@ -512,10 +519,10 @@ export function RecipesScreen() {
                         <TouchableOpacity
                           onPress={() => {
                             if (inUse) {
-                              if (Platform.OS === 'web') alert(`Cannot delete "${cat}" — it's used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
-                              else Alert.alert('Cannot delete', `"${cat}" is used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
+                              setCatWarning(`Cannot delete "${cat}" — it's used by ${recipes.filter((r) => r.category === cat).length} recipe(s). Reassign them first.`);
                               return;
                             }
+                            setCatWarning('');
                             deleteRecipeCategory(cat);
                             if (catFilter === cat) setCatFilter('');
                           }}
