@@ -328,20 +328,77 @@ let _openProfileSidebar: (() => void) | null = null;
 
 function HeaderRight() {
   const currentUser = useStore((s) => s.currentUser);
+  const notifications = useStore((s) => s.notifications);
+  const markNotificationRead = useStore((s) => s.markNotificationRead);
+  const clearNotifications = useStore((s) => s.clearNotifications);
+  const C = useColors();
   const [showProfile, setShowProfile] = useState(false);
+  const [showNotifs, setShowNotifs] = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <>
-      <TouchableOpacity
-        style={[styles.headerAvatar, { backgroundColor: (currentUser?.color || '#378ADD') + '33', marginRight: 16 }]}
-        onPress={() => setShowProfile(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={[styles.headerAvatarText, { color: currentUser?.color || '#378ADD' }]}>
-          {currentUser?.initials}
-        </Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16, gap: 10 }}>
+        {/* Notification bell — admins only */}
+        {isAdmin && (
+          <TouchableOpacity onPress={() => setShowNotifs(true)} activeOpacity={0.7}>
+            <Ionicons name="notifications-outline" size={22} color={C.textSecondary} />
+            {unreadCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={[styles.headerAvatar, { backgroundColor: (currentUser?.color || '#378ADD') + '33' }]}
+          onPress={() => setShowProfile(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.headerAvatarText, { color: currentUser?.color || '#378ADD' }]}>
+            {currentUser?.initials}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <ProfileSidebar visible={showProfile} onClose={() => setShowProfile(false)} />
+
+      {/* Notifications dropdown */}
+      <Modal visible={showNotifs} transparent animationType="fade">
+        <TouchableOpacity style={styles.notifOverlay} activeOpacity={1} onPress={() => setShowNotifs(false)}>
+          <View style={[styles.notifDropdown, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <View style={[styles.notifHeader, { borderBottomColor: C.borderLight }]}>
+              <Text style={[styles.notifTitle, { color: C.textPrimary }]}>Notifications</Text>
+              {notifications.length > 0 && (
+                <TouchableOpacity onPress={() => { clearNotifications(); setShowNotifs(false); }}>
+                  <Text style={{ fontSize: FontSize.xs, color: C.info }}>Clear all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {notifications.length === 0 ? (
+                <Text style={[styles.notifEmpty, { color: C.textTertiary }]}>No notifications</Text>
+              ) : (
+                notifications.map((n) => (
+                  <TouchableOpacity
+                    key={n.id}
+                    style={[styles.notifItem, { borderBottomColor: C.borderLight }, !n.read && { backgroundColor: C.infoBg }]}
+                    onPress={() => markNotificationRead(n.id)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.notifMessage, { color: C.textPrimary }]}>{n.message}</Text>
+                      <Text style={[styles.notifTime, { color: C.textTertiary }]}>
+                        {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    {!n.read && <View style={[styles.notifDot, { backgroundColor: C.info }]} />}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </>
   );
 }
@@ -512,6 +569,17 @@ const styles = StyleSheet.create({
   signOutText: { fontSize: FontSize.sm, color: Colors.danger, fontWeight: '500' },
   headerAvatar: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   headerAvatarText: { fontSize: 10, fontWeight: '600' },
+  notifBadge: { position: 'absolute', top: -4, right: -6, backgroundColor: '#E53E3E', borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  notifOverlay: { flex: 1, justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: 56, paddingRight: 12 },
+  notifDropdown: { width: 300, borderRadius: Radius.lg, borderWidth: 0.5, overflow: 'hidden', ...({ boxShadow: '0 8px 24px rgba(0,0,0,0.15)' } as any) },
+  notifHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.md, borderBottomWidth: 0.5 },
+  notifTitle: { fontSize: FontSize.sm, fontWeight: '600' },
+  notifEmpty: { padding: Spacing.xl, textAlign: 'center', fontSize: FontSize.sm },
+  notifItem: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, borderBottomWidth: 0.5, gap: Spacing.sm },
+  notifMessage: { fontSize: FontSize.xs, fontWeight: '500' },
+  notifTime: { fontSize: 10, marginTop: 2 },
+  notifDot: { width: 8, height: 8, borderRadius: 4 },
 
   // Store selector
   storePill: {
