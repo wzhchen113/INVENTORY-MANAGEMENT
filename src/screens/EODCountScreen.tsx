@@ -627,7 +627,7 @@ const styles = StyleSheet.create({
   draftBtn: { flex: 1, borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center' },
   draftBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   submitBtn: { flex: 2, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center' },
-  submitBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '600' },
+  submitBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '600' },
   savingBanner: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
   savingText: { fontSize: FontSize.sm, fontWeight: '500' },
 

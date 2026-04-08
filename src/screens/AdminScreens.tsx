@@ -378,7 +378,7 @@ export function RecipesScreen() {
             ) : null}
             <View style={styles.mfRow}>
               <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-                <Text style={[styles.saveBtnText, { color: C.white }]}>
+                <Text style={[styles.saveBtnText, { color: C.black }]}>
                   {editItem
                     ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
                     : selectedStoreIds.length > 1
@@ -419,7 +419,7 @@ export function RecipesScreen() {
               showPrepRecipes={true}
             />
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={saveIngredients}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Save ingredients</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Save ingredients</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -459,7 +459,7 @@ export function RecipesScreen() {
                 }}
                 disabled={!newCatName.trim()}
               >
-                <Text style={{ color: C.white, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
+                <Text style={{ color: C.black, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
               </TouchableOpacity>
             </View>
 
@@ -628,7 +628,7 @@ export function VendorsScreen() {
               </View>
             ) : null}
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Save vendor</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Save vendor</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -901,14 +901,14 @@ export function UsersScreen() {
                 <TouchableOpacity key={store.id} style={[styles.storeSelector, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, selected && { borderColor: C.textPrimary, backgroundColor: C.textPrimary + '11' }]}
                   onPress={() => setForm((p) => ({ ...p, storeIds: selected ? p.storeIds.filter((s) => s !== store.id) : [...p.storeIds, store.id] }))}>
                   <View style={[styles.checkbox, { borderColor: C.borderMedium }, selected && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}>
-                    {selected && <Text style={{ color: C.white, fontSize: 10 }}>✓</Text>}
+                    {selected && <Text style={{ color: C.black, fontSize: 10 }}>✓</Text>}
                   </View>
                   <Text style={[styles.storeName, { color: C.textPrimary }]}>{store.name}</Text>
                 </TouchableOpacity>
               );
             })}
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={handleInvite}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Send invite</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Send invite</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -1006,7 +1006,7 @@ const styles = StyleSheet.create({
   catPillText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   mfRow: { marginTop: Spacing.xl },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center' },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
   roleBtn: { flex: 1, borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: 8, alignItems: 'center', backgroundColor: Colors.bgSecondary },
   roleBtnActive: { backgroundColor: Colors.textPrimary },
   roleBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary },

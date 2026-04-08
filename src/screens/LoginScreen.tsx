@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   label: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 5 },
   input: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   loginBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
-  loginBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  loginBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
   demoSection: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.xl, padding: Spacing.lg, ...Shadow.sm },
   demoTitle: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textTertiary, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: Spacing.md },
   demoUser: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
