@@ -401,13 +401,6 @@ function MoreScreen({ navigation }: any) {
   );
 }
 
-const sharedHeaderOptions = {
-  headerStyle: { backgroundColor: Colors.bgPrimary, elevation: 0, shadowOpacity: 0 } as const,
-  headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: Colors.textPrimary },
-  headerTintColor: Colors.textPrimary,
-  headerRight: () => <HeaderRight />,
-};
-
 function TabNavigator() {
   const storeId = useStore((s) => s.currentStore.id);
   const C = useColors();
@@ -421,6 +414,7 @@ function TabNavigator() {
         headerRight: () => <HeaderRight />,
         headerLeft: () => <HeaderLeft />,
         headerTitle: '',
+        sceneContainerStyle: { backgroundColor: C.bgTertiary },
         tabBarStyle: {
           backgroundColor: C.bgPrimary,
           borderTopColor: C.borderLight,
@@ -461,6 +455,7 @@ function AppStackNavigator() {
     headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
     headerTintColor: C.textPrimary,
     headerRight: () => <HeaderRight />,
+    cardStyle: { backgroundColor: C.bgTertiary },
   };
 
   return (
