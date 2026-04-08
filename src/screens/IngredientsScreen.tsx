@@ -315,7 +315,7 @@ export default function IngredientsScreen() {
         </View>
         {isAdmin && (
           <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-            <Ionicons name="add" size={18} color={C.white} />
+            <Ionicons name="add" size={18} color={C.bgPrimary} />
             <Text style={styles.addBtnText}>Add</Text>
           </TouchableOpacity>
         )}
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
-  pillTextActive: { color: Colors.white },
+  pillTextActive: { color: Colors.bgPrimary },
 
   // Summary
   summaryBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', paddingVertical: Spacing.xxxl * 2 },
   emptyText: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md },
   emptyBtn: { marginTop: Spacing.md, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 16, paddingVertical: 8 },
-  emptyBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+  emptyBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
 
   // Modal
   modal: { flex: 1, backgroundColor: Colors.bgPrimary },
@@ -664,7 +664,7 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight },
   chipActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   chipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  chipTextActive: { color: Colors.white, fontWeight: '500' },
+  chipTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
   saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },

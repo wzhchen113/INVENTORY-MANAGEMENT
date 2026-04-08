@@ -958,7 +958,7 @@ const styles = StyleSheet.create({
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  filterTextActive: { color: Colors.white, fontWeight: '500' },
+  filterTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
   auditRow: { flexDirection: 'row', gap: Spacing.sm, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
   auditDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, flexShrink: 0 },
   actionTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.round },
