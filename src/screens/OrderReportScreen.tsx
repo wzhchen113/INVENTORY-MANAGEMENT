@@ -261,8 +261,8 @@ export default function OrderReportScreen() {
               <Text style={[styles.exportBtnText, { color: C.success }]}>Download CSV</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.exportBtn, styles.exportBtnPdf, { borderColor: C.textPrimary, backgroundColor: C.textPrimary }]} onPress={handlePDF}>
-              <Ionicons name="download-outline" size={16} color={C.black} />
-              <Text style={[styles.exportBtnText, { color: C.black }]}>Download PDF</Text>
+              <Ionicons name="download-outline" size={16} color={C.bgPrimary} />
+              <Text style={[styles.exportBtnText, { color: C.bgPrimary }]}>Download PDF</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary,
   },
   pillText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
-  pillTextActive: { color: Colors.black },
+  pillTextActive: { color: Colors.bgPrimary },
   dateInput: {
     backgroundColor: Colors.bgPrimary, borderRadius: Radius.md,
     borderWidth: 1, borderColor: Colors.borderMedium,

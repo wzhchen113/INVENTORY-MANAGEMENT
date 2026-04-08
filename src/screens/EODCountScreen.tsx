@@ -602,7 +602,7 @@ const styles = StyleSheet.create({
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
-  pillTextActive: { color: Colors.black },
+  pillTextActive: { color: Colors.bgPrimary },
 
   // Progress
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.md },
@@ -627,7 +627,7 @@ const styles = StyleSheet.create({
   draftBtn: { flex: 1, borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center' },
   draftBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   submitBtn: { flex: 2, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center' },
-  submitBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '600' },
+  submitBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '600' },
   savingBanner: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
   savingText: { fontSize: FontSize.sm, fontWeight: '500' },
 

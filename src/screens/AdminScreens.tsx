@@ -231,7 +231,7 @@ export function RecipesScreen() {
             style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
           >
-            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.black, fontWeight: '500' }]}>
+            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.bgPrimary, fontWeight: '500' }]}>
               All ({storeRecipes.length})
             </Text>
           </TouchableOpacity>
@@ -241,7 +241,7 @@ export function RecipesScreen() {
               style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && { backgroundColor: C.textPrimary }]}
               onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
             >
-              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.black, fontWeight: '500' }]}>
+              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.bgPrimary, fontWeight: '500' }]}>
                 {cat} ({count})
               </Text>
             </TouchableOpacity>
@@ -368,7 +368,7 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
             {recipeCategories.map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
-                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.black }]}>{c}</Text>
+                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.bgPrimary }]}>{c}</Text>
               </TouchableOpacity>
             ))}
             {dupWarning ? (
@@ -378,7 +378,7 @@ export function RecipesScreen() {
             ) : null}
             <View style={styles.mfRow}>
               <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-                <Text style={[styles.saveBtnText, { color: C.black }]}>
+                <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>
                   {editItem
                     ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
                     : selectedStoreIds.length > 1
@@ -419,7 +419,7 @@ export function RecipesScreen() {
               showPrepRecipes={true}
             />
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={saveIngredients}>
-              <Text style={[styles.saveBtnText, { color: C.black }]}>Save ingredients</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save ingredients</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -459,7 +459,7 @@ export function RecipesScreen() {
                 }}
                 disabled={!newCatName.trim()}
               >
-                <Text style={{ color: C.black, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
+                <Text style={{ color: C.bgPrimary, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
               </TouchableOpacity>
             </View>
 
@@ -628,7 +628,7 @@ export function VendorsScreen() {
               </View>
             ) : null}
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={[styles.saveBtnText, { color: C.black }]}>Save vendor</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save vendor</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -666,7 +666,7 @@ export function AuditLogScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScroll, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'Stock adjusted'].map((f) => (
           <TouchableOpacity key={f || 'all'} style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === f && { backgroundColor: C.textPrimary }]} onPress={() => setFilter(f)}>
-            <Text style={[styles.filterText, { color: C.textSecondary }, filter === f && { color: C.black }]}>{f || 'All'}</Text>
+            <Text style={[styles.filterText, { color: C.textSecondary }, filter === f && { color: C.bgPrimary }]}>{f || 'All'}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -890,7 +890,7 @@ export function UsersScreen() {
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
               {(['user', 'admin'] as const).map((r) => (
                 <TouchableOpacity key={r} style={[styles.roleBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.role === r && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
-                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.black }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
+                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.bgPrimary }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -901,14 +901,14 @@ export function UsersScreen() {
                 <TouchableOpacity key={store.id} style={[styles.storeSelector, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, selected && { borderColor: C.textPrimary, backgroundColor: C.textPrimary + '11' }]}
                   onPress={() => setForm((p) => ({ ...p, storeIds: selected ? p.storeIds.filter((s) => s !== store.id) : [...p.storeIds, store.id] }))}>
                   <View style={[styles.checkbox, { borderColor: C.borderMedium }, selected && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}>
-                    {selected && <Text style={{ color: C.black, fontSize: 10 }}>✓</Text>}
+                    {selected && <Text style={{ color: C.bgPrimary, fontSize: 10 }}>✓</Text>}
                   </View>
                   <Text style={[styles.storeName, { color: C.textPrimary }]}>{store.name}</Text>
                 </TouchableOpacity>
               );
             })}
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={handleInvite}>
-              <Text style={[styles.saveBtnText, { color: C.black }]}>Send invite</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Send invite</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -1006,7 +1006,7 @@ const styles = StyleSheet.create({
   catPillText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   mfRow: { marginTop: Spacing.xl },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center' },
-  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
   roleBtn: { flex: 1, borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: 8, alignItems: 'center', backgroundColor: Colors.bgSecondary },
   roleBtnActive: { backgroundColor: Colors.textPrimary },
   roleBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary },

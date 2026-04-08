@@ -133,7 +133,7 @@ export default function WasteLogScreen() {
                   style={[styles.itemChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.itemId === item.id && [styles.itemChipActive, { backgroundColor: C.textPrimary }]]}
                   onPress={() => setForm((p) => ({ ...p, itemId: item.id }))}
                 >
-                  <Text style={[styles.itemChipText, { color: C.textSecondary }, form.itemId === item.id && { color: C.black }]}>{item.name}</Text>
+                  <Text style={[styles.itemChipText, { color: C.textSecondary }, form.itemId === item.id && { color: C.bgPrimary }]}>{item.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -194,13 +194,13 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.warning },
   summaryLabel: { fontSize: 9, color: Colors.textTertiary, marginTop: 2 },
   logBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingVertical: 7, paddingHorizontal: 14 },
-  logBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '500' },
+  logBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
   filterWrapper: { backgroundColor: Colors.bgPrimary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
   filterRow: { flexDirection: 'row', alignItems: 'center' },
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  filterTextActive: { color: Colors.black, fontWeight: '500' },
+  filterTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
   entryCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
   entryTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
   entryName: { fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
@@ -223,11 +223,11 @@ const styles = StyleSheet.create({
   reasonBtn: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: Colors.bgSecondary },
   reasonBtnActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   reasonText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  reasonTextActive: { color: Colors.black, fontWeight: '500' },
+  reasonTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
   submitterRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.infoBg, borderRadius: Radius.md, padding: Spacing.md, marginVertical: Spacing.md },
   submitterAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   submitterInitials: { fontSize: 10, fontWeight: '600' },
   submitterText: { fontSize: FontSize.xs, color: Colors.info, flex: 1 },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center' },
-  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
 });
