@@ -244,7 +244,7 @@ export default function PrepRecipesScreen() {
                   style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && [styles.catPillActive, { backgroundColor: C.textPrimary }]]}
                   onPress={() => setCategory(c)}
                 >
-                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
+                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.black }]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  filterTextActive: { color: Colors.white, fontWeight: '500' },
+  filterTextActive: { color: Colors.black, fontWeight: '500' },
   addRow: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 0.5, borderColor: Colors.borderLight, alignItems: 'center', borderStyle: 'dashed' },
   addRowText: { fontSize: FontSize.sm, color: Colors.info, fontWeight: '500' },
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxxl },

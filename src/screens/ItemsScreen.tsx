@@ -178,7 +178,7 @@ export default function ItemsScreen() {
               style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setCatFilter(cat)}
             >
-              <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === cat && [styles.catChipTextActive, { color: C.white }]]}>
+              <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === cat && [styles.catChipTextActive, { color: C.black }]]}>
                 {cat || 'All'}
               </Text>
             </TouchableOpacity>
@@ -236,7 +236,7 @@ export default function ItemsScreen() {
                     style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, form.category === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }], { marginRight: 6 }]}
                     onPress={() => setForm((p) => ({ ...p, category: cat }))}
                   >
-                    <Text style={[styles.catChipText, { color: C.textSecondary }, form.category === cat && [styles.catChipTextActive, { color: C.white }]]}>{cat}</Text>
+                    <Text style={[styles.catChipText, { color: C.textSecondary }, form.category === cat && [styles.catChipTextActive, { color: C.black }]]}>{cat}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
   catChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   catChipActive: { backgroundColor: Colors.textPrimary },
   catChipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  catChipTextActive: { color: Colors.white, fontWeight: '500' },
+  catChipTextActive: { color: Colors.black, fontWeight: '500' },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
   itemCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
   itemTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },

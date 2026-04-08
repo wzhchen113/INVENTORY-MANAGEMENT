@@ -328,7 +328,7 @@ export default function IngredientsScreen() {
             style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
           >
-            <Text style={[styles.pillText, { color: C.textSecondary }, !catFilter && { color: C.white }]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !catFilter && { color: C.black }]}>
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
@@ -340,7 +340,7 @@ export default function IngredientsScreen() {
                 style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setCatFilter(isActive ? '' : cat)}
               >
-                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.white }]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.black }]}>
                   {cat} ({categoryCounts[cat] || 0})
                 </Text>
               </TouchableOpacity>
@@ -357,7 +357,7 @@ export default function IngredientsScreen() {
               style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !vendorFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && { color: C.white }]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && { color: C.black }]}>
                 All vendors
               </Text>
             </TouchableOpacity>
@@ -369,7 +369,7 @@ export default function IngredientsScreen() {
                   style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setVendorFilter(isActive ? '' : v)}
                 >
-                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.white }]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.black }]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>
@@ -483,7 +483,7 @@ export default function IngredientsScreen() {
                       style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.category === cat && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, category: cat }))}
                     >
-                      <Text style={[styles.chipText, { color: C.textSecondary }, form.category === cat && { color: C.white }]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.category === cat && { color: C.black }]}>
                         {cat}
                       </Text>
                     </TouchableOpacity>
@@ -503,7 +503,7 @@ export default function IngredientsScreen() {
                       style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, unit: u }))}
                     >
-                      <Text style={[styles.chipText, { color: C.textSecondary }, form.unit === u && { color: C.white }]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.unit === u && { color: C.black }]}>
                         {u}
                       </Text>
                     </TouchableOpacity>
@@ -521,7 +521,7 @@ export default function IngredientsScreen() {
                     style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !form.vendorId && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                     onPress={() => setForm((p) => ({ ...p, vendorId: '', vendorName: '' }))}
                   >
-                    <Text style={[styles.chipText, { color: C.textSecondary }, !form.vendorId && { color: C.white }]}>None</Text>
+                    <Text style={[styles.chipText, { color: C.textSecondary }, !form.vendorId && { color: C.black }]}>None</Text>
                   </TouchableOpacity>
                   {vendors.map((v) => (
                     <TouchableOpacity
@@ -529,7 +529,7 @@ export default function IngredientsScreen() {
                       style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.vendorId === v.id && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                       onPress={() => setForm((p) => ({ ...p, vendorId: v.id, vendorName: v.name }))}
                     >
-                      <Text style={[styles.chipText, { color: C.textSecondary }, form.vendorId === v.id && { color: C.white }]}>
+                      <Text style={[styles.chipText, { color: C.textSecondary }, form.vendorId === v.id && { color: C.black }]}>
                         {v.name}
                       </Text>
                     </TouchableOpacity>
