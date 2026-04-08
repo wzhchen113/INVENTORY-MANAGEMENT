@@ -377,7 +377,7 @@ export default function POSImportScreen() {
               <Text style={[styles.cancelBtnText, { color: C.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.importBtn, { backgroundColor: C.textPrimary }]} onPress={handleImport}>
-              <Text style={styles.importBtnText}>
+              <Text style={[styles.importBtnText, { color: C.bgPrimary }]}>
                 Import {rows.length} items · {formatDisplayDate(importDate)}
               </Text>
             </TouchableOpacity>

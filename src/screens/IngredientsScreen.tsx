@@ -316,7 +316,7 @@ export default function IngredientsScreen() {
         {isAdmin && (
           <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
             <Ionicons name="add" size={18} color={C.bgPrimary} />
-            <Text style={styles.addBtnText}>Add</Text>
+            <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>Add</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -400,7 +400,7 @@ export default function IngredientsScreen() {
             <Text style={[styles.emptyText, { color: C.textTertiary }]}>No ingredients found</Text>
             {isAdmin && (
               <TouchableOpacity style={[styles.emptyBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-                <Text style={styles.emptyBtnText}>Add your first ingredient</Text>
+                <Text style={[styles.emptyBtnText, { color: C.bgPrimary }]}>Add your first ingredient</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -585,7 +585,7 @@ export default function IngredientsScreen() {
             ) : null}
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>
                 {editItem
                   ? `Save to ${selectedStoreIds.length} store${selectedStoreIds.length !== 1 ? 's' : ''}`
                   : selectedStoreIds.length > 1
