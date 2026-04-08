@@ -60,7 +60,7 @@ export default function EODHistoryScreen() {
             style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !storeFilter && styles.pillActive, !storeFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setStoreFilter('')}
           >
-            <Text style={[styles.pillText, { color: C.textSecondary }, !storeFilter && styles.pillTextActive]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !storeFilter && { color: C.bgPrimary }]}>
               All stores ({eodSubmissions.length})
             </Text>
           </TouchableOpacity>
@@ -74,7 +74,7 @@ export default function EODHistoryScreen() {
                 style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setStoreFilter(isActive ? '' : store.id)}
               >
-                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
                   {store.name} ({count})
                 </Text>
               </TouchableOpacity>
@@ -91,7 +91,7 @@ export default function EODHistoryScreen() {
               style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !userFilter && styles.pillActive, !userFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setUserFilter('')}
             >
-              <Text style={[styles.pillText, { color: C.textSecondary }, !userFilter && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !userFilter && { color: C.bgPrimary }]}>
                 All users
               </Text>
             </TouchableOpacity>
@@ -106,7 +106,7 @@ export default function EODHistoryScreen() {
                   style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setUserFilter(isActive ? '' : uid)}
                 >
-                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
                     {user.name} ({count})
                   </Text>
                 </TouchableOpacity>
