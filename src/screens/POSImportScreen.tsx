@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     alignItems: 'center',
   },
-  importBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '600' },
+  importBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '600' },
   doneContainer: {
     flex: 1,
     backgroundColor: Colors.bgTertiary,

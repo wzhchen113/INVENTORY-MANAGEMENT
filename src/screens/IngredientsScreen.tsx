@@ -616,7 +616,7 @@ const styles = StyleSheet.create({
   searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 8, borderWidth: 0.5, borderColor: Colors.borderLight },
   searchInput: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary, padding: 0 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8 },
-  addBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+  addBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '500' },
 
   // Pills
   pillWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
@@ -666,7 +666,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   chipTextActive: { color: Colors.white, fontWeight: '500' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },
   deleteBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
 

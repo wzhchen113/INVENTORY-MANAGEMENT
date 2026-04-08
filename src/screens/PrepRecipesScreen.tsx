@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   catPillText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   yieldRow: { flexDirection: 'row' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxxl },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
   dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
   dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

@@ -239,5 +239,5 @@ const styles = StyleSheet.create({
   noteLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 5 },
   noteInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary, height: 80, textAlignVertical: 'top', marginBottom: Spacing.sm },
   saveNoteBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: 9, alignItems: 'center' },
-  saveNoteBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+  saveNoteBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '500' },
 });

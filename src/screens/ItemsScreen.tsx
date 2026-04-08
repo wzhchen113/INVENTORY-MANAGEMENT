@@ -164,7 +164,7 @@ export default function ItemsScreen() {
         />
         {isAdmin && (
           <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-            <Text style={[styles.addBtnText, { color: C.white }]}>+ Add item</Text>
+            <Text style={[styles.addBtnText, { color: C.black }]}>+ Add item</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -249,7 +249,7 @@ export default function ItemsScreen() {
             ) : null}
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Save item</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Save item</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.lg, paddingBottom: 0 },
   search: { flex: 1, backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 8, fontSize: FontSize.base, borderWidth: 0.5, borderColor: Colors.borderLight, color: Colors.textPrimary },
   addBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8, justifyContent: 'center' },
-  addBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '500' },
+  addBtnText: { color: Colors.black, fontSize: FontSize.sm, fontWeight: '500' },
   catWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   catRow: { flexDirection: 'row', alignItems: 'center' },
   catChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 5 },
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.md },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
   dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
   dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

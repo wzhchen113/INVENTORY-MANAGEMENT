@@ -98,8 +98,8 @@ export default function DashboardScreen() {
         </Text>
         {isAdmin && (
           <TouchableOpacity style={[styles.addStoreBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowAddStore(true)}>
-            <Ionicons name="add" size={14} color={C.white} />
-            <Text style={[styles.addStoreBtnText, { color: C.white }]}>Add store</Text>
+            <Ionicons name="add" size={14} color={C.black} />
+            <Text style={[styles.addStoreBtnText, { color: C.black }]}>Add store</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -239,7 +239,7 @@ export default function DashboardScreen() {
               />
             </View>
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAddStore}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Add store</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Add store</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.textPrimary, borderRadius: Radius.md,
     paddingHorizontal: 12, paddingVertical: 6,
   },
-  addStoreBtnText: { color: Colors.white, fontSize: FontSize.xs, fontWeight: '500' },
+  addStoreBtnText: { color: Colors.black, fontSize: FontSize.xs, fontWeight: '500' },
 
   // KPIs
   kpiRow: { flexDirection: 'row', marginBottom: Spacing.sm },
@@ -296,5 +296,5 @@ const styles = StyleSheet.create({
   formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 6 },
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
 });

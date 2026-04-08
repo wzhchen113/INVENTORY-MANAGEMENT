@@ -484,7 +484,7 @@ export default function OrdersScreen() {
             ) : (
               <TouchableOpacity style={[styles.markSubmittedBtn, { backgroundColor: C.success }]} onPress={handleMarkSubmitted}>
                 <Ionicons name="checkmark-circle-outline" size={20} color={C.white} />
-                <Text style={[styles.markSubmittedText, { color: C.white }]}>Mark Order as Submitted</Text>
+                <Text style={[styles.markSubmittedText, { color: C.black }]}>Mark Order as Submitted</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -526,7 +526,7 @@ export default function OrdersScreen() {
                             style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, vendor.deliveryDay === d && styles.chipActive, vendor.deliveryDay === d && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                             onPress={() => updateVendorRow(idx, 'deliveryDay', d)}
                           >
-                            <Text style={[styles.chipText, { color: C.textSecondary }, vendor.deliveryDay === d && styles.chipTextActive, vendor.deliveryDay === d && { color: C.white }]}>
+                            <Text style={[styles.chipText, { color: C.textSecondary }, vendor.deliveryDay === d && styles.chipTextActive, vendor.deliveryDay === d && { color: C.black }]}>
                               {d.slice(0, 3)}
                             </Text>
                           </TouchableOpacity>
@@ -546,7 +546,7 @@ export default function OrdersScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={saveSchedule}>
-              <Text style={[styles.saveBtnText, { color: C.white }]}>Save</Text>
+              <Text style={[styles.saveBtnText, { color: C.black }]}>Save</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -711,7 +711,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.success, borderRadius: Radius.lg,
     paddingVertical: Spacing.md + 2,
   },
-  markSubmittedText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '700' },
+  markSubmittedText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '700' },
   submittedFooter: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
     backgroundColor: Colors.successBg, borderRadius: Radius.lg,
@@ -735,13 +735,13 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.round, backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight },
   chipActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   chipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  chipTextActive: { color: Colors.white, fontWeight: '500' },
+  chipTextActive: { color: Colors.black, fontWeight: '500' },
   removeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.dangerBg, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
 
   addRowBtn: { borderWidth: 1, borderColor: Colors.borderLight, borderStyle: 'dashed', borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center', marginBottom: Spacing.lg },
   addRowBtnText: { fontSize: FontSize.sm, color: Colors.info, fontWeight: '500' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center' },
-  saveBtnText: { color: Colors.white, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
 
   // TZ modal
   tzOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', paddingHorizontal: Spacing.xl },
