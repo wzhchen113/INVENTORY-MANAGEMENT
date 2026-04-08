@@ -446,7 +446,7 @@ export default function EODCountScreen() {
             style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !selectedCategory && styles.pillActive, !selectedCategory && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setSelectedCategory(null)}
           >
-            <Text style={[styles.pillText, { color: C.textSecondary }, !selectedCategory && styles.pillTextActive]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !selectedCategory && { color: C.bgPrimary }]}>
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
@@ -459,7 +459,7 @@ export default function EODCountScreen() {
                 style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setSelectedCategory(isActive ? null : cat)}
               >
-                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
                   {cat} ({count})
                 </Text>
               </TouchableOpacity>
@@ -476,7 +476,7 @@ export default function EODCountScreen() {
               style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !vendorFilter && styles.pillActive, !vendorFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setVendorFilter('')}
             >
-              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && { color: C.bgPrimary }]}>
                 All vendors
               </Text>
             </TouchableOpacity>
@@ -488,7 +488,7 @@ export default function EODCountScreen() {
                   style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                   onPress={() => setVendorFilter(isActive ? '' : v)}
                 >
-                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>

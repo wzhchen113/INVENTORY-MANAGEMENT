@@ -79,7 +79,7 @@ export default function WasteLogScreen() {
               style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, reasonFilter === r && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setReasonFilter(r)}
             >
-              <Text style={[styles.filterText, { color: C.textSecondary }, reasonFilter === r && styles.filterTextActive]}>
+              <Text style={[styles.filterText, { color: C.textSecondary }, reasonFilter === r && { color: C.bgPrimary, fontWeight: '500' }]}>
                 {r || 'All reasons'}
               </Text>
             </TouchableOpacity>
@@ -156,7 +156,7 @@ export default function WasteLogScreen() {
                   style={[styles.reasonBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.reason === r && [styles.reasonBtnActive, { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]]}
                   onPress={() => setForm((p) => ({ ...p, reason: r }))}
                 >
-                  <Text style={[styles.reasonText, { color: C.textSecondary }, form.reason === r && styles.reasonTextActive]}>{r}</Text>
+                  <Text style={[styles.reasonText, { color: C.textSecondary }, form.reason === r && { color: C.bgPrimary, fontWeight: '500' }]}>{r}</Text>
                 </TouchableOpacity>
               ))}
             </View>

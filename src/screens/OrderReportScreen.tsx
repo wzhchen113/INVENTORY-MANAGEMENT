@@ -189,7 +189,7 @@ export default function OrderReportScreen() {
               style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }, selectedVendorId === 'all' && styles.pillActive, selectedVendorId === 'all' && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
               onPress={() => setSelectedVendorId('all')}
             >
-              <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === 'all' && styles.pillTextActive]}>
+              <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === 'all' && { color: C.bgPrimary }]}>
                 All Vendors
               </Text>
             </TouchableOpacity>
@@ -199,7 +199,7 @@ export default function OrderReportScreen() {
                 style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }, selectedVendorId === v.id && styles.pillActive, selectedVendorId === v.id && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
                 onPress={() => setSelectedVendorId(v.id)}
               >
-                <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === v.id && styles.pillTextActive]}>
+                <Text style={[styles.pillText, { color: C.textSecondary }, selectedVendorId === v.id && { color: C.bgPrimary }]}>
                   {v.name}
                 </Text>
               </TouchableOpacity>

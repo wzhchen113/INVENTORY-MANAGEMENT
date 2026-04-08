@@ -135,7 +135,7 @@ export default function PrepRecipesScreen() {
             style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !filter && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
             onPress={() => setFilter('')}
           >
-            <Text style={[styles.filterText, { color: C.textSecondary }, !filter && styles.filterTextActive]}>All</Text>
+            <Text style={[styles.filterText, { color: C.textSecondary }, !filter && { color: C.bgPrimary, fontWeight: '500' }]}>All</Text>
           </TouchableOpacity>
           {PREP_CATEGORIES.map((c) => (
             <TouchableOpacity
@@ -143,7 +143,7 @@ export default function PrepRecipesScreen() {
               style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === c && [styles.filterChipActive, { backgroundColor: C.textPrimary }]]}
               onPress={() => setFilter(filter === c ? '' : c)}
             >
-              <Text style={[styles.filterText, { color: C.textSecondary }, filter === c && styles.filterTextActive]}>{c}</Text>
+              <Text style={[styles.filterText, { color: C.textSecondary }, filter === c && { color: C.bgPrimary, fontWeight: '500' }]}>{c}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
