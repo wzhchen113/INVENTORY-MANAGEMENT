@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
-  EODSubmission, Vendor, POSImport,
+  EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission,
 } from '../types';
@@ -66,6 +66,11 @@ interface StoreActions {
   setTimezone: (tz: string) => void;
   toggleDarkMode: () => void;
 
+  // Notifications
+  addNotification: (message: string) => void;
+  markNotificationRead: (id: string) => void;
+  clearNotifications: () => void;
+
   // Audit
   addAuditEvent: (event: Omit<AuditEvent, 'id'>) => void;
 
@@ -119,6 +124,7 @@ export const useStore = create<FullStore>((set, get) => ({
   orderSubmissions: [],
   timezone: 'America/New_York',
   darkMode: false,
+  notifications: [],
 
   // Auth
   login: (user) => {
@@ -487,6 +493,19 @@ export const useStore = create<FullStore>((set, get) => ({
 
   toggleDarkMode: () => {
     set((s) => ({ darkMode: !s.darkMode }));
+  },
+
+  // Notifications
+  addNotification: (message) => {
+    const id = `notif-${Date.now()}`;
+    const notif: AppNotification = { id, message, timestamp: new Date().toISOString(), read: false };
+    set((s) => ({ notifications: [notif, ...s.notifications] }));
+  },
+  markNotificationRead: (id) => {
+    set((s) => ({ notifications: s.notifications.map((n) => n.id === id ? { ...n, read: true } : n) }));
+  },
+  clearNotifications: () => {
+    set({ notifications: [] });
   },
 
   // Audit

@@ -1,10 +1,11 @@
 // src/screens/EODCountScreen.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Alert, Platform,
+  TouchableOpacity, Alert, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
 import { useStore } from '../store/useStore';
 import { numericFilter } from '../utils';
 import { Card, CardHeader } from '../components';
@@ -13,7 +14,7 @@ import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
 
 export default function EODCountScreen() {
-  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, vendors } = useStore();
+  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors } = useStore();
   const C = useColors();
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -30,6 +31,14 @@ export default function EODCountScreen() {
       s.storeId === currentStore.id &&
       s.date === todayISO
   );
+
+  const [saving, setSaving] = useState(false);
+  const [saveCountdown, setSaveCountdown] = useState(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, []);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editCounts, setEditCounts] = useState<Record<string, string>>({});
@@ -126,6 +135,28 @@ export default function EODCountScreen() {
       setNotes({});
       setSearch('');
       setSelectedCategory(null);
+
+      // Start 30-second cloud save countdown
+      setSaving(true);
+      setSaveCountdown(30);
+      countdownRef.current = setInterval(() => {
+        setSaveCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            setSaving(false);
+            // Notify admin
+            addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
+            Toast.show({
+              type: 'success',
+              text1: 'EOD Count saved',
+              text2: 'Your count has been saved to the cloud.',
+              visibilityTime: 4000,
+            });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     };
 
     if (Platform.OS === 'web') {
@@ -502,11 +533,25 @@ export default function EODCountScreen() {
         );
       })}
 
+      {/* Saving to cloud indicator */}
+      {saving && (
+        <View style={[styles.savingBanner, { backgroundColor: C.infoBg, borderColor: C.info }]}>
+          <ActivityIndicator size="small" color={C.info} />
+          <Text style={[styles.savingText, { color: C.info }]}>
+            Saving to cloud... {saveCountdown}s
+          </Text>
+        </View>
+      )}
+
       {/* Submit row */}
       <View style={styles.submitRow}>
-        <TouchableOpacity style={[styles.submitBtn, { backgroundColor: C.textPrimary }]} onPress={handleSubmit}>
+        <TouchableOpacity
+          style={[styles.submitBtn, { backgroundColor: C.textPrimary }, saving && { opacity: 0.4 }]}
+          onPress={handleSubmit}
+          disabled={saving}
+        >
           <Text style={styles.submitBtnText}>
-            Submit count ({filledCount} item{filledCount !== 1 ? 's' : ''})
+            {saving ? 'Saving...' : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -563,6 +608,8 @@ const styles = StyleSheet.create({
   draftBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   submitBtn: { flex: 2, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md, alignItems: 'center' },
   submitBtnText: { color: Colors.white, fontSize: FontSize.sm, fontWeight: '600' },
+  savingBanner: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
+  savingText: { fontSize: FontSize.sm, fontWeight: '500' },
 
   // Submitted view
   submittedHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: Colors.successBg, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md },

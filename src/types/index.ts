@@ -246,4 +246,12 @@ export interface AppState {
   orderSubmissions: OrderSubmission[];
   timezone: string;
   darkMode: boolean;
+  notifications: AppNotification[];
+}
+
+export interface AppNotification {
+  id: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
 }
