@@ -231,7 +231,7 @@ export function RecipesScreen() {
             style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
           >
-            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.white, fontWeight: '500' }]}>
+            <Text style={[styles.filterChipText, { color: C.textSecondary }, !catFilter && { color: C.black, fontWeight: '500' }]}>
               All ({storeRecipes.length})
             </Text>
           </TouchableOpacity>
@@ -241,7 +241,7 @@ export function RecipesScreen() {
               style={[styles.filterChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && { backgroundColor: C.textPrimary }]}
               onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
             >
-              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.white, fontWeight: '500' }]}>
+              <Text style={[styles.filterChipText, { color: C.textSecondary }, catFilter === cat && { color: C.black, fontWeight: '500' }]}>
                 {cat} ({count})
               </Text>
             </TouchableOpacity>
@@ -368,7 +368,7 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
             {recipeCategories.map((c) => (
               <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
-                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.white }]}>{c}</Text>
+                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.black }]}>{c}</Text>
               </TouchableOpacity>
             ))}
             {dupWarning ? (
@@ -666,7 +666,7 @@ export function AuditLogScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScroll, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'Stock adjusted'].map((f) => (
           <TouchableOpacity key={f || 'all'} style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === f && { backgroundColor: C.textPrimary }]} onPress={() => setFilter(f)}>
-            <Text style={[styles.filterText, { color: C.textSecondary }, filter === f && { color: C.white }]}>{f || 'All'}</Text>
+            <Text style={[styles.filterText, { color: C.textSecondary }, filter === f && { color: C.black }]}>{f || 'All'}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -890,7 +890,7 @@ export function UsersScreen() {
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
               {(['user', 'admin'] as const).map((r) => (
                 <TouchableOpacity key={r} style={[styles.roleBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.role === r && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
-                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.white }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
+                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.black }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
                 </TouchableOpacity>
               ))}
             </View>
