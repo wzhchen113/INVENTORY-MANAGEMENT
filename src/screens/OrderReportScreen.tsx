@@ -172,9 +172,9 @@ export default function OrderReportScreen() {
       {/* Title bar */}
       <View style={[styles.titleBar, { backgroundColor: C.textPrimary }]}>
         <View>
-          <Text style={[styles.brandName, { color: C.white }]}>2AM</Text>
-          <Text style={styles.reportTitle}>Daily Replenishment Guide</Text>
-          <Text style={styles.reportSub}>
+          <Text style={[styles.brandName, { color: C.bgPrimary }]}>2AM</Text>
+          <Text style={[styles.reportTitle, { color: C.bgTertiary }]}>Daily Replenishment Guide</Text>
+          <Text style={[styles.reportSub, { color: C.bgTertiary, opacity: 0.7 }]}>
             {currentStore.name} · {formatDate(orderDate)}
           </Text>
         </View>
