@@ -377,27 +377,29 @@ function MoreScreen({ navigation }: any) {
   ];
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
-      <View style={styles.moreList}>
-        {items.map((item) => (
-          <TouchableOpacity
-            key={item.screen}
-            style={[styles.moreItem, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}
-            onPress={() => navigation.navigate(item.screen)}
-          >
-            <Ionicons name={item.icon} size={20} color={C.textSecondary} />
-            <Text style={[styles.moreLabel, { color: C.textPrimary }]}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <ScrollView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+        <View style={styles.moreList}>
+          {items.map((item) => (
+            <TouchableOpacity
+              key={item.screen}
+              style={[styles.moreItem, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}
+              onPress={() => navigation.navigate(item.screen)}
+            >
+              <Ionicons name={item.icon} size={20} color={C.textSecondary} />
+              <Text style={[styles.moreLabel, { color: C.textPrimary }]}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.signOutSection}>
+          <TouchableOpacity style={[styles.signOutBtn, { borderColor: C.dangerBg, backgroundColor: C.dangerBg }]} onPress={logout}>
+            <Ionicons name="log-out-outline" size={16} color={C.danger} />
+            <Text style={[styles.signOutText, { color: C.danger }]}>Sign out</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-      <View style={styles.signOutSection}>
-        <TouchableOpacity style={[styles.signOutBtn, { borderColor: C.dangerBg, backgroundColor: C.dangerBg }]} onPress={logout}>
-          <Ionicons name="log-out-outline" size={16} color={C.danger} />
-          <Text style={[styles.signOutText, { color: C.danger }]}>Sign out</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 

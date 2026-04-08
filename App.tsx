@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
+import { useColors } from './src/theme/colors';
 
 // Only import and configure notifications on native platforms
 if (Platform.OS !== 'web') {
@@ -20,14 +21,24 @@ if (Platform.OS !== 'web') {
 }
 
 export default function App() {
+  const C = useColors();
+
   useEffect(() => {
     if (Platform.OS !== 'web') {
       registerForPushNotifications();
     }
   }, []);
 
+  // Set HTML body background for overscroll coverage on web
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      document.documentElement.style.backgroundColor = C.bgTertiary;
+      document.body.style.backgroundColor = C.bgTertiary;
+    }
+  }, [C.bgTertiary]);
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
         <AppNavigator />

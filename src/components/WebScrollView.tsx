@@ -1,18 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import { View, ScrollView, Platform, ViewStyle } from 'react-native';
+import { useColors } from '../theme/colors';
 
 let styleInjected = false;
 
 interface WebScrollViewProps {
   children: React.ReactNode;
   contentContainerStyle?: ViewStyle;
+  style?: ViewStyle;
   id?: string;
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
 }
 
-export function WebScrollView({ children, contentContainerStyle, id = 'web-scroll', keyboardShouldPersistTaps }: WebScrollViewProps) {
+export function WebScrollView({ children, contentContainerStyle, style, id = 'web-scroll', keyboardShouldPersistTaps }: WebScrollViewProps) {
   const wrapId = id + '-wrap';
   const scrollId = id;
+  const C = useColors();
 
   useEffect(() => {
     if (Platform.OS === 'web' && !styleInjected) {
@@ -36,10 +39,13 @@ export function WebScrollView({ children, contentContainerStyle, id = 'web-scrol
     }
   });
 
+  // Use passed style bg, or fall back to theme bgTertiary for overscroll coverage
+  const bg = (style as any)?.backgroundColor || C.bgTertiary;
+
   if (Platform.OS === 'web') {
     return (
-      <View nativeID={wrapId} style={{ flex: 1 }}>
-        <View nativeID={scrollId}>
+      <View nativeID={wrapId} style={[{ flex: 1, backgroundColor: bg }, style]}>
+        <View nativeID={scrollId} style={{ backgroundColor: bg }}>
           <View style={contentContainerStyle}>{children}</View>
         </View>
       </View>
@@ -47,7 +53,7 @@ export function WebScrollView({ children, contentContainerStyle, id = 'web-scrol
   }
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={contentContainerStyle} keyboardShouldPersistTaps={keyboardShouldPersistTaps}>
+    <ScrollView style={[{ flex: 1, backgroundColor: bg }, style]} contentContainerStyle={contentContainerStyle} keyboardShouldPersistTaps={keyboardShouldPersistTaps}>
       {children}
     </ScrollView>
   );
