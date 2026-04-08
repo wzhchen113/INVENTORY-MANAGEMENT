@@ -244,7 +244,7 @@ export default function PrepRecipesScreen() {
                   style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && [styles.catPillActive, { backgroundColor: C.textPrimary }]]}
                   onPress={() => setCategory(c)}
                 >
-                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.black }]}>{c}</Text>
+                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.bgPrimary }]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  filterTextActive: { color: Colors.black, fontWeight: '500' },
+  filterTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
   addRow: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 0.5, borderColor: Colors.borderLight, alignItems: 'center', borderStyle: 'dashed' },
   addRowText: { fontSize: FontSize.sm, color: Colors.info, fontWeight: '500' },
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxxl },
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   catPillText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   yieldRow: { flexDirection: 'row' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxxl },
-  saveBtnText: { color: Colors.black, fontSize: FontSize.base, fontWeight: '600' },
+  saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
   dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
   dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });

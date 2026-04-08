@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
-  pillTextActive: { color: Colors.black },
+  pillTextActive: { color: Colors.bgPrimary },
 
   // Summary
   summaryBar: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
