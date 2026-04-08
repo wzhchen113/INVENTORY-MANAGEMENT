@@ -394,7 +394,7 @@ export default function EODCountScreen() {
             <Text style={[styles.draftBtnText, { color: C.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.submitBtn, { backgroundColor: C.textPrimary }]} onPress={handleUpdate}>
-            <Text style={styles.submitBtnText}>Save changes</Text>
+            <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>Save changes</Text>
           </TouchableOpacity>
         </View>
 
@@ -570,7 +570,7 @@ export default function EODCountScreen() {
           onPress={handleSubmit}
           disabled={saving}
         >
-          <Text style={styles.submitBtnText}>
+          <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>
             {saving ? 'Saving...' : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>

@@ -66,7 +66,7 @@ export default function WasteLogScreen() {
           <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>% of revenue</Text>
         </View>
         <TouchableOpacity style={[styles.logBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowModal(true)}>
-          <Text style={styles.logBtnText}>+ Log waste</Text>
+          <Text style={[styles.logBtnText, { color: C.bgPrimary }]}>+ Log waste</Text>
         </TouchableOpacity>
       </View>
 
@@ -179,7 +179,7 @@ export default function WasteLogScreen() {
             </View>
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleLog}>
-              <Text style={styles.saveBtnText}>Log waste entry</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Log waste entry</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

@@ -94,7 +94,7 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator size="small" color={C.white} />
             ) : (
-              <Text style={styles.loginBtnText}>Sign in</Text>
+              <Text style={[styles.loginBtnText, { color: C.bgPrimary }]}>Sign in</Text>
             )}
           </TouchableOpacity>
         </View>

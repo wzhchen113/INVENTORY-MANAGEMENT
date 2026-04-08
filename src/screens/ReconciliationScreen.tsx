@@ -202,7 +202,7 @@ export default function ReconciliationScreen() {
             onChangeText={setAdminNote}
           />
           <TouchableOpacity style={[styles.saveNoteBtn, { backgroundColor: C.textPrimary }]}>
-            <Text style={styles.saveNoteBtnText}>Save notes</Text>
+            <Text style={[styles.saveNoteBtnText, { color: C.bgPrimary }]}>Save notes</Text>
           </TouchableOpacity>
         </Card>
       )}

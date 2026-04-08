@@ -298,7 +298,7 @@ export default function PrepRecipesScreen() {
             ) : null}
 
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>{editingId ? 'Update prep recipe' : 'Save prep recipe'}</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>{editingId ? 'Update prep recipe' : 'Save prep recipe'}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
