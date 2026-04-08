@@ -7,6 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useStore } from '../store/useStore';
+import { submitEODCount } from '../lib/db';
 import { numericFilter } from '../utils';
 import { Card, CardHeader } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
@@ -119,8 +120,8 @@ export default function EODCountScreen() {
       return;
     }
 
-    const confirmSubmit = () => {
-      submitEOD({
+    const confirmSubmit = async () => {
+      const submission = {
         date: todayISO,
         storeId: currentStore.id,
         storeName: currentStore.name,
@@ -128,35 +129,54 @@ export default function EODCountScreen() {
         submittedByUserId: currentUser?.id || '',
         timestamp: new Date().toISOString(),
         itemCount: entries.length,
-        status: 'submitted',
+        status: 'submitted' as const,
         entries,
-      });
+      };
+
+      // Save to local state immediately
+      submitEOD(submission);
       setCounts({});
       setNotes({});
       setSearch('');
       setSelectedCategory(null);
 
-      // Start 30-second cloud save countdown
+      // Save to cloud + 3s minimum delay
       setSaving(true);
-      setSaveCountdown(30);
-      countdownRef.current = setInterval(() => {
-        setSaveCountdown((prev) => {
-          if (prev <= 1) {
-            if (countdownRef.current) clearInterval(countdownRef.current);
-            setSaving(false);
-            // Notify admin
-            addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
-            Toast.show({
-              type: 'success',
-              text1: 'EOD Count saved',
-              text2: 'Your count has been saved to the cloud.',
-              visibilityTime: 4000,
-            });
-            return 0;
-          }
-          return prev - 1;
+      setSaveCountdown(3);
+      const cloudSave = submitEODCount(submission).catch(() => null);
+      const countdown = new Promise<void>((resolve) => {
+        countdownRef.current = setInterval(() => {
+          setSaveCountdown((prev) => {
+            if (prev <= 1) {
+              if (countdownRef.current) clearInterval(countdownRef.current);
+              resolve();
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      });
+
+      const [cloudResult] = await Promise.all([cloudSave, countdown]);
+      setSaving(false);
+
+      if (cloudResult !== null) {
+        addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
+        Toast.show({
+          type: 'success',
+          text1: 'EOD Count saved',
+          text2: 'Your count has been saved to the cloud.',
+          visibilityTime: 4000,
         });
-      }, 1000);
+      } else {
+        addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
+        Toast.show({
+          type: 'info',
+          text1: 'EOD Count saved locally',
+          text2: 'Cloud sync unavailable — saved locally.',
+          visibilityTime: 4000,
+        });
+      }
     };
 
     if (Platform.OS === 'web') {
