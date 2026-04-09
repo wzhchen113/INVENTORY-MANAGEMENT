@@ -850,17 +850,9 @@ export function UsersScreen() {
     setCloudUsers(fetched);
   };
 
-  // Merge local + cloud users, deduplicate by name (cloud takes priority)
-  const allUsers = (() => {
-    const merged = [...cloudUsers];
-    const cloudNames = new Set(cloudUsers.map((u) => u.name.toLowerCase()));
-    for (const u of users) {
-      if (!cloudNames.has(u.name.toLowerCase())) {
-        merged.push(u);
-      }
-    }
-    return merged;
-  })();
+  // Show cloud users if loaded, otherwise fall back to local
+  // Once cloud data is available, it's the source of truth (deleted users won't appear)
+  const allUsers = cloudUsers.length > 0 ? cloudUsers : users;
 
   const handleInvite = async () => {
     if (!form.name || !form.email) { Alert.alert('Error', 'Name and email required'); return; }
