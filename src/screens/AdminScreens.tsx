@@ -827,7 +827,7 @@ export function ReportsScreen() {
 // ─── USERS ──────────────────────────────────────────────────────────────────
 export function UsersScreen() {
   const C = useColors();
-  const { users, stores, currentUser, inviteUser, addNotification } = useStore();
+  const { users, stores, currentUser, inviteUser, removeUser, addNotification, logout } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
@@ -862,6 +862,42 @@ export function UsersScreen() {
         text2: `${form.name.trim()} will receive an email to register.`,
         visibilityTime: 4000,
       });
+    }
+  };
+
+  const handleDeleteUser = (user: typeof users[0]) => {
+    const isSelf = user.id === currentUser?.id;
+    const isOtherAdmin = user.role === 'admin' && !isSelf;
+
+    if (isOtherAdmin) {
+      if (Platform.OS === 'web') alert('You cannot delete other admin accounts.');
+      else Alert.alert('Cannot delete', 'You cannot delete other admin accounts.');
+      return;
+    }
+
+    const title = isSelf ? 'Delete your account?' : `Delete ${user.name}?`;
+    const message = isSelf
+      ? 'This will permanently delete your account and sign you out. This cannot be undone.'
+      : `This will permanently remove ${user.name} from the system. This cannot be undone.`;
+
+    const doDelete = async () => {
+      removeUser(user.id);
+      const { deleteUser: supabaseDelete } = await import('../lib/auth');
+      await supabaseDelete(user.id);
+      if (isSelf) {
+        logout();
+      } else {
+        Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been removed.`, visibilityTime: 3000 });
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (confirm(title + '\n' + message)) doDelete();
+    } else {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]);
     }
   };
 
@@ -900,6 +936,12 @@ export function UsersScreen() {
             </View>
             <View style={[styles.userFooter, { borderTopColor: C.borderLight }]}>
               <Badge label={user.status === 'active' ? 'Active' : 'Pending invite'} variant={user.status === 'active' ? 'ok' : 'pending'} />
+              {/* Delete: admins can delete users + self, but not other admins */}
+              {(user.role !== 'admin' || user.id === currentUser?.id) && (
+                <TouchableOpacity onPress={() => handleDeleteUser(user)} style={{ marginLeft: 'auto' }}>
+                  <Ionicons name="trash-outline" size={18} color={C.danger} />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         ))}
