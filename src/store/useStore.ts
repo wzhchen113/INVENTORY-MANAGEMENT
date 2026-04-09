@@ -477,6 +477,7 @@ export const useStore = create<FullStore>((set, get) => ({
   updateUser: (id, updates) => {
     set((s) => ({
       users: s.users.map((u) => (u.id === id ? { ...u, ...updates } : u)),
+      currentUser: s.currentUser?.id === id ? { ...s.currentUser, ...updates } : s.currentUser,
     }));
   },
 
