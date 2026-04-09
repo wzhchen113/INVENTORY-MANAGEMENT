@@ -914,10 +914,18 @@ export function UsersScreen() {
       removeUser(user.id);
       const { deleteUser: supabaseDelete } = await import('../lib/auth');
       await supabaseDelete(user.id);
+
+      addNotification(`${user.name} account has been deleted.`);
+
       if (isSelf) {
+        Toast.show({ type: 'success', text1: 'Account deleted', text2: 'Your account has been removed. Signing out...', visibilityTime: 2000 });
         logout();
+        // Force reload to login page after a brief delay
+        if (Platform.OS === 'web') {
+          setTimeout(() => { window.location.href = '/'; }, 1500);
+        }
       } else {
-        Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been removed.`, visibilityTime: 3000 });
+        Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been successfully removed.`, visibilityTime: 3000 });
         refreshCloudUsers();
       }
     };
