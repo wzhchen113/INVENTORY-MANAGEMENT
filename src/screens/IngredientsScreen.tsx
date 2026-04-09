@@ -42,6 +42,7 @@ export default function IngredientsScreen() {
   const [bulkCategory, setBulkCategory] = useState('');
   const [bulkVendorId, setBulkVendorId] = useState('');
   const [bulkVendorName, setBulkVendorName] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void; destructive?: boolean } | null>(null);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -66,71 +67,84 @@ export default function IngredientsScreen() {
 
   const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
-    const msg = `Delete ${selectedIds.size} ingredient(s) from all stores? This cannot be undone.`;
-    const doDelete = () => {
-      selectedIds.forEach((id) => {
-        const item = inventory.find((i) => i.id === id);
-        if (item) {
-          // Delete all copies across stores
-          const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
-          copies.forEach((c) => deleteItem(c.id));
-        }
-      });
-      exitBulkMode();
-    };
-    if (Platform.OS === 'web') {
-      if (confirm(msg)) doDelete();
-    } else {
-      Alert.alert('Delete ingredients', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
-    }
+    setConfirmAction({
+      title: 'Delete ingredients',
+      message: `Delete ${selectedIds.size} ingredient(s) from all stores? This cannot be undone.`,
+      destructive: true,
+      onConfirm: () => {
+        selectedIds.forEach((id) => {
+          const item = inventory.find((i) => i.id === id);
+          if (item) {
+            const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+            copies.forEach((c) => deleteItem(c.id));
+          }
+        });
+        exitBulkMode();
+      },
+    });
   };
 
   const applyBulkStores = () => {
     if (bulkStoreIds.length === 0) return;
-    selectedIds.forEach((id) => {
-      const item = inventory.find((i) => i.id === id);
-      if (!item) return;
-      const existingCopies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
-      const existingStoreIds = existingCopies.map((c) => c.storeId);
-      // Add to new stores
-      for (const storeId of bulkStoreIds) {
-        if (!existingStoreIds.includes(storeId)) {
-          addItem({ ...item, id: undefined as any, storeId, currentStock: 0, eodRemaining: 0 });
-        }
-      }
-      // Remove from deselected stores
-      existingCopies.forEach((c) => {
-        if (!bulkStoreIds.includes(c.storeId)) deleteItem(c.id);
-      });
+    const storeNames = bulkStoreIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
+    setConfirmAction({
+      title: 'Change stores',
+      message: `Assign ${selectedIds.size} ingredient(s) to: ${storeNames}?`,
+      onConfirm: () => {
+        selectedIds.forEach((id) => {
+          const item = inventory.find((i) => i.id === id);
+          if (!item) return;
+          const existingCopies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+          const existingStoreIds = existingCopies.map((c) => c.storeId);
+          for (const storeId of bulkStoreIds) {
+            if (!existingStoreIds.includes(storeId)) {
+              addItem({ ...item, id: undefined as any, storeId, currentStock: 0, eodRemaining: 0 });
+            }
+          }
+          existingCopies.forEach((c) => {
+            if (!bulkStoreIds.includes(c.storeId)) deleteItem(c.id);
+          });
+        });
+        setBulkModal(null);
+        exitBulkMode();
+      },
     });
-    setBulkModal(null);
-    exitBulkMode();
   };
 
   const applyBulkCategory = () => {
     if (!bulkCategory) return;
-    selectedIds.forEach((id) => {
-      const item = inventory.find((i) => i.id === id);
-      if (!item) return;
-      const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
-      copies.forEach((c) => updateItem(c.id, { category: bulkCategory }));
+    setConfirmAction({
+      title: 'Change category',
+      message: `Change category to "${bulkCategory}" for ${selectedIds.size} ingredient(s)?`,
+      onConfirm: () => {
+        selectedIds.forEach((id) => {
+          const item = inventory.find((i) => i.id === id);
+          if (!item) return;
+          const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+          copies.forEach((c) => updateItem(c.id, { category: bulkCategory }));
+        });
+        setBulkModal(null);
+        exitBulkMode();
+      },
     });
-    setBulkModal(null);
-    exitBulkMode();
   };
 
   const applyBulkVendor = () => {
-    selectedIds.forEach((id) => {
-      const item = inventory.find((i) => i.id === id);
-      if (!item) return;
-      const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
-      copies.forEach((c) => updateItem(c.id, { vendorId: bulkVendorId, vendorName: bulkVendorName }));
+    const vendorLabel = bulkVendorName || 'None';
+    setConfirmAction({
+      title: 'Change vendor',
+      message: `Change vendor to "${vendorLabel}" for ${selectedIds.size} ingredient(s)?`,
+      onConfirm: () => {
+        selectedIds.forEach((id) => {
+          const item = inventory.find((i) => i.id === id);
+          if (!item) return;
+          const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+          copies.forEach((c) => updateItem(c.id, { vendorId: bulkVendorId, vendorName: bulkVendorName }));
+        });
+        setBulkModal(null);
+        exitBulkMode();
+      },
     });
-    setBulkModal(null);
-    exitBulkMode();
   };
 
   const [form, setForm] = useState({
@@ -828,6 +842,27 @@ export default function IngredientsScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* In-app Confirmation Modal */}
+      <Modal visible={!!confirmAction} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.confirmTitle, { color: C.textPrimary }]}>{confirmAction?.title}</Text>
+            <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>{confirmAction?.message}</Text>
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.bgSecondary }]} onPress={() => setConfirmAction(null)}>
+                <Text style={[styles.confirmBtnText, { color: C.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: confirmAction?.destructive ? C.danger : C.textPrimary }]}
+                onPress={() => { confirmAction?.onConfirm(); setConfirmAction(null); }}
+              >
+                <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>{confirmAction?.destructive ? 'Delete' : 'Confirm'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -925,4 +960,13 @@ const styles = StyleSheet.create({
   bulkBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: Radius.md },
   bulkBtnText: { fontSize: FontSize.xs, fontWeight: '500' },
   chipRow: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: Radius.md, marginBottom: 6, borderWidth: 0.5 },
+
+  // Confirmation modal
+  confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
+  confirmBox: { width: '100%', maxWidth: 360, borderRadius: Radius.xl, padding: Spacing.xl, borderWidth: 0.5 },
+  confirmTitle: { fontSize: FontSize.lg, fontWeight: '600', marginBottom: Spacing.sm },
+  confirmMessage: { fontSize: FontSize.sm, lineHeight: 20, marginBottom: Spacing.xl },
+  confirmBtnRow: { flexDirection: 'row', gap: Spacing.sm },
+  confirmBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, alignItems: 'center' },
+  confirmBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
 });
