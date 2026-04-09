@@ -1,5 +1,5 @@
 // src/screens/LoginScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
@@ -19,6 +19,18 @@ export default function LoginScreen() {
   const login = useStore((s) => s.login);
   const nav = useNavigation<any>();
   const C = useColors();
+
+  // Auto-navigate to Register if ?register=true in URL
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('register') === 'true') {
+        nav.navigate('Register');
+        // Clean up the URL
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim()) {
