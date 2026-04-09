@@ -1006,14 +1006,19 @@ export function UsersScreen() {
             <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={form.name} onChangeText={(v) => setForm((p) => ({ ...p, name: v }))} placeholderTextColor={C.textTertiary} placeholder="e.g. Maria Garcia" />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Email address</Text>
             <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={form.email} onChangeText={(v) => setForm((p) => ({ ...p, email: v }))} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.textTertiary} placeholder="maria@restaurant.com" />
-            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Role</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
-              {(['user', 'admin'] as const).map((r) => (
-                <TouchableOpacity key={r} style={[styles.roleBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.role === r && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
-                  <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.bgPrimary }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Master can assign any role, admin can only invite store users */}
+            {isMaster ? (
+              <>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Role</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
+                  {(['user', 'admin'] as const).map((r) => (
+                    <TouchableOpacity key={r} style={[styles.roleBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderMedium }, form.role === r && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, role: r }))}>
+                      <Text style={[styles.roleBtnText, { color: C.textSecondary }, form.role === r && { color: C.bgPrimary }]}>{r === 'admin' ? 'Admin' : 'Store user'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : null}
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Store access</Text>
             {stores.map((store) => {
               const selected = form.storeIds.includes(store.id);
