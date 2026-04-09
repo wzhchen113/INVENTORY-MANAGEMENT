@@ -151,13 +151,14 @@ export const useStore = create<FullStore>((set, get) => ({
     if (!sid) return;
     try {
       const data = await db.fetchAllForStore(sid);
+      // Cloud is the source of truth — always replace, even if empty
       set({
-        ...(data.inventory.length > 0 ? { inventory: data.inventory } : {}),
-        ...(data.recipes.length > 0 ? { recipes: data.recipes } : {}),
-        ...(data.prepRecipes.length > 0 ? { prepRecipes: data.prepRecipes } : {}),
-        ...(data.vendors.length > 0 ? { vendors: data.vendors } : {}),
-        ...(data.wasteLog.length > 0 ? { wasteLog: data.wasteLog } : {}),
-        ...(data.auditLog.length > 0 ? { auditLog: data.auditLog } : {}),
+        inventory: data.inventory,
+        recipes: data.recipes,
+        prepRecipes: data.prepRecipes,
+        vendors: data.vendors,
+        wasteLog: data.wasteLog,
+        auditLog: data.auditLog,
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
       });
     } catch (e) {
