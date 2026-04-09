@@ -2,7 +2,7 @@
 // Contains: RecipesScreen, VendorsScreen,
 //           RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   FlatList, TextInput, Modal, Alert, Platform,
@@ -832,6 +832,35 @@ export function UsersScreen() {
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
   const [form, setForm] = useState({ name: '', email: '', role: 'user' as 'admin' | 'user', storeIds: ['s1'] });
+  const [cloudUsers, setCloudUsers] = useState<typeof users>([]);
+
+  // Fetch users from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      const { fetchAllUsers } = await import('../lib/auth');
+      const fetched = await fetchAllUsers();
+      setCloudUsers(fetched);
+    })();
+  }, []);
+
+  // Re-fetch after inviting
+  const refreshCloudUsers = async () => {
+    const { fetchAllUsers } = await import('../lib/auth');
+    const fetched = await fetchAllUsers();
+    setCloudUsers(fetched);
+  };
+
+  // Merge local + cloud users, deduplicate by name (cloud takes priority)
+  const allUsers = (() => {
+    const merged = [...cloudUsers];
+    const cloudNames = new Set(cloudUsers.map((u) => u.name.toLowerCase()));
+    for (const u of users) {
+      if (!cloudNames.has(u.name.toLowerCase())) {
+        merged.push(u);
+      }
+    }
+    return merged;
+  })();
 
   const handleInvite = async () => {
     if (!form.name || !form.email) { Alert.alert('Error', 'Name and email required'); return; }
@@ -862,6 +891,7 @@ export function UsersScreen() {
         text2: `${form.name.trim()} will receive an email to register.`,
         visibilityTime: 4000,
       });
+      refreshCloudUsers();
     }
   };
 
@@ -888,6 +918,7 @@ export function UsersScreen() {
         logout();
       } else {
         Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been removed.`, visibilityTime: 3000 });
+        refreshCloudUsers();
       }
     };
 
@@ -909,7 +940,7 @@ export function UsersScreen() {
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Invite user</Text>
         </TouchableOpacity>
-        {users.map((user) => (
+        {allUsers.map((user) => (
           <View key={user.id} style={[styles.userCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             <View style={styles.userTop}>
               <View style={[styles.userAvatar, { backgroundColor: user.color + '22' }]}>
