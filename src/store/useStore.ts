@@ -11,12 +11,14 @@ import {
   WASTE_LOG, AUDIT_LOG, PREP_RECIPES,
   EOD_SUBMISSIONS, POS_IMPORTS,
 } from '../data/seed';
+import * as db from '../lib/db';
 
 interface StoreActions {
   // Auth
   login: (user: User) => void;
   logout: () => void;
   setCurrentStore: (store: Store) => void;
+  loadFromSupabase: (storeId?: string) => Promise<void>;
 
   // Inventory
   addItem: (item: Omit<InventoryItem, 'id'>) => void;
@@ -131,19 +133,44 @@ export const useStore = create<FullStore>((set, get) => ({
   login: (user) => {
     const userStore = STORES.find((s) => user.stores.includes(s.id)) || STORES[0];
     set({ currentUser: user, currentStore: userStore });
+    // Load cloud data after login
+    get().loadFromSupabase(userStore.id);
   },
   logout: () => {
     set({ currentUser: null });
-    // Sign out of Supabase (async, fire-and-forget)
     import('../lib/auth').then(({ signOut }) => signOut()).catch(() => {});
   },
-  setCurrentStore: (store) => set({ currentStore: store }),
+  setCurrentStore: (store) => {
+    set({ currentStore: store });
+    get().loadFromSupabase(store.id);
+  },
+
+  loadFromSupabase: async (storeId?: string) => {
+    const sid = storeId || get().currentStore?.id;
+    if (!sid) return;
+    try {
+      const data = await db.fetchAllForStore(sid);
+      set({
+        ...(data.inventory.length > 0 ? { inventory: data.inventory } : {}),
+        ...(data.recipes.length > 0 ? { recipes: data.recipes } : {}),
+        ...(data.prepRecipes.length > 0 ? { prepRecipes: data.prepRecipes } : {}),
+        ...(data.vendors.length > 0 ? { vendors: data.vendors } : {}),
+        ...(data.wasteLog.length > 0 ? { wasteLog: data.wasteLog } : {}),
+        ...(data.auditLog.length > 0 ? { auditLog: data.auditLog } : {}),
+        ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
+      });
+    } catch (e) {
+      console.log('[Supabase] Load failed, using local data:', e);
+    }
+  },
 
   // Inventory
   addItem: (item) => {
     const id = makeId('i', ++itemCounter);
     const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
+    // Sync to Supabase
+    db.createInventoryItem(item).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -164,6 +191,7 @@ export const useStore = create<FullStore>((set, get) => ({
         item.id === id ? { ...item, ...updates } : item
       ),
     }));
+    db.updateInventoryItem(id, updates).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -183,6 +211,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       inventory: s.inventory.filter((i) => i.id !== id),
     }));
+    db.deleteInventoryItem(id).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -216,6 +245,7 @@ export const useStore = create<FullStore>((set, get) => ({
   // Recipe Categories
   addRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
+    db.addRecipeCategory(name).catch(() => {});
   },
 
   updateRecipeCategory: (oldName, newName) => {
@@ -223,16 +253,19 @@ export const useStore = create<FullStore>((set, get) => ({
       recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
       recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
     }));
+    db.updateRecipeCategory(oldName, newName).catch(() => {});
   },
 
   deleteRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
+    db.deleteRecipeCategory(name).catch(() => {});
   },
 
   // Recipes
   addRecipe: (recipe) => {
     const id = makeId('r', ++recipeCounter);
     set((s) => ({ recipes: [...s.recipes, { ...recipe, id }] }));
+    db.createRecipe(recipe).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -251,6 +284,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       recipes: s.recipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
+    db.updateRecipe(id, updates).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -268,6 +302,7 @@ export const useStore = create<FullStore>((set, get) => ({
   deleteRecipe: (id) => {
     const recipe = get().recipes.find((r) => r.id === id);
     set((s) => ({ recipes: s.recipes.filter((r) => r.id !== id) }));
+    db.deleteRecipe(id).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -286,6 +321,7 @@ export const useStore = create<FullStore>((set, get) => ({
   addPrepRecipe: (recipe) => {
     const id = makeId('pr', ++prepRecipeCounter);
     set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id }] }));
+    db.createPrepRecipe(recipe).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -304,6 +340,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
+    db.updatePrepRecipe(id, updates).catch(() => {});
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -322,12 +359,14 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       prepRecipes: s.prepRecipes.filter((r) => r.id !== id),
     }));
+    db.deletePrepRecipe(id).catch(() => {});
   },
 
   // Waste
   logWaste: (entry) => {
     const id = makeId('w', ++wasteCounter);
     set((s) => ({ wasteLog: [{ ...entry, id }, ...s.wasteLog] }));
+    db.logWasteEntry(entry).catch(() => {});
     const item = get().inventory.find((i) => i.id === entry.itemId);
     if (item) {
       get().adjustStock(
@@ -407,6 +446,7 @@ export const useStore = create<FullStore>((set, get) => ({
   addVendor: (vendor) => {
     const id = makeId('v', ++vendorCounter);
     set((s) => ({ vendors: [...s.vendors, { ...vendor, id }] }));
+    db.createVendor(vendor).catch(() => {});
   },
 
   updateVendor: (id, updates) => {
@@ -537,6 +577,7 @@ export const useStore = create<FullStore>((set, get) => ({
   addAuditEvent: (event) => {
     const id = makeId('a', ++auditCounter);
     set((s) => ({ auditLog: [{ ...event, id }, ...s.auditLog] }));
+    db.addAuditEvent(event).catch(() => {});
   },
 
   // Computed

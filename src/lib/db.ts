@@ -44,6 +44,10 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
       expiry_date: item.expiryDate || null,
       last_updated_by: null,
       eod_remaining: item.currentStock,
+      case_price: item.casePrice || 0,
+      case_qty: item.caseQty || 1,
+      sub_unit_size: item.subUnitSize || 1,
+      sub_unit_unit: item.subUnitUnit || '',
     })
     .select()
     .single();
@@ -64,6 +68,10 @@ export async function updateInventoryItem(id: string, updates: Partial<Inventory
       vendor_id: updates.vendorId,
       usage_per_portion: updates.usagePerPortion,
       expiry_date: updates.expiryDate || null,
+      case_price: updates.casePrice,
+      case_qty: updates.caseQty,
+      sub_unit_size: updates.subUnitSize,
+      sub_unit_unit: updates.subUnitUnit,
     })
     .eq('id', id);
   if (error) throw error;
@@ -293,6 +301,156 @@ export async function savePOSImport(
   );
 }
 
+// ─── DELETE INVENTORY ────────────────────────────────────────────────────
+export async function deleteInventoryItem(id: string): Promise<void> {
+  const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── UPDATE/DELETE RECIPE ────────────────────────────────────────────────
+export async function updateRecipe(id: string, updates: Partial<Recipe>): Promise<void> {
+  const dbUpdates: any = {};
+  if (updates.menuItem !== undefined) dbUpdates.menu_item = updates.menuItem;
+  if (updates.category !== undefined) dbUpdates.category = updates.category;
+  if (updates.sellPrice !== undefined) dbUpdates.sell_price = updates.sellPrice;
+  if (Object.keys(dbUpdates).length > 0) {
+    await supabase.from('recipes').update(dbUpdates).eq('id', id);
+  }
+  // Update ingredients if provided
+  if (updates.ingredients) {
+    await supabase.from('recipe_ingredients').delete().eq('recipe_id', id);
+    if (updates.ingredients.length > 0) {
+      await supabase.from('recipe_ingredients').insert(
+        updates.ingredients.map((ing) => ({
+          recipe_id: id, item_id: ing.itemId, quantity: ing.quantity, unit: ing.unit,
+        }))
+      );
+    }
+  }
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  await supabase.from('recipe_ingredients').delete().eq('recipe_id', id);
+  await supabase.from('recipes').delete().eq('id', id);
+}
+
+// ─── PREP RECIPES ───────────────────────────────────────────────────────
+export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('prep_recipes')
+    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit))')
+    .eq('store_id', storeId);
+  if (error) throw error;
+  return (data || []).map((pr: any) => ({
+    id: pr.id,
+    name: pr.name,
+    category: pr.category || '',
+    yieldQuantity: pr.yield_quantity || 0,
+    yieldUnit: pr.yield_unit || '',
+    notes: pr.notes || '',
+    storeId: pr.store_id,
+    createdBy: '',
+    createdAt: pr.created_at ? new Date(pr.created_at).toLocaleDateString() : '',
+    ingredients: (pr.prep_recipe_ingredients || []).map((i: any) => ({
+      itemId: i.item_id, itemName: i.item?.name || '', quantity: i.quantity, unit: i.unit || '',
+    })),
+  }));
+}
+
+export async function createPrepRecipe(recipe: any): Promise<string> {
+  const { data, error } = await supabase
+    .from('prep_recipes')
+    .insert({
+      name: recipe.name, category: recipe.category,
+      yield_quantity: recipe.yieldQuantity, yield_unit: recipe.yieldUnit,
+      notes: recipe.notes, store_id: recipe.storeId,
+    })
+    .select().single();
+  if (error) throw error;
+  if (recipe.ingredients?.length > 0) {
+    await supabase.from('prep_recipe_ingredients').insert(
+      recipe.ingredients.map((i: any) => ({
+        prep_recipe_id: data.id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
+      }))
+    );
+  }
+  return data.id;
+}
+
+export async function updatePrepRecipe(id: string, updates: any): Promise<void> {
+  const dbUpdates: any = {};
+  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.category !== undefined) dbUpdates.category = updates.category;
+  if (updates.yieldQuantity !== undefined) dbUpdates.yield_quantity = updates.yieldQuantity;
+  if (updates.yieldUnit !== undefined) dbUpdates.yield_unit = updates.yieldUnit;
+  if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+  if (Object.keys(dbUpdates).length > 0) {
+    await supabase.from('prep_recipes').update(dbUpdates).eq('id', id);
+  }
+  if (updates.ingredients) {
+    await supabase.from('prep_recipe_ingredients').delete().eq('prep_recipe_id', id);
+    if (updates.ingredients.length > 0) {
+      await supabase.from('prep_recipe_ingredients').insert(
+        updates.ingredients.map((i: any) => ({
+          prep_recipe_id: id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
+        }))
+      );
+    }
+  }
+}
+
+export async function deletePrepRecipe(id: string): Promise<void> {
+  await supabase.from('prep_recipe_ingredients').delete().eq('prep_recipe_id', id);
+  await supabase.from('prep_recipes').delete().eq('id', id);
+}
+
+// ─── UPDATE/DELETE VENDOR ───────────────────────────────────────────────
+export async function updateVendor(id: string, updates: Partial<Vendor>): Promise<void> {
+  const dbUpdates: any = {};
+  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.contactName !== undefined) dbUpdates.contact_name = updates.contactName;
+  if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+  if (updates.email !== undefined) dbUpdates.email = updates.email;
+  if (updates.leadTimeDays !== undefined) dbUpdates.lead_time_days = updates.leadTimeDays;
+  await supabase.from('vendors').update(dbUpdates).eq('id', id);
+}
+
+export async function deleteVendor(id: string): Promise<void> {
+  await supabase.from('vendors').delete().eq('id', id);
+}
+
+// ─── RECIPE CATEGORIES ──────────────────────────────────────────────────
+export async function fetchRecipeCategories(): Promise<string[]> {
+  const { data } = await supabase.from('recipe_categories').select('name').order('created_at');
+  return (data || []).map((c: any) => c.name);
+}
+
+export async function addRecipeCategory(name: string): Promise<void> {
+  await supabase.from('recipe_categories').insert({ name });
+}
+
+export async function updateRecipeCategory(oldName: string, newName: string): Promise<void> {
+  await supabase.from('recipe_categories').update({ name: newName }).eq('name', oldName);
+}
+
+export async function deleteRecipeCategory(name: string): Promise<void> {
+  await supabase.from('recipe_categories').delete().eq('name', name);
+}
+
+// ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
+export async function fetchAllForStore(storeId: string) {
+  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories] = await Promise.all([
+    fetchInventory(storeId).catch(() => []),
+    fetchRecipes(storeId).catch(() => []),
+    fetchPrepRecipes(storeId).catch(() => []),
+    fetchVendors().catch(() => []),
+    fetchWasteLog(storeId).catch(() => []),
+    fetchAuditLog(storeId).catch(() => []),
+    fetchRecipeCategories().catch(() => []),
+  ]);
+  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories };
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────
 function mapItem(row: any): InventoryItem {
   return {
@@ -313,5 +471,9 @@ function mapItem(row: any): InventoryItem {
     lastUpdatedAt: row.updated_at ? new Date(row.updated_at).toLocaleString() : '',
     eodRemaining: row.eod_remaining || 0,
     storeId: row.store_id,
+    casePrice: row.case_price || 0,
+    caseQty: row.case_qty || 1,
+    subUnitSize: row.sub_unit_size || 1,
+    subUnitUnit: row.sub_unit_unit || '',
   };
 }
