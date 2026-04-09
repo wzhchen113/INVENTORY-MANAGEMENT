@@ -451,6 +451,28 @@ export async function fetchAllForStore(storeId: string) {
   return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories };
 }
 
+// ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
+export async function cleanupOldRecords(): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffISO = cutoff.toISOString();
+
+  await Promise.all([
+    // EOD entries (child rows) — delete via submissions
+    supabase.from('eod_submissions').delete().lt('submitted_at', cutoffISO).catch(() => {}),
+    // Waste log
+    supabase.from('waste_log').delete().lt('logged_at', cutoffISO).catch(() => {}),
+    // Audit log
+    supabase.from('audit_log').delete().lt('created_at', cutoffISO).catch(() => {}),
+    // POS imports (child rows cascade)
+    supabase.from('pos_imports').delete().lt('created_at', cutoffISO).catch(() => {}),
+    // Order submissions
+    supabase.from('purchase_orders').delete().lt('created_at', cutoffISO).catch(() => {}),
+    // Expired invitations
+    supabase.from('invitations').delete().lt('expires_at', new Date().toISOString()).eq('used', false).catch(() => {}),
+  ]);
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────
 function mapItem(row: any): InventoryItem {
   return {
