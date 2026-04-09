@@ -110,15 +110,15 @@ function StoreSelector() {
 function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { currentUser, updateUser, logout, darkMode, toggleDarkMode } = useStore();
   const C = useColors();
-  const [editingName, setEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState('');
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameValue, setNicknameValue] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleClose = () => {
-    setEditingName(false);
+    setEditingNickname(false);
     setChangingPassword(false);
     setCurrentPassword('');
     setNewPassword('');
@@ -126,14 +126,17 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
     onClose();
   };
 
-  const handleSaveName = () => {
-    const trimmed = nameValue.trim();
-    if (!trimmed) return;
+  const handleSaveNickname = async () => {
+    const trimmed = nicknameValue.trim();
     if (currentUser) {
-      const initials = trimmed.split(' ').map((w) => w[0]?.toUpperCase()).join('').slice(0, 2);
-      updateUser(currentUser.id, { name: trimmed, initials });
+      updateUser(currentUser.id, { nickname: trimmed });
+      // Save to Supabase
+      try {
+        const { supabase } = await import('../lib/supabase');
+        await supabase.from('profiles').update({ nickname: trimmed }).eq('id', currentUser.id);
+      } catch {}
     }
-    setEditingName(false);
+    setEditingNickname(false);
   };
 
   const handleChangePassword = () => {
@@ -188,7 +191,7 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
               <Text style={[sidebarStyles.userEmail, { color: C.textTertiary }]}>{currentUser.email}</Text>
               <View style={[sidebarStyles.roleBadge, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
                 <Text style={[sidebarStyles.roleText, { color: C.textSecondary }]}>
-                  {currentUser.role === 'admin' ? 'Admin' : 'Team member'}
+                  {currentUser.role === 'master' ? 'Master' : currentUser.role === 'admin' ? 'Admin' : 'Team member'}
                 </Text>
               </View>
             </View>
@@ -196,44 +199,51 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
             {/* Divider */}
             <View style={[sidebarStyles.divider, { backgroundColor: C.borderLight }]} />
 
-            {/* Change Name */}
+            {/* Name (read-only) */}
             <View style={sidebarStyles.section}>
-              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Display name</Text>
-              {editingName ? (
-                <View style={sidebarStyles.editGroup}>
-                  <TextInput
-                    style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
-                    value={nameValue}
-                    onChangeText={setNameValue}
-                    placeholder="Enter new name"
-                    placeholderTextColor={C.textTertiary}
-                    autoFocus
-                  />
-                  <View style={sidebarStyles.editBtnRow}>
-                    <TouchableOpacity
-                      style={sidebarStyles.cancelBtn}
-                      onPress={() => setEditingName(false)}
-                    >
-                      <Text style={sidebarStyles.cancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={sidebarStyles.primaryBtn} onPress={handleSaveName}>
-                      <Text style={sidebarStyles.primaryBtnText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
-                  onPress={() => {
-                    setNameValue(currentUser.name);
-                    setEditingName(true);
-                  }}
-                >
-                  <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>{currentUser.name}</Text>
-                  <Ionicons name="pencil-outline" size={14} color={C.textTertiary} />
-                </TouchableOpacity>
-              )}
+              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Name</Text>
+              <View style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>{currentUser.name}</Text>
+              </View>
             </View>
+
+            {/* Nickname (editable, hidden for master) */}
+            {currentUser.role !== 'master' && (
+              <View style={sidebarStyles.section}>
+                <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Nickname</Text>
+                {editingNickname ? (
+                  <View style={sidebarStyles.editGroup}>
+                    <TextInput
+                      style={[sidebarStyles.input, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
+                      value={nicknameValue}
+                      onChangeText={setNicknameValue}
+                      placeholder="Enter a nickname"
+                      placeholderTextColor={C.textTertiary}
+                      autoFocus
+                    />
+                    <View style={sidebarStyles.editBtnRow}>
+                      <TouchableOpacity style={sidebarStyles.cancelBtn} onPress={() => setEditingNickname(false)}>
+                        <Text style={sidebarStyles.cancelBtnText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={sidebarStyles.primaryBtn} onPress={handleSaveNickname}>
+                        <Text style={sidebarStyles.primaryBtnText}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
+                    onPress={() => {
+                      setNicknameValue(currentUser.nickname || '');
+                      setEditingNickname(true);
+                    }}
+                  >
+                    <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>{currentUser.nickname || 'Set a nickname'}</Text>
+                    <Ionicons name="pencil-outline" size={14} color={C.textTertiary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
 
             {/* Change Password */}
             <View style={sidebarStyles.section}>

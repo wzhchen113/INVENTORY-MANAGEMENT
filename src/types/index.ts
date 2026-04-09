@@ -5,6 +5,7 @@ export type UserRole = 'master' | 'admin' | 'user';
 export interface User {
   id: string;
   name: string;
+  nickname: string;
   email: string;
   role: UserRole;
   stores: string[];
