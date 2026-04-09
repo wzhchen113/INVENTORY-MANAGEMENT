@@ -828,12 +828,32 @@ export function UsersScreen() {
   const C = useColors();
   const { users, stores, currentUser, inviteUser } = useStore();
   const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [inviteWarning, setInviteWarning] = useState('');
   const [form, setForm] = useState({ name: '', email: '', role: 'user' as 'admin' | 'user', storeIds: ['s1'] });
 
-  const handleInvite = () => {
+  const handleInvite = async () => {
     if (!form.name || !form.email) { Alert.alert('Error', 'Name and email required'); return; }
+    if (form.storeIds.length === 0) { Alert.alert('Error', 'Select at least one store'); return; }
+
+    setLoading(true);
+    setInviteWarning('');
+
+    // Save to local state
     inviteUser({ ...form, stores: form.storeIds, status: 'pending', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: C.userAdmin });
-    setShowModal(false);
+
+    // Save to Supabase
+    const { inviteUser: supabaseInvite } = await import('../lib/auth');
+    const result = await supabaseInvite(form.email.trim(), form.name.trim(), form.role, form.storeIds);
+
+    setLoading(false);
+
+    if (result.error) {
+      setInviteWarning(`Invitation saved locally. Cloud: ${result.error}`);
+    } else {
+      setShowModal(false);
+      setForm({ name: '', email: '', role: 'user', storeIds: ['s1'] });
+    }
   };
 
   const userColors: Record<string, string> = { '#378ADD': C.userAdmin, '#1D9E75': C.userMaria, '#D85A30': C.userJames, '#D4537E': C.userAna };
@@ -907,8 +927,13 @@ export function UsersScreen() {
                 </TouchableOpacity>
               );
             })}
-            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={handleInvite}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Send invite</Text>
+            {inviteWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{inviteWarning}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }, loading && { opacity: 0.5 }]} onPress={handleInvite} disabled={loading}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>{loading ? 'Sending...' : 'Send invite'}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

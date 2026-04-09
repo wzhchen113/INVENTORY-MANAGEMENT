@@ -14,6 +14,7 @@ import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { Colors, FontSize, Spacing, Radius, useColors } from '../theme/colors';
 
 import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ItemsScreen from '../screens/ItemsScreen';
 import EODCountScreen from '../screens/EODCountScreen';
@@ -545,7 +546,10 @@ export default function AppNavigator() {
         {currentUser ? (
           <RootStack.Screen name="App" component={AppStackNavigator} />
         ) : (
-          <RootStack.Screen name="Login" component={LoginScreen} />
+          <>
+            <RootStack.Screen name="Login" component={LoginScreen} />
+            <RootStack.Screen name="Register" component={RegisterScreen} />
+          </>
         )}
       </RootStack.Navigator>
     </NavigationContainer>
