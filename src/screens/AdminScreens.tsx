@@ -832,7 +832,7 @@ export function UsersScreen() {
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
   const [form, setForm] = useState({ name: '', email: '', role: 'user' as 'admin' | 'user', storeIds: ['s1'] });
-  const [cloudUsers, setCloudUsers] = useState<typeof users>([]);
+  const [cloudUsers, setCloudUsers] = useState<typeof users | null>(null);
 
   // Fetch users from Supabase on mount
   useEffect(() => {
@@ -850,11 +850,10 @@ export function UsersScreen() {
     setCloudUsers(fetched);
   };
 
-  // Show cloud users if loaded, otherwise fall back to local
-  // Once cloud data is available, it's the source of truth (deleted users won't appear)
-  // Hide master user from non-master users
+  // Cloud data is the source of truth. Show nothing until loaded (no seed flash).
   const isMaster = currentUser?.role === 'master';
-  const rawUsers = cloudUsers.length > 0 ? cloudUsers : users;
+  const loadingUsers = cloudUsers === null;
+  const rawUsers = cloudUsers || [];
   const allUsers = isMaster ? rawUsers : rawUsers.filter((u) => u.role !== 'master');
 
   const handleInvite = async () => {
@@ -951,6 +950,15 @@ export function UsersScreen() {
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => setShowModal(true)}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Invite user</Text>
         </TouchableOpacity>
+        {loadingUsers ? (
+          <View style={{ padding: Spacing.xl, alignItems: 'center' }}>
+            <Text style={{ color: C.textTertiary, fontSize: FontSize.sm }}>Loading users...</Text>
+          </View>
+        ) : allUsers.length === 0 ? (
+          <View style={{ padding: Spacing.xl, alignItems: 'center' }}>
+            <Text style={{ color: C.textTertiary, fontSize: FontSize.sm }}>No users yet. Invite someone to get started.</Text>
+          </View>
+        ) : null}
         {allUsers.map((user) => (
           <View key={user.id} style={[styles.userCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             <View style={styles.userTop}>
