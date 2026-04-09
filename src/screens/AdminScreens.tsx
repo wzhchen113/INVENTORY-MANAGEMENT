@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
+import DatePicker from '../components/DatePicker';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
@@ -712,15 +713,18 @@ export function AuditLogScreen() {
   const C = useColors();
   const { auditLog } = useStore();
   const [filter, setFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
 
   const userColors: Record<string, string> = {
     Admin: C.userAdmin, 'Maria G.': C.userMaria,
     'James T.': C.userJames, 'Ana R.': C.userAna,
   };
 
-  const filtered = filter
-    ? auditLog.filter((e) => e.action.includes(filter) || e.userName.includes(filter))
-    : auditLog;
+  const filtered = auditLog.filter((e) => {
+    if (filter && !e.action.includes(filter) && !e.userName.includes(filter)) return false;
+    if (dateFilter && !e.timestamp.includes(dateFilter.replace(/-/g, '/'))) return false;
+    return true;
+  });
 
   const actionColor = (action: string) => {
     if (action === 'EOD entry') return C.success;
@@ -732,6 +736,9 @@ export function AuditLogScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <View style={{ paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm }}>
+        <DatePicker value={dateFilter} onChange={setDateFilter} label="Filter by date" placeholder="All dates" />
+      </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScroll, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {['', 'EOD entry', 'Waste log', 'Item edit', 'POS import', 'Stock adjusted'].map((f) => (
           <TouchableOpacity key={f || 'all'} style={[styles.filterChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, filter === f && { backgroundColor: C.textPrimary }]} onPress={() => setFilter(f)}>

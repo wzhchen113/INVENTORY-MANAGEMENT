@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const isWeb = Platform.OS === 'web';
@@ -283,32 +284,7 @@ export default function POSImportScreen() {
             {/* Date picker + Summary stats */}
             <View style={styles.statsBar}>
               <View style={styles.datePicker}>
-                <Text style={[styles.dateLabel, { color: C.textSecondary }]}>Import date</Text>
-                {isWeb ? (
-                  <input
-                    type="date"
-                    value={importDate}
-                    onChange={(e: any) => setImportDate(e.target.value)}
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: 8,
-                      border: `1px solid ${C.borderMedium}`,
-                      fontSize: 13,
-                      fontFamily: 'inherit',
-                      backgroundColor: C.bgSecondary,
-                      color: C.textPrimary,
-                      outline: 'none',
-                    }}
-                  />
-                ) : (
-                  <TextInput
-                    style={[styles.dateInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-                    value={importDate}
-                    onChangeText={setImportDate}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={C.textTertiary}
-                  />
-                )}
+                <DatePicker value={importDate} onChange={(d) => setImportDate(d || todayISO)} label="Import date" placeholder="Select date" />
               </View>
               <View style={styles.statChips}>
                 <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>

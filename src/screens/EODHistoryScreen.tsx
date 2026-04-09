@@ -7,6 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
+import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { EODSubmission } from '../types';
 
@@ -15,6 +16,7 @@ export default function EODHistoryScreen() {
   const C = useColors();
   const [storeFilter, setStoreFilter] = useState('');
   const [userFilter, setUserFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState<EODSubmission | null>(null);
 
   const filtered = useMemo(() => {
@@ -23,8 +25,9 @@ export default function EODHistoryScreen() {
     );
     if (storeFilter) subs = subs.filter((s) => s.storeId === storeFilter);
     if (userFilter) subs = subs.filter((s) => s.submittedByUserId === userFilter);
+    if (dateFilter) subs = subs.filter((s) => s.date === dateFilter);
     return subs;
-  }, [eodSubmissions, storeFilter, userFilter]);
+  }, [eodSubmissions, storeFilter, userFilter, dateFilter]);
 
   const submitterIds = useMemo(() => {
     const ids = [...new Set(eodSubmissions.map((s) => s.submittedByUserId))];
@@ -115,6 +118,11 @@ export default function EODHistoryScreen() {
           </ScrollView>
         </View>
       )}
+
+      {/* Date filter */}
+      <View style={{ paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm }}>
+        <DatePicker value={dateFilter} onChange={setDateFilter} label="Filter by date" placeholder="All dates" />
+      </View>
 
       {/* Summary */}
       <View style={styles.summaryBar}>

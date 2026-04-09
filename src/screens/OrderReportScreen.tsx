@@ -7,6 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
+import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { calculateDynamicOrder, getDaysToCover, DynamicOrderLine } from '../lib/orderCalculator';
 import { Vendor } from '../types';
@@ -208,32 +209,7 @@ export default function OrderReportScreen() {
         </View>
 
         <View style={styles.filterGroup}>
-          <Text style={[styles.filterLabel, { color: C.textTertiary }]}>Order Date</Text>
-          {isWeb ? (
-            <input
-              type="date"
-              value={dateInput}
-              onChange={(e: any) => setDateInput(e.target.value)}
-              style={{
-                padding: '8px 12px',
-                borderRadius: 8,
-                border: `1px solid ${C.borderMedium}`,
-                fontSize: 13,
-                fontFamily: 'inherit',
-                backgroundColor: C.bgSecondary,
-                color: C.textPrimary,
-                outline: 'none',
-              }}
-            />
-          ) : (
-            <TextInput
-              style={[styles.dateInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-              value={dateInput}
-              onChangeText={setDateInput}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={C.textTertiary}
-            />
-          )}
+          <DatePicker value={dateInput} onChange={(d) => setDateInput(d || new Date().toISOString().split('T')[0])} label="Order Date" placeholder="Select date" />
         </View>
       </View>
 
