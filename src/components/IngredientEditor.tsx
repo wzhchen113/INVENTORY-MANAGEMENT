@@ -7,6 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { numericFilter } from '../utils';
+import { getCompatibleUnits, convertQuantity } from '../utils/unitConversion';
 import { InventoryItem, PrepRecipe, RecipeIngredient, RecipePrepItem } from '../types';
 
 interface IngredientEditorProps {
@@ -103,56 +104,104 @@ export default function IngredientEditor({
       {ingredients.length > 0 && (
         <Text style={[styles.sectionLabel, { color: C.textTertiary }]}>INGREDIENTS</Text>
       )}
-      {ingredients.map((ing, idx) => (
-        <View key={`ing-${idx}`} style={[styles.row, { backgroundColor: C.bgSecondary }]}>
-          <Text style={[styles.itemName, { color: C.textPrimary }]} numberOfLines={1}>{ing.itemName}</Text>
-          <TextInput
-            style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
-            value={ing.quantity.toString()}
-            onChangeText={(v) => updateIngredientQty(idx, numericFilter(v))}
-            keyboardType="decimal-pad"
-            placeholderTextColor={C.textTertiary}
-          />
-          <TextInput
-            style={[styles.unitInput, { color: C.textSecondary, backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
-            value={ing.unit}
-            onChangeText={(v) => updateIngredientUnit(idx, v)}
-            placeholderTextColor={C.textTertiary}
-          />
-          <TouchableOpacity onPress={() => removeIngredient(idx)} style={styles.removeBtn}>
-            <Ionicons name="close-circle" size={20} color={C.danger} />
-          </TouchableOpacity>
-        </View>
-      ))}
+      {ingredients.map((ing, idx) => {
+        const invItem = availableItems.find((i) => i.id === ing.itemId);
+        const baseUnit = invItem?.unit || ing.unit;
+        const compatUnits = getCompatibleUnits(baseUnit);
+        const converted = ing.unit !== baseUnit ? convertQuantity(ing.quantity, ing.unit, baseUnit) : null;
+        return (
+          <View key={`ing-${idx}`}>
+            <View style={[styles.row, { backgroundColor: C.bgSecondary }]}>
+              <Text style={[styles.itemName, { color: C.textPrimary }]} numberOfLines={1}>{ing.itemName}</Text>
+              <TextInput
+                style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+                value={ing.quantity.toString()}
+                onChangeText={(v) => updateIngredientQty(idx, numericFilter(v))}
+                keyboardType="decimal-pad"
+                placeholderTextColor={C.textTertiary}
+              />
+              {compatUnits.length > 1 ? (
+                <View style={styles.unitChips}>
+                  {compatUnits.map((u) => (
+                    <TouchableOpacity
+                      key={u}
+                      style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, ing.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                      onPress={() => updateIngredientUnit(idx, u)}
+                    >
+                      <Text style={[styles.unitChipText, { color: C.textSecondary }, ing.unit === u && { color: C.bgPrimary }]}>{u}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={[styles.unitLabel, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+                  <Text style={[styles.unitLabelText, { color: C.textSecondary }]}>{ing.unit}</Text>
+                </View>
+              )}
+              <TouchableOpacity onPress={() => removeIngredient(idx)} style={styles.removeBtn}>
+                <Ionicons name="close-circle" size={20} color={C.danger} />
+              </TouchableOpacity>
+            </View>
+            {converted !== null && (
+              <Text style={[styles.conversionHint, { color: C.textTertiary }]}>
+                = {converted.toFixed(2)} {baseUnit} (inventory unit)
+              </Text>
+            )}
+          </View>
+        );
+      })}
 
       {/* Prep recipe items */}
       {showPrepRecipes && prepItems.length > 0 && (
         <Text style={[styles.sectionLabel, { marginTop: Spacing.md, color: C.textTertiary }]}>PREP RECIPES</Text>
       )}
-      {showPrepRecipes && prepItems.map((prep, idx) => (
-        <View key={`prep-${idx}`} style={[styles.row, { backgroundColor: C.infoBg }]}>
-          <View style={[styles.prepBadge, { backgroundColor: C.infoBg }]}>
-            <Text style={[styles.prepBadgeText, { color: C.info }]}>Prep</Text>
+      {showPrepRecipes && prepItems.map((prep, idx) => {
+        const prepRecipe = availablePrepRecipes.find((p) => p.id === prep.prepRecipeId);
+        const baseUnit = prepRecipe?.yieldUnit || prep.unit;
+        const compatUnits = getCompatibleUnits(baseUnit);
+        const converted = prep.unit !== baseUnit ? convertQuantity(prep.quantity, prep.unit, baseUnit) : null;
+        return (
+          <View key={`prep-${idx}`}>
+            <View style={[styles.row, { backgroundColor: C.infoBg }]}>
+              <View style={[styles.prepBadge, { backgroundColor: C.infoBg }]}>
+                <Text style={[styles.prepBadgeText, { color: C.info }]}>Prep</Text>
+              </View>
+              <Text style={[styles.itemName, { flex: 1, color: C.textPrimary }]} numberOfLines={1}>{prep.prepRecipeName}</Text>
+              <TextInput
+                style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+                value={prep.quantity.toString()}
+                onChangeText={(v) => updatePrepQty(idx, numericFilter(v))}
+                keyboardType="decimal-pad"
+                placeholderTextColor={C.textTertiary}
+              />
+              {compatUnits.length > 1 ? (
+                <View style={styles.unitChips}>
+                  {compatUnits.map((u) => (
+                    <TouchableOpacity
+                      key={u}
+                      style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, prep.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                      onPress={() => updatePrepUnit(idx, u)}
+                    >
+                      <Text style={[styles.unitChipText, { color: C.textSecondary }, prep.unit === u && { color: C.bgPrimary }]}>{u}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={[styles.unitLabel, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+                  <Text style={[styles.unitLabelText, { color: C.textSecondary }]}>{prep.unit}</Text>
+                </View>
+              )}
+              <TouchableOpacity onPress={() => removePrepItem(idx)} style={styles.removeBtn}>
+                <Ionicons name="close-circle" size={20} color={C.danger} />
+              </TouchableOpacity>
+            </View>
+            {converted !== null && (
+              <Text style={[styles.conversionHint, { color: C.textTertiary }]}>
+                = {converted.toFixed(2)} {baseUnit} (yield unit)
+              </Text>
+            )}
           </View>
-          <Text style={[styles.itemName, { flex: 1, color: C.textPrimary }]} numberOfLines={1}>{prep.prepRecipeName}</Text>
-          <TextInput
-            style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
-            value={prep.quantity.toString()}
-            onChangeText={(v) => updatePrepQty(idx, numericFilter(v))}
-            keyboardType="decimal-pad"
-            placeholderTextColor={C.textTertiary}
-          />
-          <TextInput
-            style={[styles.unitInput, { color: C.textSecondary, backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}
-            value={prep.unit}
-            onChangeText={(v) => updatePrepUnit(idx, v)}
-            placeholderTextColor={C.textTertiary}
-          />
-          <TouchableOpacity onPress={() => removePrepItem(idx)} style={styles.removeBtn}>
-            <Ionicons name="close-circle" size={20} color={C.danger} />
-          </TouchableOpacity>
-        </View>
-      ))}
+        );
+      })}
 
       {/* Add button */}
       <TouchableOpacity style={[styles.addBtn, { borderColor: C.borderLight }]} onPress={() => setShowPicker(true)}>
@@ -326,6 +375,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 4,
     textAlign: 'center',
+  },
+  unitChips: {
+    flexDirection: 'row',
+    gap: 3,
+  },
+  unitChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+    borderWidth: 0.5,
+  },
+  unitChipText: {
+    fontSize: 9,
+    fontWeight: '500',
+  },
+  unitLabel: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: Radius.sm,
+    borderWidth: 0.5,
+  },
+  unitLabelText: {
+    fontSize: FontSize.xs,
+    fontWeight: '500',
+  },
+  conversionHint: {
+    fontSize: 9,
+    paddingLeft: Spacing.sm,
+    paddingBottom: 4,
+    fontStyle: 'italic',
   },
   removeBtn: {
     padding: 2,
