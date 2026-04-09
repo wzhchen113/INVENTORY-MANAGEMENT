@@ -21,7 +21,7 @@ const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
 export default function IngredientsScreen() {
   const { currentUser, currentStore, stores, inventory, vendors, addItem, updateItem, deleteItem } = useStore();
   const C = useColors();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
 
   const storeInventory = useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -33,6 +33,105 @@ export default function IngredientsScreen() {
   const [vendorFilter, setVendorFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+
+  // Bulk mode state
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkModal, setBulkModal] = useState<'stores' | 'category' | 'vendor' | null>(null);
+  const [bulkStoreIds, setBulkStoreIds] = useState<string[]>([]);
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkVendorId, setBulkVendorId] = useState('');
+  const [bulkVendorName, setBulkVendorName] = useState('');
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((i) => i.id)));
+    }
+  };
+
+  const exitBulkMode = () => {
+    setBulkMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    const msg = `Delete ${selectedIds.size} ingredient(s) from all stores? This cannot be undone.`;
+    const doDelete = () => {
+      selectedIds.forEach((id) => {
+        const item = inventory.find((i) => i.id === id);
+        if (item) {
+          // Delete all copies across stores
+          const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+          copies.forEach((c) => deleteItem(c.id));
+        }
+      });
+      exitBulkMode();
+    };
+    if (Platform.OS === 'web') {
+      if (confirm(msg)) doDelete();
+    } else {
+      Alert.alert('Delete ingredients', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  };
+
+  const applyBulkStores = () => {
+    if (bulkStoreIds.length === 0) return;
+    selectedIds.forEach((id) => {
+      const item = inventory.find((i) => i.id === id);
+      if (!item) return;
+      const existingCopies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+      const existingStoreIds = existingCopies.map((c) => c.storeId);
+      // Add to new stores
+      for (const storeId of bulkStoreIds) {
+        if (!existingStoreIds.includes(storeId)) {
+          addItem({ ...item, id: undefined as any, storeId, currentStock: 0, eodRemaining: 0 });
+        }
+      }
+      // Remove from deselected stores
+      existingCopies.forEach((c) => {
+        if (!bulkStoreIds.includes(c.storeId)) deleteItem(c.id);
+      });
+    });
+    setBulkModal(null);
+    exitBulkMode();
+  };
+
+  const applyBulkCategory = () => {
+    if (!bulkCategory) return;
+    selectedIds.forEach((id) => {
+      const item = inventory.find((i) => i.id === id);
+      if (!item) return;
+      const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+      copies.forEach((c) => updateItem(c.id, { category: bulkCategory }));
+    });
+    setBulkModal(null);
+    exitBulkMode();
+  };
+
+  const applyBulkVendor = () => {
+    selectedIds.forEach((id) => {
+      const item = inventory.find((i) => i.id === id);
+      if (!item) return;
+      const copies = inventory.filter((i) => i.name.toLowerCase() === item.name.toLowerCase());
+      copies.forEach((c) => updateItem(c.id, { vendorId: bulkVendorId, vendorName: bulkVendorName }));
+    });
+    setBulkModal(null);
+    exitBulkMode();
+  };
 
   const [form, setForm] = useState({
     name: '',
@@ -272,27 +371,39 @@ export default function IngredientsScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: InventoryItem }) => (
-    <View style={[styles.row, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
-      <View style={styles.rowLeft}>
-        <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
-        <Text style={[styles.rowMeta, { color: C.textTertiary }]}>
-          {item.category} · {item.currentStock} {item.unit}
-          {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
-          {item.vendorName ? ` · ${item.vendorName}` : ''}
-        </Text>
-      </View>
-      <View style={styles.rowRight}>
-        <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
-        <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
-      </View>
-      {isAdmin && (
-        <TouchableOpacity style={[styles.rowEditBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
-          <Ionicons name="create-outline" size={14} color={C.textSecondary} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  const renderItem = ({ item }: { item: InventoryItem }) => {
+    const isSelected = selectedIds.has(item.id);
+    return (
+      <TouchableOpacity
+        activeOpacity={bulkMode ? 0.7 : 1}
+        onPress={bulkMode ? () => toggleSelect(item.id) : undefined}
+        style={[styles.row, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isSelected && { borderColor: C.info, backgroundColor: C.infoBg }]}
+      >
+        {bulkMode && (
+          <View style={[styles.bulkCheck, { borderColor: C.borderMedium }, isSelected && { backgroundColor: C.info, borderColor: C.info }]}>
+            {isSelected && <Ionicons name="checkmark" size={12} color={C.bgPrimary} />}
+          </View>
+        )}
+        <View style={styles.rowLeft}>
+          <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
+          <Text style={[styles.rowMeta, { color: C.textTertiary }]}>
+            {item.category} · {item.currentStock} {item.unit}
+            {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
+            {item.vendorName ? ` · ${item.vendorName}` : ''}
+          </Text>
+        </View>
+        <View style={styles.rowRight}>
+          <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
+          <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
+        </View>
+        {isAdmin && !bulkMode && (
+          <TouchableOpacity style={[styles.rowEditBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
+            <Ionicons name="create-outline" size={14} color={C.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
@@ -314,10 +425,20 @@ export default function IngredientsScreen() {
           ) : null}
         </View>
         {isAdmin && (
-          <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-            <Ionicons name="add" size={18} color={C.bgPrimary} />
-            <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>Add</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+            <TouchableOpacity
+              style={[styles.gearBtn, { backgroundColor: bulkMode ? C.textPrimary : C.bgSecondary, borderColor: C.borderLight }]}
+              onPress={() => bulkMode ? exitBulkMode() : setBulkMode(true)}
+            >
+              <Ionicons name={bulkMode ? 'close' : 'settings-outline'} size={18} color={bulkMode ? C.bgPrimary : C.textSecondary} />
+            </TouchableOpacity>
+            {!bulkMode && (
+              <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
+                <Ionicons name="add" size={18} color={C.bgPrimary} />
+                <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>Add</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
       </View>
 
@@ -382,15 +503,43 @@ export default function IngredientsScreen() {
       {/* Summary bar */}
       <View style={styles.summaryBar}>
         <Text style={[styles.summaryText, { color: C.textTertiary }]}>
-          {filtered.length} ingredient{filtered.length !== 1 ? 's' : ''}
+          {bulkMode ? `${selectedIds.size} of ${filtered.length} selected` : `${filtered.length} ingredient${filtered.length !== 1 ? 's' : ''}`}
         </Text>
-        {!isAdmin && (
+        {bulkMode ? (
+          <TouchableOpacity onPress={selectAll}>
+            <Text style={{ fontSize: FontSize.xs, color: C.info, fontWeight: '500' }}>
+              {selectedIds.size === filtered.length ? 'Deselect all' : 'Select all'}
+            </Text>
+          </TouchableOpacity>
+        ) : !isAdmin ? (
           <View style={[styles.readOnlyBadge, { backgroundColor: C.bgSecondary }]}>
             <Ionicons name="lock-closed-outline" size={10} color={C.textTertiary} />
             <Text style={[styles.readOnlyText, { color: C.textTertiary }]}>View only</Text>
           </View>
-        )}
+        ) : null}
       </View>
+
+      {/* Bulk action toolbar */}
+      {bulkMode && selectedIds.size > 0 && (
+        <View style={[styles.bulkToolbar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+          <TouchableOpacity style={[styles.bulkBtn, { backgroundColor: C.bgSecondary }]} onPress={() => { setBulkStoreIds(stores.map((s) => s.id)); setBulkModal('stores'); }}>
+            <Ionicons name="storefront-outline" size={14} color={C.textPrimary} />
+            <Text style={[styles.bulkBtnText, { color: C.textPrimary }]}>Stores</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.bulkBtn, { backgroundColor: C.bgSecondary }]} onPress={() => { setBulkCategory(''); setBulkModal('category'); }}>
+            <Ionicons name="pricetag-outline" size={14} color={C.textPrimary} />
+            <Text style={[styles.bulkBtnText, { color: C.textPrimary }]}>Category</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.bulkBtn, { backgroundColor: C.bgSecondary }]} onPress={() => { setBulkVendorId(''); setBulkVendorName(''); setBulkModal('vendor'); }}>
+            <Ionicons name="business-outline" size={14} color={C.textPrimary} />
+            <Text style={[styles.bulkBtnText, { color: C.textPrimary }]}>Vendor</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.bulkBtn, { backgroundColor: C.dangerBg }]} onPress={handleBulkDelete}>
+            <Ionicons name="trash-outline" size={14} color={C.danger} />
+            <Text style={[styles.bulkBtnText, { color: C.danger }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* List */}
       <WebScrollView id="ingredients-scroll" contentContainerStyle={styles.list}>
@@ -604,6 +753,81 @@ export default function IngredientsScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Bulk Edit Stores Modal */}
+      <Modal visible={bulkModal === 'stores'} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Change stores for {selectedIds.size} item(s)</Text>
+            <TouchableOpacity onPress={() => setBulkModal(null)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            <View style={styles.storeGrid}>
+              {stores.map((store) => {
+                const sel = bulkStoreIds.includes(store.id);
+                return (
+                  <TouchableOpacity key={store.id} style={[styles.storeChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, sel && { backgroundColor: C.successBg, borderColor: C.success }]}
+                    onPress={() => setBulkStoreIds((prev) => sel ? prev.filter((s) => s !== store.id) : [...prev, store.id])}>
+                    <View style={[styles.storeChipCheck, { borderColor: C.borderMedium }, sel && { backgroundColor: C.success, borderColor: C.success }]}>
+                      {sel && <Ionicons name="checkmark" size={10} color={C.white} />}
+                    </View>
+                    <Text style={[styles.storeChipText, { color: C.textSecondary }, sel && { color: C.textPrimary }]}>{store.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={applyBulkStores}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Apply to {selectedIds.size} item(s)</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Bulk Edit Category Modal */}
+      <Modal visible={bulkModal === 'category'} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Change category for {selectedIds.size} item(s)</Text>
+            <TouchableOpacity onPress={() => setBulkModal(null)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            {CATEGORIES.map((cat) => (
+              <TouchableOpacity key={cat} style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkCategory === cat && { backgroundColor: C.textPrimary }]}
+                onPress={() => setBulkCategory(cat)}>
+                <Text style={[styles.chipText, { color: C.textSecondary }, bulkCategory === cat && { color: C.bgPrimary }]}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }, !bulkCategory && { opacity: 0.4 }]} onPress={applyBulkCategory} disabled={!bulkCategory}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Apply to {selectedIds.size} item(s)</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Bulk Edit Vendor Modal */}
+      <Modal visible={bulkModal === 'vendor'} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Change vendor for {selectedIds.size} item(s)</Text>
+            <TouchableOpacity onPress={() => setBulkModal(null)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            <TouchableOpacity style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !bulkVendorId && bulkVendorName === '' && { backgroundColor: C.textPrimary }]}
+              onPress={() => { setBulkVendorId(''); setBulkVendorName(''); }}>
+              <Text style={[styles.chipText, { color: C.textSecondary }, !bulkVendorId && bulkVendorName === '' && { color: C.bgPrimary }]}>None</Text>
+            </TouchableOpacity>
+            {vendors.map((v) => (
+              <TouchableOpacity key={v.id} style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkVendorId === v.id && { backgroundColor: C.textPrimary }]}
+                onPress={() => { setBulkVendorId(v.id); setBulkVendorName(v.name); }}>
+                <Text style={[styles.chipText, { color: C.textSecondary }, bulkVendorId === v.id && { color: C.bgPrimary }]}>{v.name}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={applyBulkVendor}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Apply to {selectedIds.size} item(s)</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -617,6 +841,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary, padding: 0 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8 },
   addBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
+  gearBtn: { width: 36, height: 36, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5 },
 
   // Pills
   pillWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
@@ -693,4 +918,11 @@ const styles = StyleSheet.create({
   storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
   dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
   dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
+
+  // Bulk mode
+  bulkCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.sm },
+  bulkToolbar: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5 },
+  bulkBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: Radius.md },
+  bulkBtnText: { fontSize: FontSize.xs, fontWeight: '500' },
+  chipRow: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: Radius.md, marginBottom: 6, borderWidth: 0.5 },
 });
