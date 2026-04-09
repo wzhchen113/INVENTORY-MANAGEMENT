@@ -547,10 +547,33 @@ export function RecipesScreen() {
 // ─── VENDORS ────────────────────────────────────────────────────────────────
 export function VendorsScreen() {
   const C = useColors();
-  const { vendors, addVendor } = useStore();
+  const { vendors, addVendor, updateVendor, deleteVendor } = useStore();
   const [showModal, setShowModal] = useState(false);
+  const [editVendor, setEditVendor] = useState<typeof vendors[0] | null>(null);
   const [dupWarning, setDupWarning] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<typeof vendors[0] | null>(null);
   const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
+
+  const openAdd = () => {
+    setEditVendor(null);
+    setDupWarning('');
+    setForm({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
+    setShowModal(true);
+  };
+
+  const openEdit = (vendor: typeof vendors[0]) => {
+    setEditVendor(vendor);
+    setDupWarning('');
+    setForm({
+      name: vendor.name,
+      contactName: vendor.contactName || '',
+      phone: vendor.phone || '',
+      email: vendor.email || '',
+      accountNumber: vendor.accountNumber || '',
+      leadTimeDays: String(vendor.leadTimeDays || 2),
+    });
+    setShowModal(true);
+  };
 
   const handleSave = () => {
     if (!form.name.trim()) {
@@ -560,7 +583,7 @@ export function VendorsScreen() {
     }
 
     const trimmedName = form.name.trim().toLowerCase();
-    const duplicate = vendors.some((v) => v.name.toLowerCase() === trimmedName);
+    const duplicate = vendors.some((v) => v.name.toLowerCase() === trimmedName && (!editVendor || v.id !== editVendor.id));
 
     if (duplicate) {
       setDupWarning(`A vendor named "${form.name.trim()}" already exists.`);
@@ -568,14 +591,29 @@ export function VendorsScreen() {
     }
     setDupWarning('');
 
-    addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
+    if (editVendor) {
+      updateVendor(editVendor.id, { ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2 });
+    } else {
+      addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
+    }
     setShowModal(false);
+  };
+
+  const handleDelete = (vendor: typeof vendors[0]) => {
+    setConfirmDelete(vendor);
+  };
+
+  const doDelete = () => {
+    if (confirmDelete) {
+      deleteVendor(confirmDelete.id);
+      setConfirmDelete(null);
+    }
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={() => { setDupWarning(''); setShowModal(true); }}>
+        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
         {vendors.map((vendor) => (
@@ -600,13 +638,23 @@ export function VendorsScreen() {
               <Text style={[styles.metaLabel, { color: C.textTertiary }]}>Last order</Text>
               <Text style={[styles.metaValue, { color: C.textPrimary }]}>{vendor.lastOrderDate || '—'}</Text>
             </View>
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium, flex: 1 }]} onPress={() => openEdit(vendor)}>
+                <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.danger, flex: 1 }]} onPress={() => handleDelete(vendor)}>
+                <Text style={[styles.editRecipeBtnText, { color: C.danger }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
       </WebScrollView>
+
+      {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
           <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Add vendor</Text>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editVendor ? 'Edit vendor' : 'Add vendor'}</Text>
             <TouchableOpacity onPress={() => setShowModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
@@ -629,9 +677,29 @@ export function VendorsScreen() {
               </View>
             ) : null}
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save vendor</Text>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>{editVendor ? 'Save changes' : 'Save vendor'}</Text>
             </TouchableOpacity>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal visible={!!confirmDelete} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.confirmTitle, { color: C.textPrimary }]}>Delete vendor</Text>
+            <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>
+              Delete "{confirmDelete?.name}"? This cannot be undone.
+            </Text>
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.bgSecondary }]} onPress={() => setConfirmDelete(null)}>
+                <Text style={[styles.confirmBtnText, { color: C.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.danger }]} onPress={doDelete}>
+                <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
@@ -1173,4 +1241,11 @@ const styles = StyleSheet.create({
   catManageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
   catManageName: { flex: 1, fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
   catManageCount: { fontSize: FontSize.xs, color: Colors.textTertiary },
+  confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
+  confirmBox: { width: '100%', maxWidth: 360, borderRadius: Radius.xl, padding: Spacing.xl, borderWidth: 0.5 },
+  confirmTitle: { fontSize: FontSize.lg, fontWeight: '600', marginBottom: Spacing.sm },
+  confirmMessage: { fontSize: FontSize.sm, lineHeight: 20, marginBottom: Spacing.xl },
+  confirmBtnRow: { flexDirection: 'row', gap: Spacing.sm },
+  confirmBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, alignItems: 'center' },
+  confirmBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
 });
