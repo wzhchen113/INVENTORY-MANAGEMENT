@@ -39,6 +39,15 @@ export function convertQuantity(qty: number, fromUnit: string, toUnit: string): 
   return qty * factor;
 }
 
+/** Get all compatible units for a given unit (same conversion group) */
+export function getCompatibleUnits(unit: string): string[] {
+  const u = unit.toLowerCase();
+  if (WEIGHT_TO_LBS[u] !== undefined) return Object.keys(WEIGHT_TO_LBS);
+  if (VOLUME_TO_GAL[u] !== undefined) return Object.keys(VOLUME_TO_GAL);
+  // Non-convertible unit — only itself
+  return [unit];
+}
+
 /** Calculate unit cost from case pricing */
 export function calcUnitCost(casePrice: number, caseQty: number, subUnitSize: number): number {
   const totalPerCase = caseQty * subUnitSize;
