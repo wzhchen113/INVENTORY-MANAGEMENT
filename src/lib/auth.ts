@@ -67,14 +67,39 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
   return { user, error: null };
 }
 
+/** Helper: call a Supabase Edge Function */
+async function callEdgeFunction(fnName: string, body: Record<string, any>): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+
+    const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+    await fetch(`${url}/functions/v1/${fnName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Email is non-critical — don't block the invite flow
+  }
+}
+
 /** Invite a new user (admin only — creates invitation record in Supabase) */
 export async function inviteUser(
   email: string,
   name: string,
   role: 'admin' | 'user',
-  storeIds: string[]
+  storeIds: string[],
+  storeNames?: string
 ): Promise<{ error: string | null }> {
   try {
+    // Clean up expired invitations first
+    await supabase.from('invitations').delete().lt('expires_at', new Date().toISOString()).eq('used', false);
+
     // Check if invitation already exists for this email
     const { data: existing } = await supabase
       .from('invitations')
@@ -90,13 +115,16 @@ export async function inviteUser(
     // Create invitation record — profile + auth user created at registration time
     const { error: inviteError } = await supabase.from('invitations').insert({
       email: email.toLowerCase(),
-      profile_id: '00000000-0000-0000-0000-000000000000', // placeholder, replaced at registration
+      profile_id: '00000000-0000-0000-0000-000000000000',
       name,
       role,
       store_ids: storeIds,
     });
 
     if (inviteError) return { error: inviteError.message };
+
+    // Send invitation email (non-blocking)
+    callEdgeFunction('send-invite-email', { email, name, role, storeNames: storeNames || '' });
 
     return { error: null };
   } catch (e: any) {
@@ -121,6 +149,13 @@ export async function registerInvitedUser(
 
     if (invError || !invitation) {
       return { user: null, error: 'No invitation found for this email. Please ask an admin to invite you.' };
+    }
+
+    // Check if invitation has expired
+    if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
+      // Delete expired invitation
+      await supabase.from('invitations').delete().eq('id', invitation.id);
+      return { user: null, error: 'This invitation has expired. Please ask your admin to send a new one.' };
     }
 
     // Create the Supabase auth user
@@ -156,7 +191,10 @@ export async function registerInvitedUser(
     // Mark invitation as used
     await supabase.from('invitations').update({ used: true }).eq('id', invitation.id);
 
-    return { user: null, error: null }; // Return null user — they need to sign in
+    // Send welcome email (non-blocking)
+    callEdgeFunction('send-welcome-email', { email, name: invitation.name });
+
+    return { user: null, error: null };
   } catch (e: any) {
     return { user: null, error: e.message || 'Registration failed' };
   }
