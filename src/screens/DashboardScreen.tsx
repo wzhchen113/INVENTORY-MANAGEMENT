@@ -11,6 +11,8 @@ import { Card, CardHeader, KpiCard, Badge, WhoChip, EmptyState } from '../compon
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
+const ALL_STORES_ID = '__all__';
+
 export default function DashboardScreen() {
   const nav = useNavigation<any>();
   const {
@@ -20,25 +22,28 @@ export default function DashboardScreen() {
 
   const C = useColors();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
+  const isAllStores = currentStore.id === ALL_STORES_ID;
   const [showAddStore, setShowAddStore] = useState(false);
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddress, setNewStoreAddress] = useState('');
+  const [deleteStore, setDeleteStore] = useState<typeof stores[0] | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
-  // Filter data for the currently selected store
+  // Filter data — show all stores or just current
   const storeInventory = useMemo(
-    () => inventory.filter((i) => i.storeId === currentStore.id),
-    [inventory, currentStore.id]
+    () => isAllStores ? inventory : inventory.filter((i) => i.storeId === currentStore.id),
+    [inventory, currentStore.id, isAllStores]
   );
 
   const storeWaste = useMemo(
-    () => wasteLog.filter((w) => w.storeId === currentStore.id),
-    [wasteLog, currentStore.id]
+    () => isAllStores ? wasteLog : wasteLog.filter((w) => w.storeId === currentStore.id),
+    [wasteLog, currentStore.id, isAllStores]
   );
 
   const storeEOD = useMemo(
-    () => eodSubmissions.filter((e) => e.storeId === currentStore.id),
-    [eodSubmissions, currentStore.id]
+    () => isAllStores ? eodSubmissions : eodSubmissions.filter((e) => e.storeId === currentStore.id),
+    [eodSubmissions, currentStore.id, isAllStores]
   );
 
   const lowItems = useMemo(
@@ -64,8 +69,36 @@ export default function DashboardScreen() {
     [storeInventory]
   );
 
-
   const foodCostPct = storeInventory.length > 0 ? 31.4 : 0;
+
+  const handleDeleteStore = async () => {
+    if (!deleteStore || deleteConfirmName !== deleteStore.name) return;
+    // Delete from Supabase + local
+    try {
+      const { supabase } = await import('../lib/supabase');
+      await supabase.from('inventory_items').delete().eq('store_id', deleteStore.id);
+      await supabase.from('recipes').delete().eq('store_id', deleteStore.id);
+      await supabase.from('eod_submissions').delete().eq('store_id', deleteStore.id);
+      await supabase.from('waste_log').delete().eq('store_id', deleteStore.id);
+      await supabase.from('stores').delete().eq('id', deleteStore.id);
+    } catch {}
+    // Remove from local state
+    const { useStore: getStore } = require('../store/useStore');
+    const state = getStore.getState();
+    getStore.setState({
+      stores: state.stores.filter((s: any) => s.id !== deleteStore.id),
+      inventory: state.inventory.filter((i: any) => i.storeId !== deleteStore.id),
+      recipes: state.recipes.filter((r: any) => r.storeId !== deleteStore.id),
+    });
+    // Switch to first remaining store
+    const remaining = stores.filter((s) => s.id !== deleteStore.id);
+    if (remaining.length > 0) {
+      const { setCurrentStore } = require('../store/useStore').useStore.getState();
+      setCurrentStore(remaining[0]);
+    }
+    setDeleteStore(null);
+    setDeleteConfirmName('');
+  };
 
   const handleAddStore = () => {
     if (!newStoreName.trim()) {
@@ -88,10 +121,13 @@ export default function DashboardScreen() {
       {/* Store info bar */}
       <View style={styles.storeInfoBar}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.storeTitle, { color: C.textPrimary }]}>{currentStore.name}</Text>
-          {currentStore.address ? (
+          <Text style={[styles.storeTitle, { color: C.textPrimary }]}>{isAllStores ? 'All Stores' : currentStore.name}</Text>
+          {!isAllStores && currentStore.address ? (
             <Text style={[styles.storeAddr, { color: C.textTertiary }]}>{currentStore.address}</Text>
           ) : null}
+          {isAllStores && (
+            <Text style={[styles.storeAddr, { color: C.textTertiary }]}>{stores.length} store{stores.length !== 1 ? 's' : ''} combined</Text>
+          )}
         </View>
         <Text style={[styles.storeItemCount, { color: C.textTertiary }]}>
           {storeInventory.length} item{storeInventory.length !== 1 ? 's' : ''}
@@ -103,6 +139,29 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Store list with delete (All Stores view only) */}
+      {isAllStores && isAdmin && (
+        <Card>
+          <CardHeader title="Stores" />
+          {stores.map((store) => {
+            const itemCount = inventory.filter((i) => i.storeId === store.id).length;
+            return (
+              <View key={store.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: C.borderLight }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FontSize.sm, fontWeight: '500', color: C.textPrimary }}>{store.name}</Text>
+                  <Text style={{ fontSize: FontSize.xs, color: C.textTertiary }}>{store.address || 'No address'} · {itemCount} items</Text>
+                </View>
+                {stores.length > 1 && (
+                  <TouchableOpacity onPress={() => { setDeleteStore(store); setDeleteConfirmName(''); }}>
+                    <Ionicons name="trash-outline" size={16} color={C.danger} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </Card>
+      )}
 
       {/* KPI Row */}
       <View style={styles.kpiRow}>
@@ -244,6 +303,41 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Store Confirmation Modal */}
+      <Modal visible={!!deleteStore} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.confirmTitle, { color: C.danger }]}>Delete store</Text>
+            <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>
+              This will permanently delete <Text style={{ fontWeight: '700', color: C.textPrimary }}>"{deleteStore?.name}"</Text> and all its inventory, recipes, and history. This cannot be undone.
+            </Text>
+            <Text style={[styles.confirmMessage, { color: C.textSecondary, marginTop: Spacing.sm }]}>
+              Type the store name to confirm:
+            </Text>
+            <TextInput
+              style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, marginTop: Spacing.sm }]}
+              value={deleteConfirmName}
+              onChangeText={setDeleteConfirmName}
+              placeholder={deleteStore?.name || ''}
+              placeholderTextColor={C.textTertiary}
+              autoFocus
+            />
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.bgSecondary }]} onPress={() => { setDeleteStore(null); setDeleteConfirmName(''); }}>
+                <Text style={[styles.confirmBtnText, { color: C.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: C.danger }, deleteConfirmName !== deleteStore?.name && { opacity: 0.3 }]}
+                onPress={handleDeleteStore}
+                disabled={deleteConfirmName !== deleteStore?.name}
+              >
+                <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>Delete store</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </WebScrollView>
   );
 }
@@ -297,4 +391,11 @@ const styles = StyleSheet.create({
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.sm },
   saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
+  confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
+  confirmBox: { width: '100%', maxWidth: 400, borderRadius: Radius.xl, padding: Spacing.xl, borderWidth: 0.5 },
+  confirmTitle: { fontSize: FontSize.lg, fontWeight: '600', marginBottom: Spacing.sm },
+  confirmMessage: { fontSize: FontSize.sm, lineHeight: 20 },
+  confirmBtnRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.lg },
+  confirmBtn: { flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, alignItems: 'center' },
+  confirmBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
 });

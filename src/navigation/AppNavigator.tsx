@@ -44,14 +44,17 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   More: 'menu-outline',
 };
 
+const ALL_STORES_ID = '__all__';
+
 function StoreSelector() {
   const { currentStore, stores, currentUser, setCurrentStore } = useStore();
   const C = useColors();
   const [open, setOpen] = useState(false);
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const userStores = isAdmin ? stores : stores.filter((s) => currentUser?.stores.includes(s.id));
+  const isAllStores = currentStore.id === ALL_STORES_ID;
 
-  if (userStores.length <= 1) {
+  if (userStores.length <= 1 && !isAdmin) {
     return (
       <View style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
         <View style={[styles.storePillDot, { backgroundColor: C.success }]} />
@@ -63,7 +66,7 @@ function StoreSelector() {
   return (
     <>
       <TouchableOpacity style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => setOpen(true)}>
-        <View style={[styles.storePillDot, { backgroundColor: C.success }]} />
+        <View style={[styles.storePillDot, { backgroundColor: isAllStores ? C.info : C.success }]} />
         <Text style={[styles.storePillText, { color: C.textPrimary }]}>{currentStore.name || 'Store'}</Text>
         <Ionicons name="chevron-down" size={12} color={C.textSecondary} />
       </TouchableOpacity>
@@ -76,6 +79,23 @@ function StoreSelector() {
         >
           <View style={[styles.storeDropdown, { backgroundColor: C.bgPrimary }]}>
             <Text style={[styles.storeDropdownTitle, { color: C.textTertiary }]}>Switch store</Text>
+            {/* All Stores option */}
+            {isAdmin && userStores.length > 1 && (
+              <TouchableOpacity
+                style={[styles.storeOption, isAllStores && { backgroundColor: C.infoBg }]}
+                onPress={() => {
+                  setCurrentStore({ id: ALL_STORES_ID, name: 'All Stores', address: '', status: 'active' });
+                  setOpen(false);
+                }}
+              >
+                <View style={[styles.storeOptionDot, isAllStores && { backgroundColor: C.info }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.storeOptionName, { color: C.textPrimary }, isAllStores && { fontWeight: '600' }]}>All Stores</Text>
+                  <Text style={[styles.storeOptionAddr, { color: C.textTertiary }]}>Combined view</Text>
+                </View>
+                {isAllStores && <Ionicons name="checkmark" size={16} color={C.info} />}
+              </TouchableOpacity>
+            )}
             {userStores.map((store) => {
               const isActive = store.id === currentStore.id;
               return (
