@@ -59,6 +59,7 @@ interface StoreActions {
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
+  removeUser: (id: string) => void;
 
   // Orders
   setOrderSchedule: (day: string, vendors: OrderDayVendor[]) => void;
@@ -473,6 +474,22 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       users: s.users.map((u) => (u.id === id ? { ...u, ...updates } : u)),
     }));
+  },
+
+  removeUser: (id) => {
+    set((s) => ({ users: s.users.filter((u) => u.id !== id) }));
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'User deleted',
+      detail: 'User account removed',
+      itemRef: id,
+      value: '',
+    });
   },
 
   // Orders

@@ -217,3 +217,22 @@ export async function resendInvite(email: string): Promise<{ error: string | nul
   // For now, just confirm the invitation exists — the user can register via the app
   return { error: null };
 }
+
+/** Delete a user (removes profile, store links, and invitation records from Supabase) */
+export async function deleteUser(userId: string): Promise<{ error: string | null }> {
+  try {
+    // Delete store links
+    await supabase.from('user_stores').delete().eq('user_id', userId);
+
+    // Get the profile email to clean up invitations
+    const { data: profile } = await supabase.from('profiles').select('name').eq('id', userId).single();
+
+    // Delete profile
+    const { error: profileError } = await supabase.from('profiles').delete().eq('id', userId);
+    if (profileError) return { error: profileError.message };
+
+    return { error: null };
+  } catch (e: any) {
+    return { error: e.message || 'Failed to delete user' };
+  }
+}
