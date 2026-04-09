@@ -4,6 +4,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { WebScrollView } from '../components/WebScrollView';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
@@ -16,6 +17,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const login = useStore((s) => s.login);
+  const nav = useNavigation<any>();
   const C = useColors();
 
   const handleLogin = async () => {
@@ -99,6 +101,11 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity style={styles.registerRow} onPress={() => nav.navigate('Register')}>
+          <Text style={[styles.registerText, { color: C.textTertiary }]}>Have an invitation? </Text>
+          <Text style={[styles.registerTextBold, { color: C.info }]}>Register here</Text>
+        </TouchableOpacity>
+
         {__DEV__ && (
           <View style={[styles.demoSection, { backgroundColor: C.bgPrimary }]}>
             <Text style={[styles.demoTitle, { color: C.textTertiary }]}>Demo accounts (dev only)</Text>
@@ -159,4 +166,7 @@ const styles = StyleSheet.create({
   demoEmail: { fontSize: FontSize.xs, color: Colors.textSecondary },
   rolePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.round },
   rolePillText: { fontSize: 9, fontWeight: '500' },
+  registerRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: Spacing.md },
+  registerText: { fontSize: FontSize.sm },
+  registerTextBold: { fontSize: FontSize.sm, fontWeight: '600' },
 });
