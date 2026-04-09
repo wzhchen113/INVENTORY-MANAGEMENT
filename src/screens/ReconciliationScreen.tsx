@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { buildReconciliationLines } from '../utils/usageCalculations';
 
@@ -74,16 +75,11 @@ export default function ReconciliationScreen() {
 
   return (
     <WebScrollView id="recon-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
-      {/* Date nav + Summary bar */}
-      <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
-        <TouchableOpacity
-          disabled={!canPrev}
-          onPress={() => setSelectedDate(availableDates[dateIdx + 1])}
-          style={{ opacity: canPrev ? 1 : 0.3 }}
-        >
-          <Ionicons name="chevron-back" size={20} color={C.textSecondary} />
-        </TouchableOpacity>
+      {/* Date picker */}
+      <DatePicker value={selectedDate} onChange={(d) => setSelectedDate(d || availableDates[0] || '')} label="Reconciliation date" placeholder="Select a date" />
 
+      {/* Summary bar */}
+      <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, marginTop: Spacing.sm }]}>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryVal, { color: C.success }]}>{matched}</Text>
           <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Matched</Text>
@@ -96,18 +92,6 @@ export default function ReconciliationScreen() {
           <Text style={[styles.summaryVal, { color: C.warning }]}>{review}</Text>
           <Text style={[styles.summaryLabel, { color: C.textTertiary }]}>Review</Text>
         </View>
-
-        <View style={[styles.datePill, { backgroundColor: C.bgSecondary }]}>
-          <Text style={[styles.dateText, { color: C.textSecondary }]}>{formatDisplayDate(selectedDate)} · {currentStore.name}</Text>
-        </View>
-
-        <TouchableOpacity
-          disabled={!canNext}
-          onPress={() => setSelectedDate(availableDates[dateIdx - 1])}
-          style={{ opacity: canNext ? 1 : 0.3 }}
-        >
-          <Ionicons name="chevron-forward" size={20} color={C.textSecondary} />
-        </TouchableOpacity>
       </View>
 
       {/* Line items */}

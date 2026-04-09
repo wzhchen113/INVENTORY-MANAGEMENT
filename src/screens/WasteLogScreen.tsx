@@ -7,6 +7,7 @@ import {
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { WasteReason } from '../types';
 
@@ -17,12 +18,17 @@ export default function WasteLogScreen() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ itemId: '', qty: '', reason: 'Expired' as WasteReason, notes: '' });
   const [reasonFilter, setReasonFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const C = useColors();
 
   const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
   const storeWaste = wasteLog.filter((w) => w.storeId === currentStore.id);
   const totalValue = storeWaste.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
-  const filtered = storeWaste.filter((e) => !reasonFilter || e.reason === reasonFilter);
+  const filtered = storeWaste.filter((e) => {
+    if (reasonFilter && e.reason !== reasonFilter) return false;
+    if (dateFilter && !e.timestamp.startsWith(dateFilter)) return false;
+    return true;
+  });
 
   const userColors: Record<string, string> = {
     'Maria G.': C.userMaria, 'James T.': C.userJames,
@@ -68,6 +74,11 @@ export default function WasteLogScreen() {
         <TouchableOpacity style={[styles.logBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowModal(true)}>
           <Text style={[styles.logBtnText, { color: C.bgPrimary }]}>+ Log waste</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Date filter */}
+      <View style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm }}>
+        <DatePicker value={dateFilter} onChange={setDateFilter} label="Filter by date" placeholder="All dates" />
       </View>
 
       {/* Reason filter */}
