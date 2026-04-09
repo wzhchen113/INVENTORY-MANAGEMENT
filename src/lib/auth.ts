@@ -67,7 +67,7 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
   return { user, error: null };
 }
 
-/** Invite a new user (admin only — creates a pending profile in Supabase) */
+/** Invite a new user (admin only — creates invitation record in Supabase) */
 export async function inviteUser(
   email: string,
   name: string,
@@ -75,52 +75,28 @@ export async function inviteUser(
   storeIds: string[]
 ): Promise<{ error: string | null }> {
   try {
-    // Create a pending profile + store links (no auth user yet — that happens at registration)
-    // Use a deterministic UUID based on email to allow the registration step to find the profile
+    // Check if invitation already exists for this email
     const { data: existing } = await supabase
-      .from('profiles')
+      .from('invitations')
       .select('id')
-      .eq('name', name)
+      .eq('email', email.toLowerCase())
+      .eq('used', false)
       .single();
 
     if (existing) {
-      return { error: 'A user with this name already exists' };
+      return { error: 'An invitation for this email already exists' };
     }
 
-    // Insert a placeholder profile with a generated UUID
-    const profileId = crypto.randomUUID ? crypto.randomUUID() : `inv-${Date.now()}`;
-    const initials = name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
-
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: profileId,
-      name,
-      role,
-      initials,
-      color: '#378ADD',
-      status: 'pending',
-    });
-
-    if (profileError) return { error: profileError.message };
-
-    // Store the email in a separate invitation record so registration can look it up
+    // Create invitation record — profile + auth user created at registration time
     const { error: inviteError } = await supabase.from('invitations').insert({
       email: email.toLowerCase(),
-      profile_id: profileId,
+      profile_id: '00000000-0000-0000-0000-000000000000', // placeholder, replaced at registration
       name,
       role,
       store_ids: storeIds,
     });
 
-    if (inviteError) {
-      // Clean up the profile if invitation insert fails
-      await supabase.from('profiles').delete().eq('id', profileId);
-      return { error: inviteError.message };
-    }
-
-    // Insert store links
-    for (const storeId of storeIds) {
-      await supabase.from('user_stores').insert({ user_id: profileId, store_id: storeId });
-    }
+    if (inviteError) return { error: inviteError.message };
 
     return { error: null };
   } catch (e: any) {
@@ -128,7 +104,7 @@ export async function inviteUser(
   }
 }
 
-/** Register an invited user (creates Supabase auth account + activates profile) */
+/** Register an invited user (creates Supabase auth account + profile) */
 export async function registerInvitedUser(
   email: string,
   password: string,
@@ -151,30 +127,14 @@ export async function registerInvitedUser(
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name: invitation.name } },
+      options: { data: { name: invitation.name, role: invitation.role } },
     });
 
     if (signUpError) return { user: null, error: signUpError.message };
     if (!authData.user) return { user: null, error: 'Registration failed' };
 
-    // Update the profile: change the placeholder ID to the real auth user ID and set active
-    // First delete old store links and profile, then recreate with real ID
-    const oldProfileId = invitation.profile_id;
-
-    // Get existing store links
-    const { data: storeLinks } = await supabase
-      .from('user_stores')
-      .select('store_id')
-      .eq('user_id', oldProfileId);
-
-    const storeIds = (storeLinks || []).map((s: any) => s.store_id);
-
-    // Delete old records
-    await supabase.from('user_stores').delete().eq('user_id', oldProfileId);
-    await supabase.from('profiles').delete().eq('id', oldProfileId);
-
-    // Create new profile with real auth user ID
-    await supabase.from('profiles').insert({
+    // Create profile with real auth user ID
+    const { error: profileError } = await supabase.from('profiles').insert({
       id: authData.user.id,
       name: invitation.name,
       role: invitation.role,
@@ -183,7 +143,12 @@ export async function registerInvitedUser(
       status: 'active',
     });
 
-    // Create store links with real ID
+    if (profileError) {
+      return { user: null, error: `Account created but profile setup failed: ${profileError.message}` };
+    }
+
+    // Create store links from invitation
+    const storeIds = invitation.store_ids || [];
     for (const storeId of storeIds) {
       await supabase.from('user_stores').insert({ user_id: authData.user.id, store_id: storeId });
     }
@@ -191,8 +156,6 @@ export async function registerInvitedUser(
     // Mark invitation as used
     await supabase.from('invitations').update({ used: true }).eq('id', invitation.id);
 
-    // Confirm email immediately (for local dev — in production Supabase handles this)
-    // The user can now sign in
     return { user: null, error: null }; // Return null user — they need to sign in
   } catch (e: any) {
     return { user: null, error: e.message || 'Registration failed' };
