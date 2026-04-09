@@ -218,6 +218,56 @@ export async function resendInvite(email: string): Promise<{ error: string | nul
   return { error: null };
 }
 
+/** Fetch all users from Supabase (profiles + store links) */
+export async function fetchAllUsers(): Promise<User[]> {
+  try {
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error || !profiles) return [];
+
+    // Fetch all store links in one query
+    const userIds = profiles.map((p: any) => p.id);
+    const { data: allStoreLinks } = await supabase
+      .from('user_stores')
+      .select('user_id, store_id')
+      .in('user_id', userIds);
+
+    // Also fetch pending invitations to get emails
+    const { data: invitations } = await supabase
+      .from('invitations')
+      .select('email, profile_id, name');
+
+    // Fetch auth users' emails
+    // Note: We can't query auth.users from client, so we use invitations for pending users
+    // For active users, email comes from the session or we store it
+
+    return profiles.map((p: any) => {
+      const stores = (allStoreLinks || [])
+        .filter((sl: any) => sl.user_id === p.id)
+        .map((sl: any) => sl.store_id);
+
+      // Try to find email from invitations
+      const invitation = (invitations || []).find((inv: any) => inv.name === p.name);
+
+      return {
+        id: p.id,
+        name: p.name,
+        email: invitation?.email || '',
+        role: p.role,
+        stores,
+        status: p.status,
+        initials: p.initials || p.name.slice(0, 2).toUpperCase(),
+        color: p.color || '#378ADD',
+      } as User;
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Delete a user (removes profile, store links, and invitation records from Supabase) */
 export async function deleteUser(userId: string): Promise<{ error: string | null }> {
   try {
