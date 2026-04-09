@@ -156,6 +156,10 @@ export default function IngredientsScreen() {
     parLevel: '',
     vendorId: '',
     vendorName: '',
+    casePrice: '',
+    caseQty: '1',
+    subUnitSize: '1',
+    subUnitUnit: '',
   });
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
@@ -213,7 +217,7 @@ export default function IngredientsScreen() {
   const openAdd = () => {
     setEditItem(null);
     setDupWarning('');
-    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '' });
+    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '', casePrice: '', caseQty: '1', subUnitSize: '1', subUnitUnit: '' });
     setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
     setShowModal(true);
   };
@@ -230,6 +234,10 @@ export default function IngredientsScreen() {
       parLevel: String(item.parLevel),
       vendorId: item.vendorId,
       vendorName: item.vendorName,
+      casePrice: String(item.casePrice || ''),
+      caseQty: String(item.caseQty || 1),
+      subUnitSize: String(item.subUnitSize || 1),
+      subUnitUnit: item.subUnitUnit || '',
     });
     // Find all stores that already have this ingredient (by name)
     const storesWithItem = inventory
@@ -299,6 +307,10 @@ export default function IngredientsScreen() {
             parLevel: parseFloat(form.parLevel) || 0,
             vendorId: form.vendorId,
             vendorName: form.vendorName,
+            casePrice: parseFloat(form.casePrice) || 0,
+            caseQty: parseFloat(form.caseQty) || 1,
+            subUnitSize: parseFloat(form.subUnitSize) || 1,
+            subUnitUnit: form.subUnitUnit,
             lastUpdatedBy: currentUser?.name || '',
             lastUpdatedAt: new Date().toISOString(),
           });
@@ -327,6 +339,10 @@ export default function IngredientsScreen() {
           vendorId: form.vendorId,
           vendorName: form.vendorName,
           usagePerPortion: editItem.usagePerPortion,
+          casePrice: parseFloat(form.casePrice) || 0,
+          caseQty: parseFloat(form.caseQty) || 1,
+          subUnitSize: parseFloat(form.subUnitSize) || 1,
+          subUnitUnit: form.subUnitUnit,
           lastUpdatedBy: currentUser?.name || '',
           lastUpdatedAt: new Date().toISOString(),
           eodRemaining: 0,
@@ -349,6 +365,10 @@ export default function IngredientsScreen() {
           vendorId: form.vendorId,
           vendorName: form.vendorName,
           usagePerPortion: 0,
+          casePrice: parseFloat(form.casePrice) || 0,
+          caseQty: parseFloat(form.caseQty) || 1,
+          subUnitSize: parseFloat(form.subUnitSize) || 1,
+          subUnitUnit: form.subUnitUnit,
           lastUpdatedBy: currentUser?.name || '',
           lastUpdatedAt: new Date().toISOString(),
           eodRemaining: parseFloat(form.currentStock) || 0,
@@ -701,13 +721,109 @@ export default function IngredientsScreen() {
               </ScrollView>
             </View>
 
-            {/* Cost */}
+            {/* Packaging & Pricing */}
+            <Text style={[styles.formLabel, { color: C.textTertiary, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: Spacing.md }]}>Packaging & pricing</Text>
+
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Case price ($)</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={form.casePrice}
+                  onChangeText={(v) => {
+                    const val = numericFilter(v);
+                    const cp = parseFloat(val) || 0;
+                    const qty = parseFloat(form.caseQty) || 1;
+                    const size = parseFloat(form.subUnitSize) || 1;
+                    const total = qty * size;
+                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    setForm((p) => ({ ...p, casePrice: val, costPerUnit: unitCost }));
+                  }}
+                  placeholder="240.00"
+                  placeholderTextColor={C.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Units per case</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={form.caseQty}
+                  onChangeText={(v) => {
+                    const val = numericFilter(v);
+                    const qty = parseFloat(val) || 1;
+                    const size = parseFloat(form.subUnitSize) || 1;
+                    const cp = parseFloat(form.casePrice) || 0;
+                    const total = qty * size;
+                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    setForm((p) => ({ ...p, caseQty: val, costPerUnit: unitCost }));
+                  }}
+                  placeholder="6"
+                  placeholderTextColor={C.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Size per unit</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={form.subUnitSize}
+                  onChangeText={(v) => {
+                    const val = numericFilter(v);
+                    const size = parseFloat(val) || 1;
+                    const qty = parseFloat(form.caseQty) || 1;
+                    const cp = parseFloat(form.casePrice) || 0;
+                    const total = qty * size;
+                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    setForm((p) => ({ ...p, subUnitSize: val, costPerUnit: unitCost }));
+                  }}
+                  placeholder="10"
+                  placeholderTextColor={C.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Unit type</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                  {UNITS.map((u) => (
+                    <TouchableOpacity key={u} style={[styles.miniChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.subUnitUnit === u && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, subUnitUnit: u }))}>
+                      <Text style={[styles.miniChipText, { color: C.textSecondary }, form.subUnitUnit === u && { color: C.bgPrimary }]}>{u}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Breakdown summary */}
+            {parseFloat(form.casePrice) > 0 && (
+              <View style={[styles.priceSummary, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[styles.priceSummaryText, { color: C.textSecondary }]}>
+                  1 case = {form.caseQty} × {form.subUnitSize} {form.subUnitUnit || form.unit} = {((parseFloat(form.caseQty) || 1) * (parseFloat(form.subUnitSize) || 1)).toFixed(0)} {form.subUnitUnit || form.unit}
+                </Text>
+                <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
+                  ${parseFloat(form.casePrice).toFixed(2)}/case → ${form.costPerUnit}/{form.subUnitUnit || form.unit}
+                </Text>
+              </View>
+            )}
+
+            {/* Unit cost (auto-calculated or manual) */}
             <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Cost per unit ($) *</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Cost per {form.subUnitUnit || form.unit} ($) *</Text>
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.costPerUnit}
-                onChangeText={(v) => setForm((p) => ({ ...p, costPerUnit: numericFilter(v) }))}
+                onChangeText={(v) => {
+                  const val = numericFilter(v);
+                  const unitCost = parseFloat(val) || 0;
+                  const qty = parseFloat(form.caseQty) || 1;
+                  const size = parseFloat(form.subUnitSize) || 1;
+                  const total = qty * size;
+                  const cp = (unitCost * total).toFixed(2);
+                  setForm((p) => ({ ...p, costPerUnit: val, casePrice: cp }));
+                }}
                 placeholder="0.00"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
@@ -960,6 +1076,11 @@ const styles = StyleSheet.create({
   bulkBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: Radius.md },
   bulkBtnText: { fontSize: FontSize.xs, fontWeight: '500' },
   chipRow: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: Radius.md, marginBottom: 6, borderWidth: 0.5 },
+  miniChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.round, borderWidth: 0.5 },
+  miniChipText: { fontSize: 10, fontWeight: '500' },
+  priceSummary: { borderWidth: 0.5, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
+  priceSummaryText: { fontSize: FontSize.xs },
+  priceSummaryBold: { fontSize: FontSize.sm, fontWeight: '600', marginTop: 2 },
 
   // Confirmation modal
   confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
