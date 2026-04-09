@@ -1,9 +1,15 @@
 // src/utils/index.ts
 import { InventoryItem, Recipe, WasteEntry } from '../types';
 
-/** Filter input to only allow numeric values (digits and one decimal point) */
-export const numericFilter = (value: string): string =>
-  value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+/** Filter input to only allow numeric values (digits, one decimal point, max 2 decimal places) */
+export const numericFilter = (value: string): string => {
+  let v = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+  const dotIndex = v.indexOf('.');
+  if (dotIndex !== -1 && v.length - dotIndex > 3) {
+    v = v.slice(0, dotIndex + 3);
+  }
+  return v;
+};
 
 /** Format a number as US currency */
 export const formatCurrency = (value: number): string =>

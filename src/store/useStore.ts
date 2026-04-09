@@ -142,7 +142,7 @@ export const useStore = create<FullStore>((set, get) => ({
   // Inventory
   addItem: (item) => {
     const id = makeId('i', ++itemCounter);
-    const newItem: InventoryItem = { ...item, id };
+    const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
@@ -426,9 +426,12 @@ export const useStore = create<FullStore>((set, get) => ({
           recipe.ingredients.forEach((ing) => {
             const item = get().inventory.find((i) => i.id === ing.itemId);
             if (item) {
+              const { getConversionFactor } = require('../utils/unitConversion');
+              const factor = getConversionFactor(ing.unit, item.unit);
+              const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
               get().adjustStock(
                 ing.itemId,
-                Math.max(0, item.currentStock - ing.quantity * saleItem.qtySold),
+                Math.max(0, item.currentStock - convertedQty * saleItem.qtySold),
                 'POS import'
               );
             }
@@ -582,10 +585,15 @@ export const useStore = create<FullStore>((set, get) => ({
     const recipe = get().recipes.find((r) => r.id === recipeId);
     if (!recipe) return 0;
 
-    // Raw ingredient costs
+    // Raw ingredient costs (with unit conversion)
     const rawCost = recipe.ingredients.reduce((sum, ing) => {
       const item = get().inventory.find((i) => i.id === ing.itemId);
-      return sum + (item ? item.costPerUnit * ing.quantity : 0);
+      if (!item) return sum;
+      // If units differ, try to convert
+      const { getConversionFactor } = require('../utils/unitConversion');
+      const factor = getConversionFactor(ing.unit, item.unit);
+      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+      return sum + item.costPerUnit * convertedQty;
     }, 0);
 
     // Prep recipe costs

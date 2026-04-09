@@ -32,6 +32,11 @@ export interface InventoryItem {
   lastUpdatedAt: string;
   eodRemaining: number;
   storeId: string;
+  // Packaging / case info
+  casePrice: number;
+  caseQty: number;
+  subUnitSize: number;
+  subUnitUnit: string;
 }
 
 export type ItemStatus = 'ok' | 'low' | 'out';
