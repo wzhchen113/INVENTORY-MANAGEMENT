@@ -10,6 +10,7 @@ import {
 import { useStore } from '../store/useStore';
 import { numericFilter } from '../utils';
 import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
@@ -826,7 +827,7 @@ export function ReportsScreen() {
 // ─── USERS ──────────────────────────────────────────────────────────────────
 export function UsersScreen() {
   const C = useColors();
-  const { users, stores, currentUser, inviteUser } = useStore();
+  const { users, stores, currentUser, inviteUser, addNotification } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
@@ -843,8 +844,9 @@ export function UsersScreen() {
     inviteUser({ ...form, stores: form.storeIds, status: 'pending', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: C.userAdmin });
 
     // Save to Supabase
+    const storeNames = form.storeIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
     const { inviteUser: supabaseInvite } = await import('../lib/auth');
-    const result = await supabaseInvite(form.email.trim(), form.name.trim(), form.role, form.storeIds);
+    const result = await supabaseInvite(form.email.trim(), form.name.trim(), form.role, form.storeIds, storeNames);
 
     setLoading(false);
 
@@ -853,6 +855,13 @@ export function UsersScreen() {
     } else {
       setShowModal(false);
       setForm({ name: '', email: '', role: 'user', storeIds: ['s1'] });
+      addNotification(`Invited ${form.name.trim()} (${form.email.trim()}) to ${storeNames}`);
+      Toast.show({
+        type: 'success',
+        text1: 'Invitation sent!',
+        text2: `${form.name.trim()} will receive an email to register.`,
+        visibilityTime: 4000,
+      });
     }
   };
 
