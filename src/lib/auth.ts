@@ -55,12 +55,13 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
 
   const user: User = {
     id: userId,
-    name: profile.name,
+    name: profile.role === 'master' ? 'MASTER' : profile.name,
+    nickname: profile.nickname || '',
     email: profile.email || '',
     role: profile.role,
     stores,
     status: profile.status,
-    initials: profile.initials || profile.name.slice(0, 2).toUpperCase(),
+    initials: profile.role === 'master' ? 'M' : (profile.initials || profile.name.slice(0, 2).toUpperCase()),
     color: profile.color || '#378ADD',
   };
 
@@ -254,12 +255,13 @@ export async function fetchAllUsers(): Promise<User[]> {
 
       return {
         id: p.id,
-        name: p.name,
+        name: p.role === 'master' ? 'MASTER' : p.name,
+        nickname: p.nickname || '',
         email: invitation?.email || '',
         role: p.role,
         stores,
         status: p.status,
-        initials: p.initials || p.name.slice(0, 2).toUpperCase(),
+        initials: p.role === 'master' ? 'M' : (p.initials || p.name.slice(0, 2).toUpperCase()),
         color: p.color || '#378ADD',
       } as User;
     });

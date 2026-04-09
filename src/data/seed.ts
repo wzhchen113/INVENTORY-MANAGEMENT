@@ -11,10 +11,10 @@ export const STORES: Store[] = [
 ];
 
 export const USERS: User[] = [
-  { id: 'u1', name: 'Admin (Owner)', email: 'admin@towson.com', role: 'admin', stores: ['s1','s2'], status: 'active', initials: 'AD', color: '#378ADD' },
-  { id: 'u2', name: 'Maria Garcia', email: 'maria@towson.com', role: 'user', stores: ['s1'], status: 'active', initials: 'MG', color: '#1D9E75' },
-  { id: 'u3', name: 'James Thompson', email: 'james@towson.com', role: 'user', stores: ['s1'], status: 'active', initials: 'JT', color: '#D85A30' },
-  { id: 'u4', name: 'Ana Rivera', email: 'ana@baltimore.com', role: 'user', stores: ['s2'], status: 'active', initials: 'AR', color: '#D4537E' },
+  { id: 'u1', name: 'Admin (Owner)', nickname: '', email: 'admin@towson.com', role: 'admin', stores: ['s1','s2'], status: 'active', initials: 'AD', color: '#378ADD' },
+  { id: 'u2', name: 'Maria Garcia', nickname: '', email: 'maria@towson.com', role: 'user', stores: ['s1'], status: 'active', initials: 'MG', color: '#1D9E75' },
+  { id: 'u3', name: 'James Thompson', nickname: '', email: 'james@towson.com', role: 'user', stores: ['s1'], status: 'active', initials: 'JT', color: '#D85A30' },
+  { id: 'u4', name: 'Ana Rivera', nickname: '', email: 'ana@baltimore.com', role: 'user', stores: ['s2'], status: 'active', initials: 'AR', color: '#D4537E' },
 ];
 
 export const INVENTORY: InventoryItem[] = [

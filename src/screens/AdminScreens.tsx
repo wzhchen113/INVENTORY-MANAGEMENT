@@ -959,9 +959,10 @@ export function UsersScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.userName, { color: C.textPrimary }]}>{user.name}</Text>
-                <Text style={[styles.userEmail, { color: C.textSecondary }]}>{user.email}</Text>
+                {user.nickname ? <Text style={[styles.userEmail, { color: C.textSecondary }]}>"{user.nickname}"</Text> : null}
+                <Text style={[styles.userEmail, { color: C.textTertiary }]}>{user.email}</Text>
               </View>
-              <Badge label={user.role === 'admin' ? 'Admin' : 'Store user'} variant={user.role === 'admin' ? 'admin' : 'user'} />
+              <Badge label={user.role === 'master' ? 'Master' : user.role === 'admin' ? 'Admin' : 'Store user'} variant={user.role === 'admin' || user.role === 'master' ? 'admin' : 'user'} />
             </View>
             <View style={styles.userMeta}>
               <Text style={[styles.userMetaLabel, { color: C.textTertiary }]}>Store access</Text>
