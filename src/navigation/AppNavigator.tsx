@@ -335,7 +335,7 @@ function HeaderRight() {
   const C = useColors();
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
@@ -537,6 +537,21 @@ function AppStackNavigator() {
   );
 }
 
+function MasterNavigator() {
+  const C = useColors();
+  return (
+    <AppStack.Navigator screenOptions={{
+      headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+      headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
+      headerTintColor: C.textPrimary,
+      headerRight: () => <HeaderRight />,
+      cardStyle: { backgroundColor: C.bgTertiary },
+    }}>
+      <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'Users & access' }} />
+    </AppStack.Navigator>
+  );
+}
+
 export default function AppNavigator() {
   const currentUser = useStore((s) => s.currentUser);
 
@@ -544,7 +559,11 @@ export default function AppNavigator() {
     <NavigationContainer>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser ? (
-          <RootStack.Screen name="App" component={AppStackNavigator} />
+          currentUser.role === 'master' ? (
+            <RootStack.Screen name="App" component={MasterNavigator} />
+          ) : (
+            <RootStack.Screen name="App" component={AppStackNavigator} />
+          )
         ) : (
           <>
             <RootStack.Screen name="Login" component={LoginScreen} />
