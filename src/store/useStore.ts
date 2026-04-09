@@ -99,8 +99,8 @@ let userCounter = USERS.length + 1;
 const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
 
 export const useStore = create<FullStore>((set, get) => ({
-  // Initial state
-  currentUser: USERS[0],
+  // Initial state — start logged out, login via Supabase auth
+  currentUser: null,
   currentStore: STORES[0],
   stores: STORES,
   users: USERS,
@@ -132,7 +132,11 @@ export const useStore = create<FullStore>((set, get) => ({
     const userStore = STORES.find((s) => user.stores.includes(s.id)) || STORES[0];
     set({ currentUser: user, currentStore: userStore });
   },
-  logout: () => set({ currentUser: null }),
+  logout: () => {
+    set({ currentUser: null });
+    // Sign out of Supabase (async, fire-and-forget)
+    import('../lib/auth').then(({ signOut }) => signOut()).catch(() => {});
+  },
   setCurrentStore: (store) => set({ currentStore: store }),
 
   // Inventory

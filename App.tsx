@@ -7,6 +7,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
 import { useColors } from './src/theme/colors';
+import { useStore } from './src/store/useStore';
+import { getSession } from './src/lib/auth';
 
 // Only import and configure notifications on native platforms
 if (Platform.OS !== 'web') {
@@ -22,6 +24,17 @@ if (Platform.OS !== 'web') {
 
 export default function App() {
   const C = useColors();
+  const login = useStore((s) => s.login);
+
+  // Restore session on app start
+  useEffect(() => {
+    (async () => {
+      const result = await getSession();
+      if (result.user) {
+        login(result.user);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
