@@ -51,6 +51,7 @@ interface StoreActions {
   // Vendors
   addVendor: (vendor: Omit<Vendor, 'id'>) => void;
   updateVendor: (id: string, updates: Partial<Vendor>) => void;
+  deleteVendor: (id: string) => void;
 
   // POS Import
   importPOS: (posImport: Omit<POSImport, 'id'>) => void;
@@ -453,6 +454,12 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       vendors: s.vendors.map((v) => (v.id === id ? { ...v, ...updates } : v)),
     }));
+    db.updateVendor(id, updates).catch(() => {});
+  },
+
+  deleteVendor: (id) => {
+    set((s) => ({ vendors: s.vendors.filter((v) => v.id !== id) }));
+    db.deleteVendor(id).catch(() => {});
   },
 
   // POS Import
