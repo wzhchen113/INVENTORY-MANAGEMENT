@@ -11,7 +11,6 @@ import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/c
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,7 +21,6 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!email.trim()) { setError('Email is required'); return; }
-    if (!name.trim()) { setError('Full name is required'); return; }
     if (!password) { setError('Password is required'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
@@ -30,7 +28,7 @@ export default function RegisterScreen() {
     setError('');
     setLoading(true);
     try {
-      const result = await registerInvitedUser(email.trim(), password, name.trim());
+      const result = await registerInvitedUser(email.trim(), password, '');
       if (result.error) {
         setError(result.error);
       } else {
@@ -81,7 +79,7 @@ export default function RegisterScreen() {
         <View style={[styles.card, { backgroundColor: C.bgPrimary }]}>
           <Text style={[styles.formTitle, { color: C.textPrimary }]}>Register</Text>
           <Text style={[styles.formSub, { color: C.textTertiary }]}>
-            You must have an invitation from an admin to register.
+            Enter the email address your invitation was sent to.
           </Text>
 
           {error ? (
@@ -100,17 +98,6 @@ export default function RegisterScreen() {
               placeholderTextColor={C.textTertiary}
               autoCapitalize="none"
               keyboardType="email-address"
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, { color: C.textSecondary }]}>Full name</Text>
-            <TextInput
-              style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-              value={name}
-              onChangeText={setName}
-              placeholder="John Doe"
-              placeholderTextColor={C.textTertiary}
             />
           </View>
 
