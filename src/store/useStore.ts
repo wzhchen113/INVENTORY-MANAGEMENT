@@ -161,6 +161,8 @@ export const useStore = create<FullStore>((set, get) => ({
         auditLog: data.auditLog,
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
       });
+      // Background cleanup of records older than 90 days
+      db.cleanupOldRecords().catch(() => {});
     } catch (e) {
       console.log('[Supabase] Load failed, using local data:', e);
     }
