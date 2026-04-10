@@ -151,7 +151,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
   logout: () => {
     set({ currentUser: null });
-    import('../lib/auth').then(({ signOut }) => signOut()).catch(() => {});
+    import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
   setCurrentStore: (store) => {
     set({ currentStore: store });
@@ -183,7 +183,7 @@ export const useStore = create<FullStore>((set, get) => ({
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
       });
       // Background cleanup of records older than 90 days
-      db.cleanupOldRecords().catch(() => {});
+      db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
     } catch (e) {
       console.log('[Supabase] Load failed, using local data:', e);
     }
@@ -216,7 +216,7 @@ export const useStore = create<FullStore>((set, get) => ({
         item.id === id ? { ...item, ...updates } : item
       ),
     }));
-    db.updateInventoryItem(id, updates).catch(() => {});
+    db.updateInventoryItem(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -236,7 +236,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       inventory: s.inventory.filter((i) => i.id !== id),
     }));
-    db.deleteInventoryItem(id).catch(() => {});
+    db.deleteInventoryItem(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -259,7 +259,7 @@ export const useStore = create<FullStore>((set, get) => ({
           : item
       ),
     }));
-    db.adjustItemStock(id, newStock, get().currentUser?.id || '').catch(() => {});
+    db.adjustItemStock(id, newStock, get().currentUser?.id || '').catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   getItemStatus: (item) => {
@@ -271,7 +271,7 @@ export const useStore = create<FullStore>((set, get) => ({
   // Recipe Categories
   addRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
-    db.addRecipeCategory(name).catch(() => {});
+    db.addRecipeCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   updateRecipeCategory: (oldName, newName) => {
@@ -279,19 +279,19 @@ export const useStore = create<FullStore>((set, get) => ({
       recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
       recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
     }));
-    db.updateRecipeCategory(oldName, newName).catch(() => {});
+    db.updateRecipeCategory(oldName, newName).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   deleteRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
-    db.deleteRecipeCategory(name).catch(() => {});
+    db.deleteRecipeCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Recipes
   addRecipe: (recipe) => {
     const id = makeId('r', ++recipeCounter);
     set((s) => ({ recipes: [...s.recipes, { ...recipe, id }] }));
-    db.createRecipe(recipe).catch(() => {});
+    db.createRecipe(recipe).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -310,7 +310,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       recipes: s.recipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
-    db.updateRecipe(id, updates).catch(() => {});
+    db.updateRecipe(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -328,7 +328,7 @@ export const useStore = create<FullStore>((set, get) => ({
   deleteRecipe: (id) => {
     const recipe = get().recipes.find((r) => r.id === id);
     set((s) => ({ recipes: s.recipes.filter((r) => r.id !== id) }));
-    db.deleteRecipe(id).catch(() => {});
+    db.deleteRecipe(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -347,7 +347,7 @@ export const useStore = create<FullStore>((set, get) => ({
   addPrepRecipe: (recipe) => {
     const id = makeId('pr', ++prepRecipeCounter);
     set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id }] }));
-    db.createPrepRecipe(recipe).catch(() => {});
+    db.createPrepRecipe(recipe).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -366,7 +366,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
-    db.updatePrepRecipe(id, updates).catch(() => {});
+    db.updatePrepRecipe(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -385,14 +385,14 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       prepRecipes: s.prepRecipes.filter((r) => r.id !== id),
     }));
-    db.deletePrepRecipe(id).catch(() => {});
+    db.deletePrepRecipe(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Waste
   logWaste: (entry) => {
     const id = makeId('w', ++wasteCounter);
     set((s) => ({ wasteLog: [{ ...entry, id }, ...s.wasteLog] }));
-    db.logWasteEntry(entry).catch(() => {});
+    db.logWasteEntry(entry).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     const item = get().inventory.find((i) => i.id === entry.itemId);
     if (item) {
       get().adjustStock(
@@ -472,19 +472,19 @@ export const useStore = create<FullStore>((set, get) => ({
   addVendor: (vendor) => {
     const id = makeId('v', ++vendorCounter);
     set((s) => ({ vendors: [...s.vendors, { ...vendor, id }] }));
-    db.createVendor(vendor).catch(() => {});
+    db.createVendor(vendor).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   updateVendor: (id, updates) => {
     set((s) => ({
       vendors: s.vendors.map((v) => (v.id === id ? { ...v, ...updates } : v)),
     }));
-    db.updateVendor(id, updates).catch(() => {});
+    db.updateVendor(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   deleteVendor: (id) => {
     set((s) => ({ vendors: s.vendors.filter((v) => v.id !== id) }));
-    db.deleteVendor(id).catch(() => {});
+    db.deleteVendor(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // POS Import
@@ -531,7 +531,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({ stores: [...s.stores, { ...store, id }] }));
     db.createStore(store).then((newId) => {
       set((s) => ({ stores: s.stores.map((st) => st.id === id ? { ...st, id: newId } : st) }));
-    }).catch(() => {});
+    }).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   updateStore: (id, updates) => {
@@ -540,7 +540,7 @@ export const useStore = create<FullStore>((set, get) => ({
       currentStore: s.currentStore.id === id ? { ...s.currentStore, ...updates } : s.currentStore,
     }));
     const { supabase } = require('../lib/supabase');
-    supabase.from('stores').update({ name: updates.name, address: updates.address }).eq('id', id).catch(() => {});
+    supabase.from('stores').update({ name: updates.name, address: updates.address }).eq('id', id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Users
@@ -621,7 +621,7 @@ export const useStore = create<FullStore>((set, get) => ({
   addAuditEvent: (event) => {
     const id = makeId('a', ++auditCounter);
     set((s) => ({ auditLog: [{ ...event, id }, ...s.auditLog] }));
-    db.addAuditEvent(event).catch(() => {});
+    db.addAuditEvent(event).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Computed
