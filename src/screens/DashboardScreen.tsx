@@ -74,18 +74,15 @@ export default function DashboardScreen() {
   const handleDeleteStore = async () => {
     if (!deleteStore || deleteConfirmName !== deleteStore.name) return;
     // Delete from Supabase + local
+    // Delete from Supabase
     try {
-      const { supabase } = await import('../lib/supabase');
-      await supabase.from('inventory_items').delete().eq('store_id', deleteStore.id);
-      await supabase.from('recipes').delete().eq('store_id', deleteStore.id);
-      await supabase.from('eod_submissions').delete().eq('store_id', deleteStore.id);
-      await supabase.from('waste_log').delete().eq('store_id', deleteStore.id);
-      await supabase.from('stores').delete().eq('id', deleteStore.id);
+      const dbModule = await import('../lib/db');
+      await dbModule.deleteStore(deleteStore.id);
     } catch {}
     // Remove from local state
-    const { useStore: getStore } = require('../store/useStore');
-    const state = getStore.getState();
-    getStore.setState({
+    const { useStore: getStoreRef } = require('../store/useStore');
+    const state = getStoreRef.getState();
+    getStoreRef.setState({
       stores: state.stores.filter((s: any) => s.id !== deleteStore.id),
       inventory: state.inventory.filter((i: any) => i.storeId !== deleteStore.id),
       recipes: state.recipes.filter((r: any) => r.storeId !== deleteStore.id),
@@ -93,8 +90,7 @@ export default function DashboardScreen() {
     // Switch to first remaining store
     const remaining = stores.filter((s) => s.id !== deleteStore.id);
     if (remaining.length > 0) {
-      const { setCurrentStore } = require('../store/useStore').useStore.getState();
-      setCurrentStore(remaining[0]);
+      state.setCurrentStore(remaining[0]);
     }
     setDeleteStore(null);
     setDeleteConfirmName('');

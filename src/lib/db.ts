@@ -15,6 +15,27 @@ export async function fetchStores(): Promise<Store[]> {
   }));
 }
 
+export async function createStore(store: Omit<Store, 'id'>): Promise<string> {
+  const { data, error } = await supabase
+    .from('stores')
+    .insert({ name: store.name, address: store.address, status: store.status || 'active' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function deleteStore(id: string): Promise<void> {
+  // Delete all related data first
+  await supabase.from('inventory_items').delete().eq('store_id', id);
+  await supabase.from('recipes').delete().eq('store_id', id);
+  await supabase.from('eod_submissions').delete().eq('store_id', id);
+  await supabase.from('waste_log').delete().eq('store_id', id);
+  await supabase.from('audit_log').delete().eq('store_id', id);
+  await supabase.from('user_stores').delete().eq('store_id', id);
+  await supabase.from('stores').delete().eq('id', id);
+}
+
 // ─── INVENTORY ────────────────────────────────────────────────────────────
 export async function fetchInventory(storeId: string): Promise<InventoryItem[]> {
   const { data, error } = await supabase

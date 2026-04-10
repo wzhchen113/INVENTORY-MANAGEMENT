@@ -150,6 +150,15 @@ export const useStore = create<FullStore>((set, get) => ({
     const sid = storeId || get().currentStore?.id;
     if (!sid) return;
     try {
+      // Always fetch stores from Supabase
+      const cloudStores = await db.fetchStores().catch(() => []);
+      if (cloudStores.length > 0) {
+        set({ stores: cloudStores });
+      }
+
+      // Skip per-store data fetch for "All Stores" view
+      if (sid === '__all__') return;
+
       const data = await db.fetchAllForStore(sid);
       // Cloud is the source of truth — always replace, even if empty
       set({
@@ -238,6 +247,7 @@ export const useStore = create<FullStore>((set, get) => ({
           : item
       ),
     }));
+    db.adjustItemStock(id, newStock, get().currentUser?.id || '').catch(() => {});
   },
 
   getItemStatus: (item) => {
@@ -507,6 +517,10 @@ export const useStore = create<FullStore>((set, get) => ({
   addStore: (store) => {
     const id = `s${Date.now()}`;
     set((s) => ({ stores: [...s.stores, { ...store, id }] }));
+    db.createStore(store).then((newId) => {
+      // Replace temp ID with real Supabase UUID
+      set((s) => ({ stores: s.stores.map((st) => st.id === id ? { ...st, id: newId } : st) }));
+    }).catch(() => {});
   },
 
   // Users
