@@ -82,13 +82,13 @@ export default function ItemsScreen() {
       costPerUnit: parseFloat(form.costPerUnit) || 0,
       currentStock: parseFloat(form.currentStock) || 0,
       parLevel: parseFloat(form.parLevel) || 0,
-      vendorId: 'v1', vendorName: form.vendorName,
+      vendorId: '', vendorName: form.vendorName,
       usagePerPortion: parseFloat(form.usagePerPortion) || 0,
       lastUpdatedBy: currentUser?.name || 'Admin',
       lastUpdatedAt: new Date().toLocaleTimeString(),
       eodRemaining: parseFloat(form.currentStock) || 0,
       averageDailyUsage: 0, safetyStock: 0,
-      storeId: 's1', expiryDate: '',
+      storeId: currentStore.id, expiryDate: '',
     };
     if (editItem) {
       updateItem(editItem.id, data);
