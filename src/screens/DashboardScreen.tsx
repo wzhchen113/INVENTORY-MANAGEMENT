@@ -128,7 +128,7 @@ export default function DashboardScreen() {
         <Text style={[styles.storeItemCount, { color: C.textTertiary }]}>
           {storeInventory.length} item{storeInventory.length !== 1 ? 's' : ''}
         </Text>
-        {isAdmin && (
+        {currentUser?.role === 'master' && (
           <TouchableOpacity style={[styles.addStoreBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowAddStore(true)}>
             <Ionicons name="add" size={14} color={C.bgPrimary} />
             <Text style={[styles.addStoreBtnText, { color: C.bgPrimary }]}>Add store</Text>
@@ -136,8 +136,8 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      {/* Store list with delete (All Stores view only) */}
-      {isAllStores && isAdmin && (
+      {/* Store list with delete (All Stores view, master only) */}
+      {isAllStores && currentUser?.role === 'master' && (
         <Card>
           <CardHeader title="Stores" />
           {stores.map((store) => {
