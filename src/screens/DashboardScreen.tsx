@@ -17,18 +17,13 @@ export default function DashboardScreen() {
   const nav = useNavigation<any>();
   const {
     currentUser, currentStore, stores, inventory, wasteLog,
-    eodSubmissions, getItemStatus, addStore,
+    eodSubmissions, getItemStatus,
   } = useStore();
 
   const C = useColors();
 
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const isAllStores = currentStore.id === ALL_STORES_ID;
-  const [showAddStore, setShowAddStore] = useState(false);
-  const [newStoreName, setNewStoreName] = useState('');
-  const [newStoreAddress, setNewStoreAddress] = useState('');
-  const [deleteStore, setDeleteStore] = useState<typeof stores[0] | null>(null);
-  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   // Filter data — show all stores or just current
   const storeInventory = useMemo(
@@ -71,47 +66,6 @@ export default function DashboardScreen() {
 
   const foodCostPct = storeInventory.length > 0 ? 31.4 : 0;
 
-  const handleDeleteStore = async () => {
-    if (!deleteStore || deleteConfirmName !== deleteStore.name) return;
-    // Delete from Supabase + local
-    // Delete from Supabase
-    try {
-      const dbModule = await import('../lib/db');
-      await dbModule.deleteStore(deleteStore.id);
-    } catch {}
-    // Remove from local state
-    const { useStore: getStoreRef } = require('../store/useStore');
-    const state = getStoreRef.getState();
-    getStoreRef.setState({
-      stores: state.stores.filter((s: any) => s.id !== deleteStore.id),
-      inventory: state.inventory.filter((i: any) => i.storeId !== deleteStore.id),
-      recipes: state.recipes.filter((r: any) => r.storeId !== deleteStore.id),
-    });
-    // Switch to first remaining store
-    const remaining = stores.filter((s) => s.id !== deleteStore.id);
-    if (remaining.length > 0) {
-      state.setCurrentStore(remaining[0]);
-    }
-    setDeleteStore(null);
-    setDeleteConfirmName('');
-  };
-
-  const handleAddStore = () => {
-    if (!newStoreName.trim()) {
-      if (Platform.OS === 'web') alert('Store name is required');
-      else Alert.alert('Error', 'Store name is required');
-      return;
-    }
-    addStore({
-      name: newStoreName.trim(),
-      address: newStoreAddress.trim(),
-      status: 'active',
-    });
-    setNewStoreName('');
-    setNewStoreAddress('');
-    setShowAddStore(false);
-  };
-
   return (
     <WebScrollView id="dashboard-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Store info bar */}
@@ -128,36 +82,8 @@ export default function DashboardScreen() {
         <Text style={[styles.storeItemCount, { color: C.textTertiary }]}>
           {storeInventory.length} item{storeInventory.length !== 1 ? 's' : ''}
         </Text>
-        {currentUser?.role === 'master' && (
-          <TouchableOpacity style={[styles.addStoreBtn, { backgroundColor: C.textPrimary }]} onPress={() => setShowAddStore(true)}>
-            <Ionicons name="add" size={14} color={C.bgPrimary} />
-            <Text style={[styles.addStoreBtnText, { color: C.bgPrimary }]}>Add store</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
-      {/* Store list with delete (All Stores view, master only) */}
-      {isAllStores && currentUser?.role === 'master' && (
-        <Card>
-          <CardHeader title="Stores" />
-          {stores.map((store) => {
-            const itemCount = inventory.filter((i) => i.storeId === store.id).length;
-            return (
-              <View key={store.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: C.borderLight }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: FontSize.sm, fontWeight: '500', color: C.textPrimary }}>{store.name}</Text>
-                  <Text style={{ fontSize: FontSize.xs, color: C.textTertiary }}>{store.address || 'No address'} · {itemCount} items</Text>
-                </View>
-                {stores.length > 1 && (
-                  <TouchableOpacity onPress={() => { setDeleteStore(store); setDeleteConfirmName(''); }}>
-                    <Ionicons name="trash-outline" size={16} color={C.danger} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })}
-        </Card>
-      )}
 
       {/* KPI Row */}
       <View style={styles.kpiRow}>
@@ -263,77 +189,6 @@ export default function DashboardScreen() {
 
       <View style={{ height: 40 }} />
 
-      {/* Add Store Modal */}
-      <Modal visible={showAddStore} animationType="slide" presentationStyle="pageSheet">
-        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Add store</Text>
-            <TouchableOpacity onPress={() => setShowAddStore(false)}>
-              <Text style={[styles.modalCancel, { color: C.info }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.modalBody}>
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Store name *</Text>
-              <TextInput
-                style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
-                value={newStoreName}
-                onChangeText={setNewStoreName}
-                placeholder="e.g. Downtown, Bel Air, Columbia"
-                placeholderTextColor={C.textTertiary}
-              />
-            </View>
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Address</Text>
-              <TextInput
-                style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
-                value={newStoreAddress}
-                onChangeText={setNewStoreAddress}
-                placeholder="123 Main St, City MD 21000"
-                placeholderTextColor={C.textTertiary}
-              />
-            </View>
-            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAddStore}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Add store</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Delete Store Confirmation Modal */}
-      <Modal visible={!!deleteStore} transparent animationType="fade">
-        <View style={styles.confirmOverlay}>
-          <View style={[styles.confirmBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
-            <Text style={[styles.confirmTitle, { color: C.danger }]}>Delete store</Text>
-            <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>
-              This will permanently delete <Text style={{ fontWeight: '700', color: C.textPrimary }}>"{deleteStore?.name}"</Text> and all its inventory, recipes, and history. This cannot be undone.
-            </Text>
-            <Text style={[styles.confirmMessage, { color: C.textSecondary, marginTop: Spacing.sm }]}>
-              Type the store name to confirm:
-            </Text>
-            <TextInput
-              style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, marginTop: Spacing.sm }]}
-              value={deleteConfirmName}
-              onChangeText={setDeleteConfirmName}
-              placeholder={deleteStore?.name || ''}
-              placeholderTextColor={C.textTertiary}
-              autoFocus
-            />
-            <View style={styles.confirmBtnRow}>
-              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.bgSecondary }]} onPress={() => { setDeleteStore(null); setDeleteConfirmName(''); }}>
-                <Text style={[styles.confirmBtnText, { color: C.textSecondary }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmBtn, { backgroundColor: C.danger }, deleteConfirmName !== deleteStore?.name && { opacity: 0.3 }]}
-                onPress={handleDeleteStore}
-                disabled={deleteConfirmName !== deleteStore?.name}
-              >
-                <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>Delete store</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </WebScrollView>
   );
 }
