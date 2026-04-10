@@ -208,7 +208,9 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
                 </Text>
               </View>
               <Text style={[sidebarStyles.userName, { color: C.textPrimary }]}>{currentUser.name}</Text>
-              <Text style={[sidebarStyles.userEmail, { color: C.textTertiary }]}>{currentUser.email}</Text>
+              {(currentUser.role === 'admin' || currentUser.role === 'master') && (
+                <Text style={[sidebarStyles.userEmail, { color: C.textTertiary }]}>{currentUser.email}</Text>
+              )}
               <View style={[sidebarStyles.roleBadge, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
                 <Text style={[sidebarStyles.roleText, { color: C.textSecondary }]}>
                   {currentUser.role === 'master' ? 'Master' : currentUser.role === 'admin' ? 'Admin' : 'Team member'}
