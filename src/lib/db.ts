@@ -48,23 +48,28 @@ export async function fetchInventory(storeId: string): Promise<InventoryItem[]> 
 }
 
 export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
+  // Sanitize FK fields — empty strings break UUID foreign keys
+  const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
+  const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
+  if (!storeId) throw new Error('Invalid store ID');
+
   const { data, error } = await supabase
     .from('inventory_items')
     .insert({
-      store_id: item.storeId,
+      store_id: storeId,
       name: item.name,
       category: item.category,
       unit: item.unit,
       cost_per_unit: item.costPerUnit,
       current_stock: item.currentStock,
       par_level: item.parLevel,
-      average_daily_usage: item.averageDailyUsage,
-      safety_stock: item.safetyStock,
-      vendor_id: item.vendorId || null,
-      usage_per_portion: item.usagePerPortion,
+      average_daily_usage: item.averageDailyUsage || 0,
+      safety_stock: item.safetyStock || 0,
+      vendor_id: vendorId,
+      usage_per_portion: item.usagePerPortion || 0,
       expiry_date: item.expiryDate || null,
       last_updated_by: null,
-      eod_remaining: item.currentStock,
+      eod_remaining: item.currentStock || 0,
       case_price: item.casePrice || 0,
       case_qty: item.caseQty || 1,
       sub_unit_size: item.subUnitSize || 1,
@@ -77,6 +82,10 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
 }
 
 export async function updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<void> {
+  // Skip if id is a local temp ID (not a UUID)
+  if (!id || id.length < 10) return;
+
+  const vendorId = updates.vendorId && updates.vendorId.length > 10 ? updates.vendorId : null;
   const { error } = await supabase
     .from('inventory_items')
     .update({
@@ -86,7 +95,7 @@ export async function updateInventoryItem(id: string, updates: Partial<Inventory
       cost_per_unit: updates.costPerUnit,
       current_stock: updates.currentStock,
       par_level: updates.parLevel,
-      vendor_id: updates.vendorId,
+      vendor_id: vendorId,
       usage_per_portion: updates.usagePerPortion,
       expiry_date: updates.expiryDate || null,
       case_price: updates.casePrice,
@@ -130,6 +139,7 @@ export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
 }
 
 export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> {
+  if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
   const { data, error } = await supabase
     .from('recipes')
     .insert({ store_id: recipe.storeId, menu_item: recipe.menuItem, category: recipe.category, sell_price: recipe.sellPrice })
@@ -324,8 +334,8 @@ export async function savePOSImport(
 
 // ─── DELETE INVENTORY ────────────────────────────────────────────────────
 export async function deleteInventoryItem(id: string): Promise<void> {
-  const { error } = await supabase.from('inventory_items').delete().eq('id', id);
-  if (error) throw error;
+  if (!id || id.length < 10) return; // Skip local temp IDs
+  await supabase.from('inventory_items').delete().eq('id', id);
 }
 
 // ─── UPDATE/DELETE RECIPE ────────────────────────────────────────────────
