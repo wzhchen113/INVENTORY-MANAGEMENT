@@ -15,7 +15,7 @@ const PREP_CATEGORIES = ['Marinades', 'Sauces', 'Bases', 'Seasonings', 'Prep'];
 
 export default function PrepRecipesScreen() {
   const {
-    prepRecipes, inventory, currentUser,
+    prepRecipes, inventory, currentUser, currentStore,
     addPrepRecipe, updatePrepRecipe, deletePrepRecipe,
     getPrepRecipeCost, getPrepRecipeCostPerUnit,
   } = useStore();
@@ -90,7 +90,7 @@ export default function PrepRecipesScreen() {
       yieldUnit: yieldUnit.trim(),
       notes: notes.trim(),
       ingredients: formIngredients,
-      storeId: 's1',
+      storeId: currentStore.id,
       createdBy: currentUser?.name || 'Admin',
       createdAt: new Date().toLocaleDateString(),
     };
