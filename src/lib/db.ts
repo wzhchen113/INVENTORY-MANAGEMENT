@@ -389,6 +389,7 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
 }
 
 export async function createPrepRecipe(recipe: any): Promise<string> {
+  if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
   const { data, error } = await supabase
     .from('prep_recipes')
     .insert({
@@ -398,9 +399,11 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
     })
     .select().single();
   if (error) throw error;
-  if (recipe.ingredients?.length > 0) {
+  // Only insert ingredients with valid UUIDs
+  const validIngs = (recipe.ingredients || []).filter((i: any) => i.itemId && i.itemId.length > 10);
+  if (validIngs.length > 0) {
     await supabase.from('prep_recipe_ingredients').insert(
-      recipe.ingredients.map((i: any) => ({
+      validIngs.map((i: any) => ({
         prep_recipe_id: data.id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
       }))
     );
