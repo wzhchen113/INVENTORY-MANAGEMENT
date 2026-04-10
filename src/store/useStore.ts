@@ -58,6 +58,7 @@ interface StoreActions {
 
   // Stores
   addStore: (store: Omit<Store, 'id'>) => void;
+  updateStore: (id: string, updates: Partial<Store>) => void;
 
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
@@ -529,9 +530,17 @@ export const useStore = create<FullStore>((set, get) => ({
     const id = `s${Date.now()}`;
     set((s) => ({ stores: [...s.stores, { ...store, id }] }));
     db.createStore(store).then((newId) => {
-      // Replace temp ID with real Supabase UUID
       set((s) => ({ stores: s.stores.map((st) => st.id === id ? { ...st, id: newId } : st) }));
     }).catch(() => {});
+  },
+
+  updateStore: (id, updates) => {
+    set((s) => ({
+      stores: s.stores.map((st) => st.id === id ? { ...st, ...updates } : st),
+      currentStore: s.currentStore.id === id ? { ...s.currentStore, ...updates } : s.currentStore,
+    }));
+    const { supabase } = require('../lib/supabase');
+    supabase.from('stores').update({ name: updates.name, address: updates.address }).eq('id', id).catch(() => {});
   },
 
   // Users

@@ -902,7 +902,7 @@ export function ReportsScreen() {
 // ─── USERS ──────────────────────────────────────────────────────────────────
 export function UsersScreen() {
   const C = useColors();
-  const { users, stores, inventory, currentUser, inviteUser, removeUser, addStore, addNotification, logout } = useStore();
+  const { users, stores, inventory, currentUser, inviteUser, removeUser, addStore, updateStore, addNotification, logout } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
@@ -910,19 +910,37 @@ export function UsersScreen() {
   const [cloudUsers, setCloudUsers] = useState<typeof users | null>(null);
 
   // Store management (master only)
-  const [showAddStore, setShowAddStore] = useState(false);
+  const [showStoreModal, setShowStoreModal] = useState(false);
+  const [editStoreTarget, setEditStoreTarget] = useState<typeof stores[0] | null>(null);
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddress, setNewStoreAddress] = useState('');
   const [deleteStoreTarget, setDeleteStoreTarget] = useState<typeof stores[0] | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
-  const handleAddStore = () => {
-    if (!newStoreName.trim()) return;
-    addStore({ name: newStoreName.trim(), address: newStoreAddress.trim(), status: 'active' });
+  const openAddStore = () => {
+    setEditStoreTarget(null);
     setNewStoreName('');
     setNewStoreAddress('');
-    setShowAddStore(false);
-    Toast.show({ type: 'success', text1: 'Store added', text2: `${newStoreName.trim()} has been created.`, visibilityTime: 3000 });
+    setShowStoreModal(true);
+  };
+
+  const openEditStore = (store: typeof stores[0]) => {
+    setEditStoreTarget(store);
+    setNewStoreName(store.name);
+    setNewStoreAddress(store.address || '');
+    setShowStoreModal(true);
+  };
+
+  const handleSaveStore = () => {
+    if (!newStoreName.trim()) return;
+    if (editStoreTarget) {
+      updateStore(editStoreTarget.id, { name: newStoreName.trim(), address: newStoreAddress.trim() });
+      Toast.show({ type: 'success', text1: 'Store updated', text2: `${newStoreName.trim()} has been saved.`, visibilityTime: 3000 });
+    } else {
+      addStore({ name: newStoreName.trim(), address: newStoreAddress.trim(), status: 'active' });
+      Toast.show({ type: 'success', text1: 'Store added', text2: `${newStoreName.trim()} has been created.`, visibilityTime: 3000 });
+    }
+    setShowStoreModal(false);
   };
 
   const handleDeleteStore = async () => {
@@ -1063,7 +1081,7 @@ export function UsersScreen() {
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md }}>
               <Text style={{ fontSize: FontSize.lg, fontWeight: '600', color: C.textPrimary }}>Stores ({stores.length})</Text>
-              <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.md }]} onPress={() => { setNewStoreName(''); setNewStoreAddress(''); setShowAddStore(true); }}>
+              <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.md }]} onPress={openAddStore}>
                 <Ionicons name="add" size={14} color={C.bgPrimary} />
                 <Text style={{ color: C.bgPrimary, fontSize: FontSize.xs, fontWeight: '500' }}>Add store</Text>
               </TouchableOpacity>
@@ -1077,11 +1095,16 @@ export function UsersScreen() {
                       <Text style={{ fontSize: FontSize.base, fontWeight: '500', color: C.textPrimary }}>{store.name}</Text>
                       <Text style={{ fontSize: FontSize.xs, color: C.textTertiary }}>{store.address || 'No address'} · {itemCount} items</Text>
                     </View>
-                    {stores.length > 1 && (
-                      <TouchableOpacity onPress={() => { setDeleteStoreTarget(store); setDeleteConfirmName(''); }}>
-                        <Ionicons name="trash-outline" size={16} color={C.danger} />
+                    <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                      <TouchableOpacity onPress={() => openEditStore(store)}>
+                        <Ionicons name="create-outline" size={16} color={C.textSecondary} />
                       </TouchableOpacity>
-                    )}
+                      {stores.length > 1 && (
+                        <TouchableOpacity onPress={() => { setDeleteStoreTarget(store); setDeleteConfirmName(''); }}>
+                          <Ionicons name="trash-outline" size={16} color={C.danger} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -1202,12 +1225,12 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      {/* Add Store Modal (master only) */}
-      <Modal visible={showAddStore} animationType="slide" presentationStyle="pageSheet">
+      {/* Add/Edit Store Modal (master only) */}
+      <Modal visible={showStoreModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
           <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Add store</Text>
-            <TouchableOpacity onPress={() => setShowAddStore(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editStoreTarget ? 'Edit store' : 'Add store'}</Text>
+            <TouchableOpacity onPress={() => setShowStoreModal(false)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <View style={{ padding: Spacing.lg }}>
             <View style={styles.formField}>
@@ -1230,8 +1253,8 @@ export function UsersScreen() {
                 placeholderTextColor={C.textTertiary}
               />
             </View>
-            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAddStore}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Add store</Text>
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSaveStore}>
+              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>{editStoreTarget ? 'Save changes' : 'Add store'}</Text>
             </TouchableOpacity>
           </View>
         </View>
