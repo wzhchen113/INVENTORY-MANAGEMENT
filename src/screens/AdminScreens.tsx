@@ -1115,7 +1115,9 @@ export function UsersScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.userName, { color: C.textPrimary }]}>{user.name}</Text>
                 {user.nickname ? <Text style={[styles.userEmail, { color: C.textSecondary }]}>"{user.nickname}"</Text> : null}
-                <Text style={[styles.userEmail, { color: C.textTertiary }]}>{user.email}</Text>
+                {isMaster || currentUser?.role === 'admin' ? (
+                  <Text style={[styles.userEmail, { color: C.textTertiary }]}>{user.email}</Text>
+                ) : null}
               </View>
               <Badge label={user.role === 'master' ? 'Master' : user.role === 'admin' ? 'Admin' : 'Store user'} variant={user.role === 'admin' || user.role === 'master' ? 'admin' : 'user'} />
             </View>
