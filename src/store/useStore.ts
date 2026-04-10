@@ -102,10 +102,10 @@ let userCounter = USERS.length + 1;
 const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
 
 export const useStore = create<FullStore>((set, get) => ({
-  // Initial state — start logged out, login via Supabase auth
+  // Initial state — start logged out, all data loaded from Supabase after login
   currentUser: null,
-  currentStore: STORES[0],
-  stores: STORES,
+  currentStore: { id: '', name: '', address: '', status: 'active' as const },
+  stores: [],
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
@@ -132,10 +132,21 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Auth
   login: (user) => {
-    const userStore = STORES.find((s) => user.stores.includes(s.id)) || STORES[0];
-    set({ currentUser: user, currentStore: userStore });
-    // Load cloud data after login
-    get().loadFromSupabase(userStore.id);
+    set({ currentUser: user });
+    // Fetch stores from Supabase, then set current store and load data
+    db.fetchStores().then((cloudStores) => {
+      const allStores = cloudStores.length > 0 ? cloudStores : get().stores;
+      const userStore = allStores.find((s) => user.stores.includes(s.id)) || allStores[0];
+      if (allStores.length > 0) set({ stores: allStores });
+      if (userStore) {
+        set({ currentStore: userStore });
+        get().loadFromSupabase(userStore.id);
+      }
+    }).catch(() => {
+      // Fallback to local stores
+      const localStore = get().stores.find((s) => user.stores.includes(s.id)) || get().stores[0];
+      if (localStore) set({ currentStore: localStore });
+    });
   },
   logout: () => {
     set({ currentUser: null });
