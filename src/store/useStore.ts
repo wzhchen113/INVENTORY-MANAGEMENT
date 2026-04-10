@@ -195,7 +195,7 @@ export const useStore = create<FullStore>((set, get) => ({
     const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
     // Sync to Supabase
-    db.createInventoryItem(item).catch(() => {});
+    db.createInventoryItem(item).catch((e) => console.warn('[Supabase] createItem failed:', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
