@@ -201,8 +201,8 @@ export const useStore = create<FullStore>((set, get) => ({
       userId: get().currentUser?.id || '',
       userName: get().currentUser?.name || '',
       userRole: get().currentUser?.role || 'user',
-      storeId: get().currentStore.id,
-      storeName: get().currentStore.name,
+      storeId: item.storeId || get().currentStore.id,
+      storeName: get().stores.find((s) => s.id === item.storeId)?.name || get().currentStore.name,
       action: 'Item added',
       detail: 'New item created',
       itemRef: item.name,
@@ -617,10 +617,8 @@ export const useStore = create<FullStore>((set, get) => ({
     set({ notifications: [] });
   },
 
-  // Audit
+  // Audit — write only to Supabase, loaded on next refresh via loadFromSupabase
   addAuditEvent: (event) => {
-    const id = makeId('a', ++auditCounter);
-    set((s) => ({ auditLog: [{ ...event, id }, ...s.auditLog] }));
     db.addAuditEvent(event).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
