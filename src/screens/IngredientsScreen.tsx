@@ -655,30 +655,27 @@ export default function IngredientsScreen() {
               />
             </View>
 
-            {/* Category */}
+            {/* Category + Unit + Vendor — compact row layout */}
             <View style={styles.formField}>
               <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
-                  {CATEGORIES.map((cat) => (
-                    <TouchableOpacity
-                      key={cat}
-                      style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.category === cat && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                      onPress={() => setForm((p) => ({ ...p, category: cat }))}
-                    >
-                      <Text style={[styles.chipText, { color: C.textSecondary }, form.category === cat && { color: C.bgPrimary }]}>
-                        {cat}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
+              <View style={styles.chipRow}>
+                {CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.category === cat && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                    onPress={() => setForm((p) => ({ ...p, category: cat }))}
+                  >
+                    <Text style={[styles.chipText, { color: C.textSecondary }, form.category === cat && { color: C.bgPrimary }]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
 
-            {/* Unit */}
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Unit</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Unit</Text>
                 <View style={styles.chipRow}>
                   {UNITS.map((u) => (
                     <TouchableOpacity
@@ -692,20 +689,11 @@ export default function IngredientsScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-              </ScrollView>
-            </View>
+              </View>
 
-            {/* Vendor */}
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor</Text>
                 <View style={styles.chipRow}>
-                  <TouchableOpacity
-                    style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !form.vendorId && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                    onPress={() => setForm((p) => ({ ...p, vendorId: '', vendorName: '' }))}
-                  >
-                    <Text style={[styles.chipText, { color: C.textSecondary }, !form.vendorId && { color: C.bgPrimary }]}>None</Text>
-                  </TouchableOpacity>
                   {vendors.map((v) => (
                     <TouchableOpacity
                       key={v.id}
@@ -718,7 +706,7 @@ export default function IngredientsScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-              </ScrollView>
+              </View>
             </View>
 
             {/* Packaging & Pricing */}
@@ -922,7 +910,7 @@ export default function IngredientsScreen() {
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
             {CATEGORIES.map((cat) => (
-              <TouchableOpacity key={cat} style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkCategory === cat && { backgroundColor: C.textPrimary }]}
+              <TouchableOpacity key={cat} style={[styles.bulkChipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkCategory === cat && { backgroundColor: C.textPrimary }]}
                 onPress={() => setBulkCategory(cat)}>
                 <Text style={[styles.chipText, { color: C.textSecondary }, bulkCategory === cat && { color: C.bgPrimary }]}>{cat}</Text>
               </TouchableOpacity>
@@ -942,12 +930,12 @@ export default function IngredientsScreen() {
             <TouchableOpacity onPress={() => setBulkModal(null)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            <TouchableOpacity style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !bulkVendorId && bulkVendorName === '' && { backgroundColor: C.textPrimary }]}
+            <TouchableOpacity style={[styles.bulkChipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, !bulkVendorId && bulkVendorName === '' && { backgroundColor: C.textPrimary }]}
               onPress={() => { setBulkVendorId(''); setBulkVendorName(''); }}>
               <Text style={[styles.chipText, { color: C.textSecondary }, !bulkVendorId && bulkVendorName === '' && { color: C.bgPrimary }]}>None</Text>
             </TouchableOpacity>
             {vendors.map((v) => (
-              <TouchableOpacity key={v.id} style={[styles.chipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkVendorId === v.id && { backgroundColor: C.textPrimary }]}
+              <TouchableOpacity key={v.id} style={[styles.bulkChipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkVendorId === v.id && { backgroundColor: C.textPrimary }]}
                 onPress={() => { setBulkVendorId(v.id); setBulkVendorName(v.name); }}>
                 <Text style={[styles.chipText, { color: C.textSecondary }, bulkVendorId === v.id && { color: C.bgPrimary }]}>{v.name}</Text>
               </TouchableOpacity>
@@ -1036,7 +1024,7 @@ const styles = StyleSheet.create({
   formField: { marginBottom: Spacing.lg },
   formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 6 },
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
-  chipRow: { flexDirection: 'row', gap: 6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight },
   chipActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   chipText: { fontSize: FontSize.xs, color: Colors.textSecondary },
@@ -1075,7 +1063,7 @@ const styles = StyleSheet.create({
   bulkToolbar: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5 },
   bulkBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: Radius.md },
   bulkBtnText: { fontSize: FontSize.xs, fontWeight: '500' },
-  chipRow: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: Radius.md, marginBottom: 6, borderWidth: 0.5 },
+  bulkChipRow: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: Radius.md, marginBottom: 6, borderWidth: 0.5 },
   miniChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.round, borderWidth: 0.5 },
   miniChipText: { fontSize: 10, fontWeight: '500' },
   priceSummary: { borderWidth: 0.5, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
