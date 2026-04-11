@@ -428,7 +428,7 @@ export default function IngredientsScreen() {
         </View>
         <View style={styles.rowRight}>
           <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
-          <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
+          <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.subUnitUnit || item.unit}</Text>
         </View>
         {isAdmin && !bulkMode && (
           <TouchableOpacity style={[styles.rowEditBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
