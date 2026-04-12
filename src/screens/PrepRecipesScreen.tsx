@@ -37,16 +37,40 @@ export default function PrepRecipesScreen() {
   const [formIngredients, setFormIngredients] = useState<PrepRecipeIngredient[]>([]);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
-  // Two-tier state for scaling: base = original from DB, draft = what user sees
-  const [baseYield, setBaseYield] = useState(0);
-  const [baseIngredients, setBaseIngredients] = useState<PrepRecipeIngredient[]>([]);
+  // Auto-calculate yield from ingredients (bottom-up)
+  const calculatedYield = useMemo(() => {
+    if (formIngredients.length === 0) return { quantity: 0, unit: 'fl_oz' as string };
+    const { smartToBase } = require('../utils/unitConversion');
 
-  // Scaling factor: current yield / base yield
-  const scalingFactor = useMemo(() => {
-    const currentYield = parseFloat(yieldQty) || 0;
-    if (baseYield <= 0 || currentYield <= 0) return 1;
-    return currentYield / baseYield;
-  }, [yieldQty, baseYield]);
+    // Sum all ingredient base quantities, grouped by type (weight vs volume)
+    let totalGrams = 0;
+    let totalFlOz = 0;
+    for (const ing of formIngredients) {
+      const base = ing.baseQuantity > 0
+        ? { quantity: ing.baseQuantity, unit: ing.baseUnit || 'g' }
+        : smartToBase(ing.quantity, ing.unit);
+      if (base.unit === 'fl_oz') totalFlOz += base.quantity;
+      else totalGrams += base.quantity;
+    }
+
+    // Determine dominant unit type
+    if (totalFlOz > 0 && totalGrams === 0) {
+      // All volume — show in best display unit
+      if (totalFlOz >= 128) return { quantity: parseFloat((totalFlOz / 128).toFixed(3)), unit: 'gal' };
+      if (totalFlOz >= 32) return { quantity: parseFloat((totalFlOz / 32).toFixed(3)), unit: 'qt' };
+      return { quantity: parseFloat(totalFlOz.toFixed(3)), unit: 'fl_oz' };
+    }
+    if (totalGrams > 0 && totalFlOz === 0) {
+      // All weight — show in best display unit
+      if (totalGrams >= 453.592) return { quantity: parseFloat((totalGrams / 453.592).toFixed(3)), unit: 'lbs' };
+      if (totalGrams >= 28.35) return { quantity: parseFloat((totalGrams / 28.3495).toFixed(3)), unit: 'oz' };
+      return { quantity: parseFloat(totalGrams.toFixed(3)), unit: 'g' };
+    }
+    // Mixed — show weight (more common for prep)
+    const total = totalGrams + totalFlOz * 29.5735; // rough fl_oz to grams
+    if (total >= 453.592) return { quantity: parseFloat((total / 453.592).toFixed(3)), unit: 'lbs' };
+    return { quantity: parseFloat(total.toFixed(3)), unit: 'g' };
+  }, [formIngredients]);
 
   // Build ingredient-name → Set<storeId> map (O(1) lookup)
   const ingredientStoreMap = useMemo(() => {
@@ -103,9 +127,6 @@ export default function PrepRecipesScreen() {
     setYieldUnit(pr.yieldUnit);
     setNotes(pr.notes);
     setFormIngredients([...pr.ingredients]);
-    // Set base state (source of truth — never mutated during scaling)
-    setBaseYield(pr.yieldQuantity);
-    setBaseIngredients([...pr.ingredients]);
     // Find all stores that have this prep recipe
     const storesWithRecipe = prepRecipes
       .filter((p) => p.name.toLowerCase() === pr.name.toLowerCase())
@@ -114,36 +135,11 @@ export default function PrepRecipesScreen() {
     setShowModal(true);
   };
 
-  // When yield changes, scale all ingredients from base state
-  const handleYieldChange = (v: string) => {
-    const val = numericFilter(v);
-    setYieldQty(val);
-    const newYield = parseFloat(val) || 0;
-    if (baseYield > 0 && newYield > 0 && baseIngredients.length > 0) {
-      const factor = newYield / baseYield;
-      const { smartFromBase } = require('../utils/unitConversion');
-      setFormIngredients(baseIngredients.map((ing) => {
-        // Scale the absolute base quantity (source of truth — no rounding drift)
-        const scaledBase = (ing.baseQuantity || 0) * factor;
-        // Derive display quantity FROM scaled base using unit conversion
-        const displayQty = ing.baseQuantity > 0
-          ? smartFromBase(scaledBase, ing.baseUnit || 'g', ing.unit)
-          : ing.quantity * factor;
-        return {
-          ...ing,
-          quantity: parseFloat(displayQty.toFixed(3)),
-          baseQuantity: parseFloat(scaledBase.toFixed(3)),
-        };
-      }));
-    }
-  };
-
   const [dupWarning, setDupWarning] = useState('');
 
   const handleSave = () => {
     if (!name.trim()) { Alert.alert('Error', 'Name required'); return; }
-    if (!yieldQty || parseFloat(yieldQty) <= 0) { Alert.alert('Error', 'Yield quantity required'); return; }
-    if (!yieldUnit.trim()) { Alert.alert('Error', 'Yield unit required'); return; }
+    if (formIngredients.length === 0) { Alert.alert('Error', 'Add at least one ingredient'); return; }
 
     const trimmedName = name.trim().toLowerCase();
     const duplicate = prepRecipes.some(
@@ -166,14 +162,14 @@ export default function PrepRecipesScreen() {
     if (editingId) {
       updatePrepRecipe(editingId, {
         name: name.trim(), category,
-        yieldQuantity: parseFloat(yieldQty), yieldUnit: yieldUnit.trim(),
+        yieldQuantity: calculatedYield.quantity, yieldUnit: calculatedYield.unit,
         notes: notes.trim(), ingredients: formIngredients,
       });
     } else {
       for (const storeId of validStores) {
         addPrepRecipe({
           name: name.trim(), category,
-          yieldQuantity: parseFloat(yieldQty), yieldUnit: yieldUnit.trim(),
+          yieldQuantity: calculatedYield.quantity, yieldUnit: calculatedYield.unit,
           notes: notes.trim(), ingredients: formIngredients,
           storeId,
           createdBy: currentUser?.name || 'Admin',
@@ -386,39 +382,16 @@ export default function PrepRecipesScreen() {
               ))}
             </View>
 
-            <View style={styles.yieldRow}>
+            {/* Auto-calculated yield (read-only) */}
+            <View style={[styles.yieldRow, { backgroundColor: C.bgSecondary, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md }]}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Yield quantity</Text>
-                <TextInput
-                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-                  value={yieldQty}
-                  onChangeText={handleYieldChange}
-                  keyboardType="decimal-pad"
-                  placeholder="40"
-                  placeholderTextColor={C.textTertiary}
-                />
-              </View>
-              <View style={{ width: Spacing.sm }} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Yield unit</Text>
-                <TextInput
-                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-                  value={yieldUnit}
-                  onChangeText={setYieldUnit}
-                  placeholder="lb"
-                  placeholderTextColor={C.textTertiary}
-                />
-              </View>
-            </View>
-
-            {/* Scaling indicator */}
-            {editingId && scalingFactor !== 1 && (
-              <View style={{ backgroundColor: C.infoBg, borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-                <Text style={{ fontSize: FontSize.xs, color: C.info, fontWeight: '500' }}>
-                  Scaling: {scalingFactor.toFixed(2)}x — ingredients auto-adjusted from base recipe
+                <Text style={[styles.formLabel, { color: C.textTertiary, marginBottom: 2 }]}>Total yield (auto-calculated)</Text>
+                <Text style={{ fontSize: FontSize.lg, fontWeight: '700', color: C.textPrimary }}>
+                  {calculatedYield.quantity > 0 ? `${calculatedYield.quantity} ${calculatedYield.unit}` : 'Add ingredients to calculate'}
                 </Text>
               </View>
-            )}
+              <Ionicons name="calculator-outline" size={20} color={C.textTertiary} />
+            </View>
 
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Notes</Text>
             <TextInput
