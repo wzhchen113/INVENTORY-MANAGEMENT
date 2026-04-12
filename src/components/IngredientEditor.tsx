@@ -131,10 +131,33 @@ export default function IngredientEditor({
         <Text style={[styles.sectionLabel, { color: C.textTertiary }]}>INGREDIENTS</Text>
       )}
       {ingredients.map((ing, idx) => {
-        const invItem = availableItems.find((i) => i.id === ing.itemId);
+        const invItem = availableItems.find((i) => i.id === ing.itemId) ||
+          availableItems.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
         const baseUnit = invItem?.unit || ing.unit;
-        const compatUnits = getCompatibleUnits(baseUnit);
+
+        // Build full unit list: standard compatible + the abstract purchase unit
+        const standardUnits = getCompatibleUnits(baseUnit);
+        const abstractUnits = ['each', 'cases', 'bags', 'loaves'];
+        const isAbstract = abstractUnits.includes(baseUnit.toLowerCase());
+
+        // If item uses abstract unit, offer both the abstract unit AND standard weight/volume
+        let allUnits: string[];
+        if (isAbstract) {
+          // Determine weight or volume group from subUnitUnit or default to weight
+          const subUnit = invItem?.subUnitUnit || '';
+          const weightUnits = ['lbs', 'oz', 'g', 'kg'];
+          const volumeUnits = ['gal', 'qt', 'fl_oz'];
+          const standardGroup = volumeUnits.includes(subUnit.toLowerCase()) ? volumeUnits : weightUnits;
+          allUnits = [baseUnit, ...standardGroup.filter((u) => u !== baseUnit)];
+        } else {
+          allUnits = standardUnits;
+        }
+
+        // Conversion hint
         const converted = ing.unit !== baseUnit ? convertQuantity(ing.quantity, ing.unit, baseUnit) : null;
+        // For abstract → standard, show base quantity conversion
+        const showBaseHint = ing.baseQuantity > 0 && ing.unit !== (ing.baseUnit || 'g');
+
         return (
           <View key={`ing-${idx}`}>
             <View style={[styles.row, { backgroundColor: C.bgSecondary }]}>
@@ -146,30 +169,29 @@ export default function IngredientEditor({
                 keyboardType="decimal-pad"
                 placeholderTextColor={C.textTertiary}
               />
-              {compatUnits.length > 1 ? (
-                <View style={styles.unitChips}>
-                  {compatUnits.map((u) => (
-                    <TouchableOpacity
-                      key={u}
-                      style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, ing.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                      onPress={() => updateIngredientUnit(idx, u)}
-                    >
-                      <Text style={[styles.unitChipText, { color: C.textSecondary }, ing.unit === u && { color: C.bgPrimary }]}>{u}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : (
-                <View style={[styles.unitLabel, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
-                  <Text style={[styles.unitLabelText, { color: C.textSecondary }]}>{ing.unit}</Text>
-                </View>
-              )}
+              <View style={styles.unitChips}>
+                {allUnits.map((u) => (
+                  <TouchableOpacity
+                    key={u}
+                    style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, ing.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                    onPress={() => updateIngredientUnit(idx, u)}
+                  >
+                    <Text style={[styles.unitChipText, { color: C.textSecondary }, ing.unit === u && { color: C.bgPrimary }]}>{u}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <TouchableOpacity onPress={() => removeIngredient(idx)} style={styles.removeBtn}>
                 <Ionicons name="close-circle" size={20} color={C.danger} />
               </TouchableOpacity>
             </View>
             {converted !== null && (
               <Text style={[styles.conversionHint, { color: C.textTertiary }]}>
-                = {converted.toFixed(2)} {baseUnit} (inventory unit)
+                = {converted.toFixed(3)} {baseUnit} (inventory unit)
+              </Text>
+            )}
+            {showBaseHint && !converted && (
+              <Text style={[styles.conversionHint, { color: C.textTertiary }]}>
+                = {(ing.baseUnit === 'g' ? (ing.baseQuantity / 453.592).toFixed(3) + ' lbs' : (ing.baseQuantity / 128).toFixed(3) + ' gal')} (base)
               </Text>
             )}
           </View>
@@ -184,6 +206,8 @@ export default function IngredientEditor({
         const prepRecipe = availablePrepRecipes.find((p) => p.id === prep.prepRecipeId);
         const baseUnit = prepRecipe?.yieldUnit || prep.unit;
         const compatUnits = getCompatibleUnits(baseUnit);
+        // Always show unit chips — at minimum the current unit
+        const allPrepUnits = compatUnits.length > 1 ? compatUnits : [prep.unit];
         const converted = prep.unit !== baseUnit ? convertQuantity(prep.quantity, prep.unit, baseUnit) : null;
         return (
           <View key={`prep-${idx}`}>
@@ -199,23 +223,17 @@ export default function IngredientEditor({
                 keyboardType="decimal-pad"
                 placeholderTextColor={C.textTertiary}
               />
-              {compatUnits.length > 1 ? (
-                <View style={styles.unitChips}>
-                  {compatUnits.map((u) => (
-                    <TouchableOpacity
-                      key={u}
-                      style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, prep.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                      onPress={() => updatePrepUnit(idx, u)}
-                    >
-                      <Text style={[styles.unitChipText, { color: C.textSecondary }, prep.unit === u && { color: C.bgPrimary }]}>{u}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : (
-                <View style={[styles.unitLabel, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
-                  <Text style={[styles.unitLabelText, { color: C.textSecondary }]}>{prep.unit}</Text>
-                </View>
-              )}
+              <View style={styles.unitChips}>
+                {allPrepUnits.map((u) => (
+                  <TouchableOpacity
+                    key={u}
+                    style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, prep.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                    onPress={() => updatePrepUnit(idx, u)}
+                  >
+                    <Text style={[styles.unitChipText, { color: C.textSecondary }, prep.unit === u && { color: C.bgPrimary }]}>{u}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <TouchableOpacity onPress={() => removePrepItem(idx)} style={styles.removeBtn}>
                 <Ionicons name="close-circle" size={20} color={C.danger} />
               </TouchableOpacity>
