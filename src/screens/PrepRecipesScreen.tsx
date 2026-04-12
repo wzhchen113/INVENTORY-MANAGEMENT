@@ -4,8 +4,9 @@ import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
   TextInput, StyleSheet, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { numericFilter } from '../utils';
+import { numericFilter, toCSV, downloadCSV } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
@@ -152,9 +153,26 @@ export default function PrepRecipesScreen() {
       {/* List */}
       <WebScrollView id="prep-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         {isAdmin && (
-          <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openNew}>
-            <Text style={[styles.addRowText, { color: C.info }]}>+ New prep recipe</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md }}>
+            <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, flex: 1, marginBottom: 0 }]} onPress={openNew}>
+              <Text style={[styles.addRowText, { color: C.info }]}>+ New prep recipe</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ backgroundColor: C.bgPrimary, borderRadius: Radius.md, borderWidth: 0.5, borderColor: C.borderLight, width: 40, alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => {
+                const rows = prepRecipes.map((pr) => ({
+                  Name: pr.name, Category: pr.category,
+                  'Yield Qty': pr.yieldQuantity, 'Yield Unit': pr.yieldUnit,
+                  Notes: pr.notes,
+                  Ingredients: pr.ingredients.map((i) => `${i.itemName} (${i.quantity} ${i.unit})`).join('; '),
+                }));
+                const csv = toCSV(rows, ['Name','Category','Yield Qty','Yield Unit','Notes','Ingredients']);
+                downloadCSV(`prep_recipes_${new Date().toISOString().split('T')[0]}.csv`, csv);
+              }}
+            >
+              <Ionicons name="download-outline" size={18} color={C.textSecondary} />
+            </TouchableOpacity>
+          </View>
         )}
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>

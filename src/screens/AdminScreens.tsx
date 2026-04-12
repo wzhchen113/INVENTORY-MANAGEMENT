@@ -8,7 +8,7 @@ import {
   FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
-import { numericFilter } from '../utils';
+import { numericFilter, toCSV, downloadCSV } from '../utils';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
@@ -257,9 +257,26 @@ export function RecipesScreen() {
       </View>
 
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
-          <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md }}>
+          <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, flex: 1, marginBottom: 0 }]} onPress={openAdd}>
+            <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: C.bgPrimary, borderRadius: Radius.md, borderWidth: 0.5, borderColor: C.borderLight, width: 40, alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => {
+              const rows = storeRecipes.map((r) => ({
+                'Menu Item': r.menuItem, Category: r.category, 'Sell Price': r.sellPrice.toFixed(2),
+                'Food Cost': getRecipeCost(r.id).toFixed(2),
+                'Food Cost %': getRecipeFoodCostPct(r.id).toFixed(1) + '%',
+                Ingredients: r.ingredients.map((i) => `${i.itemName} (${i.quantity} ${i.unit})`).join('; '),
+              }));
+              const csv = toCSV(rows, ['Menu Item','Category','Sell Price','Food Cost','Food Cost %','Ingredients']);
+              downloadCSV(`recipes_${currentStore.name}_${new Date().toISOString().split('T')[0]}.csv`, csv);
+            }}
+          >
+            <Ionicons name="download-outline" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+        </View>
         {filteredRecipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
