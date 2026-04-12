@@ -181,7 +181,7 @@ export default function IngredientsScreen() {
       if (catFilter && item.category !== catFilter) return false;
       if (vendorFilter && item.vendorName !== vendorFilter) return false;
       return true;
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name));
   }, [storeInventory, search, catFilter, vendorFilter]);
 
   const categoryCounts = useMemo(() => {
@@ -511,7 +511,7 @@ export default function IngredientsScreen() {
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
-          {CATEGORIES.filter((c) => categoryCounts[c]).map((cat) => {
+          {[...CATEGORIES].sort().filter((c) => categoryCounts[c]).map((cat) => {
             const isActive = catFilter === cat;
             return (
               <TouchableOpacity
@@ -688,7 +688,7 @@ export default function IngredientsScreen() {
             <View style={styles.formField}>
               <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
               <View style={styles.chipRow}>
-                {CATEGORIES.map((cat) => (
+                {[...CATEGORIES].sort().map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.category === cat && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
@@ -723,7 +723,7 @@ export default function IngredientsScreen() {
               <View style={[styles.formField, { flex: 1 }]}>
                 <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor</Text>
                 <View style={styles.chipRow}>
-                  {vendors.map((v) => (
+                  {[...vendors].sort((a, b) => a.name.localeCompare(b.name)).map((v) => (
                     <TouchableOpacity
                       key={v.id}
                       style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.vendorId === v.id && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
@@ -938,7 +938,7 @@ export default function IngredientsScreen() {
             <TouchableOpacity onPress={() => setBulkModal(null)}><Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            {CATEGORIES.map((cat) => (
+            {[...CATEGORIES].sort().map((cat) => (
               <TouchableOpacity key={cat} style={[styles.bulkChipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkCategory === cat && { backgroundColor: C.textPrimary }]}
                 onPress={() => setBulkCategory(cat)}>
                 <Text style={[styles.chipText, { color: C.textSecondary }, bulkCategory === cat && { color: C.bgPrimary }]}>{cat}</Text>
@@ -963,7 +963,7 @@ export default function IngredientsScreen() {
               onPress={() => { setBulkVendorId(''); setBulkVendorName(''); }}>
               <Text style={[styles.chipText, { color: C.textSecondary }, !bulkVendorId && bulkVendorName === '' && { color: C.bgPrimary }]}>None</Text>
             </TouchableOpacity>
-            {vendors.map((v) => (
+            {[...vendors].sort((a, b) => a.name.localeCompare(b.name)).map((v) => (
               <TouchableOpacity key={v.id} style={[styles.bulkChipRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, bulkVendorId === v.id && { backgroundColor: C.textPrimary }]}
                 onPress={() => { setBulkVendorId(v.id); setBulkVendorName(v.name); }}>
                 <Text style={[styles.chipText, { color: C.textSecondary }, bulkVendorId === v.id && { color: C.bgPrimary }]}>{v.name}</Text>
@@ -1019,7 +1019,7 @@ export default function IngredientsScreen() {
               </View>
             ) : null}
 
-            {CATEGORIES.map((cat) => {
+            {[...CATEGORIES].sort().map((cat) => {
               const inUse = inventory.some((i) => i.category === cat);
               const isEditing = editingCat === cat;
               return (
