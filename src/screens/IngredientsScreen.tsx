@@ -11,15 +11,15 @@ import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
 
-const CATEGORIES = [
-  'Protein', 'Seafood', 'Produce', 'Dairy',
-  'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts',
-];
-
 const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
 
 export default function IngredientsScreen() {
-  const { currentUser, currentStore, stores, inventory, vendors, addItem, updateItem, deleteItem } = useStore();
+  const {
+    currentUser, currentStore, stores, inventory, vendors,
+    ingredientCategories, addIngredientCategory, updateIngredientCategory, deleteIngredientCategory,
+    addItem, updateItem, deleteItem,
+  } = useStore();
+  const CATEGORIES = ingredientCategories;
   const C = useColors();
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
 
@@ -33,6 +33,13 @@ export default function IngredientsScreen() {
   const [vendorFilter, setVendorFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+
+  // Category management state
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catWarning, setCatWarning] = useState('');
 
   // Bulk mode state
   const [bulkMode, setBulkMode] = useState(false);
@@ -494,8 +501,8 @@ export default function IngredientsScreen() {
       </View>
 
       {/* Category pills */}
-      <View style={styles.pillWrapper}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+      <View style={[styles.pillWrapper, { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
             onPress={() => setCatFilter('')}
@@ -519,6 +526,11 @@ export default function IngredientsScreen() {
             );
           })}
         </ScrollView>
+        {isAdmin && (
+          <TouchableOpacity onPress={() => { setNewCatName(''); setEditingCat(null); setCatWarning(''); setShowCatModal(true); }}>
+            <Ionicons name="settings-outline" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Vendor pills */}
@@ -960,6 +972,119 @@ export default function IngredientsScreen() {
             <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={applyBulkVendor}>
               <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Apply to {selectedIds.size} item(s)</Text>
             </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Manage Ingredient Categories Modal */}
+      <Modal visible={showCatModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Manage categories</Text>
+            <TouchableOpacity onPress={() => setShowCatModal(false)}>
+              <Text style={[styles.modalClose, { color: C.info }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg }}>
+              <TextInput
+                style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={newCatName}
+                onChangeText={setNewCatName}
+                placeholder="New category name"
+                placeholderTextColor={C.textTertiary}
+              />
+              <TouchableOpacity
+                style={{ backgroundColor: C.textPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.lg, justifyContent: 'center', opacity: newCatName.trim() ? 1 : 0.4 }}
+                onPress={() => {
+                  const name = newCatName.trim();
+                  if (!name) return;
+                  if (CATEGORIES.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                    setCatWarning(`Category "${name}" already exists.`);
+                    return;
+                  }
+                  setCatWarning('');
+                  addIngredientCategory(name);
+                  setNewCatName('');
+                }}
+                disabled={!newCatName.trim()}
+              >
+                <Text style={{ color: C.bgPrimary, fontSize: FontSize.sm, fontWeight: '600' }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            {catWarning ? (
+              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+                <Text style={[styles.dupWarningText, { color: C.warning }]}>{catWarning}</Text>
+              </View>
+            ) : null}
+
+            {CATEGORIES.map((cat) => {
+              const inUse = inventory.some((i) => i.category === cat);
+              const isEditing = editingCat === cat;
+              return (
+                <View key={cat} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: C.borderLight }}>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.formInput, { flex: 1, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                      value={editingCatName}
+                      onChangeText={setEditingCatName}
+                      autoFocus
+                    />
+                  ) : (
+                    <Text style={{ flex: 1, fontSize: FontSize.base, fontWeight: '500', color: C.textPrimary }}>{cat}</Text>
+                  )}
+                  {inUse && !isEditing && (
+                    <Text style={{ fontSize: FontSize.xs, color: C.textTertiary }}>
+                      {inventory.filter((i) => i.category === cat).length} items
+                    </Text>
+                  )}
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    {isEditing ? (
+                      <>
+                        <TouchableOpacity onPress={() => {
+                          const name = editingCatName.trim();
+                          if (!name) return;
+                          if (name !== cat && CATEGORIES.some((c) => c.toLowerCase() === name.toLowerCase())) {
+                            setCatWarning(`Category "${name}" already exists.`);
+                            return;
+                          }
+                          setCatWarning('');
+                          updateIngredientCategory(cat, name);
+                          if (catFilter === cat) setCatFilter(name);
+                          setEditingCat(null);
+                        }}>
+                          <Ionicons name="checkmark-circle" size={22} color={C.success} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setEditingCat(null)}>
+                          <Ionicons name="close-circle" size={22} color={C.textTertiary} />
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity onPress={() => { setEditingCat(cat); setEditingCatName(cat); }}>
+                          <Ionicons name="pencil-outline" size={18} color={C.textSecondary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (inUse) {
+                              setCatWarning(`Cannot delete "${cat}" — used by ${inventory.filter((i) => i.category === cat).length} item(s).`);
+                              return;
+                            }
+                            setCatWarning('');
+                            deleteIngredientCategory(cat);
+                            if (catFilter === cat) setCatFilter('');
+                          }}
+                          style={{ opacity: inUse ? 0.3 : 1 }}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={C.danger} />
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </ScrollView>
         </View>
       </Modal>

@@ -242,6 +242,7 @@ export interface AppState {
   inventory: InventoryItem[];
   recipes: Recipe[];
   recipeCategories: string[];
+  ingredientCategories: string[];
   prepRecipes: PrepRecipe[];
   wasteLog: WasteEntry[];
   eodSubmissions: EODSubmission[];
