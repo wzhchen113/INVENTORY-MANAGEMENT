@@ -5,8 +5,8 @@ import { InventoryItem, Recipe, WasteEntry } from '../types';
 export const numericFilter = (value: string): string => {
   let v = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
   const dotIndex = v.indexOf('.');
-  if (dotIndex !== -1 && v.length - dotIndex > 3) {
-    v = v.slice(0, dotIndex + 3);
+  if (dotIndex !== -1) {
+    v = v.slice(0, dotIndex + 3); // dot + max 2 digits
   }
   return v;
 };
