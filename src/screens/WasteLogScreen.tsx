@@ -5,6 +5,7 @@ import {
   Modal, TextInput, FlatList, Alert,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import { numericFilter } from '../utils';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
@@ -156,7 +157,7 @@ export default function WasteLogScreen() {
               placeholder="e.g. 1.5"
               placeholderTextColor={C.textTertiary}
               value={form.qty}
-              onChangeText={(v) => setForm((p) => ({ ...p, qty: v }))}
+              onChangeText={(v) => setForm((p) => ({ ...p, qty: numericFilter(v) }))}
             />
 
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Reason</Text>
