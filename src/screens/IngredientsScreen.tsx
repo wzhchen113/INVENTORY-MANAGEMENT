@@ -434,7 +434,7 @@ export default function IngredientsScreen() {
           </Text>
         </View>
         <View style={styles.rowRight}>
-          <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(2)}</Text>
+          <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(3)}</Text>
           <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.subUnitUnit || item.unit}</Text>
         </View>
         {isAdmin && !bulkMode && (
@@ -480,7 +480,7 @@ export default function IngredientsScreen() {
                   onPress={() => {
                     const rows = storeInventory.map((i) => ({
                       Name: i.name, Category: i.category, Unit: i.unit,
-                      'Cost/Unit': i.costPerUnit.toFixed(2), Stock: i.currentStock, 'Par Level': i.parLevel,
+                      'Cost/Unit': i.costPerUnit.toFixed(3), Stock: i.currentStock, 'Par Level': i.parLevel,
                       Vendor: i.vendorName || '', 'Case Price': i.casePrice || '', 'Units/Case': i.caseQty || '',
                       'Size/Unit': i.subUnitSize || '', 'Sub Unit': i.subUnitUnit || '',
                     }));
