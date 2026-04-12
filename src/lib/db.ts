@@ -471,9 +471,27 @@ export async function deleteRecipeCategory(name: string): Promise<void> {
   await supabase.from('recipe_categories').delete().eq('name', name);
 }
 
+// ─── INGREDIENT CATEGORIES ──────────────────────────────────────────────
+export async function fetchIngredientCategories(): Promise<string[]> {
+  const { data } = await supabase.from('ingredient_categories').select('name').order('created_at');
+  return (data || []).map((c: any) => c.name);
+}
+
+export async function addIngredientCategory(name: string): Promise<void> {
+  await supabase.from('ingredient_categories').insert({ name });
+}
+
+export async function updateIngredientCategory(oldName: string, newName: string): Promise<void> {
+  await supabase.from('ingredient_categories').update({ name: newName }).eq('name', oldName);
+}
+
+export async function deleteIngredientCategory(name: string): Promise<void> {
+  await supabase.from('ingredient_categories').delete().eq('name', name);
+}
+
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
-  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories] = await Promise.all([
+  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories] = await Promise.all([
     fetchInventory(storeId).catch(() => []),
     fetchRecipes(storeId).catch(() => []),
     fetchPrepRecipes(storeId).catch(() => []),
@@ -481,8 +499,9 @@ export async function fetchAllForStore(storeId: string) {
     fetchWasteLog(storeId).catch(() => []),
     fetchAuditLog(storeId).catch(() => []),
     fetchRecipeCategories().catch(() => []),
+    fetchIngredientCategories().catch(() => []),
   ]);
-  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories };
+  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories };
 }
 
 // ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────

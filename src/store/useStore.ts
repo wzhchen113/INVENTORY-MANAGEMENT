@@ -32,6 +32,11 @@ interface StoreActions {
   updateRecipeCategory: (oldName: string, newName: string) => void;
   deleteRecipeCategory: (name: string) => void;
 
+  // Ingredient Categories
+  addIngredientCategory: (name: string) => void;
+  updateIngredientCategory: (oldName: string, newName: string) => void;
+  deleteIngredientCategory: (name: string) => void;
+
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   updateRecipe: (id: string, updates: Partial<Recipe>) => void;
@@ -111,6 +116,7 @@ export const useStore = create<FullStore>((set, get) => ({
   inventory: INVENTORY,
   recipes: RECIPES,
   recipeCategories: ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'],
+  ingredientCategories: ['Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts'],
   prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
@@ -181,6 +187,7 @@ export const useStore = create<FullStore>((set, get) => ({
         wasteLog: data.wasteLog,
         auditLog: data.auditLog,
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
+        ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
@@ -285,6 +292,25 @@ export const useStore = create<FullStore>((set, get) => ({
   deleteRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
     db.deleteRecipeCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+  },
+
+  // Ingredient Categories
+  addIngredientCategory: (name) => {
+    set((s) => ({ ingredientCategories: [...s.ingredientCategories, name] }));
+    db.addIngredientCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+  },
+
+  updateIngredientCategory: (oldName, newName) => {
+    set((s) => ({
+      ingredientCategories: s.ingredientCategories.map((c) => (c === oldName ? newName : c)),
+      inventory: s.inventory.map((i) => (i.category === oldName ? { ...i, category: newName } : i)),
+    }));
+    db.updateIngredientCategory(oldName, newName).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+  },
+
+  deleteIngredientCategory: (name) => {
+    set((s) => ({ ingredientCategories: s.ingredientCategories.filter((c) => c !== name) }));
+    db.deleteIngredientCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Recipes
