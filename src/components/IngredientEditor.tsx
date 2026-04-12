@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  Modal, ScrollView, StyleSheet,
+  Modal, ScrollView, StyleSheet, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
@@ -34,6 +34,7 @@ export default function IngredientEditor({
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTab, setPickerTab] = useState<'items' | 'preps'>('items');
   const [search, setSearch] = useState('');
+  const [unitDropdown, setUnitDropdown] = useState<{ idx: number; type: 'ing' | 'prep'; units: string[] } | null>(null);
 
   // Deduplicate items by name — show each ingredient once, track which stores have it
   const { uniqueItems, itemStoreMap } = useMemo(() => {
@@ -135,27 +136,34 @@ export default function IngredientEditor({
           availableItems.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
         const baseUnit = invItem?.unit || ing.unit;
 
-        // Build full unit list: standard compatible + the abstract purchase unit
-        const standardUnits = getCompatibleUnits(baseUnit);
+        // Build unit options: purchase unit + matching weight OR volume group
         const abstractUnits = ['each', 'cases', 'bags', 'loaves'];
         const isAbstract = abstractUnits.includes(baseUnit.toLowerCase());
+        const weightUnits = ['lbs', 'oz', 'g', 'kg'];
+        const volumeUnits = ['gal', 'qt', 'fl_oz'];
 
-        // If item uses abstract unit, offer both the abstract unit AND standard weight/volume
         let allUnits: string[];
         if (isAbstract) {
-          // Determine weight or volume group from subUnitUnit or default to weight
-          const subUnit = invItem?.subUnitUnit || '';
-          const weightUnits = ['lbs', 'oz', 'g', 'kg'];
-          const volumeUnits = ['gal', 'qt', 'fl_oz'];
-          const standardGroup = volumeUnits.includes(subUnit.toLowerCase()) ? volumeUnits : weightUnits;
-          allUnits = [baseUnit, ...standardGroup.filter((u) => u !== baseUnit)];
+          // Check if any unit in the ingredient name or subUnitUnit hints at volume
+          const subUnit = (invItem?.subUnitUnit || '').toLowerCase();
+          const ingName = ing.itemName.toLowerCase();
+          const isVolume = volumeUnits.includes(subUnit) ||
+            ingName.includes('sauce') || ingName.includes('oil') || ingName.includes('mustard') ||
+            ingName.includes('mayo') || ingName.includes('vinegar') || ingName.includes('juice') ||
+            volumeUnits.includes(ing.unit.toLowerCase());
+          const standardGroup = isVolume ? volumeUnits : weightUnits;
+          allUnits = [baseUnit, ...standardGroup];
+        } else if (weightUnits.includes(baseUnit.toLowerCase())) {
+          allUnits = weightUnits;
+        } else if (volumeUnits.includes(baseUnit.toLowerCase())) {
+          allUnits = volumeUnits;
         } else {
-          allUnits = standardUnits;
+          allUnits = [baseUnit];
         }
+        // Deduplicate
+        allUnits = [...new Set(allUnits)];
 
-        // Conversion hint
         const converted = ing.unit !== baseUnit ? convertQuantity(ing.quantity, ing.unit, baseUnit) : null;
-        // For abstract → standard, show base quantity conversion
         const showBaseHint = ing.baseQuantity > 0 && ing.unit !== (ing.baseUnit || 'g');
 
         return (
@@ -169,17 +177,13 @@ export default function IngredientEditor({
                 keyboardType="decimal-pad"
                 placeholderTextColor={C.textTertiary}
               />
-              <View style={styles.unitChips}>
-                {allUnits.map((u) => (
-                  <TouchableOpacity
-                    key={u}
-                    style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, ing.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                    onPress={() => updateIngredientUnit(idx, u)}
-                  >
-                    <Text style={[styles.unitChipText, { color: C.textSecondary }, ing.unit === u && { color: C.bgPrimary }]}>{u}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <TouchableOpacity
+                style={[styles.unitDropdownBtn, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+                onPress={() => setUnitDropdown({ idx, type: 'ing', units: allUnits })}
+              >
+                <Text style={[styles.unitDropdownText, { color: C.textPrimary }]}>{ing.unit}</Text>
+                <Ionicons name="chevron-down" size={12} color={C.textTertiary} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => removeIngredient(idx)} style={styles.removeBtn}>
                 <Ionicons name="close-circle" size={20} color={C.danger} />
               </TouchableOpacity>
@@ -206,7 +210,6 @@ export default function IngredientEditor({
         const prepRecipe = availablePrepRecipes.find((p) => p.id === prep.prepRecipeId);
         const baseUnit = prepRecipe?.yieldUnit || prep.unit;
         const compatUnits = getCompatibleUnits(baseUnit);
-        // Always show unit chips — at minimum the current unit
         const allPrepUnits = compatUnits.length > 1 ? compatUnits : [prep.unit];
         const converted = prep.unit !== baseUnit ? convertQuantity(prep.quantity, prep.unit, baseUnit) : null;
         return (
@@ -223,24 +226,20 @@ export default function IngredientEditor({
                 keyboardType="decimal-pad"
                 placeholderTextColor={C.textTertiary}
               />
-              <View style={styles.unitChips}>
-                {allPrepUnits.map((u) => (
-                  <TouchableOpacity
-                    key={u}
-                    style={[styles.unitChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, prep.unit === u && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-                    onPress={() => updatePrepUnit(idx, u)}
-                  >
-                    <Text style={[styles.unitChipText, { color: C.textSecondary }, prep.unit === u && { color: C.bgPrimary }]}>{u}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <TouchableOpacity
+                style={[styles.unitDropdownBtn, { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+                onPress={() => setUnitDropdown({ idx, type: 'prep', units: allPrepUnits })}
+              >
+                <Text style={[styles.unitDropdownText, { color: C.textPrimary }]}>{prep.unit}</Text>
+                <Ionicons name="chevron-down" size={12} color={C.textTertiary} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => removePrepItem(idx)} style={styles.removeBtn}>
                 <Ionicons name="close-circle" size={20} color={C.danger} />
               </TouchableOpacity>
             </View>
             {converted !== null && (
               <Text style={[styles.conversionHint, { color: C.textTertiary }]}>
-                = {converted.toFixed(2)} {baseUnit} (yield unit)
+                = {converted.toFixed(3)} {baseUnit} (yield unit)
               </Text>
             )}
           </View>
@@ -367,6 +366,37 @@ export default function IngredientEditor({
             </ScrollView>
           )}
         </View>
+      </Modal>
+
+      {/* Unit Dropdown Modal */}
+      <Modal visible={!!unitDropdown} transparent animationType="fade">
+        <TouchableOpacity style={styles.dropdownOverlay} activeOpacity={1} onPress={() => setUnitDropdown(null)}>
+          <View style={[styles.dropdownBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.dropdownTitle, { color: C.textPrimary }]}>Select unit</Text>
+            {unitDropdown?.units.map((u) => {
+              const isActive = unitDropdown.type === 'ing'
+                ? ingredients[unitDropdown.idx]?.unit === u
+                : prepItems[unitDropdown.idx]?.unit === u;
+              return (
+                <TouchableOpacity
+                  key={u}
+                  style={[styles.dropdownItem, { borderBottomColor: C.borderLight }, isActive && { backgroundColor: C.successBg }]}
+                  onPress={() => {
+                    if (unitDropdown.type === 'ing') {
+                      updateIngredientUnit(unitDropdown.idx, u);
+                    } else {
+                      updatePrepUnit(unitDropdown.idx, u);
+                    }
+                    setUnitDropdown(null);
+                  }}
+                >
+                  <Text style={[styles.dropdownItemText, { color: C.textPrimary }, isActive && { fontWeight: '600' }]}>{u}</Text>
+                  {isActive && <Ionicons name="checkmark" size={16} color={C.success} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -575,5 +605,49 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textAlign: 'center',
     paddingVertical: Spacing.xxxl,
+  },
+  unitDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: Radius.md,
+    borderWidth: 0.5,
+  },
+  unitDropdownText: {
+    fontSize: FontSize.xs,
+    fontWeight: '500',
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  dropdownBox: {
+    width: '100%',
+    maxWidth: 280,
+    borderRadius: Radius.xl,
+    borderWidth: 0.5,
+    overflow: 'hidden',
+  },
+  dropdownTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    padding: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 0.5,
+  },
+  dropdownItemText: {
+    fontSize: FontSize.base,
   },
 });
