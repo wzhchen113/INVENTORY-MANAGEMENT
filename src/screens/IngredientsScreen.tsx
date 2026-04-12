@@ -753,7 +753,7 @@ export default function IngredientsScreen() {
                     const qty = parseFloat(form.caseQty) || 1;
                     const size = parseFloat(form.subUnitSize) || 1;
                     const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
                     setForm((p) => ({ ...p, casePrice: val, costPerUnit: unitCost }));
                   }}
                   placeholder="240.00"
@@ -772,7 +772,7 @@ export default function IngredientsScreen() {
                     const size = parseFloat(form.subUnitSize) || 1;
                     const cp = parseFloat(form.casePrice) || 0;
                     const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
                     setForm((p) => ({ ...p, caseQty: val, costPerUnit: unitCost }));
                   }}
                   placeholder="6"
@@ -794,7 +794,7 @@ export default function IngredientsScreen() {
                     const qty = parseFloat(form.caseQty) || 1;
                     const cp = parseFloat(form.casePrice) || 0;
                     const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(2) : '0';
+                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
                     setForm((p) => ({ ...p, subUnitSize: val, costPerUnit: unitCost }));
                   }}
                   placeholder="10"
@@ -821,7 +821,7 @@ export default function IngredientsScreen() {
                   1 case = {form.caseQty} × {form.subUnitSize} {form.subUnitUnit || form.unit} = {((parseFloat(form.caseQty) || 1) * (parseFloat(form.subUnitSize) || 1)).toFixed(0)} {form.subUnitUnit || form.unit}
                 </Text>
                 <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
-                  ${parseFloat(form.casePrice).toFixed(2)}/case → ${form.costPerUnit}/{form.subUnitUnit || form.unit}
+                  ${parseFloat(form.casePrice).toFixed(3)}/case → ${form.costPerUnit}/{form.subUnitUnit || form.unit}
                 </Text>
               </View>
             )}
@@ -838,7 +838,7 @@ export default function IngredientsScreen() {
                   const qty = parseFloat(form.caseQty) || 1;
                   const size = parseFloat(form.subUnitSize) || 1;
                   const total = qty * size;
-                  const cp = (unitCost * total).toFixed(2);
+                  const cp = (unitCost * total).toFixed(3);
                   setForm((p) => ({ ...p, costPerUnit: val, casePrice: cp }));
                 }}
                 placeholder="0.00"
