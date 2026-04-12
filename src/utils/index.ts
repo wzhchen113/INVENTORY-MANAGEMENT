@@ -102,6 +102,17 @@ let poSeq = 6;
 export const generatePONumber = (): string => `PO-${String(++poSeq).padStart(3, '0')}`;
 
 /** Export array of objects to CSV string */
+/** Download a CSV file in the browser */
+export const downloadCSV = (filename: string, csvContent: string): void => {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
 export const toCSV = (data: Record<string, any>[], columns: string[]): string => {
   const header = columns.join(',');
   const rows = data.map((row) =>

@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { numericFilter } from '../utils';
+import { numericFilter, toCSV, downloadCSV } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
@@ -467,10 +467,27 @@ export default function IngredientsScreen() {
               <Ionicons name={bulkMode ? 'close' : 'settings-outline'} size={18} color={bulkMode ? C.bgPrimary : C.textSecondary} />
             </TouchableOpacity>
             {!bulkMode && (
-              <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-                <Ionicons name="add" size={18} color={C.bgPrimary} />
-                <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>Add</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.gearBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
+                  onPress={() => {
+                    const rows = storeInventory.map((i) => ({
+                      Name: i.name, Category: i.category, Unit: i.unit,
+                      'Cost/Unit': i.costPerUnit.toFixed(2), Stock: i.currentStock, 'Par Level': i.parLevel,
+                      Vendor: i.vendorName || '', 'Case Price': i.casePrice || '', 'Units/Case': i.caseQty || '',
+                      'Size/Unit': i.subUnitSize || '', 'Sub Unit': i.subUnitUnit || '',
+                    }));
+                    const csv = toCSV(rows, ['Name','Category','Unit','Cost/Unit','Stock','Par Level','Vendor','Case Price','Units/Case','Size/Unit','Sub Unit']);
+                    downloadCSV(`ingredients_${currentStore.name}_${new Date().toISOString().split('T')[0]}.csv`, csv);
+                  }}
+                >
+                  <Ionicons name="download-outline" size={18} color={C.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
+                  <Ionicons name="add" size={18} color={C.bgPrimary} />
+                  <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>Add</Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
         )}
