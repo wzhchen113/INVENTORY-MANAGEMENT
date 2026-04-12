@@ -1,5 +1,5 @@
 // src/components/IngredientEditor.tsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   Modal, ScrollView, StyleSheet,
@@ -35,19 +35,35 @@ export default function IngredientEditor({
   const [pickerTab, setPickerTab] = useState<'items' | 'preps'>('items');
   const [search, setSearch] = useState('');
 
-  // Group items by category
-  const categories = [...new Set(availableItems.map((i) => i.category))].sort();
+  // Deduplicate items by name — show each ingredient once, track which stores have it
+  const { uniqueItems, itemStoreMap } = useMemo(() => {
+    const nameMap = new Map<string, InventoryItem>();
+    const storeMap = new Map<string, Set<string>>(); // name -> Set of storeIds
+    for (const item of availableItems) {
+      const key = item.name.toLowerCase();
+      if (!nameMap.has(key)) nameMap.set(key, item);
+      if (!storeMap.has(key)) storeMap.set(key, new Set());
+      storeMap.get(key)!.add(item.storeId);
+    }
+    return { uniqueItems: [...nameMap.values()].sort((a, b) => a.name.localeCompare(b.name)), itemStoreMap: storeMap };
+  }, [availableItems]);
 
-  const filteredItems = search
-    ? availableItems.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()))
-    : availableItems;
+  const categories = useMemo(() => [...new Set(uniqueItems.map((i) => i.category))].sort(), [uniqueItems]);
 
-  const filteredPreps = search
-    ? availablePrepRecipes.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
-    : availablePrepRecipes;
+  const filteredItems = useMemo(() => {
+    if (!search) return uniqueItems;
+    const q = search.toLowerCase();
+    return uniqueItems.filter((i) => i.name.toLowerCase().includes(q));
+  }, [uniqueItems, search]);
+
+  const filteredPreps = useMemo(() => {
+    if (!search) return availablePrepRecipes;
+    const q = search.toLowerCase();
+    return availablePrepRecipes.filter((p) => p.name.toLowerCase().includes(q));
+  }, [availablePrepRecipes, search]);
 
   const addIngredient = (item: InventoryItem) => {
-    if (ingredients.some((i) => i.itemId === item.id)) return;
+    if (ingredients.some((i) => i.itemName.toLowerCase() === item.name.toLowerCase())) return;
     onIngredientsChange([
       ...ingredients,
       { itemId: item.id, itemName: item.name, quantity: 1, unit: item.unit },
@@ -258,12 +274,12 @@ export default function IngredientEditor({
             <ScrollView contentContainerStyle={{ padding: Spacing.lg, paddingTop: 0 }}>
               {(search ? [{ cat: 'Results', items: filteredItems }] : categories.map((cat) => ({
                 cat,
-                items: availableItems.filter((i) => i.category === cat),
+                items: uniqueItems.filter((i) => i.category === cat),
               }))).map(({ cat, items }) => (
                 <View key={cat}>
                   <Text style={[styles.catHeader, { color: C.textTertiary }]}>{cat.toUpperCase()}</Text>
                   {items.map((item) => {
-                    const alreadyAdded = ingredients.some((i) => i.itemId === item.id);
+                    const alreadyAdded = ingredients.some((i) => i.itemName.toLowerCase() === item.name.toLowerCase());
                     return (
                       <TouchableOpacity
                         key={item.id}
