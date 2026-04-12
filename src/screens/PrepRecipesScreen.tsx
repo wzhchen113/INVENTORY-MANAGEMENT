@@ -1,5 +1,5 @@
 // src/screens/PrepRecipesScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
   TextInput, StyleSheet, Alert,
@@ -16,11 +16,11 @@ const PREP_CATEGORIES = ['Marinades', 'Sauces', 'Bases', 'Seasonings', 'Prep'];
 
 export default function PrepRecipesScreen() {
   const {
-    prepRecipes, inventory, currentUser, currentStore,
+    prepRecipes, inventory, stores, currentUser, currentStore,
     addPrepRecipe, updatePrepRecipe, deletePrepRecipe,
     getPrepRecipeCost, getPrepRecipeCostPerUnit,
   } = useStore();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const C = useColors();
 
   const [filter, setFilter] = useState('');
@@ -35,6 +35,34 @@ export default function PrepRecipesScreen() {
   const [yieldUnit, setYieldUnit] = useState('');
   const [notes, setNotes] = useState('');
   const [formIngredients, setFormIngredients] = useState<PrepRecipeIngredient[]>([]);
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+
+  // Build ingredient-name → Set<storeId> map (O(1) lookup)
+  const ingredientStoreMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const item of inventory) {
+      const key = item.name.toLowerCase();
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key)!.add(item.storeId);
+    }
+    return map;
+  }, [inventory]);
+
+  // For each store, determine if it has ALL current recipe ingredients
+  const storeValidity = useMemo(() => {
+    const result: Record<string, { valid: boolean; missing: string[] }> = {};
+    for (const store of stores) {
+      const missing: string[] = [];
+      for (const ing of formIngredients) {
+        const storeSet = ingredientStoreMap.get(ing.itemName.toLowerCase());
+        if (!storeSet || !storeSet.has(store.id)) {
+          missing.push(ing.itemName);
+        }
+      }
+      result[store.id] = { valid: missing.length === 0, missing };
+    }
+    return result;
+  }, [stores, formIngredients, ingredientStoreMap]);
 
   const filtered = prepRecipes.filter((pr) => {
     const matchCat = !filter || pr.category === filter;
@@ -51,6 +79,7 @@ export default function PrepRecipesScreen() {
     setYieldUnit('');
     setNotes('');
     setFormIngredients([]);
+    setSelectedStoreIds(stores.map((s) => s.id));
     setShowModal(true);
   };
 
@@ -63,6 +92,11 @@ export default function PrepRecipesScreen() {
     setYieldUnit(pr.yieldUnit);
     setNotes(pr.notes);
     setFormIngredients([...pr.ingredients]);
+    // Find all stores that have this prep recipe
+    const storesWithRecipe = prepRecipes
+      .filter((p) => p.name.toLowerCase() === pr.name.toLowerCase())
+      .map((p) => p.storeId);
+    setSelectedStoreIds([...new Set(storesWithRecipe)]);
     setShowModal(true);
   };
 
@@ -84,22 +118,30 @@ export default function PrepRecipesScreen() {
     }
     setDupWarning('');
 
-    const data = {
-      name: name.trim(),
-      category,
-      yieldQuantity: parseFloat(yieldQty),
-      yieldUnit: yieldUnit.trim(),
-      notes: notes.trim(),
-      ingredients: formIngredients,
-      storeId: currentStore.id,
-      createdBy: currentUser?.name || 'Admin',
-      createdAt: new Date().toLocaleDateString(),
-    };
+    // Only save to valid stores
+    const validStores = selectedStoreIds.filter((sid) => storeValidity[sid]?.valid);
+    if (validStores.length === 0) {
+      setDupWarning('No valid stores selected. All selected stores are missing required ingredients.');
+      return;
+    }
 
     if (editingId) {
-      updatePrepRecipe(editingId, data);
+      updatePrepRecipe(editingId, {
+        name: name.trim(), category,
+        yieldQuantity: parseFloat(yieldQty), yieldUnit: yieldUnit.trim(),
+        notes: notes.trim(), ingredients: formIngredients,
+      });
     } else {
-      addPrepRecipe(data);
+      for (const storeId of validStores) {
+        addPrepRecipe({
+          name: name.trim(), category,
+          yieldQuantity: parseFloat(yieldQty), yieldUnit: yieldUnit.trim(),
+          notes: notes.trim(), ingredients: formIngredients,
+          storeId,
+          createdBy: currentUser?.name || 'Admin',
+          createdAt: new Date().toLocaleDateString(),
+        });
+      }
     }
     setShowModal(false);
   };
@@ -245,6 +287,45 @@ export default function PrepRecipesScreen() {
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
+            {/* Store selection */}
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>{editingId ? 'Stores' : 'Add to stores'}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.md }}>
+              {stores.map((store) => {
+                const isSelected = selectedStoreIds.includes(store.id);
+                const validity = storeValidity[store.id];
+                const isValid = !formIngredients.length || validity?.valid;
+                return (
+                  <TouchableOpacity
+                    key={store.id}
+                    style={[
+                      { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: Radius.md, borderWidth: 1, backgroundColor: C.bgSecondary, borderColor: C.borderLight },
+                      isSelected && isValid && { backgroundColor: C.successBg, borderColor: C.success },
+                      isSelected && !isValid && { backgroundColor: C.dangerBg, borderColor: C.danger },
+                      !isValid && { opacity: 0.6 },
+                    ]}
+                    onPress={() => {
+                      if (!isValid && !isSelected) return;
+                      setSelectedStoreIds((prev) => isSelected ? prev.filter((s) => s !== store.id) : [...prev, store.id]);
+                    }}
+                  >
+                    <View style={[
+                      { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: C.borderMedium, alignItems: 'center', justifyContent: 'center' },
+                      isSelected && isValid && { backgroundColor: C.success, borderColor: C.success },
+                      isSelected && !isValid && { backgroundColor: C.danger, borderColor: C.danger },
+                    ]}>
+                      {isSelected && <Ionicons name="checkmark" size={10} color={C.white} />}
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: FontSize.sm, fontWeight: '500', color: C.textPrimary }}>{store.name}</Text>
+                      {!isValid && validity?.missing.length > 0 && (
+                        <Text style={{ fontSize: 9, color: C.danger }}>Missing: {validity.missing.slice(0, 2).join(', ')}{validity.missing.length > 2 ? ` +${validity.missing.length - 2}` : ''}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Recipe name</Text>
             <TextInput
               style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
