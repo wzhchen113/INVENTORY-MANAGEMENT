@@ -31,6 +31,7 @@ export default function IngredientsScreen() {
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
+  const [showUnfinished, setShowUnfinished] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
 
@@ -170,6 +171,9 @@ export default function IngredientsScreen() {
   });
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
+  const isUnfinished = (item: InventoryItem) => !item.costPerUnit || item.costPerUnit === 0;
+  const unfinishedCount = useMemo(() => storeInventory.filter(isUnfinished).length, [storeInventory]);
+
   const filtered = useMemo(() => {
     return storeInventory.filter((item) => {
       if (search) {
@@ -180,9 +184,10 @@ export default function IngredientsScreen() {
       }
       if (catFilter && item.category !== catFilter) return false;
       if (vendorFilter && item.vendorName !== vendorFilter) return false;
+      if (showUnfinished && !isUnfinished(item)) return false;
       return true;
     }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [storeInventory, search, catFilter, vendorFilter]);
+  }, [storeInventory, search, catFilter, vendorFilter, showUnfinished]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -260,11 +265,6 @@ export default function IngredientsScreen() {
     if (!form.name.trim()) {
       if (Platform.OS === 'web') alert('Ingredient name is required');
       else Alert.alert('Error', 'Ingredient name is required');
-      return;
-    }
-    if (!form.costPerUnit || parseFloat(form.costPerUnit) <= 0) {
-      if (Platform.OS === 'web') alert('Cost per unit is required');
-      else Alert.alert('Error', 'Cost per unit is required');
       return;
     }
 
@@ -426,7 +426,10 @@ export default function IngredientsScreen() {
           </View>
         )}
         <View style={styles.rowLeft}>
-          <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {isUnfinished(item) && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.danger }} />}
+            <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
+          </View>
           <Text style={[styles.rowMeta, { color: C.textTertiary }]}>
             {item.category} · {item.currentStock} {item.unit}
             {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
@@ -504,13 +507,23 @@ export default function IngredientsScreen() {
       <View style={[styles.pillWrapper, { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-            onPress={() => setCatFilter('')}
+            style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !catFilter && !showUnfinished && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+            onPress={() => { setCatFilter(''); setShowUnfinished(false); }}
           >
-            <Text style={[styles.pillText, { color: C.textSecondary }, !catFilter && { color: C.bgPrimary }]}>
+            <Text style={[styles.pillText, { color: C.textSecondary }, !catFilter && !showUnfinished && { color: C.bgPrimary }]}>
               All ({storeInventory.length})
             </Text>
           </TouchableOpacity>
+          {unfinishedCount > 0 && (
+            <TouchableOpacity
+              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, showUnfinished && { backgroundColor: C.danger, borderColor: C.danger }]}
+              onPress={() => { setShowUnfinished(!showUnfinished); if (!showUnfinished) setCatFilter(''); }}
+            >
+              <Text style={[styles.pillText, { color: C.danger }, showUnfinished && { color: C.bgPrimary }]}>
+                Unfinished ({unfinishedCount})
+              </Text>
+            </TouchableOpacity>
+          )}
           {[...CATEGORIES].sort().filter((c) => categoryCounts[c]).map((cat) => {
             const isActive = catFilter === cat;
             return (
