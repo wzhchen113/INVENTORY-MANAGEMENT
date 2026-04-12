@@ -168,6 +168,10 @@ export default function IngredientsScreen() {
     caseQty: '1',
     subUnitSize: '1',
     subUnitUnit: '',
+    // Prep & Yield data
+    convWeight: '',
+    convBaseUnit: 'lbs',
+    yieldPct: '100',
   });
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
@@ -229,7 +233,7 @@ export default function IngredientsScreen() {
   const openAdd = () => {
     setEditItem(null);
     setDupWarning('');
-    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '', casePrice: '', caseQty: '1', subUnitSize: '1', subUnitUnit: '' });
+    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorId: '', vendorName: '', casePrice: '', caseQty: '1', subUnitSize: '1', subUnitUnit: '', convWeight: '', convBaseUnit: 'lbs', yieldPct: '100' });
     setSelectedStoreIds(stores.map((s) => s.id)); // default: all stores selected
     setShowModal(true);
   };
@@ -250,7 +254,28 @@ export default function IngredientsScreen() {
       caseQty: String(item.caseQty || 1),
       subUnitSize: String(item.subUnitSize || 1),
       subUnitUnit: item.subUnitUnit || '',
+      convWeight: '', convBaseUnit: 'lbs', yieldPct: '100',
     });
+    // Load existing conversion data from Supabase
+    if (item.id && item.id.length > 10) {
+      import('../lib/db').then(({ fetchIngredientConversions }) => {
+        fetchIngredientConversions(item.id).then((convs) => {
+          if (convs.length > 0) {
+            const conv = convs[0];
+            // Convert stored base unit (grams/fl_oz) back to display unit
+            const { fromBaseUnit } = require('../utils/unitConversion');
+            const displayUnit = conv.baseUnit === 'fl_oz' ? 'fl_oz' : 'lbs';
+            const displayQty = fromBaseUnit(conv.conversionFactor, conv.baseUnit, displayUnit);
+            setForm((p) => ({
+              ...p,
+              convWeight: displayQty !== null ? displayQty.toFixed(3) : String(conv.conversionFactor),
+              convBaseUnit: displayUnit,
+              yieldPct: String(conv.netYieldPct),
+            }));
+          }
+        }).catch(() => {});
+      });
+    }
     // Find all stores that already have this ingredient (by name)
     const storesWithItem = inventory
       .filter((i) => i.name.toLowerCase() === item.name.toLowerCase())
@@ -384,6 +409,35 @@ export default function IngredientsScreen() {
         });
       }
     }
+
+    // Save conversion data for abstract units
+    const abstractUnits = ['each', 'cases', 'bags', 'loaves'];
+    const isAbstract = abstractUnits.includes(form.unit.toLowerCase()) || abstractUnits.includes((form.subUnitUnit || '').toLowerCase());
+    if (isAbstract && parseFloat(form.convWeight) > 0) {
+      // Find the saved item(s) to get their Supabase UUIDs
+      setTimeout(() => {
+        const savedItems = inventory.filter((i) => i.name.toLowerCase() === form.name.trim().toLowerCase());
+        const { toBaseUnit } = require('../utils/unitConversion');
+        const baseResult = toBaseUnit(parseFloat(form.convWeight), form.convBaseUnit);
+        const conversionFactor = baseResult ? baseResult.quantity : parseFloat(form.convWeight);
+        const baseUnit = baseResult ? baseResult.unit : 'g';
+
+        for (const item of savedItems) {
+          if (item.id && item.id.length > 10) {
+            import('../lib/db').then(({ upsertIngredientConversion }) => {
+              upsertIngredientConversion({
+                inventoryItemId: item.id,
+                purchaseUnit: form.subUnitUnit || form.unit,
+                baseUnit,
+                conversionFactor,
+                netYieldPct: parseFloat(form.yieldPct) || 100,
+              }).catch((e: any) => console.warn('[Supabase] conversion save failed:', e?.message));
+            });
+          }
+        }
+      }, 500);
+    }
+
     setShowModal(false);
   };
 
@@ -838,6 +892,78 @@ export default function IngredientsScreen() {
                 </Text>
               </View>
             )}
+
+            {/* Prep & Yield Data — shows for abstract units */}
+            {(() => {
+              const abstractUnits = ['each', 'cases', 'bags', 'loaves'];
+              const isAbstract = abstractUnits.includes(form.unit.toLowerCase()) || abstractUnits.includes((form.subUnitUnit || '').toLowerCase());
+              const displayUnit = form.subUnitUnit || form.unit;
+              const BASE_UNITS_WEIGHT = ['lbs', 'oz', 'g', 'kg'];
+              const BASE_UNITS_VOLUME = ['gal', 'qt', 'fl_oz'];
+              const ALL_BASE_UNITS = [...BASE_UNITS_WEIGHT, ...BASE_UNITS_VOLUME];
+              const convWeightNum = parseFloat(form.convWeight) || 0;
+              const yieldPctNum = parseFloat(form.yieldPct) || 100;
+              const usableAmount = convWeightNum * (yieldPctNum / 100);
+
+              if (!isAbstract) return null;
+              return (
+                <>
+                  <Text style={[styles.formLabel, { color: C.textTertiary, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: Spacing.md }]}>Prep & yield data</Text>
+
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    <View style={[styles.formField, { flex: 2 }]}>
+                      <Text style={[styles.formLabel, { color: C.textSecondary }]}>Avg weight/volume per 1 {displayUnit}</Text>
+                      <TextInput
+                        style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                        value={form.convWeight}
+                        onChangeText={(v) => setForm((p) => ({ ...p, convWeight: numericFilter(v) }))}
+                        placeholder="e.g. 50"
+                        placeholderTextColor={C.textTertiary}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={[styles.formField, { flex: 1 }]}>
+                      <Text style={[styles.formLabel, { color: C.textSecondary }]}>Base unit</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                        {ALL_BASE_UNITS.map((u) => (
+                          <TouchableOpacity key={u} style={[styles.miniChip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, form.convBaseUnit === u && { backgroundColor: C.textPrimary }]} onPress={() => setForm((p) => ({ ...p, convBaseUnit: u }))}>
+                            <Text style={[styles.miniChipText, { color: C.textSecondary }, form.convBaseUnit === u && { color: C.bgPrimary }]}>{u}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+
+                  <View style={styles.formField}>
+                    <Text style={[styles.formLabel, { color: C.textSecondary }]}>Usable yield (%)</Text>
+                    <TextInput
+                      style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, maxWidth: 120 }]}
+                      value={form.yieldPct}
+                      onChangeText={(v) => {
+                        const val = numericFilter(v);
+                        const num = parseFloat(val);
+                        if (num > 100) return;
+                        setForm((p) => ({ ...p, yieldPct: val }));
+                      }}
+                      placeholder="100"
+                      placeholderTextColor={C.textTertiary}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+
+                  {convWeightNum > 0 && (
+                    <View style={[styles.priceSummary, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                      <Text style={[styles.priceSummaryText, { color: C.textSecondary }]}>
+                        1 {displayUnit} = {convWeightNum} {form.convBaseUnit} gross
+                      </Text>
+                      <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
+                        1 {displayUnit} yields {usableAmount.toFixed(3)} {form.convBaseUnit} of usable prep product
+                      </Text>
+                    </View>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Unit cost (auto-calculated or manual) */}
             <View style={styles.formField}>
