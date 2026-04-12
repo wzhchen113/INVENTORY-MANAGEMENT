@@ -37,12 +37,13 @@ export async function deleteStore(id: string): Promise<void> {
 }
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
-export async function fetchInventory(storeId: string): Promise<InventoryItem[]> {
-  const { data, error } = await supabase
+export async function fetchInventory(storeId?: string): Promise<InventoryItem[]> {
+  let query = supabase
     .from('inventory_items')
     .select(`*, vendor:vendors(name), updater:profiles!last_updated_by(name)`)
-    .eq('store_id', storeId)
     .order('category', { ascending: true });
+  if (storeId) query = query.eq('store_id', storeId);
+  const { data, error } = await query;
   if (error) throw error;
   return (data || []).map(mapItem);
 }
@@ -492,7 +493,7 @@ export async function deleteIngredientCategory(name: string): Promise<void> {
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
   const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories] = await Promise.all([
-    fetchInventory(storeId).catch(() => []),
+    fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
     fetchPrepRecipes(storeId).catch(() => []),
     fetchVendors().catch(() => []),
