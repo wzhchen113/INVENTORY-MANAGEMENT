@@ -392,7 +392,17 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
-    db.updatePrepRecipe(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Use versioned update to preserve historical records
+    db.updatePrepRecipeVersioned(id, { ...updates, storeId: get().prepRecipes.find((r) => r.id === id)?.storeId })
+      .then((newId) => {
+        // Replace old ID with new versioned ID in local state
+        set((s) => ({ prepRecipes: s.prepRecipes.map((r) => r.id === id ? { ...r, id: newId } : r) }));
+      })
+      .catch((e: any) => {
+        // Fallback to non-versioned update
+        db.updatePrepRecipe(id, updates).catch(() => {});
+        console.warn('[Supabase] versioned update failed, fell back:', e?.message);
+      });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
