@@ -121,11 +121,20 @@ export default function PrepRecipesScreen() {
     const newYield = parseFloat(val) || 0;
     if (baseYield > 0 && newYield > 0 && baseIngredients.length > 0) {
       const factor = newYield / baseYield;
-      setFormIngredients(baseIngredients.map((ing) => ({
-        ...ing,
-        quantity: parseFloat((ing.quantity * factor).toFixed(3)),
-        baseQuantity: parseFloat(((ing.baseQuantity || 0) * factor).toFixed(3)),
-      })));
+      const { smartFromBase } = require('../utils/unitConversion');
+      setFormIngredients(baseIngredients.map((ing) => {
+        // Scale the absolute base quantity (source of truth — no rounding drift)
+        const scaledBase = (ing.baseQuantity || 0) * factor;
+        // Derive display quantity FROM scaled base using unit conversion
+        const displayQty = ing.baseQuantity > 0
+          ? smartFromBase(scaledBase, ing.baseUnit || 'g', ing.unit)
+          : ing.quantity * factor;
+        return {
+          ...ing,
+          quantity: parseFloat(displayQty.toFixed(3)),
+          baseQuantity: parseFloat(scaledBase.toFixed(3)),
+        };
+      }));
     }
   };
 
