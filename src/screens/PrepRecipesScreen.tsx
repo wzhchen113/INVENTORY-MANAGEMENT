@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
-  TextInput, StyleSheet, Alert,
+  TextInput, StyleSheet, Alert, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
@@ -181,10 +181,16 @@ export default function PrepRecipesScreen() {
   };
 
   const handleDelete = (pr: PrepRecipe) => {
-    Alert.alert('Delete prep recipe', `Delete "${pr.name}"? This cannot be undone.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deletePrepRecipe(pr.id) },
-    ]);
+    if (Platform.OS === 'web') {
+      if (confirm(`Delete "${pr.name}"? This cannot be undone.`)) {
+        deletePrepRecipe(pr.id);
+      }
+    } else {
+      Alert.alert('Delete prep recipe', `Delete "${pr.name}"? This cannot be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deletePrepRecipe(pr.id) },
+      ]);
+    }
   };
 
   return (
