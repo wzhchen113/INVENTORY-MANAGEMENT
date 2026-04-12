@@ -533,7 +533,16 @@ function mapItem(row: any): InventoryItem {
     name: row.name,
     category: row.category || '',
     unit: row.unit || '',
-    costPerUnit: row.cost_per_unit || 0,
+    costPerUnit: (() => {
+      const stored = parseFloat(row.cost_per_unit) || 0;
+      if (stored > 0) return stored;
+      // Recalculate from case pricing if stored value is 0
+      const cp = parseFloat(row.case_price) || 0;
+      const qty = parseFloat(row.case_qty) || 1;
+      const size = parseFloat(row.sub_unit_size) || 1;
+      const total = qty * size;
+      return total > 0 && cp > 0 ? cp / total : 0;
+    })(),
     currentStock: row.current_stock || 0,
     parLevel: row.par_level || 0,
     averageDailyUsage: row.average_daily_usage || 0,
