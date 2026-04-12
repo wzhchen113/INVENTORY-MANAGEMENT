@@ -3,7 +3,7 @@
 import { supabase } from './supabase';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
-  Vendor, AuditEvent, Store,
+  Vendor, AuditEvent, Store, IngredientConversion,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -371,7 +371,8 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('prep_recipes')
     .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit))')
-    .eq('store_id', storeId);
+    .eq('store_id', storeId)
+    .eq('is_current', true);
   if (error) throw error;
   return (data || []).map((pr: any) => ({
     id: pr.id,
@@ -383,8 +384,12 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
     storeId: pr.store_id,
     createdBy: '',
     createdAt: pr.created_at ? new Date(pr.created_at).toLocaleDateString() : '',
+    version: pr.version || 1,
+    isCurrent: pr.is_current !== false,
+    parentId: pr.parent_id || undefined,
     ingredients: (pr.prep_recipe_ingredients || []).map((i: any) => ({
       itemId: i.item_id, itemName: i.item?.name || '', quantity: i.quantity, unit: i.unit || '',
+      baseQuantity: i.base_quantity || 0, baseUnit: i.base_unit || 'g',
     })),
   }));
 }
@@ -397,6 +402,7 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
       name: recipe.name, category: recipe.category,
       yield_quantity: recipe.yieldQuantity, yield_unit: recipe.yieldUnit,
       notes: recipe.notes, store_id: recipe.storeId,
+      version: 1, is_current: true,
     })
     .select().single();
   if (error) throw error;
@@ -406,6 +412,7 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
     await supabase.from('prep_recipe_ingredients').insert(
       validIngs.map((i: any) => ({
         prep_recipe_id: data.id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
+        base_quantity: i.baseQuantity || 0, base_unit: i.baseUnit || 'g',
       }))
     );
   }
@@ -470,6 +477,88 @@ export async function updateRecipeCategory(oldName: string, newName: string): Pr
 
 export async function deleteRecipeCategory(name: string): Promise<void> {
   await supabase.from('recipe_categories').delete().eq('name', name);
+}
+
+// ─── INGREDIENT CONVERSIONS ─────────────────────────────────────────────
+export async function fetchIngredientConversions(itemId?: string): Promise<IngredientConversion[]> {
+  let query = supabase.from('ingredient_conversions').select('*');
+  if (itemId) query = query.eq('inventory_item_id', itemId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map((c: any) => ({
+    id: c.id,
+    inventoryItemId: c.inventory_item_id,
+    purchaseUnit: c.purchase_unit,
+    baseUnit: c.base_unit,
+    conversionFactor: c.conversion_factor,
+    netYieldPct: c.net_yield_pct,
+  }));
+}
+
+export async function upsertIngredientConversion(conv: Omit<IngredientConversion, 'id'>): Promise<void> {
+  await supabase.from('ingredient_conversions').upsert({
+    inventory_item_id: conv.inventoryItemId,
+    purchase_unit: conv.purchaseUnit,
+    base_unit: conv.baseUnit,
+    conversion_factor: conv.conversionFactor,
+    net_yield_pct: conv.netYieldPct,
+  }, { onConflict: 'inventory_item_id,purchase_unit' });
+}
+
+// ─── VERSIONED PREP RECIPE UPDATE ───────────────────────────────────────
+export async function updatePrepRecipeVersioned(id: string, updates: any): Promise<string> {
+  // 1. Mark current version as not current
+  await supabase.from('prep_recipes').update({ is_current: false }).eq('id', id);
+
+  // 2. Get the parent_id (or use current id as parent if it's the original)
+  const { data: current } = await supabase.from('prep_recipes').select('parent_id').eq('id', id).single();
+  const parentId = current?.parent_id || id;
+
+  // 3. Get current version number
+  const { data: versions } = await supabase
+    .from('prep_recipes')
+    .select('version')
+    .or(`id.eq.${parentId},parent_id.eq.${parentId}`)
+    .order('version', { ascending: false })
+    .limit(1);
+  const nextVersion = (versions?.[0]?.version || 1) + 1;
+
+  // 4. Create new version
+  const { data: newRecipe, error } = await supabase
+    .from('prep_recipes')
+    .insert({
+      name: updates.name,
+      category: updates.category,
+      yield_quantity: updates.yieldQuantity,
+      yield_unit: updates.yieldUnit,
+      notes: updates.notes,
+      store_id: updates.storeId,
+      version: nextVersion,
+      is_current: true,
+      parent_id: parentId,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  // 5. Insert ingredients with base units
+  if (updates.ingredients?.length > 0) {
+    const validIngs = updates.ingredients.filter((i: any) => i.itemId && i.itemId.length > 10);
+    if (validIngs.length > 0) {
+      await supabase.from('prep_recipe_ingredients').insert(
+        validIngs.map((i: any) => ({
+          prep_recipe_id: newRecipe.id,
+          item_id: i.itemId,
+          quantity: i.quantity,
+          unit: i.unit,
+          base_quantity: i.baseQuantity || 0,
+          base_unit: i.baseUnit || 'g',
+        }))
+      );
+    }
+  }
+
+  return newRecipe.id;
 }
 
 // ─── INGREDIENT CATEGORIES ──────────────────────────────────────────────

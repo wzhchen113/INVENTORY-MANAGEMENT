@@ -76,6 +76,10 @@ export interface PrepRecipe {
   storeId: string;
   createdBy: string;
   createdAt: string;
+  // Versioning
+  version: number;
+  isCurrent: boolean;
+  parentId?: string;
 }
 
 export interface PrepRecipeIngredient {
@@ -83,6 +87,18 @@ export interface PrepRecipeIngredient {
   itemName: string;
   quantity: number;
   unit: string;
+  // Base unit (source of truth for math)
+  baseQuantity: number;
+  baseUnit: string; // 'g' or 'fl_oz'
+}
+
+export interface IngredientConversion {
+  id: string;
+  inventoryItemId: string;
+  purchaseUnit: string;
+  baseUnit: string;
+  conversionFactor: number;
+  netYieldPct: number;
 }
 
 export interface WasteEntry {

@@ -64,9 +64,12 @@ export default function IngredientEditor({
 
   const addIngredient = (item: InventoryItem) => {
     if (ingredients.some((i) => i.itemName.toLowerCase() === item.name.toLowerCase())) return;
+    // Calculate base quantity using smart conversion
+    const { smartToBase } = require('../utils/unitConversion');
+    const base = smartToBase(1, item.unit);
     onIngredientsChange([
       ...ingredients,
-      { itemId: item.id, itemName: item.name, quantity: 1, unit: item.unit },
+      { itemId: item.id, itemName: item.name, quantity: 1, unit: item.unit, baseQuantity: base.quantity, baseUnit: base.unit },
     ]);
     setShowPicker(false);
     setSearch('');
@@ -84,13 +87,20 @@ export default function IngredientEditor({
 
   const updateIngredientQty = (index: number, qty: string) => {
     const updated = [...ingredients];
-    updated[index] = { ...updated[index], quantity: parseFloat(qty) || 0 };
+    const newQty = parseFloat(qty) || 0;
+    const { smartToBase } = require('../utils/unitConversion');
+    const base = smartToBase(newQty, updated[index].unit);
+    updated[index] = { ...updated[index], quantity: newQty, baseQuantity: base.quantity, baseUnit: base.unit };
     onIngredientsChange(updated);
   };
 
   const updateIngredientUnit = (index: number, unit: string) => {
     const updated = [...ingredients];
-    updated[index] = { ...updated[index], unit };
+    const { smartToBase, smartFromBase } = require('../utils/unitConversion');
+    // Convert current quantity to the new unit
+    const currentBase = smartToBase(updated[index].quantity, updated[index].unit);
+    const newQty = smartFromBase(currentBase.quantity, currentBase.unit, unit);
+    updated[index] = { ...updated[index], unit, quantity: parseFloat(newQty.toFixed(3)), baseQuantity: currentBase.quantity, baseUnit: currentBase.unit };
     onIngredientsChange(updated);
   };
 

@@ -37,6 +37,17 @@ export default function PrepRecipesScreen() {
   const [formIngredients, setFormIngredients] = useState<PrepRecipeIngredient[]>([]);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
+  // Two-tier state for scaling: base = original from DB, draft = what user sees
+  const [baseYield, setBaseYield] = useState(0);
+  const [baseIngredients, setBaseIngredients] = useState<PrepRecipeIngredient[]>([]);
+
+  // Scaling factor: current yield / base yield
+  const scalingFactor = useMemo(() => {
+    const currentYield = parseFloat(yieldQty) || 0;
+    if (baseYield <= 0 || currentYield <= 0) return 1;
+    return currentYield / baseYield;
+  }, [yieldQty, baseYield]);
+
   // Build ingredient-name → Set<storeId> map (O(1) lookup)
   const ingredientStoreMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -92,12 +103,30 @@ export default function PrepRecipesScreen() {
     setYieldUnit(pr.yieldUnit);
     setNotes(pr.notes);
     setFormIngredients([...pr.ingredients]);
+    // Set base state (source of truth — never mutated during scaling)
+    setBaseYield(pr.yieldQuantity);
+    setBaseIngredients([...pr.ingredients]);
     // Find all stores that have this prep recipe
     const storesWithRecipe = prepRecipes
       .filter((p) => p.name.toLowerCase() === pr.name.toLowerCase())
       .map((p) => p.storeId);
     setSelectedStoreIds([...new Set(storesWithRecipe)]);
     setShowModal(true);
+  };
+
+  // When yield changes, scale all ingredients from base state
+  const handleYieldChange = (v: string) => {
+    const val = numericFilter(v);
+    setYieldQty(val);
+    const newYield = parseFloat(val) || 0;
+    if (baseYield > 0 && newYield > 0 && baseIngredients.length > 0) {
+      const factor = newYield / baseYield;
+      setFormIngredients(baseIngredients.map((ing) => ({
+        ...ing,
+        quantity: parseFloat((ing.quantity * factor).toFixed(3)),
+        baseQuantity: parseFloat(((ing.baseQuantity || 0) * factor).toFixed(3)),
+      })));
+    }
   };
 
   const [dupWarning, setDupWarning] = useState('');
@@ -354,7 +383,7 @@ export default function PrepRecipesScreen() {
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={yieldQty}
-                  onChangeText={(v) => setYieldQty(numericFilter(v))}
+                  onChangeText={handleYieldChange}
                   keyboardType="decimal-pad"
                   placeholder="40"
                   placeholderTextColor={C.textTertiary}
@@ -372,6 +401,15 @@ export default function PrepRecipesScreen() {
                 />
               </View>
             </View>
+
+            {/* Scaling indicator */}
+            {editingId && scalingFactor !== 1 && (
+              <View style={{ backgroundColor: C.infoBg, borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+                <Text style={{ fontSize: FontSize.xs, color: C.info, fontWeight: '500' }}>
+                  Scaling: {scalingFactor.toFixed(2)}x — ingredients auto-adjusted from base recipe
+                </Text>
+              </View>
+            )}
 
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Notes</Text>
             <TextInput
