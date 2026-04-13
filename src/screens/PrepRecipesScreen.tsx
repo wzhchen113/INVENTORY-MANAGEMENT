@@ -142,8 +142,12 @@ export default function PrepRecipesScreen() {
     if (formIngredients.length === 0) { Alert.alert('Error', 'Add at least one ingredient'); return; }
 
     const trimmedName = name.trim().toLowerCase();
+    // When editing, exclude all copies of the same recipe (across stores) from duplicate check
+    const editedRecipe = editingId ? prepRecipes.find((r) => r.id === editingId) : null;
+    const editedOriginalName = editedRecipe?.name?.toLowerCase() || '';
     const duplicate = prepRecipes.some(
-      (pr) => pr.name.toLowerCase() === trimmedName && (!editingId || pr.id !== editingId)
+      (pr) => pr.name.toLowerCase() === trimmedName &&
+        (!editingId || (pr.id !== editingId && pr.name.toLowerCase() !== editedOriginalName))
     );
 
     if (duplicate) {
