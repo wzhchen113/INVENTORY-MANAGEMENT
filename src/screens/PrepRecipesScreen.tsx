@@ -479,9 +479,26 @@ export default function PrepRecipesScreen() {
                     <Text style={[styles.costValue, { color: C.textPrimary }]}>${batchCost.toFixed(2)}</Text>
                   </View>
                   <View style={[styles.costItem, { backgroundColor: C.bgSecondary }]}>
-                    <Text style={[styles.costLabel, { color: C.textTertiary }]}>Cost per {pr.yieldUnit}</Text>
+                    <Text style={[styles.costLabel, { color: C.textTertiary }]}>Cost per {liveYield.unit}</Text>
                     <Text style={[styles.costValue, { color: C.textPrimary }]}>${costPerUnit.toFixed(2)}</Text>
                   </View>
+                  {(() => {
+                    const weightUnits = ['lbs', 'kg', 'g', 'oz'];
+                    const volumeUnits = ['gal', 'qt', 'fl_oz', 'cups'];
+                    const yU = liveYield.unit;
+                    const secUnit = weightUnits.includes(yU) ? 'oz' : volumeUnits.includes(yU) ? 'fl_oz' : null;
+                    if (!secUnit || secUnit === yU) return null;
+                    const { getConversionFactor: gcf } = require('../utils/unitConversion');
+                    const factor = gcf(yU, secUnit);
+                    if (factor === null) return null;
+                    const secCost = costPerUnit * (1 / factor);
+                    return (
+                      <View style={[styles.costItem, { backgroundColor: C.bgSecondary }]}>
+                        <Text style={[styles.costLabel, { color: C.textTertiary }]}>Cost per {secUnit}</Text>
+                        <Text style={[styles.costValue, { color: C.textPrimary }]}>${secCost.toFixed(2)}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
                 {pr.notes ? <Text style={[styles.notes, { color: C.textSecondary }]}>{pr.notes}</Text> : null}
                 {isAdmin && (
