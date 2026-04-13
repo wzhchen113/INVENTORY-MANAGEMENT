@@ -159,19 +159,47 @@ export default function PrepRecipesScreen() {
       return;
     }
 
+    const recipeData = {
+      name: name.trim(), category,
+      yieldQuantity: calculatedYield.quantity, yieldUnit: calculatedYield.unit,
+      notes: notes.trim(), ingredients: formIngredients,
+    };
+
     if (editingId) {
-      updatePrepRecipe(editingId, {
-        name: name.trim(), category,
-        yieldQuantity: calculatedYield.quantity, yieldUnit: calculatedYield.unit,
-        notes: notes.trim(), ingredients: formIngredients,
+      // Find all existing copies of this recipe across stores (by name)
+      const editedRecipe = prepRecipes.find((r) => r.id === editingId);
+      const existingCopies = prepRecipes.filter(
+        (r) => r.name.toLowerCase() === (editedRecipe?.name || '').toLowerCase()
+      );
+      const existingStoreIds = existingCopies.map((r) => r.storeId);
+
+      // Update all existing copies in selected stores
+      existingCopies.forEach((r) => {
+        if (selectedStoreIds.includes(r.storeId)) {
+          updatePrepRecipe(r.id, recipeData);
+        }
       });
+
+      // Delete from deselected stores
+      existingCopies.forEach((r) => {
+        if (!selectedStoreIds.includes(r.storeId)) {
+          deletePrepRecipe(r.id);
+        }
+      });
+
+      // Add to newly selected stores
+      const newStoreIds = validStores.filter((sid) => !existingStoreIds.includes(sid));
+      for (const storeId of newStoreIds) {
+        addPrepRecipe({
+          ...recipeData, storeId,
+          createdBy: currentUser?.name || 'Admin',
+          createdAt: new Date().toLocaleDateString(),
+        });
+      }
     } else {
       for (const storeId of validStores) {
         addPrepRecipe({
-          name: name.trim(), category,
-          yieldQuantity: calculatedYield.quantity, yieldUnit: calculatedYield.unit,
-          notes: notes.trim(), ingredients: formIngredients,
-          storeId,
+          ...recipeData, storeId,
           createdBy: currentUser?.name || 'Admin',
           createdAt: new Date().toLocaleDateString(),
         });
