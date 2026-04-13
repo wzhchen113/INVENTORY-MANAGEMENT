@@ -198,7 +198,8 @@ export default function IngredientsScreen() {
         }
       }
       if (catFilter && item.category !== catFilter) return false;
-      if (vendorFilter && item.vendorName !== vendorFilter) return false;
+      if (vendorFilter === '__none__' && item.vendorName) return false;
+      if (vendorFilter && vendorFilter !== '__none__' && item.vendorName !== vendorFilter) return false;
       if (showUnfinished && !isUnfinished(item)) return false;
       return true;
     }).sort((a, b) => a.name.localeCompare(b.name));
@@ -226,18 +227,23 @@ export default function IngredientsScreen() {
 
   const vendorCounts = useMemo(() => {
     const counts: Record<string, number> = {};
+    let noVendor = 0;
     storeInventory.forEach((i) => {
       if (i.vendorName) {
         counts[i.vendorName] = (counts[i.vendorName] || 0) + 1;
+      } else {
+        noVendor++;
       }
     });
+    if (noVendor > 0) counts['__none__'] = noVendor;
     return counts;
   }, [storeInventory]);
 
   const vendorNames = useMemo(
-    () => Object.keys(vendorCounts).sort(),
+    () => Object.keys(vendorCounts).filter((v) => v !== '__none__').sort(),
     [vendorCounts]
   );
+  const noVendorCount = vendorCounts['__none__'] || 0;
 
   const toggleStore = (id: string) => {
     setSelectedStoreIds((prev) =>
@@ -643,6 +649,16 @@ export default function IngredientsScreen() {
                 All vendors
               </Text>
             </TouchableOpacity>
+            {noVendorCount > 0 && (
+              <TouchableOpacity
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, vendorFilter === '__none__' && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                onPress={() => setVendorFilter(vendorFilter === '__none__' ? '' : '__none__')}
+              >
+                <Text style={[styles.pillText, { color: C.textSecondary }, vendorFilter === '__none__' && { color: C.bgPrimary }]}>
+                  No vendor ({noVendorCount})
+                </Text>
+              </TouchableOpacity>
+            )}
             {vendorNames.map((v) => {
               const isActive = vendorFilter === v;
               return (
