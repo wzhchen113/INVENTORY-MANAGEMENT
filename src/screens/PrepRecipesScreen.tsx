@@ -100,10 +100,9 @@ export default function PrepRecipesScreen() {
       const missing: string[] = [];
       for (const ing of formIngredients) {
         const isPrep = (ing as any).type === 'prep';
-        // Sub-recipes are always assumed available (they get multi-store saved too)
-        // Only validate raw ingredients against inventory store map
-        if (isPrep) continue;
-        const storeSet = ingredientStoreMap.get(ing.itemName.toLowerCase());
+        const storeSet = isPrep
+          ? prepRecipeStoreMap.get(ing.itemName.toLowerCase())
+          : ingredientStoreMap.get(ing.itemName.toLowerCase());
         if (!storeSet || !storeSet.has(store.id)) {
           missing.push(ing.itemName);
         }

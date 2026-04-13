@@ -367,12 +367,13 @@ export async function deleteRecipe(id: string): Promise<void> {
 }
 
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
-export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
-  const { data, error } = await supabase
+export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
+  let query = supabase
     .from('prep_recipes')
     .select('*, prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*, item:inventory_items(name, unit))')
-    .eq('store_id', storeId)
     .eq('is_current', true);
+  if (storeId) query = query.eq('store_id', storeId);
+  const { data, error } = await query;
   if (error) throw error;
   // Build a quick lookup for sub-recipe names (resolved after all recipes loaded)
   const recipes = (data || []).map((pr: any) => ({
@@ -631,7 +632,7 @@ export async function fetchAllForStore(storeId: string) {
   const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
-    fetchPrepRecipes(storeId).catch(() => []),
+    fetchPrepRecipes().catch(() => []), // fetch ALL stores so sub-recipe store validation works
     fetchVendors().catch(() => []),
     fetchWasteLog(storeId).catch(() => []),
     fetchAuditLog(storeId).catch(() => []),
