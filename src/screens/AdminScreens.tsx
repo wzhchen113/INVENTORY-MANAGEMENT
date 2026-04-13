@@ -8,7 +8,7 @@ import {
   FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
-import { numericFilter, toCSV, downloadCSV } from '../utils';
+import { numericFilter, toCSV, downloadCSV, numFirstSort } from '../utils';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
@@ -56,7 +56,8 @@ export function RecipesScreen() {
 
   // Show recipes for the currently selected store, filtered by category
   const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
-  const filteredRecipes = catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes;
+  const filteredRecipes = (catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes)
+    .sort((a, b) => numFirstSort(a.menuItem, b.menuItem));
 
   // Compute category counts for filter chips
   const categoryCounts = recipeCategories.map((cat) => ({
@@ -634,7 +635,7 @@ export function VendorsScreen() {
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
-        {vendors.map((vendor) => (
+        {[...vendors].sort((a, b) => numFirstSort(a.name, b.name)).map((vendor) => (
           <View key={vendor.id} style={[styles.vendorCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             <View style={styles.vendorTop}>
               <View style={[styles.vendorLogo, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>

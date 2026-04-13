@@ -2,7 +2,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
-  TextInput, Platform, Alert, Switch,
+  TextInput, Platform, Alert, Switch, ActivityIndicator,
 } from 'react-native';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -544,6 +544,20 @@ function TabNavigator() {
   );
 }
 
+function StoreLoadingOverlay() {
+  const loading = useStore((s) => s.storeLoading);
+  const C = useColors();
+  if (!loading) return null;
+  return (
+    <View style={styles.loadingOverlay}>
+      <View style={[styles.loadingBox, { backgroundColor: C.bgPrimary }]}>
+        <ActivityIndicator size="large" color={C.info} />
+        <Text style={[styles.loadingText, { color: C.textSecondary }]}>Loading store data...</Text>
+      </View>
+    </View>
+  );
+}
+
 function AppStackNavigator() {
   const storeId = useStore((s) => s.currentStore?.id);
   const C = useColors();
@@ -564,21 +578,24 @@ function AppStackNavigator() {
   };
 
   return (
-    <AppStack.Navigator key={storeId} screenOptions={dynamicHeaderOptions}>
-      <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
-      <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
-      <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
-      <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
-      <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
-      <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
-      <AppStack.Screen name="Vendors" component={VendorsScreen} />
-      <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders' }} />
-      <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import' }} />
-      <AppStack.Screen name="Reconciliation" component={ReconciliationScreen} />
-      <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics' }} />
-      <AppStack.Screen name="AuditLog" component={AuditLogScreen} options={{ title: 'Audit log' }} />
-      <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'Users & access' }} />
-    </AppStack.Navigator>
+    <>
+      <AppStack.Navigator key={storeId} screenOptions={dynamicHeaderOptions}>
+        <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+        <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
+        <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
+        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
+        <AppStack.Screen name="Vendors" component={VendorsScreen} />
+        <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders' }} />
+        <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import' }} />
+        <AppStack.Screen name="Reconciliation" component={ReconciliationScreen} />
+        <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics' }} />
+        <AppStack.Screen name="AuditLog" component={AuditLogScreen} options={{ title: 'Audit log' }} />
+        <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'Users & access' }} />
+      </AppStack.Navigator>
+      <StoreLoadingOverlay />
+    </>
   );
 }
 
@@ -684,6 +701,16 @@ const styles = StyleSheet.create({
   storeOptionDotActive: { backgroundColor: Colors.success },
   storeOptionName: { fontSize: FontSize.sm, color: Colors.textPrimary },
   storeOptionAddr: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 1 },
+  loadingOverlay: {
+    position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center' as const, alignItems: 'center' as const, zIndex: 9999,
+  },
+  loadingBox: {
+    paddingHorizontal: 32, paddingVertical: 24, borderRadius: Radius.lg,
+    alignItems: 'center' as const, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5,
+  },
+  loadingText: { fontSize: FontSize.sm, fontWeight: '500' as const },
 });
 
 const SIDEBAR_WIDTH = 320;

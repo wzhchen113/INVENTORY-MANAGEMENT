@@ -136,6 +136,7 @@ export const useStore = create<FullStore>((set, get) => ({
   timezone: 'America/New_York',
   darkMode: false,
   notifications: [],
+  storeLoading: false,
 
   // Auth
   login: (user) => {
@@ -167,6 +168,7 @@ export const useStore = create<FullStore>((set, get) => ({
   loadFromSupabase: async (storeId?: string) => {
     const sid = storeId || get().currentStore?.id;
     if (!sid) return;
+    set({ storeLoading: true });
     try {
       // Always fetch stores from Supabase
       const cloudStores = await db.fetchStores().catch(() => []);
@@ -209,6 +211,8 @@ export const useStore = create<FullStore>((set, get) => ({
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
     } catch (e) {
       console.log('[Supabase] Load failed, using local data:', e);
+    } finally {
+      set({ storeLoading: false });
     }
   },
 

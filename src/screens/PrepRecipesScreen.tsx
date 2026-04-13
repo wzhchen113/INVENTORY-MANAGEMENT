@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { numericFilter, toCSV, downloadCSV } from '../utils';
+import { numericFilter, toCSV, downloadCSV, numFirstSort } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
@@ -108,7 +108,7 @@ export default function PrepRecipesScreen() {
     const matchCat = !filter || pr.category === filter;
     const matchSearch = !search || pr.name.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
-  });
+  }).sort((a, b) => numFirstSort(a.name, b.name));
 
   // Map recipe names → store IDs for multi-store labels
   const recipeStoreMap = useMemo(() => {
