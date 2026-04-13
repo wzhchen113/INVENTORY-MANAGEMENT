@@ -174,8 +174,24 @@ export const useStore = create<FullStore>((set, get) => ({
         set({ stores: cloudStores });
       }
 
-      // Skip per-store data fetch for "All Stores" view
-      if (sid === '__all__') return;
+      // "All Stores" view — fetch from every store and merge
+      if (sid === '__all__') {
+        const allStores = get().stores;
+        const allData = await Promise.all(
+          allStores.map((s) => db.fetchAllForStore(s.id).catch(() => null))
+        );
+        set({
+          inventory: allData.flatMap((d) => d?.inventory || []),
+          recipes: allData.flatMap((d) => d?.recipes || []),
+          prepRecipes: allData.flatMap((d) => d?.prepRecipes || []),
+          vendors: allData.flatMap((d) => d?.vendors || []),
+          wasteLog: allData.flatMap((d) => d?.wasteLog || []),
+          auditLog: allData.flatMap((d) => d?.auditLog || []),
+          ...(allData[0]?.recipeCategories?.length ? { recipeCategories: allData[0].recipeCategories } : {}),
+          ...(allData[0]?.ingredientCategories?.length ? { ingredientCategories: allData[0].ingredientCategories } : {}),
+        });
+        return;
+      }
 
       const data = await db.fetchAllForStore(sid);
       // Cloud is the source of truth — always replace, even if empty

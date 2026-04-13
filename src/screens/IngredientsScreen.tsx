@@ -24,9 +24,20 @@ export default function IngredientsScreen() {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
 
   const storeInventory = useMemo(
-    () => inventory.filter((i) => i.storeId === currentStore.id),
+    () => currentStore.id === '__all__' ? inventory : inventory.filter((i) => i.storeId === currentStore.id),
     [inventory, currentStore.id]
   );
+
+  // Map ingredient names → store IDs for multi-store labels
+  const ingredientStoreMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const item of inventory) {
+      const key = item.name.toLowerCase();
+      if (!map[key]) map[key] = [];
+      if (!map[key].includes(item.storeId)) map[key].push(item.storeId);
+    }
+    return map;
+  }, [inventory]);
 
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
@@ -192,6 +203,18 @@ export default function IngredientsScreen() {
       return true;
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [storeInventory, search, catFilter, vendorFilter, showUnfinished]);
+
+  // Deduplicate for "All Stores" view (one row per ingredient name)
+  const displayItems = useMemo(() => {
+    if (currentStore.id !== '__all__') return filtered;
+    const seen = new Set<string>();
+    return filtered.filter((item) => {
+      const key = item.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [filtered, currentStore.id]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -485,7 +508,15 @@ export default function IngredientsScreen() {
             <Text style={[styles.rowName, { color: C.textPrimary }]}>{item.name}</Text>
           </View>
           <Text style={[styles.rowMeta, { color: C.textTertiary }]}>
-            {item.category} · {item.currentStock} {item.unit}
+            {item.category}
+            {(() => {
+              const sids = ingredientStoreMap[item.name.toLowerCase()] || [item.storeId];
+              const label = sids.length >= stores.length
+                ? 'All Stores'
+                : sids.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
+              return ` · ${label}`;
+            })()}
+            {` · ${item.currentStock} ${item.unit}`}
             {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
             {item.vendorName ? ` · ${item.vendorName}` : ''}
           </Text>
@@ -633,7 +664,7 @@ export default function IngredientsScreen() {
       {/* Summary bar */}
       <View style={styles.summaryBar}>
         <Text style={[styles.summaryText, { color: C.textTertiary }]}>
-          {bulkMode ? `${selectedIds.size} of ${filtered.length} selected` : `${filtered.length} ingredient${filtered.length !== 1 ? 's' : ''}`}
+          {bulkMode ? `${selectedIds.size} of ${filtered.length} selected` : `${displayItems.length} ingredient${displayItems.length !== 1 ? 's' : ''}`}
         </Text>
         {bulkMode ? (
           <TouchableOpacity onPress={selectAll}>
@@ -673,7 +704,7 @@ export default function IngredientsScreen() {
 
       {/* List */}
       <WebScrollView id="ingredients-scroll" contentContainerStyle={styles.list}>
-        {filtered.length === 0 ? (
+        {displayItems.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="restaurant-outline" size={32} color={C.textTertiary} />
             <Text style={[styles.emptyText, { color: C.textTertiary }]}>No ingredients found</Text>
@@ -684,7 +715,7 @@ export default function IngredientsScreen() {
             )}
           </View>
         ) : (
-          filtered.map((item) => (
+          displayItems.map((item) => (
             <View key={item.id}>{renderItem({ item })}</View>
           ))
         )}

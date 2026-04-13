@@ -105,6 +105,29 @@ export default function PrepRecipesScreen() {
     return matchCat && matchSearch;
   });
 
+  // Map recipe names → store IDs for multi-store labels
+  const recipeStoreMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const pr of prepRecipes) {
+      const key = pr.name.toLowerCase();
+      if (!map[key]) map[key] = [];
+      if (!map[key].includes(pr.storeId)) map[key].push(pr.storeId);
+    }
+    return map;
+  }, [prepRecipes]);
+
+  // Deduplicate for "All Stores" view (one card per recipe name)
+  const displayRecipes = useMemo(() => {
+    if (currentStore.id !== '__all__') return filtered;
+    const seen = new Set<string>();
+    return filtered.filter((pr) => {
+      const key = pr.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [filtered, currentStore.id]);
+
   const openNew = () => {
     setEditingId(null);
     setDupWarning('');
@@ -301,20 +324,24 @@ export default function PrepRecipesScreen() {
             </TouchableOpacity>
           </View>
         )}
-        {filtered.length === 0 ? (
+        {displayRecipes.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: C.textTertiary }]}>No prep recipes yet</Text>
           </View>
         ) : (
-          filtered.map((pr) => {
+          displayRecipes.map((pr) => {
             const batchCost = getPrepRecipeCost(pr.id);
             const costPerUnit = getPrepRecipeCostPerUnit(pr.id);
+            const prStoreIds = recipeStoreMap[pr.name.toLowerCase()] || [pr.storeId];
+            const storeLabel = prStoreIds.length >= stores.length
+              ? 'All Stores'
+              : prStoreIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
             return (
               <View key={pr.id} style={[styles.card, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cardName, { color: C.textPrimary }]}>{pr.name}</Text>
-                    <Text style={[styles.cardCategory, { color: C.textSecondary }]}>{pr.category}</Text>
+                    <Text style={[styles.cardCategory, { color: C.textSecondary }]}>{pr.category} · {storeLabel}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <View style={[styles.yieldBadge, { backgroundColor: C.successBg }]}>

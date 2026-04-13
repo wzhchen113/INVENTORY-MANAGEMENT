@@ -4,7 +4,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
   TextInput, Platform, Alert, Switch,
 } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -124,6 +124,19 @@ function StoreSelector() {
         </TouchableOpacity>
       </Modal>
     </>
+  );
+}
+
+function StackHeaderLeft() {
+  const nav = useNavigation();
+  const C = useColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
+      <TouchableOpacity onPress={() => nav.goBack()} style={{ marginRight: 8, padding: 4 }}>
+        <Ionicons name="arrow-back" size={22} color={C.textPrimary} />
+      </TouchableOpacity>
+      <StoreSelector />
+    </View>
   );
 }
 
@@ -554,8 +567,8 @@ function AppStackNavigator() {
     <AppStack.Navigator key={storeId} screenOptions={dynamicHeaderOptions}>
       <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
       <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
-      <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients' }} />
-      <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes' }} />
+      <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
+      <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
       <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
       <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
       <AppStack.Screen name="Vendors" component={VendorsScreen} />
