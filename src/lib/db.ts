@@ -370,7 +370,7 @@ export async function deleteRecipe(id: string): Promise<void> {
 export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('prep_recipes')
-    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit))')
+    .select('*, prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*, item:inventory_items(name, unit))')
     .eq('store_id', storeId)
     .eq('is_current', true);
   if (error) throw error;
