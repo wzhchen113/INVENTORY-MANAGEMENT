@@ -457,15 +457,10 @@ export default function PrepRecipesScreen() {
                     }
                     return (
                       <View key={idx} style={styles.ingRow}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                          <Text style={[styles.ingName, { color: C.textPrimary, flex: 0 }]}>{ing.itemName}</Text>
-                          {isSubRecipe && (
-                            <View style={{ backgroundColor: C.infoBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
-                              <Text style={{ fontSize: 8, fontWeight: '600', color: C.info }}>SUB</Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.ingName, { color: C.textPrimary, flex: 1 }]} numberOfLines={1}>
+                          {ing.itemName}{isSubRecipe ? '  ᐊ SUB' : ''}
+                        </Text>
+                        <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
                           <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
                           {ingCost > 0 && (
                             <Text style={{ fontSize: 10, color: C.textTertiary }}>${ingCost.toFixed(2)}</Text>
