@@ -405,11 +405,13 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updatePrepRecipe: (id, updates) => {
+    // Capture storeId BEFORE mutating state (prevents race condition in multi-store loops)
+    const storeId = get().prepRecipes.find((r) => r.id === id)?.storeId;
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
     // Use versioned update to preserve historical records
-    db.updatePrepRecipeVersioned(id, { ...updates, storeId: get().prepRecipes.find((r) => r.id === id)?.storeId })
+    db.updatePrepRecipeVersioned(id, { ...updates, storeId })
       .then((newId) => {
         // Replace old ID with new versioned ID in local state
         set((s) => ({ prepRecipes: s.prepRecipes.map((r) => r.id === id ? { ...r, id: newId } : r) }));
