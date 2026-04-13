@@ -98,7 +98,13 @@ export default function PrepRecipesScreen() {
     return result;
   }, [stores, formIngredients, ingredientStoreMap]);
 
-  const filtered = prepRecipes.filter((pr) => {
+  // Filter prep recipes to current store (or keep all for "All Stores")
+  const storePrepRecipes = useMemo(
+    () => currentStore.id === '__all__' ? prepRecipes : prepRecipes.filter((pr) => pr.storeId === currentStore.id),
+    [prepRecipes, currentStore.id]
+  );
+
+  const filtered = storePrepRecipes.filter((pr) => {
     const matchCat = !filter || pr.category === filter;
     const matchSearch = !search || pr.name.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
