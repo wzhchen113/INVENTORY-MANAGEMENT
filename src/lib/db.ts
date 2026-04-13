@@ -394,6 +394,16 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
   }));
 }
 
+export async function fetchPrepRecipesByName(name: string): Promise<{ id: string; storeId: string }[]> {
+  const { data, error } = await supabase
+    .from('prep_recipes')
+    .select('id, store_id')
+    .ilike('name', name)
+    .eq('is_current', true);
+  if (error) throw error;
+  return (data || []).map((r: any) => ({ id: r.id, storeId: r.store_id }));
+}
+
 export async function createPrepRecipe(recipe: any): Promise<string> {
   if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
   const { data, error } = await supabase

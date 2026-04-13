@@ -137,7 +137,7 @@ export default function PrepRecipesScreen() {
 
   const [dupWarning, setDupWarning] = useState('');
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) { Alert.alert('Error', 'Name required'); return; }
     if (formIngredients.length === 0) { Alert.alert('Error', 'Add at least one ingredient'); return; }
 
@@ -170,26 +170,39 @@ export default function PrepRecipesScreen() {
     };
 
     if (editingId) {
-      // Find all existing copies of this recipe across stores (by name)
+      // Fetch ALL copies of this recipe across ALL stores from the database
+      // (local state only has recipes for the current store)
       const editedRecipe = prepRecipes.find((r) => r.id === editingId);
-      const existingCopies = prepRecipes.filter(
-        (r) => r.name.toLowerCase() === (editedRecipe?.name || '').toLowerCase()
-      );
-      const existingStoreIds = existingCopies.map((r) => r.storeId);
+      const originalName = editedRecipe?.name || '';
+      let allCopies: { id: string; storeId: string }[] = [];
+      try {
+        const { fetchPrepRecipesByName } = require('../lib/db');
+        allCopies = await fetchPrepRecipesByName(originalName);
+      } catch (e) {
+        console.warn('[PrepRecipes] Failed to fetch cross-store copies:', e);
+        // Fallback to local state only
+        allCopies = prepRecipes
+          .filter((r) => r.name.toLowerCase() === originalName.toLowerCase())
+          .map((r) => ({ id: r.id, storeId: r.storeId }));
+      }
+      const existingStoreIds = allCopies.map((r) => r.storeId);
 
-      // Update all existing copies in selected stores
-      existingCopies.forEach((r) => {
-        if (selectedStoreIds.includes(r.storeId)) {
-          updatePrepRecipe(r.id, recipeData);
+      // Update the current store's copy via local state
+      updatePrepRecipe(editingId, recipeData);
+
+      // Update other stores' copies directly in the database
+      for (const copy of allCopies) {
+        if (copy.id !== editingId && selectedStoreIds.includes(copy.storeId)) {
+          updatePrepRecipe(copy.id, recipeData);
         }
-      });
+      }
 
       // Delete from deselected stores
-      existingCopies.forEach((r) => {
-        if (!selectedStoreIds.includes(r.storeId)) {
-          deletePrepRecipe(r.id);
+      for (const copy of allCopies) {
+        if (!selectedStoreIds.includes(copy.storeId)) {
+          deletePrepRecipe(copy.id);
         }
-      });
+      }
 
       // Add to newly selected stores
       const newStoreIds = validStores.filter((sid) => !existingStoreIds.includes(sid));
