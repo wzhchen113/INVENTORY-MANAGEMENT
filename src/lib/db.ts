@@ -370,7 +370,7 @@ export async function deleteRecipe(id: string): Promise<void> {
 export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('prep_recipes')
-    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit))')
+    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit), sub_recipe:prep_recipes!sub_recipe_id(id, name, yield_unit, yield_quantity))')
     .eq('store_id', storeId)
     .eq('is_current', true);
   if (error) throw error;
@@ -387,10 +387,16 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
     version: pr.version || 1,
     isCurrent: pr.is_current !== false,
     parentId: pr.parent_id || undefined,
-    ingredients: (pr.prep_recipe_ingredients || []).map((i: any) => ({
-      itemId: i.item_id, itemName: i.item?.name || '', quantity: i.quantity, unit: i.unit || '',
-      baseQuantity: i.base_quantity || 0, baseUnit: i.base_unit || 'g',
-    })),
+    ingredients: (pr.prep_recipe_ingredients || []).map((i: any) => {
+      const isPrep = (i.type || 'raw') === 'prep';
+      return {
+        itemId: isPrep ? i.sub_recipe_id : i.item_id,
+        itemName: isPrep ? (i.sub_recipe?.name || '[Deleted recipe]') : (i.item?.name || ''),
+        quantity: i.quantity, unit: i.unit || '',
+        baseQuantity: i.base_quantity || 0, baseUnit: i.base_unit || 'g',
+        type: i.type || 'raw',
+      };
+    }),
   }));
 }
 
@@ -420,10 +426,17 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
   const validIngs = (recipe.ingredients || []).filter((i: any) => i.itemId && i.itemId.length > 10);
   if (validIngs.length > 0) {
     await supabase.from('prep_recipe_ingredients').insert(
-      validIngs.map((i: any) => ({
-        prep_recipe_id: data.id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
-        base_quantity: i.baseQuantity || 0, base_unit: i.baseUnit || 'g',
-      }))
+      validIngs.map((i: any) => {
+        const isPrep = (i.type || 'raw') === 'prep';
+        return {
+          prep_recipe_id: data.id,
+          item_id: isPrep ? null : i.itemId,
+          sub_recipe_id: isPrep ? i.itemId : null,
+          type: i.type || 'raw',
+          quantity: i.quantity, unit: i.unit,
+          base_quantity: i.baseQuantity || 0, base_unit: i.baseUnit || 'g',
+        };
+      })
     );
   }
   return data.id;
@@ -443,9 +456,17 @@ export async function updatePrepRecipe(id: string, updates: any): Promise<void> 
     await supabase.from('prep_recipe_ingredients').delete().eq('prep_recipe_id', id);
     if (updates.ingredients.length > 0) {
       await supabase.from('prep_recipe_ingredients').insert(
-        updates.ingredients.map((i: any) => ({
-          prep_recipe_id: id, item_id: i.itemId, quantity: i.quantity, unit: i.unit,
-        }))
+        updates.ingredients.map((i: any) => {
+          const isPrep = (i.type || 'raw') === 'prep';
+          return {
+            prep_recipe_id: id,
+            item_id: isPrep ? null : i.itemId,
+            sub_recipe_id: isPrep ? i.itemId : null,
+            type: i.type || 'raw',
+            quantity: i.quantity, unit: i.unit,
+            base_quantity: i.baseQuantity || 0, base_unit: i.baseUnit || 'g',
+          };
+        })
       );
     }
   }
@@ -556,14 +577,19 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
     const validIngs = updates.ingredients.filter((i: any) => i.itemId && i.itemId.length > 10);
     if (validIngs.length > 0) {
       await supabase.from('prep_recipe_ingredients').insert(
-        validIngs.map((i: any) => ({
-          prep_recipe_id: newRecipe.id,
-          item_id: i.itemId,
-          quantity: i.quantity,
-          unit: i.unit,
-          base_quantity: i.baseQuantity || 0,
-          base_unit: i.baseUnit || 'g',
-        }))
+        validIngs.map((i: any) => {
+          const isPrep = (i.type || 'raw') === 'prep';
+          return {
+            prep_recipe_id: newRecipe.id,
+            item_id: isPrep ? null : i.itemId,
+            sub_recipe_id: isPrep ? i.itemId : null,
+            type: i.type || 'raw',
+            quantity: i.quantity,
+            unit: i.unit,
+            base_quantity: i.baseQuantity || 0,
+            base_unit: i.baseUnit || 'g',
+          };
+        })
       );
     }
   }

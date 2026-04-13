@@ -14,11 +14,14 @@ interface IngredientEditorProps {
   ingredients: RecipeIngredient[];
   onIngredientsChange: (ingredients: RecipeIngredient[]) => void;
   availableItems: InventoryItem[];
-  // Prep recipe support (for menu recipes only)
+  // Prep recipe support
   prepItems?: RecipePrepItem[];
   onPrepItemsChange?: (prepItems: RecipePrepItem[]) => void;
   availablePrepRecipes?: PrepRecipe[];
   showPrepRecipes?: boolean;
+  // Sub-recipe mode: 'menu' uses separate prepItems array, 'prep' adds to main ingredients
+  mode?: 'menu' | 'prep';
+  editingRecipeId?: string; // filter self-references in prep mode
 }
 
 export default function IngredientEditor({
@@ -29,6 +32,8 @@ export default function IngredientEditor({
   onPrepItemsChange,
   availablePrepRecipes = [],
   showPrepRecipes = false,
+  mode = 'menu',
+  editingRecipeId,
 }: IngredientEditorProps) {
   const C = useColors();
   const [showPicker, setShowPicker] = useState(false);
@@ -58,10 +63,19 @@ export default function IngredientEditor({
   }, [uniqueItems, search]);
 
   const filteredPreps = useMemo(() => {
-    if (!search) return availablePrepRecipes;
+    let preps = availablePrepRecipes;
+    // In prep mode, filter out self-reference and already-added sub-recipes
+    if (mode === 'prep') {
+      preps = preps.filter((p) => {
+        if (editingRecipeId && p.id === editingRecipeId) return false;
+        if (ingredients.some((i) => (i as any).type === 'prep' && i.itemId === p.id)) return false;
+        return true;
+      });
+    }
+    if (!search) return preps;
     const q = search.toLowerCase();
-    return availablePrepRecipes.filter((p) => p.name.toLowerCase().includes(q));
-  }, [availablePrepRecipes, search]);
+    return preps.filter((p) => p.name.toLowerCase().includes(q));
+  }, [availablePrepRecipes, search, mode, editingRecipeId, ingredients]);
 
   const addIngredient = (item: InventoryItem) => {
     if (ingredients.some((i) => i.itemName.toLowerCase() === item.name.toLowerCase())) return;
@@ -77,11 +91,23 @@ export default function IngredientEditor({
   };
 
   const addPrepItem = (prep: PrepRecipe) => {
-    if (prepItems.some((p) => p.prepRecipeId === prep.id)) return;
-    onPrepItemsChange?.([
-      ...prepItems,
-      { prepRecipeId: prep.id, prepRecipeName: prep.name, quantity: 1, unit: prep.yieldUnit },
-    ]);
+    if (mode === 'prep') {
+      // In prep mode, add sub-recipe as a regular ingredient with type='prep'
+      if (ingredients.some((i) => (i as any).type === 'prep' && i.itemId === prep.id)) return;
+      const { smartToBase } = require('../utils/unitConversion');
+      const base = smartToBase(1, prep.yieldUnit);
+      onIngredientsChange([
+        ...ingredients,
+        { itemId: prep.id, itemName: prep.name, quantity: 1, unit: prep.yieldUnit, baseQuantity: base.quantity, baseUnit: base.unit, type: 'prep' } as any,
+      ]);
+    } else {
+      // In menu mode, add to separate prepItems array
+      if (prepItems.some((p) => p.prepRecipeId === prep.id)) return;
+      onPrepItemsChange?.([
+        ...prepItems,
+        { prepRecipeId: prep.id, prepRecipeName: prep.name, quantity: 1, unit: prep.yieldUnit },
+      ]);
+    }
     setShowPicker(false);
     setSearch('');
   };
@@ -132,9 +158,11 @@ export default function IngredientEditor({
         <Text style={[styles.sectionLabel, { color: C.textTertiary }]}>INGREDIENTS</Text>
       )}
       {ingredients.map((ing, idx) => {
-        const invItem = availableItems.find((i) => i.id === ing.itemId) ||
-          availableItems.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
-        const baseUnit = invItem?.unit || ing.unit;
+        const isSubRecipe = (ing as any).type === 'prep';
+        const invItem = isSubRecipe ? null : (availableItems.find((i) => i.id === ing.itemId) ||
+          availableItems.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase()));
+        const subRecipe = isSubRecipe ? availablePrepRecipes.find((p) => p.id === ing.itemId) : null;
+        const baseUnit = isSubRecipe ? (subRecipe?.yieldUnit || ing.unit) : (invItem?.unit || ing.unit);
 
         // Build unit options: purchase unit + matching weight OR volume group
         const abstractUnits = ['each', 'cases', 'bags', 'loaves'];
@@ -143,7 +171,11 @@ export default function IngredientEditor({
         const volumeUnits = ['gal', 'qt', 'fl_oz'];
 
         let allUnits: string[];
-        if (isAbstract) {
+        if (isSubRecipe) {
+          // Sub-recipe: use compatible units from yield unit
+          allUnits = getCompatibleUnits(baseUnit);
+          if (allUnits.length <= 1) allUnits = [baseUnit];
+        } else if (isAbstract) {
           // Check if any unit in the ingredient name or subUnitUnit hints at volume
           const subUnit = (invItem?.subUnitUnit || '').toLowerCase();
           const ingName = ing.itemName.toLowerCase();
@@ -169,7 +201,14 @@ export default function IngredientEditor({
         return (
           <View key={`ing-${idx}`}>
             <View style={[styles.row, { backgroundColor: C.bgSecondary }]}>
-              <Text style={[styles.itemName, { color: C.textPrimary }]} numberOfLines={1}>{ing.itemName}</Text>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.itemName, { color: C.textPrimary, flex: 0 }]} numberOfLines={1}>{ing.itemName}</Text>
+                {isSubRecipe && (
+                  <View style={{ backgroundColor: C.infoBg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '600', color: C.info }}>SUB-RECIPE</Text>
+                  </View>
+                )}
+              </View>
               <TextInput
                 style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
                 value={ing.quantity.toString()}
@@ -338,7 +377,9 @@ export default function IngredientEditor({
                 <Text style={[styles.emptyText, { color: C.textTertiary }]}>No prep recipes available</Text>
               )}
               {filteredPreps.map((prep) => {
-                const alreadyAdded = prepItems.some((p) => p.prepRecipeId === prep.id);
+                const alreadyAdded = mode === 'prep'
+                  ? ingredients.some((i) => (i as any).type === 'prep' && i.itemId === prep.id)
+                  : prepItems.some((p) => p.prepRecipeId === prep.id);
                 return (
                   <TouchableOpacity
                     key={prep.id}

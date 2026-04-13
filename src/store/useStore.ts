@@ -704,20 +704,37 @@ export const useStore = create<FullStore>((set, get) => ({
     );
   },
 
-  // Prep recipe cost = sum of ingredient costs
+  // Prep recipe cost = sum of ingredient costs (supports sub-recipes with cycle guard)
   getPrepRecipeCost: (prepRecipeId) => {
-    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
-    if (!prep) return 0;
-    const { getConversionFactor } = require('../utils/unitConversion');
-    return prep.ingredients.reduce((sum, ing) => {
-      const item = get().inventory.find((i) => i.id === ing.itemId) ||
-        get().inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
-      if (!item) return sum;
-      // Convert recipe quantity to the item's cost unit
-      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
-      return sum + item.costPerUnit * convertedQty;
-    }, 0);
+    const calcCost = (id: string, visited: Set<string>): number => {
+      if (visited.has(id)) return 0; // cycle detected
+      visited.add(id);
+      const prep = get().prepRecipes.find((p) => p.id === id);
+      if (!prep) return 0;
+      const { getConversionFactor } = require('../utils/unitConversion');
+      return prep.ingredients.reduce((sum, ing) => {
+        const isSubRecipe = (ing.type || 'raw') === 'prep';
+        if (isSubRecipe) {
+          // Sub-recipe: get cost per unit of the referenced prep recipe
+          const subRecipe = get().prepRecipes.find((p) => p.id === ing.itemId);
+          if (!subRecipe) return sum;
+          const subCost = calcCost(ing.itemId, new Set(visited));
+          const subYield = subRecipe.yieldQuantity || 1;
+          const costPerUnit = subYield > 0 ? subCost / subYield : 0;
+          const factor = getConversionFactor(ing.unit, subRecipe.yieldUnit);
+          const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+          return sum + costPerUnit * convertedQty;
+        }
+        // Raw ingredient
+        const item = get().inventory.find((i) => i.id === ing.itemId) ||
+          get().inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+        if (!item) return sum;
+        const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+        const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+        return sum + item.costPerUnit * convertedQty;
+      }, 0);
+    };
+    return calcCost(prepRecipeId, new Set());
   },
 
   // Cost per yield unit (e.g., cost per lb of marinated chicken)

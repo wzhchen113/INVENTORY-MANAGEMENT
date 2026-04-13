@@ -82,13 +82,27 @@ export default function PrepRecipesScreen() {
     return map;
   }, [inventory]);
 
+  // Build prep recipe name → Set<storeId> map for sub-recipe validation
+  const prepRecipeStoreMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const pr of prepRecipes) {
+      const key = pr.name.toLowerCase();
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key)!.add(pr.storeId);
+    }
+    return map;
+  }, [prepRecipes]);
+
   // For each store, determine if it has ALL current recipe ingredients
   const storeValidity = useMemo(() => {
     const result: Record<string, { valid: boolean; missing: string[] }> = {};
     for (const store of stores) {
       const missing: string[] = [];
       for (const ing of formIngredients) {
-        const storeSet = ingredientStoreMap.get(ing.itemName.toLowerCase());
+        const isPrep = (ing as any).type === 'prep';
+        const storeSet = isPrep
+          ? prepRecipeStoreMap.get(ing.itemName.toLowerCase())
+          : ingredientStoreMap.get(ing.itemName.toLowerCase());
         if (!storeSet || !storeSet.has(store.id)) {
           missing.push(ing.itemName);
         }
@@ -96,7 +110,7 @@ export default function PrepRecipesScreen() {
       result[store.id] = { valid: missing.length === 0, missing };
     }
     return result;
-  }, [stores, formIngredients, ingredientStoreMap]);
+  }, [stores, formIngredients, ingredientStoreMap, prepRecipeStoreMap]);
 
   // Filter prep recipes to current store (or keep all for "All Stores")
   const storePrepRecipes = useMemo(
@@ -332,9 +346,18 @@ export default function PrepRecipesScreen() {
                   const sLabel = sids.length >= stores.length ? 'All Stores' : sids.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
                   // First ingredient row includes recipe-level data
                   pr.ingredients.forEach((ing, idx) => {
-                    const item = inventory.find((i) => i.id === ing.itemId) || inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                    const isSubR = (ing.type || 'raw') === 'prep';
                     let ingCost = 0;
-                    if (item) { const { getConversionFactor: gcf } = require('../utils/unitConversion'); const f = gcf(ing.unit, item.subUnitUnit || item.unit); ingCost = item.costPerUnit * (f !== null ? ing.quantity * f : ing.quantity); }
+                    if (isSubR) {
+                      const subCpu = getPrepRecipeCostPerUnit(ing.itemId);
+                      const { getConversionFactor: gcf } = require('../utils/unitConversion');
+                      const subR = prepRecipes.find((p) => p.id === ing.itemId);
+                      const f = subR ? gcf(ing.unit, subR.yieldUnit) : 1;
+                      ingCost = subCpu * (f !== null ? ing.quantity * f : ing.quantity);
+                    } else {
+                      const item = inventory.find((i) => i.id === ing.itemId) || inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                      if (item) { const { getConversionFactor: gcf } = require('../utils/unitConversion'); const f = gcf(ing.unit, item.subUnitUnit || item.unit); ingCost = item.costPerUnit * (f !== null ? ing.quantity * f : ing.quantity); }
+                    }
                     rows.push({
                       'Recipe': idx === 0 ? pr.name : '',
                       'Category': idx === 0 ? pr.category : '',
@@ -414,18 +437,34 @@ export default function PrepRecipesScreen() {
                 </View>
                 <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
                   {pr.ingredients.map((ing, idx) => {
-                    const item = inventory.find((i) => i.id === ing.itemId) ||
-                      inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                    const isSubRecipe = (ing.type || 'raw') === 'prep';
                     let ingCost = 0;
-                    if (item) {
+                    if (isSubRecipe) {
+                      const subCpu = getPrepRecipeCostPerUnit(ing.itemId);
                       const { getConversionFactor } = require('../utils/unitConversion');
-                      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-                      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
-                      ingCost = item.costPerUnit * convertedQty;
+                      const subRecipe = prepRecipes.find((p) => p.id === ing.itemId);
+                      const factor = subRecipe ? getConversionFactor(ing.unit, subRecipe.yieldUnit) : 1;
+                      ingCost = subCpu * (factor !== null ? ing.quantity * factor : ing.quantity);
+                    } else {
+                      const item = inventory.find((i) => i.id === ing.itemId) ||
+                        inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                      if (item) {
+                        const { getConversionFactor } = require('../utils/unitConversion');
+                        const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+                        const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+                        ingCost = item.costPerUnit * convertedQty;
+                      }
                     }
                     return (
                       <View key={idx} style={styles.ingRow}>
-                        <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                          <Text style={[styles.ingName, { color: C.textPrimary, flex: 0 }]}>{ing.itemName}</Text>
+                          {isSubRecipe && (
+                            <View style={{ backgroundColor: C.infoBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                              <Text style={{ fontSize: 8, fontWeight: '600', color: C.info }}>SUB</Text>
+                            </View>
+                          )}
+                        </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
                           {ingCost > 0 && (
@@ -563,6 +602,10 @@ export default function PrepRecipesScreen() {
               ingredients={formIngredients}
               onIngredientsChange={setFormIngredients}
               availableItems={inventory}
+              showPrepRecipes={true}
+              availablePrepRecipes={storePrepRecipes}
+              mode="prep"
+              editingRecipeId={editingId || undefined}
             />
 
             {dupWarning ? (
