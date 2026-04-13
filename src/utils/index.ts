@@ -97,6 +97,15 @@ export const getVarianceResult = (variance: number, threshold = 5): VarianceResu
   return 'mismatch';
 };
 
+/** Sort comparator: numbers first, then A-Z */
+export const numFirstSort = (a: string, b: string): number => {
+  const aNum = /^\d/.test(a);
+  const bNum = /^\d/.test(b);
+  if (aNum && !bNum) return -1;
+  if (!aNum && bNum) return 1;
+  return a.localeCompare(b);
+};
+
 /** Generate PO number */
 let poSeq = 6;
 export const generatePONumber = (): string => `PO-${String(++poSeq).padStart(3, '0')}`;

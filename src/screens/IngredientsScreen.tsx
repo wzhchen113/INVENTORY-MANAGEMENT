@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
-import { numericFilter, toCSV, downloadCSV } from '../utils';
+import { numericFilter, toCSV, downloadCSV, numFirstSort } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
@@ -202,7 +202,7 @@ export default function IngredientsScreen() {
       if (vendorFilter && vendorFilter !== '__none__' && item.vendorName !== vendorFilter) return false;
       if (showUnfinished && !isUnfinished(item)) return false;
       return true;
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    }).sort((a, b) => numFirstSort(a.name, b.name));
   }, [storeInventory, search, catFilter, vendorFilter, showUnfinished]);
 
   // Deduplicate for "All Stores" view (one row per ingredient name)
