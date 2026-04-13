@@ -43,12 +43,11 @@ export default function PrepRecipesScreen() {
     const { smartToBase } = require('../utils/unitConversion');
 
     // Sum all ingredient base quantities, grouped by type (weight vs volume)
+    // Always recalculate from quantity+unit (stored baseQuantity can be corrupt)
     let totalGrams = 0;
     let totalFlOz = 0;
     for (const ing of formIngredients) {
-      const base = ing.baseQuantity > 0
-        ? { quantity: ing.baseQuantity, unit: ing.baseUnit || 'g' }
-        : smartToBase(ing.quantity, ing.unit);
+      const base = smartToBase(ing.quantity, ing.unit);
       if (base.unit === 'fl_oz') totalFlOz += base.quantity;
       else totalGrams += base.quantity;
     }
@@ -336,6 +335,29 @@ export default function PrepRecipesScreen() {
             const storeLabel = prStoreIds.length >= stores.length
               ? 'All Stores'
               : prStoreIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
+            // Live yield calculation (don't trust stored yieldQuantity — may have corrupt baseQuantity)
+            const { smartToBase: stb } = require('../utils/unitConversion');
+            let yG = 0, yF = 0;
+            for (const ing of pr.ingredients) {
+              const b = stb(ing.quantity, ing.unit);
+              if (b.unit === 'fl_oz') yF += b.quantity; else yG += b.quantity;
+            }
+            let liveYield = { quantity: pr.yieldQuantity, unit: pr.yieldUnit };
+            if (pr.ingredients.length > 0) {
+              if (yF > 0 && yG === 0) {
+                liveYield = yF >= 128 ? { quantity: parseFloat((yF / 128).toFixed(3)), unit: 'gal' }
+                  : yF >= 32 ? { quantity: parseFloat((yF / 32).toFixed(3)), unit: 'qt' }
+                  : { quantity: parseFloat(yF.toFixed(3)), unit: 'fl_oz' };
+              } else if (yG > 0 && yF === 0) {
+                liveYield = yG >= 453.592 ? { quantity: parseFloat((yG / 453.592).toFixed(3)), unit: 'lbs' }
+                  : yG >= 28.35 ? { quantity: parseFloat((yG / 28.3495).toFixed(3)), unit: 'oz' }
+                  : { quantity: parseFloat(yG.toFixed(3)), unit: 'g' };
+              } else {
+                const t = yG + yF * 29.5735;
+                liveYield = t >= 453.592 ? { quantity: parseFloat((t / 453.592).toFixed(3)), unit: 'lbs' }
+                  : { quantity: parseFloat(t.toFixed(3)), unit: 'g' };
+              }
+            }
             return (
               <View key={pr.id} style={[styles.card, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
                 <View style={styles.cardTop}>
@@ -346,7 +368,7 @@ export default function PrepRecipesScreen() {
                   <View style={{ alignItems: 'flex-end' }}>
                     <View style={[styles.yieldBadge, { backgroundColor: C.successBg }]}>
                       <Text style={[styles.yieldBadgeText, { color: C.success }]}>
-                        Yields {pr.yieldQuantity} {pr.yieldUnit}
+                        Yields {liveYield.quantity} {liveYield.unit}
                       </Text>
                     </View>
                   </View>

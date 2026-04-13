@@ -719,8 +719,27 @@ export const useStore = create<FullStore>((set, get) => ({
   // Cost per yield unit (e.g., cost per lb of marinated chicken)
   getPrepRecipeCostPerUnit: (prepRecipeId) => {
     const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
-    if (!prep || prep.yieldQuantity === 0) return 0;
-    return get().getPrepRecipeCost(prepRecipeId) / prep.yieldQuantity;
+    if (!prep) return 0;
+    // Live yield calculation (don't trust stored yieldQuantity — may have corrupt baseQuantity)
+    const { smartToBase } = require('../utils/unitConversion');
+    let yG = 0, yF = 0;
+    for (const ing of prep.ingredients) {
+      const b = smartToBase(ing.quantity, ing.unit);
+      if (b.unit === 'fl_oz') yF += b.quantity; else yG += b.quantity;
+    }
+    let yieldQty = prep.yieldQuantity;
+    if (prep.ingredients.length > 0) {
+      if (yF > 0 && yG === 0) {
+        yieldQty = yF >= 128 ? yF / 128 : yF >= 32 ? yF / 32 : yF;
+      } else if (yG > 0 && yF === 0) {
+        yieldQty = yG >= 453.592 ? yG / 453.592 : yG >= 28.35 ? yG / 28.3495 : yG;
+      } else {
+        const t = yG + yF * 29.5735;
+        yieldQty = t >= 453.592 ? t / 453.592 : t;
+      }
+    }
+    if (yieldQty === 0) return 0;
+    return get().getPrepRecipeCost(prepRecipeId) / yieldQty;
   },
 
   // Menu recipe cost = raw ingredients + prep recipe portions
