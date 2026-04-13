@@ -280,12 +280,28 @@ export default function PrepRecipesScreen() {
                   </View>
                 </View>
                 <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
-                  {pr.ingredients.map((ing, idx) => (
-                    <View key={idx} style={styles.ingRow}>
-                      <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
-                      <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
-                    </View>
-                  ))}
+                  {pr.ingredients.map((ing, idx) => {
+                    const item = inventory.find((i) => i.id === ing.itemId) ||
+                      inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                    let ingCost = 0;
+                    if (item) {
+                      const { getConversionFactor } = require('../utils/unitConversion');
+                      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+                      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+                      ingCost = item.costPerUnit * convertedQty;
+                    }
+                    return (
+                      <View key={idx} style={styles.ingRow}>
+                        <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
+                          {ingCost > 0 && (
+                            <Text style={{ fontSize: 10, color: C.textTertiary }}>${ingCost.toFixed(2)}</Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
                   {pr.ingredients.length === 0 && (
                     <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients added yet</Text>
                   )}
