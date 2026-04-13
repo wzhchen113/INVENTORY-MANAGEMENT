@@ -201,13 +201,13 @@ export default function IngredientEditor({
         return (
           <View key={`ing-${idx}`}>
             <View style={[styles.row, { backgroundColor: C.bgSecondary }]}>
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.itemName, { color: C.textPrimary, flex: 0 }]} numberOfLines={1}>{ing.itemName}</Text>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
                 {isSubRecipe && (
-                  <View style={{ backgroundColor: C.infoBg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
-                    <Text style={{ fontSize: 9, fontWeight: '600', color: C.info }}>SUB-RECIPE</Text>
+                  <View style={{ backgroundColor: C.infoBg, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, flexShrink: 0 }}>
+                    <Text style={{ fontSize: 8, fontWeight: '600', color: C.info }}>SUB</Text>
                   </View>
                 )}
+                <Text style={[styles.itemName, { color: C.textPrimary, flex: 1 }]} numberOfLines={1}>{ing.itemName}</Text>
               </View>
               <TextInput
                 style={[styles.qtyInput, { color: C.textPrimary, backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
