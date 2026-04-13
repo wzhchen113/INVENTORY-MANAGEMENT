@@ -370,11 +370,12 @@ export async function deleteRecipe(id: string): Promise<void> {
 export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('prep_recipes')
-    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit), sub_recipe:prep_recipes!sub_recipe_id(id, name, yield_unit, yield_quantity))')
+    .select('*, prep_recipe_ingredients(*, item:inventory_items(name, unit))')
     .eq('store_id', storeId)
     .eq('is_current', true);
   if (error) throw error;
-  return (data || []).map((pr: any) => ({
+  // Build a quick lookup for sub-recipe names (resolved after all recipes loaded)
+  const recipes = (data || []).map((pr: any) => ({
     id: pr.id,
     name: pr.name,
     category: pr.category || '',
@@ -391,13 +392,23 @@ export async function fetchPrepRecipes(storeId: string): Promise<any[]> {
       const isPrep = (i.type || 'raw') === 'prep';
       return {
         itemId: isPrep ? i.sub_recipe_id : i.item_id,
-        itemName: isPrep ? (i.sub_recipe?.name || '[Deleted recipe]') : (i.item?.name || ''),
+        itemName: isPrep ? (i.sub_recipe_id || '') : (i.item?.name || ''),
         quantity: i.quantity, unit: i.unit || '',
         baseQuantity: i.base_quantity || 0, baseUnit: i.base_unit || 'g',
         type: i.type || 'raw',
       };
     }),
   }));
+  // Resolve sub-recipe names from the loaded recipes
+  const nameMap = new Map(recipes.map((r: any) => [r.id, r.name]));
+  for (const r of recipes) {
+    for (const ing of r.ingredients) {
+      if (ing.type === 'prep' && ing.itemId) {
+        ing.itemName = nameMap.get(ing.itemId) || '[Sub-recipe]';
+      }
+    }
+  }
+  return recipes;
 }
 
 export async function fetchPrepRecipesByName(name: string): Promise<{ id: string; storeId: string }[]> {
