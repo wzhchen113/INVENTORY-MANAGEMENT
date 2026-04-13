@@ -90,6 +90,8 @@ export interface PrepRecipeIngredient {
   // Base unit (source of truth for math)
   baseQuantity: number;
   baseUnit: string; // 'g' or 'fl_oz'
+  // Sub-recipe support: 'raw' = inventory item, 'prep' = nested prep recipe
+  type?: 'raw' | 'prep';
 }
 
 export interface IngredientConversion {
