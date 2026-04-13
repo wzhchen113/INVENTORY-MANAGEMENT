@@ -309,13 +309,46 @@ export default function PrepRecipesScreen() {
             <TouchableOpacity
               style={{ backgroundColor: C.bgPrimary, borderRadius: Radius.md, borderWidth: 0.5, borderColor: C.borderLight, width: 40, alignItems: 'center', justifyContent: 'center' }}
               onPress={() => {
-                const rows = prepRecipes.map((pr) => ({
-                  Name: pr.name, Category: pr.category,
-                  'Yield Qty': pr.yieldQuantity, 'Yield Unit': pr.yieldUnit,
-                  Notes: pr.notes,
-                  Ingredients: pr.ingredients.map((i) => `${i.itemName} (${i.quantity} ${i.unit})`).join('; '),
-                }));
-                const csv = toCSV(rows, ['Name','Category','Yield Qty','Yield Unit','Notes','Ingredients']);
+                const { smartToBase: _stb } = require('../utils/unitConversion');
+                const rows: Record<string, any>[] = [];
+                const cols = ['Recipe','Category','Store(s)','Ingredient','Qty','Unit','Cost','','Batch Cost','Yield','Yield Unit','Cost/Unit','Notes'];
+                displayRecipes.forEach((pr) => {
+                  const bCost = getPrepRecipeCost(pr.id);
+                  const cpu = getPrepRecipeCostPerUnit(pr.id);
+                  // Live yield
+                  let _yG = 0, _yF = 0;
+                  for (const ing of pr.ingredients) { const b = _stb(ing.quantity, ing.unit); if (b.unit === 'fl_oz') _yF += b.quantity; else _yG += b.quantity; }
+                  let yQ = 0, yU = '';
+                  if (_yF > 0 && _yG === 0) { yQ = _yF >= 128 ? _yF / 128 : _yF >= 32 ? _yF / 32 : _yF; yU = _yF >= 128 ? 'gal' : _yF >= 32 ? 'qt' : 'fl_oz'; }
+                  else if (_yG > 0 && _yF === 0) { yQ = _yG >= 453.592 ? _yG / 453.592 : _yG >= 28.35 ? _yG / 28.3495 : _yG; yU = _yG >= 453.592 ? 'lbs' : _yG >= 28.35 ? 'oz' : 'g'; }
+                  else { const t = _yG + _yF * 29.5735; yQ = t >= 453.592 ? t / 453.592 : t; yU = t >= 453.592 ? 'lbs' : 'g'; }
+                  const sids = recipeStoreMap[pr.name.toLowerCase()] || [pr.storeId];
+                  const sLabel = sids.length >= stores.length ? 'All Stores' : sids.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
+                  // First ingredient row includes recipe-level data
+                  pr.ingredients.forEach((ing, idx) => {
+                    const item = inventory.find((i) => i.id === ing.itemId) || inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+                    let ingCost = 0;
+                    if (item) { const { getConversionFactor: gcf } = require('../utils/unitConversion'); const f = gcf(ing.unit, item.subUnitUnit || item.unit); ingCost = item.costPerUnit * (f !== null ? ing.quantity * f : ing.quantity); }
+                    rows.push({
+                      'Recipe': idx === 0 ? pr.name : '',
+                      'Category': idx === 0 ? pr.category : '',
+                      'Store(s)': idx === 0 ? sLabel : '',
+                      'Ingredient': ing.itemName,
+                      'Qty': ing.quantity,
+                      'Unit': ing.unit,
+                      'Cost': ingCost > 0 ? `$${ingCost.toFixed(2)}` : '',
+                      '': '',
+                      'Batch Cost': idx === 0 ? `$${bCost.toFixed(2)}` : '',
+                      'Yield': idx === 0 ? parseFloat(yQ.toFixed(3)) : '',
+                      'Yield Unit': idx === 0 ? yU : '',
+                      'Cost/Unit': idx === 0 ? `$${cpu.toFixed(2)}` : '',
+                      'Notes': idx === 0 ? (pr.notes || '') : '',
+                    });
+                  });
+                  // Blank separator row between recipes
+                  rows.push(cols.reduce((o, c) => ({ ...o, [c]: '' }), {}));
+                });
+                const csv = toCSV(rows, cols);
                 downloadCSV(`prep_recipes_${new Date().toISOString().split('T')[0]}.csv`, csv);
               }}
             >
