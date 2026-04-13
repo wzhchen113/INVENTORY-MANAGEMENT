@@ -581,17 +581,17 @@ function AppStackNavigator() {
     <>
       <AppStack.Navigator key={storeId} screenOptions={dynamicHeaderOptions}>
         <AppStack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
-        <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log' }} />
+        <AppStack.Screen name="WasteLog" component={WasteLogScreen} options={{ title: 'Waste Log', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
-        <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History' }} />
-        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM' }} />
-        <AppStack.Screen name="Vendors" component={VendorsScreen} />
-        <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders' }} />
-        <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import' }} />
-        <AppStack.Screen name="Reconciliation" component={ReconciliationScreen} />
-        <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics' }} />
-        <AppStack.Screen name="AuditLog" component={AuditLogScreen} options={{ title: 'Audit log' }} />
+        <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="Vendors" component={VendorsScreen} options={{ headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="Reconciliation" component={ReconciliationScreen} options={{ headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="AuditLog" component={AuditLogScreen} options={{ title: 'Audit log', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'Users & access' }} />
       </AppStack.Navigator>
       <StoreLoadingOverlay />
