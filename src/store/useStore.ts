@@ -686,9 +686,15 @@ export const useStore = create<FullStore>((set, get) => ({
   getPrepRecipeCost: (prepRecipeId) => {
     const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
     if (!prep) return 0;
+    const { getConversionFactor } = require('../utils/unitConversion');
     return prep.ingredients.reduce((sum, ing) => {
-      const item = get().inventory.find((i) => i.id === ing.itemId);
-      return sum + (item ? item.costPerUnit * ing.quantity : 0);
+      const item = get().inventory.find((i) => i.id === ing.itemId) ||
+        get().inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
+      if (!item) return sum;
+      // Convert recipe quantity to the item's cost unit
+      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+      return sum + item.costPerUnit * convertedQty;
     }, 0);
   },
 
