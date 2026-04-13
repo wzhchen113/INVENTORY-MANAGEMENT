@@ -137,11 +137,12 @@ export function getConversionFactor(fromUnit: string, toUnit: string): number | 
   if (fromUnit === toUnit) return 1;
   const from = fromUnit.toLowerCase();
   const to = toUnit.toLowerCase();
-  if (WEIGHT_TO_LBS[from] !== undefined && WEIGHT_TO_LBS[to] !== undefined) {
-    return WEIGHT_TO_LBS[from] / WEIGHT_TO_LBS[to];
+  // Use full conversion tables (g, kg, oz, lbs for weight; fl_oz, cups, qt, gal for volume)
+  if (WEIGHT_TO_GRAMS[from] !== undefined && WEIGHT_TO_GRAMS[to] !== undefined) {
+    return WEIGHT_TO_GRAMS[from] / WEIGHT_TO_GRAMS[to];
   }
-  if (VOLUME_TO_GAL[from] !== undefined && VOLUME_TO_GAL[to] !== undefined) {
-    return VOLUME_TO_GAL[from] / VOLUME_TO_GAL[to];
+  if (VOLUME_TO_FLOZ[from] !== undefined && VOLUME_TO_FLOZ[to] !== undefined) {
+    return VOLUME_TO_FLOZ[from] / VOLUME_TO_FLOZ[to];
   }
   return null;
 }
