@@ -729,9 +729,10 @@ export const useStore = create<FullStore>((set, get) => ({
         const item = get().inventory.find((i) => i.id === ing.itemId) ||
           get().inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
         if (!item) return sum;
-        const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-        const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
-        return sum + item.costPerUnit * convertedQty;
+        let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+        if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
+        if (factor === null) return sum; // Can't convert — skip rather than inflate
+        return sum + item.costPerUnit * ing.quantity * factor;
       }, 0);
     };
     return calcCost(prepRecipeId, new Set());
@@ -774,9 +775,11 @@ export const useStore = create<FullStore>((set, get) => ({
       const item = get().inventory.find((i) => i.id === ing.itemId) ||
         get().inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
       if (!item) return sum;
-      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
-      return sum + item.costPerUnit * convertedQty;
+      // Try subUnitUnit first, then item.unit, skip if neither converts
+      let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+      if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
+      if (factor === null) return sum; // Can't convert (e.g. g → each) — skip rather than inflate
+      return sum + item.costPerUnit * ing.quantity * factor;
     }, 0);
 
     // Prep recipe costs
