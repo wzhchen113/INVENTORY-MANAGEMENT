@@ -63,7 +63,14 @@ export default function IngredientEditor({
   }, [uniqueItems, search]);
 
   const filteredPreps = useMemo(() => {
-    let preps = availablePrepRecipes;
+    // Deduplicate prep recipes by name (they exist as separate rows per store)
+    const seen = new Set<string>();
+    let preps = availablePrepRecipes.filter((p) => {
+      const key = p.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     // In prep mode, filter out self-reference and already-added sub-recipes
     if (mode === 'prep') {
       preps = preps.filter((p) => {
