@@ -769,20 +769,24 @@ export const useStore = create<FullStore>((set, get) => ({
     if (!recipe) return 0;
 
     // Raw ingredient costs (with unit conversion)
+    const { getConversionFactor } = require('../utils/unitConversion');
     const rawCost = recipe.ingredients.reduce((sum, ing) => {
-      const item = get().inventory.find((i) => i.id === ing.itemId);
+      const item = get().inventory.find((i) => i.id === ing.itemId) ||
+        get().inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
       if (!item) return sum;
-      // If units differ, try to convert
-      const { getConversionFactor } = require('../utils/unitConversion');
-      const factor = getConversionFactor(ing.unit, item.unit);
+      const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
       const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
       return sum + item.costPerUnit * convertedQty;
     }, 0);
 
     // Prep recipe costs
     const prepCost = (recipe.prepItems || []).reduce((sum, prep) => {
+      const subRecipe = get().prepRecipes.find((p) => p.id === prep.prepRecipeId);
+      if (!subRecipe) return sum;
       const costPerUnit = get().getPrepRecipeCostPerUnit(prep.prepRecipeId);
-      return sum + costPerUnit * prep.quantity;
+      const factor = getConversionFactor(prep.unit, subRecipe.yieldUnit);
+      const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
+      return sum + costPerUnit * convertedQty;
     }, 0);
 
     return rawCost + prepCost;
