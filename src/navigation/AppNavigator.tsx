@@ -466,7 +466,7 @@ function MoreScreen({ navigation }: any) {
     { label: 'Waste Log', screen: 'WasteLog', icon: 'trash-outline' as const },
     { label: 'Ingredients', screen: 'Ingredients', icon: 'nutrition-outline' as const },
     { label: 'Prep Recipes', screen: 'PrepRecipes', icon: 'flask-outline' as const },
-    { label: 'Recipes / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
+    { label: 'Menu Items / BOM', screen: 'Recipes', icon: 'restaurant-outline' as const },
     { label: 'Suggested Orders', screen: 'OrderReport', icon: 'receipt-outline' as const },
     ...(isAdmin ? [
       { label: 'EOD History', screen: 'EODHistory', icon: 'calendar-outline' as const },
@@ -585,7 +585,7 @@ function AppStackNavigator() {
         <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History', headerLeft: () => <StackHeaderLeft /> }} />
-        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Recipes / BOM', headerLeft: () => <StackHeaderLeft /> }} />
+        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Menu Items / BOM', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="Vendors" component={VendorsScreen} options={{ headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import', headerLeft: () => <StackHeaderLeft /> }} />
