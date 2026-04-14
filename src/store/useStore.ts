@@ -93,6 +93,7 @@ interface StoreActions {
   getRecipeFoodCostPct: (recipeId: string) => number;
   getPrepRecipeCost: (prepRecipeId: string) => number;
   getPrepRecipeCostPerUnit: (prepRecipeId: string) => number;
+  getIngredientLineCost: (ing: { itemId: string; itemName?: string; quantity: number; unit: string }) => number;
 }
 
 type FullStore = AppState & StoreActions;
@@ -774,36 +775,35 @@ export const useStore = create<FullStore>((set, get) => ({
     return get().getPrepRecipeCost(prepRecipeId) / yieldQty;
   },
 
+  // Shared helper: calculate cost of a single raw ingredient line item
+  getIngredientLineCost: (ing) => {
+    const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
+    const item = get().inventory.find((i) => i.id === ing.itemId) ||
+      get().inventory.find((i) => i.name.toLowerCase() === (ing.itemName || '').toLowerCase());
+    if (!item) return 0;
+    // Try standard unit conversion
+    let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+    if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
+    if (factor !== null) return item.costPerUnit * ing.quantity * factor;
+    // Fallback: ingredient_conversions for abstract units (e.g. 1 each = 400g)
+    const allConversions = get().ingredientConversions || [];
+    const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
+    if (conv && conv.conversionFactor > 0) {
+      const costPerBase = item.costPerUnit / conv.conversionFactor;
+      const base = smartToBase(ing.quantity, ing.unit);
+      return costPerBase * base.quantity;
+    }
+    return 0;
+  },
+
   // Menu recipe cost = raw ingredients + prep recipe portions
   getRecipeCost: (recipeId) => {
     const recipe = get().recipes.find((r) => r.id === recipeId);
     if (!recipe) return 0;
+    const { getConversionFactor } = require('../utils/unitConversion');
 
-    // Raw ingredient costs (with unit conversion)
-    const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
-    const allConversions = get().ingredientConversions || [];
-    const rawCost = recipe.ingredients.reduce((sum, ing) => {
-      const item = get().inventory.find((i) => i.id === ing.itemId) ||
-        get().inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
-      if (!item) return sum;
-      // Try standard unit conversion first
-      let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-      if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
-      if (factor !== null) return sum + item.costPerUnit * ing.quantity * factor;
-      // Fallback: use ingredient_conversions for abstract units (e.g. g → each via conversion table)
-      const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
-      if (conv && conv.conversionFactor > 0) {
-        // conv maps: 1 purchaseUnit = conversionFactor baseUnits (e.g. 1 each = 400g)
-        // costPerBaseUnit = costPerUnit / conversionFactor
-        const costPerBase = item.costPerUnit / conv.conversionFactor;
-        const base = smartToBase(ing.quantity, ing.unit);
-        return sum + costPerBase * base.quantity;
-      }
-      return sum; // No conversion possible — skip
-      return sum + item.costPerUnit * ing.quantity * factor;
-    }, 0);
+    const rawCost = recipe.ingredients.reduce((sum, ing) => sum + get().getIngredientLineCost(ing), 0);
 
-    // Prep recipe costs
     const prepCost = (recipe.prepItems || []).reduce((sum, prep) => {
       const subRecipe = get().prepRecipes.find((p) => p.id === prep.prepRecipeId);
       if (!subRecipe) return sum;

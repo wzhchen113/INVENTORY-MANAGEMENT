@@ -18,7 +18,7 @@ export default function PrepRecipesScreen() {
   const {
     prepRecipes, inventory, stores, currentUser, currentStore,
     addPrepRecipe, updatePrepRecipe, deletePrepRecipe,
-    getPrepRecipeCost, getPrepRecipeCostPerUnit,
+    getPrepRecipeCost, getPrepRecipeCostPerUnit, getIngredientLineCost,
   } = useStore();
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const C = useColors();
@@ -446,14 +446,7 @@ export default function PrepRecipesScreen() {
                       const factor = subRecipe ? getConversionFactor(ing.unit, subRecipe.yieldUnit) : 1;
                       ingCost = subCpu * (factor !== null ? ing.quantity * factor : ing.quantity);
                     } else {
-                      const item = inventory.find((i) => i.id === ing.itemId) ||
-                        inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
-                      if (item) {
-                        const { getConversionFactor } = require('../utils/unitConversion');
-                        const factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-                        const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
-                        ingCost = item.costPerUnit * convertedQty;
-                      }
+                      ingCost = getIngredientLineCost(ing);
                     }
                     return (
                       <View key={idx} style={styles.ingRow}>
