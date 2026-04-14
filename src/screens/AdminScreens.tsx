@@ -2,7 +2,7 @@
 // Contains: RecipesScreen, VendorsScreen,
 //           RestockScreen, AuditLogScreen, ReportsScreen, UsersScreen
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   FlatList, TextInput, Modal, Alert, Platform,
@@ -55,9 +55,32 @@ export function RecipesScreen() {
   const [catWarning, setCatWarning] = useState('');
 
   // Show recipes for the currently selected store, filtered by category
-  const storeRecipes = recipes.filter((r) => r.storeId === currentStore.id);
+  const storeRecipes = currentStore.id === '__all__' ? recipes : recipes.filter((r) => r.storeId === currentStore.id);
   const filteredRecipes = (catFilter ? storeRecipes.filter((r) => r.category === catFilter) : storeRecipes)
     .sort((a, b) => numFirstSort(a.menuItem, b.menuItem));
+
+  // Map menu item names → store IDs for multi-store labels
+  const recipeStoreMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const r of recipes) {
+      const key = r.menuItem.toLowerCase();
+      if (!map[key]) map[key] = [];
+      if (!map[key].includes(r.storeId)) map[key].push(r.storeId);
+    }
+    return map;
+  }, [recipes]);
+
+  // Deduplicate for "All Stores" view
+  const displayRecipes = useMemo(() => {
+    if (currentStore.id !== '__all__') return filteredRecipes;
+    const seen = new Set<string>();
+    return filteredRecipes.filter((r) => {
+      const key = r.menuItem.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [filteredRecipes, currentStore.id]);
 
   // Compute category counts for filter chips
   const categoryCounts = recipeCategories.map((cat) => ({
@@ -278,17 +301,21 @@ export function RecipesScreen() {
             <Ionicons name="download-outline" size={18} color={C.textSecondary} />
           </TouchableOpacity>
         </View>
-        {filteredRecipes.map((recipe) => {
+        {displayRecipes.map((recipe) => {
           const cost = getRecipeCost(recipe.id);
           const fcPct = getRecipeFoodCostPct(recipe.id);
           const fcOk = fcPct < 35;
           const preps = recipe.prepItems || [];
+          const rStoreIds = recipeStoreMap[recipe.menuItem.toLowerCase()] || [recipe.storeId];
+          const storeLabel = rStoreIds.length >= stores.length
+            ? 'All Stores'
+            : rStoreIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
           return (
             <View key={recipe.id} style={[styles.recipeCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
               <View style={styles.recipeTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.recipeName, { color: C.textPrimary }]}>{recipe.menuItem}</Text>
-                  <Text style={[styles.recipeCat, { color: C.textSecondary }]}>{recipe.category}</Text>
+                  <Text style={[styles.recipeCat, { color: C.textSecondary }]}>{recipe.category} · {storeLabel}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={[styles.fcPct, { color: fcOk ? C.success : C.danger }]}>
@@ -349,7 +376,7 @@ export function RecipesScreen() {
             </View>
           );
         })}
-        {filteredRecipes.length === 0 && (
+        {displayRecipes.length === 0 && (
           <Card>
             <EmptyState message={`No recipes for ${currentStore.name} yet. Tap + to add one.`} />
           </Card>
