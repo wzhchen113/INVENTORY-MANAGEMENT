@@ -181,15 +181,16 @@ export function RecipesScreen() {
         }
       });
 
-      // Add to newly selected stores (copy ingredients from original)
+      // Add to newly selected stores (translate ingredient/prep IDs to target store)
       const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
       for (const storeId of newStoreIds) {
+        const { ingredients, prepItems } = translateForStore(editItem.ingredients, editItem.prepItems || [], storeId);
         addRecipe({
           menuItem: menuItem.trim(),
           category,
           sellPrice: parseFloat(sellPrice) || 0,
-          ingredients: [...editItem.ingredients],
-          prepItems: [...(editItem.prepItems || [])],
+          ingredients,
+          prepItems,
           storeId,
         });
       }
@@ -235,12 +236,50 @@ export function RecipesScreen() {
     setShowIngModal(true);
   };
 
+  // Translate ingredient/prep IDs from source store to target store (match by name)
+  const translateForStore = (ings: RecipeIngredient[], preps: RecipePrepItem[], targetStoreId: string) => {
+    const translatedIngs = ings.map((ing) => {
+      const targetItem = inventory.find(
+        (i) => i.storeId === targetStoreId && i.name.toLowerCase() === (ing.itemName || '').toLowerCase()
+      );
+      return targetItem ? { ...ing, itemId: targetItem.id } : ing;
+    }).filter((ing) => {
+      // Only include if the ingredient exists in target store
+      return inventory.some(
+        (i) => i.storeId === targetStoreId && i.name.toLowerCase() === (ing.itemName || '').toLowerCase()
+      );
+    });
+    const translatedPreps = preps.map((p) => {
+      const targetPrep = prepRecipes.find(
+        (pr) => pr.storeId === targetStoreId && pr.name.toLowerCase() === p.prepRecipeName.toLowerCase()
+      );
+      return targetPrep ? { ...p, prepRecipeId: targetPrep.id } : p;
+    }).filter((p) => {
+      return prepRecipes.some(
+        (pr) => pr.storeId === targetStoreId && pr.name.toLowerCase() === p.prepRecipeName.toLowerCase()
+      );
+    });
+    return { ingredients: translatedIngs, prepItems: translatedPreps };
+  };
+
   const saveIngredients = () => {
     if (editingRecipeId) {
+      // Save to current recipe
       updateRecipe(editingRecipeId, {
         ingredients: editIngredients,
         prepItems: editPrepItems,
       });
+      // Propagate translated ingredients to all other stores' copies of this recipe
+      const currentRecipe = recipes.find((r) => r.id === editingRecipeId);
+      if (currentRecipe) {
+        const otherCopies = recipes.filter(
+          (r) => r.id !== editingRecipeId && r.menuItem.toLowerCase() === currentRecipe.menuItem.toLowerCase()
+        );
+        otherCopies.forEach((copy) => {
+          const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, copy.storeId);
+          updateRecipe(copy.id, { ingredients, prepItems });
+        });
+      }
     }
     setShowIngModal(false);
   };
