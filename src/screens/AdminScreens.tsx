@@ -38,9 +38,7 @@ export function RecipesScreen() {
   const [category, setCategory] = useState(recipeCategories[0] || 'Mains');
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
-  // Ingredient editing state
-  const [showIngModal, setShowIngModal] = useState(false);
-  const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
+  // Ingredient editing state (unified in main modal)
   const [editIngredients, setEditIngredients] = useState<RecipeIngredient[]>([]);
   const [editPrepItems, setEditPrepItems] = useState<RecipePrepItem[]>([]);
 
@@ -109,6 +107,8 @@ export function RecipesScreen() {
     setSellPrice('');
     setCategory(recipeCategories[0] || 'Mains');
     setSelectedStoreIds(stores.map((s) => s.id));
+    setEditIngredients([]);
+    setEditPrepItems([]);
     setShowModal(true);
   };
 
@@ -118,7 +118,8 @@ export function RecipesScreen() {
     setMenuItem(recipe.menuItem);
     setSellPrice(String(recipe.sellPrice));
     setCategory(recipe.category);
-    // Find all stores that already have this recipe (by name)
+    setEditIngredients([...recipe.ingredients]);
+    setEditPrepItems([...(recipe.prepItems || [])]);
     const storesWithRecipe = recipes
       .filter((r) => r.menuItem.toLowerCase() === recipe.menuItem.toLowerCase())
       .map((r) => r.storeId);
@@ -156,6 +157,8 @@ export function RecipesScreen() {
     }
     setDupWarning('');
 
+    const price = parseFloat(sellPrice) || 0;
+
     if (editItem) {
       // Find all existing copies across stores
       const existingRecipes = recipes.filter(
@@ -163,48 +166,33 @@ export function RecipesScreen() {
       );
       const existingStoreIds = existingRecipes.map((r) => r.storeId);
 
-      // Update existing copies in selected stores
+      // Update existing copies in selected stores (metadata + translated ingredients)
       existingRecipes.forEach((r) => {
         if (selectedStoreIds.includes(r.storeId)) {
+          const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, r.storeId);
           updateRecipe(r.id, {
-            menuItem: menuItem.trim(),
-            category,
-            sellPrice: parseFloat(sellPrice) || 0,
+            menuItem: menuItem.trim(), category, sellPrice: price,
+            ingredients, prepItems,
           });
         }
       });
 
       // Delete from deselected stores
       existingRecipes.forEach((r) => {
-        if (!selectedStoreIds.includes(r.storeId)) {
-          deleteRecipe(r.id);
-        }
+        if (!selectedStoreIds.includes(r.storeId)) deleteRecipe(r.id);
       });
 
-      // Add to newly selected stores (translate ingredient/prep IDs to target store)
+      // Add to newly selected stores
       const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
       for (const storeId of newStoreIds) {
-        const { ingredients, prepItems } = translateForStore(editItem.ingredients, editItem.prepItems || [], storeId);
-        addRecipe({
-          menuItem: menuItem.trim(),
-          category,
-          sellPrice: parseFloat(sellPrice) || 0,
-          ingredients,
-          prepItems,
-          storeId,
-        });
+        const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, storeId);
+        addRecipe({ menuItem: menuItem.trim(), category, sellPrice: price, ingredients, prepItems, storeId });
       }
     } else {
-      // Add: create in all selected stores
+      // Create: add to all selected stores with translated ingredients
       for (const storeId of selectedStoreIds) {
-        addRecipe({
-          menuItem: menuItem.trim(),
-          category,
-          sellPrice: parseFloat(sellPrice) || 0,
-          ingredients: [],
-          prepItems: [],
-          storeId,
-        });
+        const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, storeId);
+        addRecipe({ menuItem: menuItem.trim(), category, sellPrice: price, ingredients, prepItems, storeId });
       }
     }
     setShowModal(false);
@@ -227,13 +215,6 @@ export function RecipesScreen() {
         { text: 'Delete', style: 'destructive', onPress: doDelete },
       ]);
     }
-  };
-
-  const openIngredientEditor = (recipe: Recipe) => {
-    setEditingRecipeId(recipe.id);
-    setEditIngredients([...recipe.ingredients]);
-    setEditPrepItems([...(recipe.prepItems || [])]);
-    setShowIngModal(true);
   };
 
   // Translate ingredient/prep IDs from source store to target store (match by name)
@@ -260,28 +241,6 @@ export function RecipesScreen() {
       );
     });
     return { ingredients: translatedIngs, prepItems: translatedPreps };
-  };
-
-  const saveIngredients = () => {
-    if (editingRecipeId) {
-      // Save to current recipe
-      updateRecipe(editingRecipeId, {
-        ingredients: editIngredients,
-        prepItems: editPrepItems,
-      });
-      // Propagate translated ingredients to all other stores' copies of this recipe
-      const currentRecipe = recipes.find((r) => r.id === editingRecipeId);
-      if (currentRecipe) {
-        const otherCopies = recipes.filter(
-          (r) => r.id !== editingRecipeId && r.menuItem.toLowerCase() === currentRecipe.menuItem.toLowerCase()
-        );
-        otherCopies.forEach((copy) => {
-          const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, copy.storeId);
-          updateRecipe(copy.id, { ingredients, prepItems });
-        });
-      }
-    }
-    setShowIngModal(false);
   };
 
   return (
@@ -404,14 +363,9 @@ export function RecipesScreen() {
                   <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
               </View>
-              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium, flex: 1 }]} onPress={() => openEdit(recipe)}>
-                  <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit recipe</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium, flex: 1 }]} onPress={() => openIngredientEditor(recipe)}>
-                  <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit ingredients</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium }]} onPress={() => openEdit(recipe)}>
+                <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit</Text>
+              </TouchableOpacity>
             </View>
           );
         })}
@@ -471,11 +425,26 @@ export function RecipesScreen() {
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Sell price ($)</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={sellPrice} onChangeText={(v) => setSellPrice(numericFilter(v))} keyboardType="decimal-pad" placeholder="14.00" placeholderTextColor={C.textTertiary} />
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-            {recipeCategories.map((c) => (
-              <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
-                <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.bgPrimary }]}>{c}</Text>
-              </TouchableOpacity>
-            ))}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.md }}>
+              {recipeCategories.map((c) => (
+                <TouchableOpacity key={c} style={[styles.catPill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, category === c && { backgroundColor: C.textPrimary }]} onPress={() => setCategory(c)}>
+                  <Text style={[styles.catPillText, { color: C.textSecondary }, category === c && { color: C.bgPrimary }]}>{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Ingredients & Prep Recipes */}
+            <Text style={[styles.formLabel, { color: C.textSecondary }]}>Ingredients & Prep Recipes</Text>
+            <IngredientEditor
+              ingredients={editIngredients}
+              onIngredientsChange={setEditIngredients}
+              availableItems={inventory}
+              prepItems={editPrepItems}
+              onPrepItemsChange={setEditPrepItems}
+              availablePrepRecipes={prepRecipes}
+              showPrepRecipes={true}
+            />
+
             {dupWarning ? (
               <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
                 <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
@@ -500,32 +469,6 @@ export function RecipesScreen() {
                 <Text style={[styles.deleteRecipeBtnText, { color: C.danger }]}>Delete from all stores</Text>
               </TouchableOpacity>
             )}
-          </ScrollView>
-        </View>
-      </Modal>
-
-      {/* Edit ingredients modal */}
-      <Modal visible={showIngModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Edit ingredients</Text>
-            <TouchableOpacity onPress={() => setShowIngModal(false)}>
-              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: Spacing.lg }}>
-            <IngredientEditor
-              ingredients={editIngredients}
-              onIngredientsChange={setEditIngredients}
-              availableItems={inventory}
-              prepItems={editPrepItems}
-              onPrepItemsChange={setEditPrepItems}
-              availablePrepRecipes={prepRecipes}
-              showPrepRecipes={true}
-            />
-            <TouchableOpacity style={[styles.saveBtn, { marginTop: Spacing.xl, backgroundColor: C.textPrimary }]} onPress={saveIngredients}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save ingredients</Text>
-            </TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
