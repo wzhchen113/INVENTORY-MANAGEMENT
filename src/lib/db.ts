@@ -146,13 +146,19 @@ export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
 
 export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> {
   if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
+  // Upsert: if menu_item+store_id already exists, update it instead of duplicating
   const { data, error } = await supabase
     .from('recipes')
-    .insert({ store_id: recipe.storeId, menu_item: recipe.menuItem, category: recipe.category, sell_price: recipe.sellPrice })
+    .upsert(
+      { store_id: recipe.storeId, menu_item: recipe.menuItem, category: recipe.category, sell_price: recipe.sellPrice },
+      { onConflict: 'menu_item,store_id' }
+    )
     .select()
     .single();
   if (error) throw error;
 
+  // Replace ingredients (delete old + insert new)
+  await supabase.from('recipe_ingredients').delete().eq('recipe_id', data.id);
   if (recipe.ingredients.length > 0) {
     await supabase.from('recipe_ingredients').insert(
       recipe.ingredients.map((ing) => ({
@@ -160,7 +166,8 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
       }))
     );
   }
-  // Save prep items
+  // Replace prep items
+  await supabase.from('recipe_prep_items').delete().eq('recipe_id', data.id);
   if (recipe.prepItems && recipe.prepItems.length > 0) {
     await supabase.from('recipe_prep_items').insert(
       recipe.prepItems.map((p) => ({
@@ -654,7 +661,7 @@ export async function deleteIngredientCategory(name: string): Promise<void> {
 
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
-  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories] = await Promise.all([
+  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories, conversions] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
     fetchPrepRecipes().catch(() => []), // fetch ALL stores so sub-recipe store validation works
@@ -663,8 +670,9 @@ export async function fetchAllForStore(storeId: string) {
     fetchAuditLog(storeId).catch(() => []),
     fetchRecipeCategories().catch(() => []),
     fetchIngredientCategories().catch(() => []),
+    fetchIngredientConversions().catch(() => []), // fetch ALL conversions for cost calculation
   ]);
-  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories };
+  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories, ingredientConversions: conversions };
 }
 
 // ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
