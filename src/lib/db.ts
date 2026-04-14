@@ -120,7 +120,7 @@ export async function adjustItemStock(id: string, newStock: number, updatedById:
 export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
   const { data, error } = await supabase
     .from('recipes')
-    .select(`*, recipe_ingredients(*, item:inventory_items(name, unit))`)
+    .select(`*, recipe_ingredients(*, item:inventory_items(name, unit)), recipe_prep_items(*, prep:prep_recipes(name, yield_unit))`)
     .eq('store_id', storeId);
   if (error) throw error;
   return (data || []).map((r: any) => ({
@@ -135,7 +135,12 @@ export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
       quantity: ing.quantity,
       unit: ing.unit || ing.item?.unit || '',
     })),
-    prepItems: [],
+    prepItems: (r.recipe_prep_items || []).map((p: any) => ({
+      prepRecipeId: p.prep_recipe_id,
+      prepRecipeName: p.prep?.name || '',
+      quantity: p.quantity,
+      unit: p.unit || p.prep?.yield_unit || '',
+    })),
   }));
 }
 
@@ -152,6 +157,14 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
     await supabase.from('recipe_ingredients').insert(
       recipe.ingredients.map((ing) => ({
         recipe_id: data.id, item_id: ing.itemId, quantity: ing.quantity, unit: ing.unit,
+      }))
+    );
+  }
+  // Save prep items
+  if (recipe.prepItems && recipe.prepItems.length > 0) {
+    await supabase.from('recipe_prep_items').insert(
+      recipe.prepItems.map((p) => ({
+        recipe_id: data.id, prep_recipe_id: p.prepRecipeId, quantity: p.quantity, unit: p.unit,
       }))
     );
   }
@@ -359,10 +372,22 @@ export async function updateRecipe(id: string, updates: Partial<Recipe>): Promis
       );
     }
   }
+  // Update prep items if provided
+  if (updates.prepItems) {
+    await supabase.from('recipe_prep_items').delete().eq('recipe_id', id);
+    if (updates.prepItems.length > 0) {
+      await supabase.from('recipe_prep_items').insert(
+        updates.prepItems.map((p) => ({
+          recipe_id: id, prep_recipe_id: p.prepRecipeId, quantity: p.quantity, unit: p.unit,
+        }))
+      );
+    }
+  }
 }
 
 export async function deleteRecipe(id: string): Promise<void> {
   await supabase.from('recipe_ingredients').delete().eq('recipe_id', id);
+  await supabase.from('recipe_prep_items').delete().eq('recipe_id', id);
   await supabase.from('recipes').delete().eq('id', id);
 }
 
