@@ -25,7 +25,7 @@ export function RecipesScreen() {
   const {
     currentUser, currentStore, stores,
     recipes, recipeCategories, inventory, prepRecipes,
-    getRecipeCost, getRecipeFoodCostPct,
+    getRecipeCost, getRecipeFoodCostPct, getIngredientLineCost,
     addRecipe, updateRecipe, deleteRecipe,
     addRecipeCategory, updateRecipeCategory, deleteRecipeCategory,
   } = useStore();
@@ -301,15 +301,7 @@ export function RecipesScreen() {
               </View>
               <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
                 {recipe.ingredients.map((ing, idx) => {
-                  const item = inventory.find((i) => i.id === ing.itemId) ||
-                    inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
-                  let ingCost = 0;
-                  if (item) {
-                    const { getConversionFactor } = require('../utils/unitConversion');
-                    let f = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-                    if (f === null && item.subUnitUnit) f = getConversionFactor(ing.unit, item.unit);
-                    if (f !== null) ingCost = item.costPerUnit * ing.quantity * f;
-                  }
+                  const ingCost = getIngredientLineCost(ing);
                   return (
                     <View key={idx} style={styles.ingRow}>
                       <Text style={[styles.ingName, { color: C.textPrimary, flex: 1 }]} numberOfLines={1}>{ing.itemName}</Text>
