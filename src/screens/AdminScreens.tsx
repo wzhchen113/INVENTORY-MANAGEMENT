@@ -300,21 +300,48 @@ export function RecipesScreen() {
                 </View>
               </View>
               <View style={[styles.ingList, { backgroundColor: C.bgSecondary }]}>
-                {recipe.ingredients.map((ing, idx) => (
-                  <View key={idx} style={styles.ingRow}>
-                    <Text style={[styles.ingName, { color: C.textPrimary }]}>{ing.itemName}</Text>
-                    <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
-                  </View>
-                ))}
-                {preps.map((prep, idx) => (
-                  <View key={`prep-${idx}`} style={styles.ingRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <View style={[styles.prepTag, { backgroundColor: C.infoBg }]}><Text style={[styles.prepTagText, { color: C.info }]}>Prep</Text></View>
-                      <Text style={[styles.ingName, { color: C.textPrimary }]}>{prep.prepRecipeName}</Text>
+                {recipe.ingredients.map((ing, idx) => {
+                  const item = inventory.find((i) => i.id === ing.itemId) ||
+                    inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
+                  let ingCost = 0;
+                  if (item) {
+                    const { getConversionFactor } = require('../utils/unitConversion');
+                    let f = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
+                    if (f === null && item.subUnitUnit) f = getConversionFactor(ing.unit, item.unit);
+                    if (f !== null) ingCost = item.costPerUnit * ing.quantity * f;
+                  }
+                  return (
+                    <View key={idx} style={styles.ingRow}>
+                      <Text style={[styles.ingName, { color: C.textPrimary, flex: 1 }]} numberOfLines={1}>{ing.itemName}</Text>
+                      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                        <Text style={[styles.ingQty, { color: C.textSecondary }]}>{ing.quantity} {ing.unit}</Text>
+                        {ingCost > 0 && <Text style={{ fontSize: 10, color: C.textTertiary }}>${ingCost.toFixed(2)}</Text>}
+                      </View>
                     </View>
-                    <Text style={[styles.ingQty, { color: C.textSecondary }]}>{prep.quantity} {prep.unit}</Text>
-                  </View>
-                ))}
+                  );
+                })}
+                {preps.map((prep, idx) => {
+                  const { getConversionFactor, getPrepRecipeCostPerUnit: _ } = require('../utils/unitConversion');
+                  const subRecipe = prepRecipes.find((p) => p.id === prep.prepRecipeId);
+                  const cpu = useStore.getState().getPrepRecipeCostPerUnit(prep.prepRecipeId);
+                  let prepCost = 0;
+                  if (subRecipe && cpu > 0) {
+                    const f = getConversionFactor(prep.unit, subRecipe.yieldUnit);
+                    prepCost = cpu * (f !== null ? prep.quantity * f : prep.quantity);
+                  }
+                  return (
+                    <View key={`prep-${idx}`} style={styles.ingRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+                        <View style={[styles.prepTag, { backgroundColor: C.infoBg }]}><Text style={[styles.prepTagText, { color: C.info }]}>Prep</Text></View>
+                        <Text style={[styles.ingName, { color: C.textPrimary, flex: 1 }]} numberOfLines={1}>{prep.prepRecipeName}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                        <Text style={[styles.ingQty, { color: C.textSecondary }]}>{prep.quantity} {prep.unit}</Text>
+                        {prepCost > 0 && <Text style={{ fontSize: 10, color: C.textTertiary }}>${prepCost.toFixed(2)}</Text>}
+                      </View>
+                    </View>
+                  );
+                })}
                 {recipe.ingredients.length === 0 && preps.length === 0 && (
                   <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
