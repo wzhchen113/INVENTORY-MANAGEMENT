@@ -137,6 +137,7 @@ export const useStore = create<FullStore>((set, get) => ({
   darkMode: false,
   notifications: [],
   storeLoading: false,
+  ingredientConversions: [] as any[],
 
   // Auth
   login: (user) => {
@@ -191,6 +192,7 @@ export const useStore = create<FullStore>((set, get) => ({
           auditLog: allData.flatMap((d) => d?.auditLog || []),
           ...(allData[0]?.recipeCategories?.length ? { recipeCategories: allData[0].recipeCategories } : {}),
           ...(allData[0]?.ingredientCategories?.length ? { ingredientCategories: allData[0].ingredientCategories } : {}),
+          ...(allData[0]?.ingredientConversions ? { ingredientConversions: allData[0].ingredientConversions } : {}),
         });
         return;
       }
@@ -206,6 +208,7 @@ export const useStore = create<FullStore>((set, get) => ({
         auditLog: data.auditLog,
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
+        ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
@@ -711,11 +714,11 @@ export const useStore = create<FullStore>((set, get) => ({
       visited.add(id);
       const prep = get().prepRecipes.find((p) => p.id === id);
       if (!prep) return 0;
-      const { getConversionFactor } = require('../utils/unitConversion');
+      const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
+      const allConversions = get().ingredientConversions || [];
       return prep.ingredients.reduce((sum, ing) => {
         const isSubRecipe = (ing.type || 'raw') === 'prep';
         if (isSubRecipe) {
-          // Sub-recipe: get cost per unit of the referenced prep recipe
           const subRecipe = get().prepRecipes.find((p) => p.id === ing.itemId);
           if (!subRecipe) return sum;
           const subCost = calcCost(ing.itemId, new Set(visited));
@@ -731,8 +734,15 @@ export const useStore = create<FullStore>((set, get) => ({
         if (!item) return sum;
         let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
         if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
-        if (factor === null) return sum; // Can't convert — skip rather than inflate
-        return sum + item.costPerUnit * ing.quantity * factor;
+        if (factor !== null) return sum + item.costPerUnit * ing.quantity * factor;
+        // Fallback: use ingredient_conversions for abstract units
+        const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
+        if (conv && conv.conversionFactor > 0) {
+          const costPerBase = item.costPerUnit / conv.conversionFactor;
+          const base = smartToBase(ing.quantity, ing.unit);
+          return sum + costPerBase * base.quantity;
+        }
+        return sum;
       }, 0);
     };
     return calcCost(prepRecipeId, new Set());
@@ -770,15 +780,26 @@ export const useStore = create<FullStore>((set, get) => ({
     if (!recipe) return 0;
 
     // Raw ingredient costs (with unit conversion)
-    const { getConversionFactor } = require('../utils/unitConversion');
+    const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
+    const allConversions = get().ingredientConversions || [];
     const rawCost = recipe.ingredients.reduce((sum, ing) => {
       const item = get().inventory.find((i) => i.id === ing.itemId) ||
         get().inventory.find((i) => i.name.toLowerCase() === ing.itemName?.toLowerCase());
       if (!item) return sum;
-      // Try subUnitUnit first, then item.unit, skip if neither converts
+      // Try standard unit conversion first
       let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
       if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
-      if (factor === null) return sum; // Can't convert (e.g. g → each) — skip rather than inflate
+      if (factor !== null) return sum + item.costPerUnit * ing.quantity * factor;
+      // Fallback: use ingredient_conversions for abstract units (e.g. g → each via conversion table)
+      const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
+      if (conv && conv.conversionFactor > 0) {
+        // conv maps: 1 purchaseUnit = conversionFactor baseUnits (e.g. 1 each = 400g)
+        // costPerBaseUnit = costPerUnit / conversionFactor
+        const costPerBase = item.costPerUnit / conv.conversionFactor;
+        const base = smartToBase(ing.quantity, ing.unit);
+        return sum + costPerBase * base.quantity;
+      }
+      return sum; // No conversion possible — skip
       return sum + item.costPerUnit * ing.quantity * factor;
     }, 0);
 
