@@ -236,6 +236,8 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
         submission_id: data.id,
         item_id: e.itemId,
         actual_remaining: e.actualRemaining,
+        actual_remaining_cases: e.actualRemainingCases ?? null,
+        actual_remaining_each: e.actualRemainingEach ?? null,
         notes: e.notes || '',
       }))
     );

@@ -130,8 +130,11 @@ export interface EODEntry {
   id: string;
   itemId: string;
   itemName: string;
-  actualRemaining: number;
+  actualRemaining: number;        // authoritative total in base units
   unit: string;
+  // Dual-entry (optional, only when hasCaseInfo)
+  actualRemainingCases?: number;  // sealed cases counted
+  actualRemainingEach?: number;   // loose units counted
   submittedBy: string;
   submittedByUserId: string;
   timestamp: string;

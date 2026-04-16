@@ -17,6 +17,12 @@ export interface DynamicOrderLine {
   orderQuantity: number;
   costPerUnit: number;
   estimatedCost: number;
+  // Case breakdown
+  cases: number;          // whole cases needed
+  looseUnits: number;     // leftover units after cases
+  caseQty: number;        // units per case (for display)
+  casePrice: number;      // price per case (for display)
+  hasCaseInfo: boolean;   // true if casePrice > 0 AND caseQty > 1
 }
 
 /**
@@ -67,6 +73,19 @@ export function calculateDynamicOrder(
         ? (item.averageDailyUsage * daysToCover) + item.safetyStock
         : item.parLevel; // fallback: par level is the restock target
       const orderQuantity = Math.max(0, Math.ceil(dynamicPar - item.eodRemaining));
+
+      const caseQty = item.caseQty || 1;
+      const casePrice = item.casePrice || 0;
+      const hasCaseInfo = casePrice > 0 && caseQty > 1;
+
+      const cases = hasCaseInfo ? Math.floor(orderQuantity / caseQty) : 0;
+      const looseUnits = hasCaseInfo ? (orderQuantity - (cases * caseQty)) : orderQuantity;
+
+      // Use case price for full cases, per-unit for leftover; fall back when no case info
+      const estimatedCost = hasCaseInfo
+        ? (cases * casePrice) + (looseUnits * item.costPerUnit)
+        : orderQuantity * item.costPerUnit;
+
       return {
         itemId: item.id,
         itemName: item.name,
@@ -80,7 +99,12 @@ export function calculateDynamicOrder(
         eodRemaining: item.eodRemaining,
         orderQuantity,
         costPerUnit: item.costPerUnit,
-        estimatedCost: orderQuantity * item.costPerUnit,
+        estimatedCost,
+        cases,
+        looseUnits,
+        caseQty,
+        casePrice,
+        hasCaseInfo,
       };
     })
     .filter((line) => line.orderQuantity > 0)

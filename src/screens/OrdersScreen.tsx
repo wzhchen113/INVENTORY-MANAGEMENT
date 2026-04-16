@@ -485,22 +485,39 @@ export default function OrdersScreen() {
                 </View>
 
                 {/* Table rows */}
-                {detailLines.map((line, idx) => (
-                  <View key={line.itemId} style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 0 && styles.tableRowAlt, idx % 2 === 0 && { backgroundColor: C.bgTertiary }]}>
-                    <View style={{ flex: 2.5 }}>
-                      <Text style={[styles.tdName, { color: C.textPrimary }]}>{line.itemName}</Text>
-                      <Text style={[styles.tdMeta, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
+                {detailLines.map((line, idx) => {
+                  // Build case breakdown label
+                  const orderLabel = line.hasCaseInfo
+                    ? (line.cases > 0 && line.looseUnits > 0
+                        ? `${line.cases} cs + ${line.looseUnits} ea`
+                        : line.cases > 0
+                          ? `${line.cases} cs`
+                          : `${line.looseUnits} ea`)
+                    : `${line.orderQuantity} ${line.unit}`;
+                  return (
+                    <View key={line.itemId} style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 0 && styles.tableRowAlt, idx % 2 === 0 && { backgroundColor: C.bgTertiary }]}>
+                      <View style={{ flex: 2.5 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          <Text style={[styles.tdName, { color: C.textPrimary }]}>{line.itemName}</Text>
+                          {!line.hasCaseInfo && (
+                            <View style={{ backgroundColor: C.warningBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                              <Text style={{ fontSize: 8, color: C.warning, fontWeight: '600' }}>⚠ No case info</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.tdMeta, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
+                      </View>
+                      <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.eodRemaining}</Text>
+                      <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.dynamicPar}</Text>
+                      <View style={styles.orderQtyCell}>
+                        <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{orderLabel}</Text>
+                      </View>
+                      <Text style={[styles.td, styles.tdRight, { color: C.textPrimary }]}>
+                        ${line.estimatedCost.toFixed(2)}
+                      </Text>
                     </View>
-                    <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.eodRemaining}</Text>
-                    <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.dynamicPar}</Text>
-                    <View style={styles.orderQtyCell}>
-                      <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{line.orderQuantity}</Text>
-                    </View>
-                    <Text style={[styles.td, styles.tdRight, { color: C.textPrimary }]}>
-                      ${line.estimatedCost.toFixed(2)}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
 
                 {/* Totals row */}
                 <View style={[styles.totalRow, { backgroundColor: C.bgSecondary, borderTopColor: C.borderMedium }]}>
