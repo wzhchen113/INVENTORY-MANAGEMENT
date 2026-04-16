@@ -210,6 +210,7 @@ export const useStore = create<FullStore>((set, get) => ({
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
         ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
+        ...(data.orderSchedule && Object.keys(data.orderSchedule).length > 0 ? { orderSchedule: { ...get().orderSchedule, ...data.orderSchedule } } : {}),
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
@@ -651,6 +652,11 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       orderSchedule: { ...s.orderSchedule, [day]: vendors },
     }));
+    // Persist to Supabase
+    const storeId = get().currentStore?.id;
+    if (storeId && storeId !== '__all__') {
+      db.saveOrderSchedule(storeId, day, vendors).catch((e: any) => console.warn('[Supabase] saveOrderSchedule:', e?.message || e));
+    }
   },
 
   submitOrder: (submission) => {
