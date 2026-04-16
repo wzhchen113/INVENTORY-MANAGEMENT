@@ -161,6 +161,27 @@ export default function OrdersScreen() {
     [inventory, currentStore.id],
   );
 
+  // Pre-compute order summaries for all vendor-day combos (EOD-based)
+  const vendorOrderSummaries = useMemo(() => {
+    const summaries: Record<string, { itemCount: number; totalCost: number }> = {};
+    DAYS.forEach((day) => {
+      (orderSchedule[day] || []).forEach((sv) => {
+        const key = `${day}::${sv.vendorName}`;
+        const vendor = sv.vendorId
+          ? allVendors.find((v) => v.id === sv.vendorId)
+          : allVendors.find((v) => v.name.toLowerCase() === sv.vendorName.toLowerCase());
+        if (!vendor) { summaries[key] = { itemCount: 0, totalCost: 0 }; return; }
+        const date = getDateObjectForDay(day, timezone);
+        const lines = calculateDynamicOrder(storeInventory, vendor, date);
+        summaries[key] = {
+          itemCount: lines.filter((l) => l.orderQuantity > 0).length,
+          totalCost: lines.reduce((s, l) => s + l.estimatedCost, 0),
+        };
+      });
+    });
+    return summaries;
+  }, [orderSchedule, allVendors, storeInventory, timezone]);
+
   const weekSubmissions = useMemo(
     () => orderSubmissions.filter((s) => s.storeId === currentStore.id),
     [orderSubmissions, currentStore.id],
@@ -178,10 +199,15 @@ export default function OrdersScreen() {
     [detailDay, timezone],
   );
 
-  const detailVendor: Vendor | undefined = useMemo(
-    () => allVendors.find((v) => v.name.toLowerCase() === detailVendorName.toLowerCase()),
-    [allVendors, detailVendorName],
-  );
+  const detailVendor: Vendor | undefined = useMemo(() => {
+    // Try vendorId first (from schedule entry), fall back to name
+    const schedEntry = (orderSchedule[detailDay] || []).find((v) => v.vendorName === detailVendorName);
+    if (schedEntry?.vendorId) {
+      const byId = allVendors.find((v) => v.id === schedEntry.vendorId);
+      if (byId) return byId;
+    }
+    return allVendors.find((v) => v.name.toLowerCase() === detailVendorName.toLowerCase());
+  }, [allVendors, detailVendorName, detailDay, orderSchedule]);
 
   const detailLines: DynamicOrderLine[] = useMemo(() => {
     if (!detailVendor || !detailOpen) return [];
@@ -222,6 +248,17 @@ export default function OrdersScreen() {
 
   const updateVendorRow = (idx: number, field: keyof OrderDayVendor, value: string) => {
     setEditVendors(editVendors.map((v, i) => (i === idx ? { ...v, [field]: value } : v)));
+  };
+
+  const selectVendorForRow = (idx: number, vendor: Vendor) => {
+    setEditVendors(editVendors.map((v, i) =>
+      i === idx ? {
+        ...v,
+        vendorName: vendor.name,
+        vendorId: vendor.id,
+        deliveryDay: (vendor as any).deliveryDays?.[0] || v.deliveryDay,
+      } : v
+    ));
   };
 
   const saveSchedule = () => {
@@ -327,6 +364,17 @@ export default function OrdersScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.vendorName, { color: C.textPrimary }]}>{vendor.vendorName}</Text>
                           <Text style={[styles.deliveryText, { color: C.textTertiary }]}>Delivery by {vendor.deliveryDay}</Text>
+                          {(() => {
+                            const summary = vendorOrderSummaries[`${day}::${vendor.vendorName}`];
+                            if (!summary || summary.itemCount === 0) return (
+                              <Text style={{ fontSize: 10, color: C.success, fontWeight: '500', marginTop: 2 }}>All stocked</Text>
+                            );
+                            return (
+                              <Text style={{ fontSize: 10, color: C.danger, fontWeight: '500', marginTop: 2 }}>
+                                {summary.itemCount} items · ${summary.totalCost.toFixed(2)}
+                              </Text>
+                            );
+                          })()}
                         </View>
                       </View>
                       {submitted ? (
@@ -507,14 +555,26 @@ export default function OrdersScreen() {
               <View key={idx} style={[styles.vendorEditRow, { borderBottomColor: C.borderLight }]}>
                 <View style={styles.vendorEditFields}>
                   <View style={styles.formField}>
-                    <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor name</Text>
-                    <TextInput
-                      style={[styles.formInput, { borderColor: C.borderMedium, color: C.textPrimary, backgroundColor: C.bgSecondary }]}
-                      value={vendor.vendorName}
-                      onChangeText={(v) => updateVendorRow(idx, 'vendorName', v)}
-                      placeholder="e.g. US Foods"
-                      placeholderTextColor={C.textTertiary}
-                    />
+                    <Text style={[styles.formLabel, { color: C.textSecondary }]}>Vendor</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.chipRow}>
+                        {allVendors.map((v) => {
+                          const isSelected = vendor.vendorName.toLowerCase() === v.name.toLowerCase() || vendor.vendorId === v.id;
+                          return (
+                            <TouchableOpacity
+                              key={v.id}
+                              style={[styles.chip, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }, isSelected && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                              onPress={() => selectVendorForRow(idx, v)}
+                            >
+                              <Text style={[styles.chipText, { color: C.textSecondary }, isSelected && { color: C.bgPrimary }]}>{v.name}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                    {!vendor.vendorName && (
+                      <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4 }}>Tap a vendor to select</Text>
+                    )}
                   </View>
                   <View style={styles.formField}>
                     <Text style={[styles.formLabel, { color: C.textSecondary }]}>Delivery by</Text>

@@ -234,6 +234,7 @@ export interface Store {
 }
 
 export interface OrderDayVendor {
+  vendorId?: string;
   vendorName: string;
   deliveryDay: string;
 }
