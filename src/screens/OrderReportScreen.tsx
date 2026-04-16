@@ -283,35 +283,51 @@ export default function OrderReportScreen() {
                 </View>
 
                 {/* Table rows */}
-                {lines.map((line, idx) => (
-                  <View
-                    key={line.itemId}
-                    style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 1 && styles.tableRowAlt, idx % 2 === 1 && { backgroundColor: C.bgSecondary + '80' }]}
-                  >
-                    <View style={{ flex: 2.2 }}>
-                      <Text style={[styles.td, { color: C.textPrimary }]}>{line.itemName}</Text>
-                      <Text style={[styles.tdSub, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
+                {lines.map((line, idx) => {
+                  const orderLabel = line.hasCaseInfo
+                    ? (line.cases > 0 && line.looseUnits > 0
+                        ? `${line.cases} cs + ${line.looseUnits} ea`
+                        : line.cases > 0
+                          ? `${line.cases} cs`
+                          : `${line.looseUnits} ea`)
+                    : `${line.orderQuantity}`;
+                  return (
+                    <View
+                      key={line.itemId}
+                      style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 1 && styles.tableRowAlt, idx % 2 === 1 && { backgroundColor: C.bgSecondary + '80' }]}
+                    >
+                      <View style={{ flex: 2.2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          <Text style={[styles.td, { color: C.textPrimary }]}>{line.itemName}</Text>
+                          {!line.hasCaseInfo && (
+                            <View style={{ backgroundColor: C.warningBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                              <Text style={{ fontSize: 8, color: C.warning, fontWeight: '600' }}>⚠ No case info</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.tdSub, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
+                      </View>
+                      <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
+                        {line.dailyUsage}
+                      </Text>
+                      <Text style={[styles.td, { flex: 0.7, textAlign: 'center', color: C.textPrimary }]}>
+                        {line.daysToCover}
+                      </Text>
+                      <Text style={[styles.td, { flex: 0.9, textAlign: 'center', color: C.info }]}>
+                        {line.dynamicPar}
+                      </Text>
+                      <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
+                        {line.eodRemaining}
+                      </Text>
+                      <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center', color: C.danger }]}>
+                        {orderLabel}
+                      </Text>
+                      <Text style={[styles.td, { flex: 1, textAlign: 'right', color: C.textPrimary }]}>
+                        ${line.estimatedCost.toFixed(2)}
+                      </Text>
                     </View>
-                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
-                      {line.dailyUsage}
-                    </Text>
-                    <Text style={[styles.td, { flex: 0.7, textAlign: 'center', color: C.textPrimary }]}>
-                      {line.daysToCover}
-                    </Text>
-                    <Text style={[styles.td, { flex: 0.9, textAlign: 'center', color: C.info }]}>
-                      {line.dynamicPar}
-                    </Text>
-                    <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
-                      {line.eodRemaining}
-                    </Text>
-                    <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center', color: C.danger }]}>
-                      {line.orderQuantity}
-                    </Text>
-                    <Text style={[styles.td, { flex: 1, textAlign: 'right', color: C.textPrimary }]}>
-                      ${line.estimatedCost.toFixed(2)}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             );
           })

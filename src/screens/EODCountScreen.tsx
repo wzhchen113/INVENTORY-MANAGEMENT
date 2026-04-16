@@ -18,6 +18,8 @@ export default function EODCountScreen() {
   const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule } = useStore();
   const C = useColors();
   const [counts, setCounts] = useState<Record<string, string>>({});
+  const [casesCount, setCasesCount] = useState<Record<string, string>>({});
+  const [eachCount, setEachCount] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -48,6 +50,8 @@ export default function EODCountScreen() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editCounts, setEditCounts] = useState<Record<string, string>>({});
+  const [editCasesCount, setEditCasesCount] = useState<Record<string, string>>({});
+  const [editEachCount, setEditEachCount] = useState<Record<string, string>>({});
   const [editNotes, setEditNotes] = useState<Record<string, string>>({});
 
   const storeInventory = useMemo(
@@ -120,40 +124,87 @@ export default function EODCountScreen() {
   useEffect(() => {
     if (myTodaySubmission && Object.keys(counts).length === 0) {
       const prefilled: Record<string, string> = {};
+      const prefilledCases: Record<string, string> = {};
+      const prefilledEach: Record<string, string> = {};
       const prefilledNotes: Record<string, string> = {};
       myTodaySubmission.entries.forEach((e: any) => {
         prefilled[e.itemId] = String(e.actualRemaining);
+        const item = inventory.find((i) => i.id === e.itemId);
+        const caseQty = item?.caseQty || 1;
+        const hasCaseInfo = (item?.casePrice || 0) > 0 && caseQty > 1;
+        if (hasCaseInfo) {
+          if (e.actualRemainingCases !== undefined && e.actualRemainingCases !== null) {
+            prefilledCases[e.itemId] = String(e.actualRemainingCases);
+            prefilledEach[e.itemId] = String(e.actualRemainingEach ?? 0);
+          } else {
+            // Legacy entry — back-derive from actualRemaining
+            const total = e.actualRemaining || 0;
+            const cases = Math.floor(total / caseQty);
+            const each = total - cases * caseQty;
+            prefilledCases[e.itemId] = String(cases);
+            prefilledEach[e.itemId] = String(each);
+          }
+        }
         if (e.notes) prefilledNotes[e.itemId] = e.notes;
       });
       if (Object.keys(prefilled).length > 0) {
         setCounts(prefilled);
+        setCasesCount(prefilledCases);
+        setEachCount(prefilledEach);
         setNotes((prev) => ({ ...prev, ...prefilledNotes }));
       }
     }
-  }, [myTodaySubmission]);
+  }, [myTodaySubmission, inventory]);
 
   const updateCount = (id: string, value: string) => {
     setCounts((prev) => ({ ...prev, [id]: value }));
   };
 
-  const filledCount = Object.values(counts).filter((v) => v !== '' && v !== undefined).length;
+  // Count filled items (legacy counts OR dual-entry cases/each)
+  const filledCount = baseItems.filter((item) => {
+    const caseQty = item.caseQty || 1;
+    const hasCaseInfo = (item.casePrice || 0) > 0 && caseQty > 1;
+    if (hasCaseInfo) {
+      return (casesCount[item.id] !== undefined && casesCount[item.id] !== '')
+        || (eachCount[item.id] !== undefined && eachCount[item.id] !== '');
+    }
+    return counts[item.id] !== undefined && counts[item.id] !== '';
+  }).length;
 
   const handleSubmit = () => {
     const entries: EODEntry[] = storeInventory
-      .filter((item) => counts[item.id] !== undefined && counts[item.id] !== '')
-      .map((item) => ({
-        id: `eod-${item.id}-${Date.now()}`,
-        itemId: item.id,
-        itemName: item.name,
-        actualRemaining: parseFloat(counts[item.id]) || 0,
-        unit: item.unit,
-        submittedBy: currentUser?.name || '',
-        submittedByUserId: currentUser?.id || '',
-        timestamp: new Date().toISOString(),
-        date: todayISO,
-        storeId: currentStore.id,
-        notes: notes[item.id] || '',
-      }));
+      .filter((item) => {
+        const caseQty = item.caseQty || 1;
+        const hasCaseInfo = (item.casePrice || 0) > 0 && caseQty > 1;
+        if (hasCaseInfo) {
+          return (casesCount[item.id] !== undefined && casesCount[item.id] !== '')
+            || (eachCount[item.id] !== undefined && eachCount[item.id] !== '');
+        }
+        return counts[item.id] !== undefined && counts[item.id] !== '';
+      })
+      .map((item) => {
+        const caseQty = item.caseQty || 1;
+        const hasCaseInfo = (item.casePrice || 0) > 0 && caseQty > 1;
+        const cases = parseFloat(casesCount[item.id]) || 0;
+        const each = parseFloat(eachCount[item.id]) || 0;
+        const legacy = parseFloat(counts[item.id]) || 0;
+        const total = hasCaseInfo ? (cases * caseQty) + each : legacy;
+        return {
+          id: `eod-${item.id}-${Date.now()}`,
+          itemId: item.id,
+          itemName: item.name,
+          actualRemaining: total,
+          actualRemainingCases: hasCaseInfo ? cases : undefined,
+          actualRemainingEach: hasCaseInfo ? each : undefined,
+          unit: item.unit,
+          submittedBy: currentUser?.name || '',
+          submittedByUserId: currentUser?.id || '',
+          timestamp: new Date().toISOString(),
+          date: todayISO,
+          storeId: currentStore.id,
+          notes: notes[item.id] || '',
+        };
+      });
 
     if (entries.length === 0) {
       Alert.alert('No counts entered', 'Please enter at least one remaining quantity before submitting.');
@@ -176,6 +227,8 @@ export default function EODCountScreen() {
       // Save to local state immediately
       submitEOD(submission);
       setCounts({});
+      setCasesCount({});
+      setEachCount({});
       setNotes({});
       setSearch('');
       setSelectedCategory(null);
@@ -236,12 +289,31 @@ export default function EODCountScreen() {
   const startEditing = () => {
     if (!myTodaySubmission) return;
     const ec: Record<string, string> = {};
+    const ecCases: Record<string, string> = {};
+    const ecEach: Record<string, string> = {};
     const en: Record<string, string> = {};
-    myTodaySubmission.entries.forEach((entry) => {
+    myTodaySubmission.entries.forEach((entry: any) => {
       ec[entry.itemId] = String(entry.actualRemaining);
       en[entry.itemId] = entry.notes || '';
+      const item = inventory.find((i) => i.id === entry.itemId);
+      const caseQty = item?.caseQty || 1;
+      const hasCaseInfo = (item?.casePrice || 0) > 0 && caseQty > 1;
+      if (hasCaseInfo) {
+        if (entry.actualRemainingCases !== undefined && entry.actualRemainingCases !== null) {
+          ecCases[entry.itemId] = String(entry.actualRemainingCases);
+          ecEach[entry.itemId] = String(entry.actualRemainingEach ?? 0);
+        } else {
+          const total = entry.actualRemaining || 0;
+          const cases = Math.floor(total / caseQty);
+          const each = total - cases * caseQty;
+          ecCases[entry.itemId] = String(cases);
+          ecEach[entry.itemId] = String(each);
+        }
+      }
     });
     setEditCounts(ec);
+    setEditCasesCount(ecCases);
+    setEditEachCount(ecEach);
     setEditNotes(en);
     setIsEditing(true);
   };
@@ -249,15 +321,36 @@ export default function EODCountScreen() {
   const handleUpdate = () => {
     if (!myTodaySubmission) return;
 
-    const updatedEntries: EODEntry[] = myTodaySubmission.entries.map((entry) => ({
-      ...entry,
-      actualRemaining:
-        editCounts[entry.itemId] !== undefined
-          ? parseFloat(editCounts[entry.itemId]) || 0
-          : entry.actualRemaining,
-      notes: editNotes[entry.itemId] ?? entry.notes,
-      timestamp: new Date().toISOString(),
-    }));
+    const updatedEntries: EODEntry[] = myTodaySubmission.entries.map((entry) => {
+      const item = inventory.find((i) => i.id === entry.itemId);
+      const caseQty = item?.caseQty || 1;
+      const hasCaseInfo = (item?.casePrice || 0) > 0 && caseQty > 1;
+      if (hasCaseInfo) {
+        const cases = editCasesCount[entry.itemId] !== undefined
+          ? parseFloat(editCasesCount[entry.itemId]) || 0
+          : (entry.actualRemainingCases ?? 0);
+        const each = editEachCount[entry.itemId] !== undefined
+          ? parseFloat(editEachCount[entry.itemId]) || 0
+          : (entry.actualRemainingEach ?? 0);
+        return {
+          ...entry,
+          actualRemaining: (cases * caseQty) + each,
+          actualRemainingCases: cases,
+          actualRemainingEach: each,
+          notes: editNotes[entry.itemId] ?? entry.notes,
+          timestamp: new Date().toISOString(),
+        };
+      }
+      return {
+        ...entry,
+        actualRemaining:
+          editCounts[entry.itemId] !== undefined
+            ? parseFloat(editCounts[entry.itemId]) || 0
+            : entry.actualRemaining,
+        notes: editNotes[entry.itemId] ?? entry.notes,
+        timestamp: new Date().toISOString(),
+      };
+    });
 
     // Update the submission in the store
     submitEOD({
@@ -268,6 +361,8 @@ export default function EODCountScreen() {
 
     setIsEditing(false);
     setEditCounts({});
+    setEditCasesCount({});
+    setEditEachCount({});
     setEditNotes({});
   };
 
@@ -395,25 +490,58 @@ export default function EODCountScreen() {
               <CardHeader title={cat} />
               {catEntries.map((entry) => {
                 const item = inventory.find((i) => i.id === entry.itemId);
+                const caseQty = item?.caseQty || 1;
+                const hasCaseInfo = (item?.casePrice || 0) > 0 && caseQty > 1;
                 return (
                   <View key={entry.itemId} style={[styles.itemRow, { borderBottomColor: C.borderLight }]}>
                     <View style={styles.itemInfo}>
-                      <Text style={[styles.itemName, { color: C.textPrimary }]}>{entry.itemName}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        <Text style={[styles.itemName, { color: C.textPrimary }]}>{entry.itemName}</Text>
+                        {!hasCaseInfo && (
+                          <View style={{ backgroundColor: C.warningBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                            <Text style={{ fontSize: 8, color: C.warning, fontWeight: '600' }}>⚠ No case info</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={[styles.itemUnit, { color: C.textTertiary }]}>
-                        Expected: {item?.currentStock ?? '?'} {entry.unit}
+                        {hasCaseInfo ? `1 case = ${caseQty} ${entry.unit}` : `Expected: ${item?.currentStock ?? '?'} ${entry.unit}`}
                       </Text>
                     </View>
-                    <View style={styles.inputGroup}>
-                      <TextInput
-                        style={[styles.countInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-                        keyboardType="decimal-pad"
-                        value={editCounts[entry.itemId] ?? String(entry.actualRemaining)}
-                        onChangeText={(v) =>
-                          setEditCounts((prev) => ({ ...prev, [entry.itemId]: numericFilter(v) }))
-                        }
-                      />
-                      <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{entry.unit}</Text>
-                    </View>
+                    {hasCaseInfo ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <View style={{ alignItems: 'center' }}>
+                          <TextInput
+                            style={[styles.countInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, width: 50 }]}
+                            keyboardType="decimal-pad"
+                            value={editCasesCount[entry.itemId] ?? ''}
+                            onChangeText={(v) => setEditCasesCount((prev) => ({ ...prev, [entry.itemId]: numericFilter(v) }))}
+                          />
+                          <Text style={{ fontSize: 9, color: C.textTertiary, marginTop: 1 }}>cases</Text>
+                        </View>
+                        <Text style={{ color: C.textTertiary, fontSize: 12 }}>+</Text>
+                        <View style={{ alignItems: 'center' }}>
+                          <TextInput
+                            style={[styles.countInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, width: 50 }]}
+                            keyboardType="decimal-pad"
+                            value={editEachCount[entry.itemId] ?? ''}
+                            onChangeText={(v) => setEditEachCount((prev) => ({ ...prev, [entry.itemId]: numericFilter(v) }))}
+                          />
+                          <Text style={{ fontSize: 9, color: C.textTertiary, marginTop: 1 }}>each</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.inputGroup}>
+                        <TextInput
+                          style={[styles.countInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                          keyboardType="decimal-pad"
+                          value={editCounts[entry.itemId] ?? String(entry.actualRemaining)}
+                          onChangeText={(v) =>
+                            setEditCounts((prev) => ({ ...prev, [entry.itemId]: numericFilter(v) }))
+                          }
+                        />
+                        <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{entry.unit}</Text>
+                      </View>
+                    )}
                     <TextInput
                       style={[styles.noteInput, { color: C.textSecondary, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
                       placeholder="Note..."
@@ -436,6 +564,8 @@ export default function EODCountScreen() {
             onPress={() => {
               setIsEditing(false);
               setEditCounts({});
+              setEditCasesCount({});
+              setEditEachCount({});
               setEditNotes({});
             }}
           >
@@ -607,36 +737,85 @@ export default function EODCountScreen() {
         return (
           <Card key={cat} style={{ marginBottom: Spacing.md }}>
             <CardHeader title={cat} rightContent={<Text style={[styles.catCount, { color: C.textTertiary }]}>{catItems.length} items</Text>} />
-            {catItems.map((item) => (
-              <View key={item.id} style={[styles.itemRow, { borderBottomColor: C.borderLight }]}>
-                <View style={styles.itemInfo}>
-                  <Text style={[styles.itemName, { color: C.textPrimary }]}>{item.name}</Text>
-                  <Text style={[styles.itemUnit, { color: C.textTertiary }]}>Expected: {item.currentStock} {item.unit}</Text>
-                </View>
-                <View style={styles.inputGroup}>
+            {catItems.map((item) => {
+              const caseQty = item.caseQty || 1;
+              const hasCaseInfo = (item.casePrice || 0) > 0 && caseQty > 1;
+              return (
+                <View key={item.id} style={[styles.itemRow, { borderBottomColor: C.borderLight }]}>
+                  <View style={styles.itemInfo}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      <Text style={[styles.itemName, { color: C.textPrimary }]}>{item.name}</Text>
+                      {!hasCaseInfo && (
+                        <View style={{ backgroundColor: C.warningBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                          <Text style={{ fontSize: 8, color: C.warning, fontWeight: '600' }}>⚠ No case info</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.itemUnit, { color: C.textTertiary }]}>
+                      {hasCaseInfo ? `1 case = ${caseQty} ${item.unit}` : `Expected: ${item.currentStock} ${item.unit}`}
+                    </Text>
+                  </View>
+                  {hasCaseInfo ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <TextInput
+                          style={[
+                            styles.countInput,
+                            { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, width: 50 },
+                            casesCount[item.id] ? [styles.countInputFilled, { borderColor: C.success, backgroundColor: C.successBg }] : null,
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={C.textTertiary}
+                          keyboardType="decimal-pad"
+                          value={casesCount[item.id] || ''}
+                          onChangeText={(v) => setCasesCount((prev) => ({ ...prev, [item.id]: numericFilter(v) }))}
+                        />
+                        <Text style={{ fontSize: 9, color: C.textTertiary, marginTop: 1 }}>cases</Text>
+                      </View>
+                      <Text style={{ color: C.textTertiary, fontSize: 12 }}>+</Text>
+                      <View style={{ alignItems: 'center' }}>
+                        <TextInput
+                          style={[
+                            styles.countInput,
+                            { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, width: 50 },
+                            eachCount[item.id] ? [styles.countInputFilled, { borderColor: C.success, backgroundColor: C.successBg }] : null,
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={C.textTertiary}
+                          keyboardType="decimal-pad"
+                          value={eachCount[item.id] || ''}
+                          onChangeText={(v) => setEachCount((prev) => ({ ...prev, [item.id]: numericFilter(v) }))}
+                        />
+                        <Text style={{ fontSize: 9, color: C.textTertiary, marginTop: 1 }}>each</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.inputGroup}>
+                      <TextInput
+                        style={[
+                          styles.countInput,
+                          { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium },
+                          counts[item.id] ? [styles.countInputFilled, { borderColor: C.success, backgroundColor: C.successBg }] : null,
+                        ]}
+                        placeholder="0"
+                        placeholderTextColor={C.textTertiary}
+                        keyboardType="decimal-pad"
+                        value={counts[item.id] || ''}
+                        onChangeText={(v) => updateCount(item.id, numericFilter(v))}
+                      />
+                      <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{item.unit}</Text>
+                    </View>
+                  )}
                   <TextInput
-                    style={[
-                      styles.countInput,
-                      { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium },
-                      counts[item.id] ? [styles.countInputFilled, { borderColor: C.success, backgroundColor: C.successBg }] : null,
-                    ]}
-                    placeholder="0"
+                    style={[styles.noteInput, { color: C.textSecondary, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
+                    placeholder="Note..."
                     placeholderTextColor={C.textTertiary}
-                    keyboardType="decimal-pad"
-                    value={counts[item.id] || ''}
-                    onChangeText={(v) => updateCount(item.id, numericFilter(v))}
+                    value={notes[item.id] || ''}
+                    onChangeText={(v) => setNotes((prev) => ({ ...prev, [item.id]: v }))}
                   />
-                  <Text style={[styles.unitLabel, { color: C.textSecondary }]}>{item.unit}</Text>
                 </View>
-                <TextInput
-                  style={[styles.noteInput, { color: C.textSecondary, backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
-                  placeholder="Note..."
-                  placeholderTextColor={C.textTertiary}
-                  value={notes[item.id] || ''}
-                  onChangeText={(v) => setNotes((prev) => ({ ...prev, [item.id]: v }))}
-                />
-              </View>
-            ))}
+              );
+            })}
           </Card>
         );
       })}
