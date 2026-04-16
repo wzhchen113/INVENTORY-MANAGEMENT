@@ -60,9 +60,12 @@ export function calculateDynamicOrder(
   const daysToCover = getDaysToCover(orderDate, vendor);
 
   return inventory
-    .filter((item) => item.vendorId === vendor.id)
+    .filter((item) => item.vendorId === vendor.id || item.vendorName?.toLowerCase() === vendor.name?.toLowerCase())
     .map((item) => {
-      const dynamicPar = (item.averageDailyUsage * daysToCover) + item.safetyStock;
+      // Use parLevel as target if averageDailyUsage not set
+      const dynamicPar = item.averageDailyUsage > 0
+        ? (item.averageDailyUsage * daysToCover) + item.safetyStock
+        : item.parLevel; // fallback: par level is the restock target
       const orderQuantity = Math.max(0, Math.ceil(dynamicPar - item.eodRemaining));
       return {
         itemId: item.id,

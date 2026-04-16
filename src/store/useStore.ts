@@ -489,11 +489,17 @@ export const useStore = create<FullStore>((set, get) => ({
     );
 
     if (existing) {
-      // Update existing submission
+      // Merge new entries with existing (update matching items, add new ones)
+      const mergedEntries = [...existing.entries];
+      submission.entries.forEach((newEntry) => {
+        const idx = mergedEntries.findIndex((e) => e.itemId === newEntry.itemId);
+        if (idx >= 0) mergedEntries[idx] = newEntry;
+        else mergedEntries.push(newEntry);
+      });
       set((s) => ({
         eodSubmissions: s.eodSubmissions.map((sub) =>
           sub.id === existing.id
-            ? { ...sub, entries: submission.entries, timestamp: submission.timestamp }
+            ? { ...sub, entries: mergedEntries, itemCount: mergedEntries.length, timestamp: submission.timestamp }
             : sub
         ),
       }));
