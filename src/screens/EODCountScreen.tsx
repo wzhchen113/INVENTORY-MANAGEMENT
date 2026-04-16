@@ -24,6 +24,10 @@ export default function EODCountScreen() {
   const [vendorFilter, setVendorFilter] = useState('');
   const [showAllItems, setShowAllItems] = useState(false);
 
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const actualToday = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const [selectedDay, setSelectedDay] = useState(actualToday);
+
   const todayISO = new Date().toISOString().split('T')[0];
 
   // Find if current user already submitted today
@@ -51,25 +55,24 @@ export default function EODCountScreen() {
     [inventory, currentStore.id]
   );
 
-  // Today's scheduled vendors from order schedule
-  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const todaysScheduledVendors = useMemo(() => {
-    const scheduled = orderSchedule[todayName] || [];
+  // Selected day's scheduled vendors from order schedule
+  const scheduledVendors = useMemo(() => {
+    const scheduled = orderSchedule[selectedDay] || [];
     return scheduled.map((sv) => sv.vendorName.toLowerCase()).filter(Boolean);
-  }, [orderSchedule, todayName]);
+  }, [orderSchedule, selectedDay]);
 
-  const todaysVendorNames = useMemo(() => {
-    const scheduled = orderSchedule[todayName] || [];
+  const scheduledVendorNames = useMemo(() => {
+    const scheduled = orderSchedule[selectedDay] || [];
     return scheduled.map((sv) => sv.vendorName).filter(Boolean);
-  }, [orderSchedule, todayName]);
+  }, [orderSchedule, selectedDay]);
 
-  // Auto-filter to today's vendor items (unless showAllItems toggled)
+  // Auto-filter to selected day's vendor items (unless showAllItems toggled)
   const baseItems = useMemo(() => {
-    if (showAllItems || todaysScheduledVendors.length === 0) return storeInventory;
+    if (showAllItems || scheduledVendors.length === 0) return storeInventory;
     return storeInventory.filter((item) =>
-      todaysScheduledVendors.includes((item.vendorName || '').toLowerCase())
+      scheduledVendors.includes((item.vendorName || '').toLowerCase())
     );
-  }, [storeInventory, todaysScheduledVendors, showAllItems]);
+  }, [storeInventory, scheduledVendors, showAllItems]);
 
   const categories = useMemo(
     () => [...new Set(baseItems.map((i) => i.category))].sort(),
@@ -106,12 +109,28 @@ export default function EODCountScreen() {
       );
     }
     return items;
-  }, [storeInventory, selectedCategory, vendorFilter, search]);
+  }, [baseItems, selectedCategory, vendorFilter, search]);
 
   const filteredCategories = useMemo(() => {
     const cats = [...new Set(filteredItems.map((i) => i.category))];
     return cats.sort();
   }, [filteredItems]);
+
+  // Pre-fill counts from previous submission so user can see what's been counted
+  useEffect(() => {
+    if (myTodaySubmission && Object.keys(counts).length === 0) {
+      const prefilled: Record<string, string> = {};
+      const prefilledNotes: Record<string, string> = {};
+      myTodaySubmission.entries.forEach((e: any) => {
+        prefilled[e.itemId] = String(e.actualRemaining);
+        if (e.notes) prefilledNotes[e.itemId] = e.notes;
+      });
+      if (Object.keys(prefilled).length > 0) {
+        setCounts(prefilled);
+        setNotes((prev) => ({ ...prev, ...prefilledNotes }));
+      }
+    }
+  }, [myTodaySubmission]);
 
   const updateCount = (id: string, value: string) => {
     setCounts((prev) => ({ ...prev, [id]: value }));
@@ -263,15 +282,16 @@ export default function EODCountScreen() {
     });
   };
 
-  // Check if there are still uncounted items for today's vendors
-  const submittedItemIds = new Set(
-    myTodaySubmission?.entries?.map((e: any) => e.itemId) || []
-  );
-  const uncountedItems = baseItems.filter((item) => !submittedItemIds.has(item.id));
-  const hasMoreToCounts = uncountedItems.length > 0;
+  // Track which items have been submitted today
+  const submittedItemMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    (myTodaySubmission?.entries || []).forEach((e: any) => { map[e.itemId] = e.actualRemaining; });
+    return map;
+  }, [myTodaySubmission]);
+  const submittedCount = Object.keys(submittedItemMap).length;
 
-  // ── Already submitted view (only if ALL items counted) ──
-  if (myTodaySubmission && !isEditing && !hasMoreToCounts) {
+  // ── Already submitted view (user can always tap Edit to re-enter) ──
+  if (myTodaySubmission && !isEditing && submittedCount >= baseItems.length && baseItems.length > 0) {
     const submittedAt = formatDateTime(myTodaySubmission.timestamp);
     const lastEdited =
       myTodaySubmission.entries.length > 0
@@ -450,20 +470,41 @@ export default function EODCountScreen() {
         </View>
       </View>
 
-      {/* Today's vendor info bar */}
-      <View style={[styles.notice, { backgroundColor: todaysScheduledVendors.length > 0 ? C.successBg : C.warningBg, marginTop: 0 }]}>
-        <Ionicons name={todaysScheduledVendors.length > 0 ? 'cart-outline' : 'information-circle-outline'} size={18} color={todaysScheduledVendors.length > 0 ? C.success : C.warning} />
+      {/* Day selector */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ paddingHorizontal: Spacing.lg, gap: 6 }}>
+        {DAYS.map((day) => {
+          const isActive = selectedDay === day;
+          const hasVendors = (orderSchedule[day] || []).length > 0;
+          return (
+            <TouchableOpacity
+              key={day}
+              style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.borderLight, backgroundColor: C.bgSecondary },
+                isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+              onPress={() => { setSelectedDay(day); setVendorFilter(''); setSelectedCategory(null); }}
+            >
+              <Text style={[{ fontSize: FontSize.xs, color: C.textSecondary }, isActive && { color: C.bgPrimary, fontWeight: '600' }]}>
+                {day.slice(0, 3)}{hasVendors ? '' : ''}
+              </Text>
+              {hasVendors && <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: isActive ? C.bgPrimary : C.success, alignSelf: 'center', marginTop: 2 }} />}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Vendor info bar */}
+      <View style={[styles.notice, { backgroundColor: scheduledVendors.length > 0 ? C.successBg : C.warningBg, marginTop: 0 }]}>
+        <Ionicons name={scheduledVendors.length > 0 ? 'cart-outline' : 'information-circle-outline'} size={18} color={scheduledVendors.length > 0 ? C.success : C.warning} />
         <View style={{ flex: 1, marginLeft: 8 }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: '500', color: todaysScheduledVendors.length > 0 ? C.success : C.warning }}>
-            {todaysScheduledVendors.length > 0
-              ? `${todayName}'s count: ${todaysVendorNames.join(', ')} (${baseItems.length} items)`
-              : `No orders scheduled for ${todayName} — showing all items`}
+          <Text style={{ fontSize: FontSize.xs, fontWeight: '500', color: scheduledVendors.length > 0 ? C.success : C.warning }}>
+            {scheduledVendors.length > 0
+              ? `${selectedDay}: ${scheduledVendorNames.join(', ')} (${baseItems.length} items)${submittedCount > 0 ? ` · ${submittedCount} counted` : ''}`
+              : `No orders scheduled for ${selectedDay} — showing all items`}
           </Text>
         </View>
-        {todaysScheduledVendors.length > 0 && (
+        {scheduledVendors.length > 0 && (
           <TouchableOpacity onPress={() => setShowAllItems(!showAllItems)}>
             <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: C.info }}>
-              {showAllItems ? 'Today only' : 'Show all'}
+              {showAllItems ? 'Scheduled only' : 'Show all'}
             </Text>
           </TouchableOpacity>
         )}
