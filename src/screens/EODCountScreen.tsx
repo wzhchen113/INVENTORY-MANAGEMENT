@@ -15,13 +15,14 @@ import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
 
 export default function EODCountScreen() {
-  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors } = useStore();
+  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule } = useStore();
   const C = useColors();
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [vendorFilter, setVendorFilter] = useState('');
+  const [showAllItems, setShowAllItems] = useState(false);
 
   const todayISO = new Date().toISOString().split('T')[0];
 
@@ -50,18 +51,38 @@ export default function EODCountScreen() {
     [inventory, currentStore.id]
   );
 
+  // Today's scheduled vendors from order schedule
+  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const todaysScheduledVendors = useMemo(() => {
+    const scheduled = orderSchedule[todayName] || [];
+    return scheduled.map((sv) => sv.vendorName.toLowerCase()).filter(Boolean);
+  }, [orderSchedule, todayName]);
+
+  const todaysVendorNames = useMemo(() => {
+    const scheduled = orderSchedule[todayName] || [];
+    return scheduled.map((sv) => sv.vendorName).filter(Boolean);
+  }, [orderSchedule, todayName]);
+
+  // Auto-filter to today's vendor items (unless showAllItems toggled)
+  const baseItems = useMemo(() => {
+    if (showAllItems || todaysScheduledVendors.length === 0) return storeInventory;
+    return storeInventory.filter((item) =>
+      todaysScheduledVendors.includes((item.vendorName || '').toLowerCase())
+    );
+  }, [storeInventory, todaysScheduledVendors, showAllItems]);
+
   const categories = useMemo(
-    () => [...new Set(storeInventory.map((i) => i.category))].sort(),
-    [storeInventory]
+    () => [...new Set(baseItems.map((i) => i.category))].sort(),
+    [baseItems]
   );
 
   const vendorCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    storeInventory.forEach((i) => {
+    baseItems.forEach((i) => {
       if (i.vendorName) counts[i.vendorName] = (counts[i.vendorName] || 0) + 1;
     });
     return counts;
-  }, [storeInventory]);
+  }, [baseItems]);
 
   const vendorNames = useMemo(
     () => Object.keys(vendorCounts).sort(),
@@ -69,7 +90,7 @@ export default function EODCountScreen() {
   );
 
   const filteredItems = useMemo(() => {
-    let items = storeInventory;
+    let items = baseItems;
     if (selectedCategory) {
       items = items.filter((i) => i.category === selectedCategory);
     }
@@ -420,6 +441,25 @@ export default function EODCountScreen() {
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </Text>
         </View>
+      </View>
+
+      {/* Today's vendor info bar */}
+      <View style={[styles.notice, { backgroundColor: todaysScheduledVendors.length > 0 ? C.successBg : C.warningBg, marginTop: 0 }]}>
+        <Ionicons name={todaysScheduledVendors.length > 0 ? 'cart-outline' : 'information-circle-outline'} size={18} color={todaysScheduledVendors.length > 0 ? C.success : C.warning} />
+        <View style={{ flex: 1, marginLeft: 8 }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: '500', color: todaysScheduledVendors.length > 0 ? C.success : C.warning }}>
+            {todaysScheduledVendors.length > 0
+              ? `${todayName}'s count: ${todaysVendorNames.join(', ')} (${baseItems.length} items)`
+              : `No orders scheduled for ${todayName} — showing all items`}
+          </Text>
+        </View>
+        {todaysScheduledVendors.length > 0 && (
+          <TouchableOpacity onPress={() => setShowAllItems(!showAllItems)}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: C.info }}>
+              {showAllItems ? 'Today only' : 'Show all'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search bar */}
