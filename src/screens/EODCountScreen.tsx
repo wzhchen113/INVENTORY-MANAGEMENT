@@ -263,8 +263,15 @@ export default function EODCountScreen() {
     });
   };
 
-  // ── Already submitted view ──────────────────────────────
-  if (myTodaySubmission && !isEditing) {
+  // Check if there are still uncounted items for today's vendors
+  const submittedItemIds = new Set(
+    myTodaySubmission?.entries?.map((e: any) => e.itemId) || []
+  );
+  const uncountedItems = baseItems.filter((item) => !submittedItemIds.has(item.id));
+  const hasMoreToCounts = uncountedItems.length > 0;
+
+  // ── Already submitted view (only if ALL items counted) ──
+  if (myTodaySubmission && !isEditing && !hasMoreToCounts) {
     const submittedAt = formatDateTime(myTodaySubmission.timestamp);
     const lastEdited =
       myTodaySubmission.entries.length > 0
