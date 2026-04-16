@@ -661,7 +661,7 @@ export async function deleteIngredientCategory(name: string): Promise<void> {
 
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
-  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories, conversions] = await Promise.all([
+  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories, conversions, orderSched] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
     fetchPrepRecipes().catch(() => []), // fetch ALL stores so sub-recipe store validation works
@@ -670,9 +670,45 @@ export async function fetchAllForStore(storeId: string) {
     fetchAuditLog(storeId).catch(() => []),
     fetchRecipeCategories().catch(() => []),
     fetchIngredientCategories().catch(() => []),
-    fetchIngredientConversions().catch(() => []), // fetch ALL conversions for cost calculation
+    fetchIngredientConversions().catch(() => []),
+    fetchOrderSchedule(storeId).catch(() => ({})),
   ]);
-  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories, ingredientConversions: conversions };
+  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories, ingredientConversions: conversions, orderSchedule: orderSched };
+}
+
+// ─── ORDER SCHEDULE ─────────────────────────────────────────────────────
+export async function fetchOrderSchedule(storeId: string): Promise<Record<string, any[]>> {
+  const { data, error } = await supabase
+    .from('order_schedule')
+    .select('*')
+    .eq('store_id', storeId);
+  if (error) throw error;
+  const schedule: Record<string, any[]> = {};
+  (data || []).forEach((row: any) => {
+    if (!schedule[row.day_of_week]) schedule[row.day_of_week] = [];
+    schedule[row.day_of_week].push({
+      vendorId: row.vendor_id,
+      vendorName: row.vendor_name,
+      deliveryDay: row.delivery_day,
+    });
+  });
+  return schedule;
+}
+
+export async function saveOrderSchedule(storeId: string, day: string, vendors: any[]): Promise<void> {
+  // Delete existing entries for this store+day, then insert new ones
+  await supabase.from('order_schedule').delete().eq('store_id', storeId).eq('day_of_week', day);
+  if (vendors.length > 0) {
+    await supabase.from('order_schedule').insert(
+      vendors.map((v: any) => ({
+        store_id: storeId,
+        day_of_week: day,
+        vendor_id: v.vendorId || null,
+        vendor_name: v.vendorName,
+        delivery_day: v.deliveryDay,
+      }))
+    );
+  }
 }
 
 // ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
