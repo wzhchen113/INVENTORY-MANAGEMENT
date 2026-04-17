@@ -865,9 +865,8 @@ export default function IngredientsScreen() {
                     const val = numericFilter(v);
                     const cp = parseFloat(val) || 0;
                     const qty = parseFloat(form.caseQty) || 1;
-                    const size = parseFloat(form.subUnitSize) || 1;
-                    const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
+                    // costPerUnit = casePrice / caseQty (price per counted unit, NOT per sub-unit)
+                    const unitCost = qty > 0 ? (cp / qty).toFixed(2) : '0';
                     setForm((p) => ({ ...p, casePrice: val, costPerUnit: unitCost }));
                   }}
                   placeholder="240.00"
@@ -883,10 +882,9 @@ export default function IngredientsScreen() {
                   onChangeText={(v) => {
                     const val = numericFilter(v);
                     const qty = parseFloat(val) || 1;
-                    const size = parseFloat(form.subUnitSize) || 1;
                     const cp = parseFloat(form.casePrice) || 0;
-                    const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
+                    // costPerUnit = casePrice / caseQty
+                    const unitCost = qty > 0 ? (cp / qty).toFixed(2) : '0';
                     setForm((p) => ({ ...p, caseQty: val, costPerUnit: unitCost }));
                   }}
                   placeholder="6"
@@ -903,13 +901,8 @@ export default function IngredientsScreen() {
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                   value={form.subUnitSize}
                   onChangeText={(v) => {
-                    const val = numericFilter(v);
-                    const size = parseFloat(val) || 1;
-                    const qty = parseFloat(form.caseQty) || 1;
-                    const cp = parseFloat(form.casePrice) || 0;
-                    const total = qty * size;
-                    const unitCost = total > 0 ? (cp / total).toFixed(3) : '0';
-                    setForm((p) => ({ ...p, subUnitSize: val, costPerUnit: unitCost }));
+                    // subUnitSize is informational (e.g. "each bag is 5 lbs") and does NOT affect costPerUnit
+                    setForm((p) => ({ ...p, subUnitSize: numericFilter(v) }));
                   }}
                   placeholder="10"
                   placeholderTextColor={C.textTertiary}
@@ -932,10 +925,10 @@ export default function IngredientsScreen() {
             {parseFloat(form.casePrice) > 0 && (
               <View style={[styles.priceSummary, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
                 <Text style={[styles.priceSummaryText, { color: C.textSecondary }]}>
-                  1 case = {form.caseQty} × {form.subUnitSize} {form.subUnitUnit || form.unit} = {((parseFloat(form.caseQty) || 1) * (parseFloat(form.subUnitSize) || 1)).toFixed(0)} {form.subUnitUnit || form.unit}
+                  1 case = {form.caseQty} {form.unit}{parseFloat(form.subUnitSize) > 1 ? ` (${form.subUnitSize} ${form.subUnitUnit || form.unit} each)` : ''}
                 </Text>
                 <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
-                  ${parseFloat(form.casePrice).toFixed(3)}/case → ${form.costPerUnit}/{form.subUnitUnit || form.unit}
+                  ${parseFloat(form.casePrice).toFixed(2)}/case → ${form.costPerUnit}/{form.unit}
                 </Text>
               </View>
             )}
@@ -1014,7 +1007,7 @@ export default function IngredientsScreen() {
 
             {/* Unit cost (auto-calculated or manual) */}
             <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Cost per {form.subUnitUnit || form.unit} ($) *</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Cost per {form.unit} ($) *</Text>
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.costPerUnit}
@@ -1022,9 +1015,8 @@ export default function IngredientsScreen() {
                   const val = numericFilter(v);
                   const unitCost = parseFloat(val) || 0;
                   const qty = parseFloat(form.caseQty) || 1;
-                  const size = parseFloat(form.subUnitSize) || 1;
-                  const total = qty * size;
-                  const cp = (unitCost * total).toFixed(3);
+                  // casePrice = costPerUnit × caseQty (subUnitSize does NOT factor in)
+                  const cp = (unitCost * qty).toFixed(2);
                   setForm((p) => ({ ...p, costPerUnit: val, casePrice: cp }));
                 }}
                 placeholder="0.00"
