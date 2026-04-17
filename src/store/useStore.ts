@@ -741,21 +741,8 @@ export const useStore = create<FullStore>((set, get) => ({
           const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
           return sum + costPerUnit * convertedQty;
         }
-        // Raw ingredient
-        const item = get().inventory.find((i) => i.id === ing.itemId) ||
-          get().inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
-        if (!item) return sum;
-        let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
-        if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
-        if (factor !== null) return sum + item.costPerUnit * ing.quantity * factor;
-        // Fallback: use ingredient_conversions for abstract units
-        const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
-        if (conv && conv.conversionFactor > 0) {
-          const costPerBase = item.costPerUnit / conv.conversionFactor;
-          const base = smartToBase(ing.quantity, ing.unit);
-          return sum + costPerBase * base.quantity;
-        }
-        return sum;
+        // Raw ingredient — delegate to shared helper (single source of truth)
+        return sum + get().getIngredientLineCost(ing);
       }, 0);
     };
     return calcCost(prepRecipeId, new Set());
@@ -788,15 +775,25 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   // Shared helper: calculate cost of a single raw ingredient line item
+  // costPerUnit is per counted unit (per bag/case/each). To cost a recipe line we must
+  // convert the recipe quantity into counted units: recipe unit → sub-unit (g/oz/lbs via
+  // getConversionFactor) → counted unit (via subUnitSize).
   getIngredientLineCost: (ing) => {
     const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
     const item = get().inventory.find((i) => i.id === ing.itemId) ||
       get().inventory.find((i) => i.name.toLowerCase() === (ing.itemName || '').toLowerCase());
     if (!item) return 0;
-    // Try standard unit conversion
+    // Short-circuit: recipe uses the counted unit directly (e.g. 1 each, 2 bags)
+    if (ing.unit === item.unit) return item.costPerUnit * ing.quantity;
+    // Standard conversion: recipe unit → sub-unit → counted unit
     let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
     if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
-    if (factor !== null) return item.costPerUnit * ing.quantity * factor;
+    if (factor !== null) {
+      const qtyInSubUnit = ing.quantity * factor;
+      const subUnitSize = item.subUnitSize || 1;
+      const qtyInCountedUnit = subUnitSize > 0 ? qtyInSubUnit / subUnitSize : qtyInSubUnit;
+      return item.costPerUnit * qtyInCountedUnit;
+    }
     // Fallback: ingredient_conversions for abstract units (e.g. 1 each = 400g)
     const allConversions = get().ingredientConversions || [];
     const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
