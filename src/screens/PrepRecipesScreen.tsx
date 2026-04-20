@@ -355,8 +355,7 @@ export default function PrepRecipesScreen() {
                       const f = subR ? gcf(ing.unit, subR.yieldUnit) : 1;
                       ingCost = subCpu * (f !== null ? ing.quantity * f : ing.quantity);
                     } else {
-                      const item = inventory.find((i) => i.id === ing.itemId) || inventory.find((i) => i.name.toLowerCase() === ing.itemName.toLowerCase());
-                      if (item) { const { getConversionFactor: gcf } = require('../utils/unitConversion'); const f = gcf(ing.unit, item.subUnitUnit || item.unit); ingCost = item.costPerUnit * (f !== null ? ing.quantity * f : ing.quantity); }
+                      ingCost = getIngredientLineCost(ing);
                     }
                     rows.push({
                       'Recipe': idx === 0 ? pr.name : '',
