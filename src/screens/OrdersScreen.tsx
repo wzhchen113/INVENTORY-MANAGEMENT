@@ -136,7 +136,7 @@ async function exportToPDF(data: DynamicOrderLine[], vendorName: string, storeNa
 export default function OrdersScreen() {
   const {
     currentUser, currentStore, inventory, vendors: allVendors,
-    orderSchedule, orderSubmissions,
+    orderSchedule, orderSubmissions, eodSubmissions,
     setOrderSchedule, submitOrder, timezone, setTimezone,
   } = useStore();
   const C = useColors();
@@ -209,10 +209,28 @@ export default function OrdersScreen() {
     return allVendors.find((v) => v.name.toLowerCase() === detailVendorName.toLowerCase());
   }, [allVendors, detailVendorName, detailDay, orderSchedule]);
 
+  // Item IDs the user has counted in EOD today (any submission for this store)
+  const todayEODItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    eodSubmissions
+      .filter((s) => s.storeId === currentStore.id && s.date === todayISO)
+      .forEach((s) => s.entries.forEach((e) => ids.add(e.itemId)));
+    return ids;
+  }, [eodSubmissions, currentStore.id, todayISO]);
+
   const detailLines: DynamicOrderLine[] = useMemo(() => {
     if (!detailVendor || !detailOpen) return [];
-    return calculateDynamicOrder(storeInventory, detailVendor, detailDate);
-  }, [detailVendor, detailOpen, storeInventory, detailDate]);
+    // Include zero-order rows so we can surface today's EOD counts that are at/above par
+    const all = calculateDynamicOrder(storeInventory, detailVendor, detailDate, { includeZeroOrder: true });
+    // Show items that either need ordering OR were counted today (above-par confirmations)
+    return all.filter((l) => l.orderQuantity > 0 || todayEODItemIds.has(l.itemId));
+  }, [detailVendor, detailOpen, storeInventory, detailDate, todayEODItemIds]);
+
+  // Lines the user actually needs to order (excludes above-par "confirmation" rows)
+  const detailOrderLines = useMemo(
+    () => detailLines.filter((l) => l.orderQuantity > 0),
+    [detailLines],
+  );
 
   const detailTotalCost = useMemo(
     () => detailLines.reduce((s, l) => s + l.estimatedCost, 0),
@@ -279,13 +297,13 @@ export default function OrdersScreen() {
   };
 
   const handleCSV = () => {
-    if (!isWeb || detailLines.length === 0) return;
-    exportToCSV(detailLines, detailVendorName, toISODate(detailDate));
+    if (!isWeb || detailOrderLines.length === 0) return;
+    exportToCSV(detailOrderLines, detailVendorName, toISODate(detailDate));
   };
 
   const handlePDF = () => {
-    if (!isWeb || detailLines.length === 0) return;
-    exportToPDF(detailLines, detailVendorName, currentStore.name, detailDate);
+    if (!isWeb || detailOrderLines.length === 0) return;
+    exportToPDF(detailOrderLines, detailVendorName, currentStore.name, detailDate);
   };
 
   const currentTZLabel = TIMEZONES.find((t) => t.value === timezone)?.label || timezone;
@@ -410,7 +428,7 @@ export default function OrdersScreen() {
               </Text>
             </View>
             <View style={styles.detailHeaderActions}>
-              {isWeb && detailLines.length > 0 && (
+              {isWeb && detailOrderLines.length > 0 && (
                 <>
                   <TouchableOpacity style={[styles.exportBtn, { borderColor: C.borderLight, backgroundColor: C.bgSecondary }]} onPress={handleCSV}>
                     <Ionicons name="download-outline" size={15} color={C.textSecondary} />
@@ -431,7 +449,7 @@ export default function OrdersScreen() {
           {/* Summary stats */}
           <View style={[styles.statsRow, { borderBottomColor: C.borderLight }]}>
             <View style={[styles.statBox, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
-              <Text style={[styles.statValue, { color: C.textPrimary }]}>{detailLines.length}</Text>
+              <Text style={[styles.statValue, { color: C.textPrimary }]}>{detailOrderLines.length}</Text>
               <Text style={[styles.statLabel, { color: C.textTertiary }]}>Items</Text>
             </View>
             <View style={[styles.statBox, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
@@ -486,7 +504,9 @@ export default function OrdersScreen() {
 
                 {/* Table rows */}
                 {detailLines.map((line, idx) => {
-                  // Build case breakdown label
+                  // Above-par rows are the "you counted today and you're stocked" confirmations
+                  const isAbovePar = line.orderQuantity === 0;
+                  // Build case breakdown label (only relevant for below-par rows)
                   const orderLabel = line.hasCaseInfo
                     ? (line.cases > 0 && line.looseUnits > 0
                         ? `${line.cases} cs + ${line.looseUnits} ea`
@@ -494,8 +514,11 @@ export default function OrdersScreen() {
                           ? `${line.cases} cs`
                           : `${line.looseUnits} ea`)
                     : `${line.orderQuantity} ${line.unit}`;
+                  const rowBg = isAbovePar
+                    ? C.successBg
+                    : (idx % 2 === 0 ? C.bgTertiary : undefined);
                   return (
-                    <View key={line.itemId} style={[styles.tableRow, { borderBottomColor: C.borderLight }, idx % 2 === 0 && styles.tableRowAlt, idx % 2 === 0 && { backgroundColor: C.bgTertiary }]}>
+                    <View key={line.itemId} style={[styles.tableRow, { borderBottomColor: C.borderLight }, rowBg ? { backgroundColor: rowBg } : null]}>
                       <View style={{ flex: 2.5 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                           <Text style={[styles.tdName, { color: C.textPrimary }]}>{line.itemName}</Text>
@@ -518,10 +541,14 @@ export default function OrdersScreen() {
                         })()}
                       </View>
                       <View style={styles.orderQtyCell}>
-                        <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{orderLabel}</Text>
+                        {isAbovePar ? (
+                          <Text style={[styles.orderQtyText, { color: C.success, backgroundColor: C.successBg }]}>✓ At par</Text>
+                        ) : (
+                          <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{orderLabel}</Text>
+                        )}
                       </View>
-                      <Text style={[styles.td, styles.tdRight, { color: C.textPrimary }]}>
-                        ${line.estimatedCost.toFixed(2)}
+                      <Text style={[styles.td, styles.tdRight, { color: isAbovePar ? C.textTertiary : C.textPrimary }]}>
+                        {isAbovePar ? '—' : `$${line.estimatedCost.toFixed(2)}`}
                       </Text>
                     </View>
                   );
@@ -530,7 +557,7 @@ export default function OrdersScreen() {
                 {/* Totals row */}
                 <View style={[styles.totalRow, { backgroundColor: C.bgSecondary, borderTopColor: C.borderMedium }]}>
                   <Text style={[styles.totalLabel, { flex: 2.5, color: C.textSecondary }]}>
-                    Total ({detailLines.length} items)
+                    Total ({detailOrderLines.length} items)
                   </Text>
                   <Text style={[styles.totalLabel, { color: C.textSecondary }]} />
                   <Text style={[styles.totalLabel, { color: C.textSecondary }]} />
