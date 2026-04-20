@@ -523,7 +523,7 @@ export default function IngredientsScreen() {
               return ` · ${label}`;
             })()}
             {` · ${item.currentStock} ${item.unit}`}
-            {item.parLevel > 0 ? ` · Par: ${item.parLevel}` : ''}
+            {item.parLevel > 0 ? ` · Par: ${item.parLevel} ${item.unit}` : ''}
             {item.vendorName ? ` · ${item.vendorName}` : ''}
           </Text>
         </View>
@@ -1040,7 +1040,7 @@ export default function IngredientsScreen() {
 
             {/* Par level */}
             <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Par level (minimum stock)</Text>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Par level (in {form.unit || 'units'})</Text>
               <TextInput
                 style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
                 value={form.parLevel}
@@ -1049,6 +1049,11 @@ export default function IngredientsScreen() {
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
               />
+              {parseFloat(form.caseQty) > 1 && (
+                <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4 }}>
+                  1 shipment case = {form.caseQty} {form.unit}
+                </Text>
+              )}
             </View>
 
             {/* Save button */}
