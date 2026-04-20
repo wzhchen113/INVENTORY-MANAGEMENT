@@ -62,6 +62,7 @@ export function calculateDynamicOrder(
   inventory: InventoryItem[],
   vendor: Vendor,
   orderDate: Date,
+  opts: { includeZeroOrder?: boolean } = {},
 ): DynamicOrderLine[] {
   const daysToCover = getDaysToCover(orderDate, vendor);
 
@@ -107,6 +108,6 @@ export function calculateDynamicOrder(
         hasCaseInfo,
       };
     })
-    .filter((line) => line.orderQuantity > 0)
+    .filter((line) => opts.includeZeroOrder || line.orderQuantity > 0)
     .sort((a, b) => a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName));
 }
