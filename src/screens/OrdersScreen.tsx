@@ -508,7 +508,15 @@ export default function OrdersScreen() {
                         <Text style={[styles.tdMeta, { color: C.textTertiary }]}>{line.category} · {line.unit}</Text>
                       </View>
                       <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.eodRemaining}</Text>
-                      <Text style={[styles.td, styles.tdCenter, { color: C.textPrimary }]}>{line.dynamicPar}</Text>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ fontSize: FontSize.sm, color: C.textPrimary, textAlign: 'center' }}>{line.dynamicPar} {line.unit}</Text>
+                        {line.hasCaseInfo && line.dynamicPar >= line.caseQty && (() => {
+                          const parCases = Math.floor(line.dynamicPar / line.caseQty);
+                          const parEach = line.dynamicPar - (parCases * line.caseQty);
+                          const breakdown = parEach > 0 ? `${parCases} cs + ${parEach} ea` : `${parCases} cs`;
+                          return <Text style={{ fontSize: 10, color: C.textTertiary }}>{breakdown}</Text>;
+                        })()}
+                      </View>
                       <View style={styles.orderQtyCell}>
                         <Text style={[styles.orderQtyText, { color: C.danger, backgroundColor: C.dangerBg }]}>{orderLabel}</Text>
                       </View>
