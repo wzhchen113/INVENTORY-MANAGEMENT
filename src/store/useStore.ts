@@ -161,6 +161,9 @@ export const useStore = create<FullStore>((set, get) => ({
   logout: () => {
     set({ currentUser: null });
     import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Drop web-push subscription for this browser so the user doesn't keep
+    // getting reminders for a store they no longer have access to.
+    import('../lib/webPush').then(({ unsubscribeFromPush }) => unsubscribeFromPush()).catch(() => {});
   },
   setCurrentStore: (store) => {
     set({ currentStore: store });
