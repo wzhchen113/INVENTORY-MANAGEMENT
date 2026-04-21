@@ -12,6 +12,8 @@ export async function fetchStores(): Promise<Store[]> {
   if (error) throw error;
   return (data || []).map((s: any) => ({
     id: s.id, name: s.name, address: s.address, status: s.status,
+    // Column may not exist yet if the EOD-deadline migration hasn't been run; fall back to undefined.
+    eodDeadlineTime: s.eod_deadline_time || undefined,
   }));
 }
 

@@ -609,7 +609,12 @@ export const useStore = create<FullStore>((set, get) => ({
       currentStore: s.currentStore.id === id ? { ...s.currentStore, ...updates } : s.currentStore,
     }));
     const { supabase } = require('../lib/supabase');
-    supabase.from('stores').update({ name: updates.name, address: updates.address }).eq('id', id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Only include fields that are present in `updates` so we don't clobber existing values with undefined.
+    const dbUpdates: Record<string, any> = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.address !== undefined) dbUpdates.address = updates.address;
+    if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime;
+    supabase.from('stores').update(dbUpdates).eq('id', id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Users
