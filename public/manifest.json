@@ -1,0 +1,14 @@
+{
+  "name": "2AM Inventory",
+  "short_name": "2AM",
+  "description": "Restaurant inventory management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a1a18",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/favicon.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

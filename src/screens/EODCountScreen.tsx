@@ -13,6 +13,7 @@ import { Card, CardHeader } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
+import { getPushPermission, requestPermissionAndSubscribe } from '../lib/webPush';
 
 export default function EODCountScreen() {
   const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule } = useStore();
@@ -53,6 +54,31 @@ export default function EODCountScreen() {
   const [editCasesCount, setEditCasesCount] = useState<Record<string, string>>({});
   const [editEachCount, setEditEachCount] = useState<Record<string, string>>({});
   const [editNotes, setEditNotes] = useState<Record<string, string>>({});
+
+  // Web-push reminder banner state
+  const [pushPermission, setPushPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>(() => getPushPermission());
+  const [enablingPush, setEnablingPush] = useState(false);
+  const handleEnableReminders = async () => {
+    if (!currentUser?.id) return;
+    setEnablingPush(true);
+    const result = await requestPermissionAndSubscribe(currentUser.id);
+    setEnablingPush(false);
+    setPushPermission(getPushPermission());
+    if (result === 'granted') {
+      Toast.show({ type: 'success', text1: 'Reminders on', text2: `You'll be notified 60 / 30 / 10 min before the EOD deadline.`, visibilityTime: 3500 });
+    } else if (result === 'denied') {
+      Toast.show({ type: 'info', text1: 'Reminders blocked', text2: 'Allow notifications in your browser settings to turn on.', visibilityTime: 4000 });
+    } else if (result === 'unsupported') {
+      Toast.show({ type: 'info', text1: 'Not supported', text2: 'Your browser does not support push notifications.', visibilityTime: 3500 });
+    } else if (result === 'error') {
+      Toast.show({ type: 'error', text1: 'Could not enable reminders', text2: 'Check VAPID config and try again.', visibilityTime: 3500 });
+    }
+  };
+  const showReminderBanner =
+    Platform.OS === 'web' &&
+    pushPermission !== 'granted' &&
+    pushPermission !== 'unsupported' &&
+    !!currentStore.eodDeadlineTime;
 
   const storeInventory = useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -599,6 +625,30 @@ export default function EODCountScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Reminder-enable banner (web only, when permission isn't yet granted) */}
+      {showReminderBanner && (
+        <View style={[styles.notice, { backgroundColor: C.warningBg, marginTop: 0, alignItems: 'center' }]}>
+          <Ionicons name="notifications-outline" size={18} color={C.warning} />
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: C.warning }}>
+              Turn on EOD reminders
+            </Text>
+            <Text style={{ fontSize: 11, color: C.warning, marginTop: 2 }}>
+              Get a push at 60 / 30 / 10 min before the {currentStore.eodDeadlineTime} cutoff, even when the app is closed.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={handleEnableReminders}
+            disabled={enablingPush || pushPermission === 'denied'}
+            style={{ backgroundColor: C.warning, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.sm, opacity: enablingPush ? 0.6 : 1 }}
+          >
+            <Text style={{ color: C.bgPrimary, fontSize: FontSize.xs, fontWeight: '600' }}>
+              {pushPermission === 'denied' ? 'Blocked' : enablingPush ? 'Enabling…' : 'Enable'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Day selector */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ paddingHorizontal: Spacing.lg, gap: 6 }}>

@@ -9,6 +9,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { useColors } from './src/theme/colors';
 import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
+import { registerServiceWorker, ensureManifestLinked } from './src/lib/webPush';
 
 // Only import and configure notifications on native platforms
 if (Platform.OS !== 'web') {
@@ -39,6 +40,11 @@ export default function App() {
   useEffect(() => {
     if (Platform.OS !== 'web') {
       registerForPushNotifications();
+    } else {
+      // Web: link the PWA manifest and register the service worker.
+      // Permission + subscription happen on user gesture via the EOD screen banner.
+      ensureManifestLinked();
+      registerServiceWorker();
     }
   }, []);
 
