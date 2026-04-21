@@ -8,11 +8,12 @@ create extension if not exists "uuid-ossp";
 
 -- ─── STORES ──────────────────────────────────────────────
 create table if not exists stores (
-  id          uuid primary key default uuid_generate_v4(),
-  name        text not null,
-  address     text,
-  status      text default 'active',  -- 'active' | 'inactive'
-  created_at  timestamptz default now()
+  id                  uuid primary key default uuid_generate_v4(),
+  name                text not null,
+  address             text,
+  status              text default 'active',  -- 'active' | 'inactive'
+  eod_deadline_time   text default '22:00',    -- HH:MM, store local time (uses app timezone)
+  created_at          timestamptz default now()
 );
 
 -- ─── USERS (extends Supabase auth.users) ─────────────────

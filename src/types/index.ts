@@ -234,6 +234,8 @@ export interface Store {
   name: string;
   address: string;
   status: 'active' | 'inactive';
+  // HH:MM in 24h (store local time via the app's timezone). Used to schedule EOD reminders.
+  eodDeadlineTime?: string;
 }
 
 export interface OrderDayVendor {

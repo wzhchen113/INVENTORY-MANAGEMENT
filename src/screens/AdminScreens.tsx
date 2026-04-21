@@ -948,7 +948,7 @@ export function ReportsScreen() {
 // ─── USERS ──────────────────────────────────────────────────────────────────
 export function UsersScreen() {
   const C = useColors();
-  const { users, stores, inventory, currentUser, inviteUser, removeUser, addStore, updateStore, addNotification, logout } = useStore();
+  const { users, stores, inventory, currentUser, inviteUser, removeUser, addStore, updateStore, addNotification, logout, timezone } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteWarning, setInviteWarning] = useState('');
@@ -960,13 +960,25 @@ export function UsersScreen() {
   const [editStoreTarget, setEditStoreTarget] = useState<typeof stores[0] | null>(null);
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddress, setNewStoreAddress] = useState('');
+  const [newStoreEodDeadline, setNewStoreEodDeadline] = useState('22:00');
   const [deleteStoreTarget, setDeleteStoreTarget] = useState<typeof stores[0] | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
+
+  // Validate HH:MM (24h); returns trimmed value if valid, empty string for empty input, null if malformed.
+  const parseHHMM = (raw: string): string | null => {
+    const v = raw.trim();
+    if (!v) return '';
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(v)) return null;
+    // Normalize to HH:MM (pad hour to 2 digits)
+    const [h, m] = v.split(':');
+    return `${h.padStart(2, '0')}:${m}`;
+  };
 
   const openAddStore = () => {
     setEditStoreTarget(null);
     setNewStoreName('');
     setNewStoreAddress('');
+    setNewStoreEodDeadline('22:00');
     setShowStoreModal(true);
   };
 
@@ -974,16 +986,31 @@ export function UsersScreen() {
     setEditStoreTarget(store);
     setNewStoreName(store.name);
     setNewStoreAddress(store.address || '');
+    setNewStoreEodDeadline(store.eodDeadlineTime || '22:00');
     setShowStoreModal(true);
   };
 
   const handleSaveStore = () => {
     if (!newStoreName.trim()) return;
+    const deadline = parseHHMM(newStoreEodDeadline);
+    if (deadline === null) {
+      Toast.show({ type: 'error', text1: 'Invalid deadline', text2: 'Use HH:MM in 24h (e.g. 22:00).', visibilityTime: 3000 });
+      return;
+    }
     if (editStoreTarget) {
-      updateStore(editStoreTarget.id, { name: newStoreName.trim(), address: newStoreAddress.trim() });
+      updateStore(editStoreTarget.id, {
+        name: newStoreName.trim(),
+        address: newStoreAddress.trim(),
+        eodDeadlineTime: deadline || undefined,
+      });
       Toast.show({ type: 'success', text1: 'Store updated', text2: `${newStoreName.trim()} has been saved.`, visibilityTime: 3000 });
     } else {
-      addStore({ name: newStoreName.trim(), address: newStoreAddress.trim(), status: 'active' });
+      addStore({
+        name: newStoreName.trim(),
+        address: newStoreAddress.trim(),
+        status: 'active',
+        eodDeadlineTime: deadline || undefined,
+      });
       Toast.show({ type: 'success', text1: 'Store added', text2: `${newStoreName.trim()} has been created.`, visibilityTime: 3000 });
     }
     setShowStoreModal(false);
@@ -1298,6 +1325,21 @@ export function UsersScreen() {
                 placeholder="123 Main St, City MD 21000"
                 placeholderTextColor={C.textTertiary}
               />
+            </View>
+            <View style={styles.formField}>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>EOD count deadline</Text>
+              <TextInput
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={newStoreEodDeadline}
+                onChangeText={setNewStoreEodDeadline}
+                placeholder="22:00"
+                placeholderTextColor={C.textTertiary}
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+              <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4 }}>
+                24h format HH:MM, store local time ({timezone}). Reminders fire 60 / 30 / 10 min before.
+              </Text>
             </View>
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSaveStore}>
               <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>{editStoreTarget ? 'Save changes' : 'Add store'}</Text>
