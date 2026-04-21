@@ -33,8 +33,6 @@ type Store = {
   id: string;
   name: string;
   eod_deadline_time: string | null;
-  // `timezone` is optional — add it to the stores table if you want per-store TZ.
-  timezone?: string | null;
 };
 
 type Sub = { user_id: string; endpoint: string; p256dh: string; auth: string };
@@ -66,10 +64,12 @@ Deno.serve(async (_req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Pull all active stores — including any optional `timezone` column if present.
+  // Pull all active stores. Timezone is app-global (DEFAULT_TIMEZONE env var),
+  // not per-store — add a `timezone` column on stores later if you ever expand
+  // to locations in multiple time zones.
   const { data: stores, error: storesErr } = await sb
     .from('stores')
-    .select('id, name, eod_deadline_time, timezone')
+    .select('id, name, eod_deadline_time')
     .eq('status', 'active');
   if (storesErr) {
     console.error('stores fetch failed:', storesErr);
@@ -80,7 +80,7 @@ Deno.serve(async (_req) => {
 
   for (const store of (stores || []) as Store[]) {
     const cutoff = store.eod_deadline_time || '22:00';
-    const tz = (store.timezone as string) || DEFAULT_TZ;
+    const tz = DEFAULT_TZ;
     const { minutes, localDate } = minutesUntilCutoff(cutoff, tz);
 
     // Which bucket is this cron tick in range of (if any)?
