@@ -64,15 +64,27 @@ export default function EODCountScreen() {
     const result = await requestPermissionAndSubscribe(currentUser.id);
     setEnablingPush(false);
     setPushPermission(getPushPermission());
-    if (result === 'granted') {
+    if (result.ok) {
       Toast.show({ type: 'success', text1: 'Reminders on', text2: `You'll be notified 60 / 30 / 10 min before the EOD deadline.`, visibilityTime: 3500 });
-    } else if (result === 'denied') {
-      Toast.show({ type: 'info', text1: 'Reminders blocked', text2: 'Allow notifications in your browser settings to turn on.', visibilityTime: 4000 });
-    } else if (result === 'unsupported') {
-      Toast.show({ type: 'info', text1: 'Not supported', text2: 'Your browser does not support push notifications.', visibilityTime: 3500 });
-    } else if (result === 'error') {
-      Toast.show({ type: 'error', text1: 'Could not enable reminders', text2: 'Check VAPID config and try again.', visibilityTime: 3500 });
+      return;
     }
+    // Map each failure code to a user-readable cause so we can diagnose without dev tools.
+    const messages: Record<string, { text1: string; text2: string; type: 'error' | 'info' }> = {
+      'unsupported': { type: 'info', text1: 'Not supported', text2: 'This browser does not support web push.' },
+      'no-vapid': { type: 'error', text1: 'Config missing', text2: 'Server is missing the VAPID public key.' },
+      'no-user': { type: 'error', text1: 'Not logged in', text2: 'Re-login and try again.' },
+      'permission-denied': { type: 'info', text1: 'Reminders blocked', text2: 'Allow notifications in your OS/browser settings.' },
+      'permission-default': { type: 'info', text1: 'Permission needed', text2: 'Permission prompt dismissed — tap Enable again.' },
+      'sw-register-failed': { type: 'error', text1: 'Service worker error', text2: 'Could not register /sw.js.' },
+      'subscribe-failed': { type: 'error', text1: 'Subscribe failed', text2: 'iOS? Add to Home Screen and open from there.' },
+      'subscription-incomplete': { type: 'error', text1: 'Invalid subscription', text2: 'Missing endpoint or keys from the browser.' },
+      'save-failed': { type: 'error', text1: 'Server save failed', text2: 'Check push_subscriptions table permissions.' },
+    };
+    const info = messages[result.code] || { type: 'error' as const, text1: 'Unknown error', text2: result.code };
+    const detail = result.detail ? `${info.text2}\n(${result.code}: ${result.detail.slice(0, 80)})` : `${info.text2}\n(${result.code})`;
+    Toast.show({ type: info.type, text1: info.text1, text2: detail, visibilityTime: 6000 });
+    // Also log full error to console for Safari Web Inspector debugging.
+    console.error('[EOD reminders] enable failed', result);
   };
   const showReminderBanner =
     Platform.OS === 'web' &&

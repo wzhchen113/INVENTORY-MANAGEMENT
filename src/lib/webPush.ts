@@ -41,63 +41,92 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 }
 
 /**
+ * Fine-grained result type so the UI can show the real cause instead of a
+ * generic "could not enable" message.
+ */
+export type SubscribeResult =
+  | { ok: true }
+  | { ok: false; code:
+      | 'unsupported'
+      | 'no-vapid'
+      | 'no-user'
+      | 'permission-denied'
+      | 'permission-default'
+      | 'sw-register-failed'
+      | 'subscribe-failed'
+      | 'subscription-incomplete'
+      | 'save-failed';
+    detail?: string };
+
+/**
  * Prompt permission and subscribe this browser to Web Push.
  * Must be called from a user gesture (button click) for the browser to show
  * the permission prompt on some platforms.
  */
-export async function requestPermissionAndSubscribe(userId: string): Promise<PermissionState | 'error'> {
-  if (!isWebPushCapable()) return 'unsupported';
+export async function requestPermissionAndSubscribe(userId: string): Promise<SubscribeResult> {
+  if (!isWebPushCapable()) return { ok: false, code: 'unsupported' };
   if (!VAPID_PUBLIC) {
     console.warn('[webPush] EXPO_PUBLIC_VAPID_PUBLIC_KEY not set');
-    return 'error';
+    return { ok: false, code: 'no-vapid' };
   }
-  if (!userId) return 'error';
+  if (!userId) return { ok: false, code: 'no-user' };
 
   let permission: PermissionState = Notification.permission as PermissionState;
   if (permission === 'default') {
-    permission = (await Notification.requestPermission()) as PermissionState;
+    try { permission = (await Notification.requestPermission()) as PermissionState; }
+    catch (e: any) { return { ok: false, code: 'permission-default', detail: e?.message || String(e) }; }
   }
-  if (permission !== 'granted') return permission;
+  if (permission === 'denied') return { ok: false, code: 'permission-denied' };
+  if (permission !== 'granted') return { ok: false, code: 'permission-default' };
 
+  let reg: ServiceWorkerRegistration | null;
   try {
-    const reg = (await navigator.serviceWorker.ready) || (await registerServiceWorker());
-    if (!reg) return 'error';
+    reg = (await navigator.serviceWorker.ready) || (await registerServiceWorker());
+  } catch (e: any) {
+    console.error('[webPush] SW ready failed:', e);
+    return { ok: false, code: 'sw-register-failed', detail: e?.message || String(e) };
+  }
+  if (!reg) return { ok: false, code: 'sw-register-failed' };
 
-    let sub = await reg.pushManager.getSubscription();
+  let sub: PushSubscription | null = null;
+  try {
+    sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
       });
     }
-
-    const json: any = sub.toJSON();
-    const endpoint: string = json.endpoint || sub.endpoint;
-    const p256dh: string = json.keys?.p256dh;
-    const auth: string = json.keys?.auth;
-    if (!endpoint || !p256dh || !auth) return 'error';
-
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .upsert(
-        {
-          user_id: userId,
-          endpoint,
-          p256dh,
-          auth,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'endpoint' },
-      );
-    if (error) {
-      console.warn('[webPush] upsert subscription failed:', error.message);
-      return 'error';
-    }
-    return 'granted';
   } catch (e: any) {
-    console.warn('[webPush] subscribe failed:', e?.message || e);
-    return 'error';
+    console.error('[webPush] pushManager.subscribe failed:', e);
+    return { ok: false, code: 'subscribe-failed', detail: e?.message || String(e) };
   }
+
+  const json: any = sub.toJSON();
+  const endpoint: string = json.endpoint || sub.endpoint;
+  const p256dh: string = json.keys?.p256dh;
+  const auth: string = json.keys?.auth;
+  if (!endpoint || !p256dh || !auth) {
+    return { ok: false, code: 'subscription-incomplete' };
+  }
+
+  const { error } = await supabase
+    .from('push_subscriptions')
+    .upsert(
+      {
+        user_id: userId,
+        endpoint,
+        p256dh,
+        auth,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'endpoint' },
+    );
+  if (error) {
+    console.error('[webPush] Supabase upsert failed:', error);
+    return { ok: false, code: 'save-failed', detail: error.message };
+  }
+  return { ok: true };
 }
 
 /**
