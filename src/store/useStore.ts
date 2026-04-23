@@ -217,6 +217,22 @@ export const useStore = create<FullStore>((set, get) => ({
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
+
+      // Refresh bell-icon notifications from the DB so cron-generated reminders
+      // show up immediately after login / store switch.
+      const uid = get().currentUser?.id;
+      if (uid) {
+        db.fetchNotifications(uid, 50).then((rows) => {
+          set({
+            notifications: rows.map((r) => ({
+              id: r.id,
+              message: r.message,
+              timestamp: r.createdAt,
+              read: !!r.readAt,
+            })),
+          });
+        }).catch((e: any) => console.warn('[Supabase] fetchNotifications:', e?.message || e));
+      }
     } catch (e) {
       console.log('[Supabase] Load failed, using local data:', e);
     } finally {
@@ -686,17 +702,39 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({ darkMode: !s.darkMode }));
   },
 
-  // Notifications
+  // Notifications — optimistic in-memory write, then persist to Supabase so the
+  // bell-icon history survives across devices. Cron-generated rows come in via
+  // loadFromSupabase.
   addNotification: (message) => {
-    const id = `notif-${Date.now()}`;
-    const notif: AppNotification = { id, message, timestamp: new Date().toISOString(), read: false };
+    const localId = `notif-${Date.now()}`;
+    const notif: AppNotification = { id: localId, message, timestamp: new Date().toISOString(), read: false };
     set((s) => ({ notifications: [notif, ...s.notifications] }));
+    const userId = get().currentUser?.id;
+    if (!userId) return;
+    db.createNotification(userId, message).then((serverId) => {
+      if (!serverId) return;
+      // Replace the local temp id with the server id so subsequent reads/marks
+      // target the right row.
+      set((s) => ({
+        notifications: s.notifications.map((n) => n.id === localId ? { ...n, id: serverId } : n),
+      }));
+    }).catch((e: any) => console.warn('[Supabase] addNotification:', e?.message || e));
   },
   markNotificationRead: (id) => {
     set((s) => ({ notifications: s.notifications.map((n) => n.id === id ? { ...n, read: true } : n) }));
+    // Only persist server-side if this looks like a server id (uuid), not a
+    // local `notif-<timestamp>` id that hasn't round-tripped yet.
+    if (id && !id.startsWith('notif-')) {
+      db.markNotificationReadDb(id).catch((e: any) => console.warn('[Supabase] markNotificationRead:', e?.message || e));
+    }
   },
   clearNotifications: () => {
-    set({ notifications: [] });
+    // Mark all as read rather than delete, so history stays in the DB.
+    set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) }));
+    const userId = get().currentUser?.id;
+    if (userId) {
+      db.clearNotificationsDb(userId).catch((e: any) => console.warn('[Supabase] clearNotifications:', e?.message || e));
+    }
   },
 
   // Audit — write only to Supabase, loaded on next refresh via loadFromSupabase

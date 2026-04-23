@@ -58,6 +58,45 @@ export default function EODCountScreen() {
   // Web-push reminder banner state
   const [pushPermission, setPushPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>(() => getPushPermission());
   const [enablingPush, setEnablingPush] = useState(false);
+
+  // "Next reminder in X min" chip — pure derivation, ticks every minute.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const nextReminderLabel = useMemo(() => {
+    void nowTick; // dependency trigger
+    const deadline = currentStore.eodDeadlineTime;
+    if (!deadline || !/^\d{1,2}:\d{2}$/.test(deadline)) return null;
+    const [dh, dm] = deadline.split(':').map(Number);
+    // Current wall-clock in the app's timezone (same as store's local time).
+    const tz = useStore.getState().timezone || 'America/New_York';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
+      if (p.type !== 'literal') acc[p.type] = p.value;
+      return acc;
+    }, {});
+    const localMin = Number(parts.hour) * 60 + Number(parts.minute);
+    const cutoffMin = dh * 60 + dm;
+    const minutesUntilCutoff = cutoffMin - localMin;
+    if (minutesUntilCutoff < 0) return { text: 'Past deadline', ok: false };
+    if (!!myTodaySubmission) return { text: '✓ Submitted for today', ok: true };
+    // Find the next upcoming reminder bucket (60/30/10 min before cutoff).
+    const buckets = [60, 30, 10];
+    const next = buckets
+      .map((b) => ({ b, triggersIn: minutesUntilCutoff - b }))
+      .filter((x) => x.triggersIn >= 0)
+      .sort((a, b) => a.triggersIn - b.triggersIn)[0];
+    if (!next) {
+      // Past all three buckets but before cutoff
+      return { text: `Cutoff in ${minutesUntilCutoff} min`, ok: false };
+    }
+    if (next.triggersIn === 0) return { text: `Reminder now (${next.b} min before)`, ok: false };
+    return { text: `Next reminder in ${next.triggersIn} min`, ok: null };
+  }, [currentStore.eodDeadlineTime, nowTick, myTodaySubmission]);
+
   const handleEnableReminders = async () => {
     if (!currentUser?.id) return;
     setEnablingPush(true);
@@ -659,6 +698,29 @@ export default function EODCountScreen() {
               {pushPermission === 'denied' ? 'Blocked' : enablingPush ? 'Enabling…' : 'Enable'}
             </Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* "Next reminder in X min" chip — visible once reminders are enabled and a deadline is set */}
+      {nextReminderLabel && !showReminderBanner && (
+        <View style={{ paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, flexDirection: 'row' }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: nextReminderLabel.ok === true ? C.successBg : nextReminderLabel.ok === false ? C.warningBg : C.bgSecondary,
+            paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.round,
+          }}>
+            <Ionicons
+              name={nextReminderLabel.ok === true ? 'checkmark-circle-outline' : 'time-outline'}
+              size={13}
+              color={nextReminderLabel.ok === true ? C.success : nextReminderLabel.ok === false ? C.warning : C.textSecondary}
+            />
+            <Text style={{
+              fontSize: 11, fontWeight: '500',
+              color: nextReminderLabel.ok === true ? C.success : nextReminderLabel.ok === false ? C.warning : C.textSecondary,
+            }}>
+              {nextReminderLabel.text}
+            </Text>
+          </View>
         </View>
       )}
 
