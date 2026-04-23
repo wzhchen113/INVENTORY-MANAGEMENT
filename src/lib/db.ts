@@ -292,6 +292,57 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<void> {
   if (error) throw error;
 }
 
+// ─── IN-APP NOTIFICATIONS ────────────────────────────────────────────────
+// Bell-icon items. Cron writes rows for EOD reminders; client writes for
+// user-initiated events. RLS restricts each user to their own rows.
+export interface PersistedNotification {
+  id: string;
+  message: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export async function fetchNotifications(userId: string, limit = 50): Promise<PersistedNotification[]> {
+  const { data, error } = await supabase
+    .from('in_app_notifications')
+    .select('id, message, created_at, read_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) { console.warn('[Supabase] fetchNotifications:', error.message); return []; }
+  return (data || []).map((r: any) => ({
+    id: r.id, message: r.message, createdAt: r.created_at, readAt: r.read_at,
+  }));
+}
+
+export async function createNotification(userId: string, message: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('in_app_notifications')
+    .insert({ user_id: userId, message })
+    .select('id')
+    .single();
+  if (error) { console.warn('[Supabase] createNotification:', error.message); return null; }
+  return data?.id ?? null;
+}
+
+export async function markNotificationReadDb(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('in_app_notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) console.warn('[Supabase] markNotificationReadDb:', error.message);
+}
+
+export async function clearNotificationsDb(userId: string): Promise<void> {
+  // "Clear" = mark all as read, not delete, so we still have history if needed.
+  const { error } = await supabase
+    .from('in_app_notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .is('read_at', null);
+  if (error) console.warn('[Supabase] clearNotificationsDb:', error.message);
+}
+
 // ─── AUDIT LOG ───────────────────────────────────────────────────────────
 export async function fetchAuditLog(storeId: string, limit = 100): Promise<AuditEvent[]> {
   const { data, error } = await supabase
