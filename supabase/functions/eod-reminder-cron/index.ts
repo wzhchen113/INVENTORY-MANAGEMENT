@@ -1,5 +1,11 @@
-// EOD reminder cron. Phase 4: also inserts into in_app_notifications
-// so the bell-icon history works across devices.
+// EOD reminder cron.
+// Who gets reminded for a given store X?
+//   - anyone explicitly linked via user_stores.store_id = X, UNION
+//   - anyone with profiles.role IN ('admin','master')
+// So admins/masters automatically cover every active store; regular staff are
+// scoped by user_stores as before. The union dedupes if a user is in both.
+// Also inserts into in_app_notifications so the bell-icon history works
+// across devices.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
@@ -66,6 +72,16 @@ Deno.serve(async (_req) => {
       return new Response(JSON.stringify({ ok: false, error: `stores fetch: ${storesErr.message}` }), { status: 500 });
     }
 
+    // Fetch admin/master user IDs once — they receive reminders for every store.
+    const { data: adminRows, error: adminErr } = await sb
+      .from('profiles')
+      .select('id')
+      .in('role', ['admin', 'master']);
+    if (adminErr) {
+      return new Response(JSON.stringify({ ok: false, error: `admins fetch: ${adminErr.message}` }), { status: 500 });
+    }
+    const adminUserIds = new Set((adminRows || []).map((r: any) => r.id as string));
+
     const summary: Array<Record<string, unknown>> = [];
 
     for (const store of (stores || []) as Store[]) {
@@ -75,7 +91,10 @@ Deno.serve(async (_req) => {
       if (!bucket) continue;
 
       const { data: userRows } = await sb.from('user_stores').select('user_id').eq('store_id', store.id);
-      const storeUsers = new Set((userRows || []).map((r: any) => r.user_id as string));
+      const linkedUsers = new Set((userRows || []).map((r: any) => r.user_id as string));
+
+      // Admins/masters auto-cover every active store, regardless of user_stores.
+      const storeUsers = new Set<string>([...linkedUsers, ...adminUserIds]);
       if (storeUsers.size === 0) continue;
 
       const { data: submittedRows } = await sb.from('eod_submissions').select('submitted_by').eq('store_id', store.id).eq('date', localDate);
