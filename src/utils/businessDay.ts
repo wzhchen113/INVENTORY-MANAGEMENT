@@ -41,3 +41,37 @@ export function getBusinessTodayParts(tz: string): BusinessTodayParts {
     day: Number(parts.day),
   };
 }
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+};
+
+/**
+ * Convert a weekday name (e.g. "Thursday") to an ISO date (YYYY-MM-DD)
+ * representing that weekday within the CURRENT week in the given timezone.
+ * "Current week" is anchored on today's business-day date — so at 01:30 Fri
+ * this still treats Thursday as "yesterday" (businessToday = Thu).
+ *
+ * Used to stamp a day-card's reference date onto a new purchase-order
+ * submission, so the Orders screen's "Submitted" pill can persist against
+ * the right card after refresh (rather than silently rolling over to today).
+ */
+export function computeWeekdayDateISO(weekday: string, tz: string): string {
+  const targetIdx = WEEKDAY_INDEX[weekday];
+  if (targetIdx === undefined) return '';
+  const today = getBusinessTodayParts(tz);
+  const todayIdx = WEEKDAY_INDEX[today.weekday];
+  if (todayIdx === undefined) return today.dateISO;
+
+  // Diff in [-6, +6]. `today` → 0, yesterday → -1, tomorrow → +1, etc.
+  const diff = targetIdx - todayIdx;
+
+  // UTC arithmetic from today's Y/M/D avoids DST drift: adding 1 day to
+  // a UTC midnight always gives the next UTC midnight.
+  const base = new Date(Date.UTC(today.year, today.month - 1, today.day));
+  base.setUTCDate(base.getUTCDate() + diff);
+  const y = base.getUTCFullYear();
+  const m = String(base.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(base.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
