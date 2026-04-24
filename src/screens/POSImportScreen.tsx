@@ -2,7 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert, Platform, TextInput,
+  Modal, ActivityIndicator,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,9 +13,15 @@ import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
 import { TimezoneBar } from '../components/TimezoneBar';
+import { fetchBreadbotSales } from '../lib/db';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const isWeb = Platform.OS === 'web';
+
+// Stores whose sales live in the breadbot public API. Must match STORE_MAP
+// in supabase/functions/fetch-breadbot-sales/index.ts — the client-side set
+// is just the UI guard; the edge function is the source of truth.
+const BREADBOT_STORES = new Set(['Frederick', 'Charles']);
 
 interface ParsedRow {
   menuItem: string;
@@ -65,6 +73,12 @@ export default function POSImportScreen() {
   const [importDate, setImportDate] = useState(todayISO);
   const [fileType, setFileType] = useState<'items' | 'modifiers'>('items');
 
+  // Breadbot fetch modal state
+  const [showBreadbotModal, setShowBreadbotModal] = useState(false);
+  const [breadbotDate, setBreadbotDate] = useState(todayISO);
+  const [fetchingBreadbot, setFetchingBreadbot] = useState(false);
+  const storeHasBreadbot = !!currentStore && BREADBOT_STORES.has(currentStore.name);
+
   const pickFile = async () => {
     if (isWeb) {
       const input = document.createElement('input');
@@ -89,6 +103,42 @@ export default function POSImportScreen() {
       parseCSV(text);
     } catch {
       Alert.alert('Error', 'Could not read file. Make sure it is a .csv file.');
+    }
+  };
+
+  // Fetch sales directly from breadbot via the edge function proxy. The
+  // returned rows match the ParsedRow shape the CSV parser emits, so we can
+  // drop them straight into the existing preview → confirm → importPOS flow.
+  const handleFetchBreadbot = async () => {
+    if (!currentStore || !storeHasBreadbot) return;
+    setFetchingBreadbot(true);
+    try {
+      const { rows: fetched } = await fetchBreadbotSales(currentStore.name, breadbotDate);
+      if (fetched.length === 0) {
+        Toast.show({
+          type: 'info',
+          text1: 'No sales returned',
+          text2: `Breadbot had nothing for ${currentStore.name} on ${breadbotDate}.`,
+          position: 'bottom',
+        });
+        setFetchingBreadbot(false);
+        return;
+      }
+      setFilename(`Breadbot · ${currentStore.name} · ${breadbotDate}`);
+      setFileType('items');
+      setRows(fetched);
+      setImportDate(breadbotDate);
+      setShowBreadbotModal(false);
+      setStep('preview');
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Breadbot fetch failed',
+        text2: e?.message || 'Check API key and network',
+        position: 'bottom',
+      });
+    } finally {
+      setFetchingBreadbot(false);
     }
   };
 
@@ -241,6 +291,25 @@ export default function POSImportScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="pos-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
+      {step === 'upload' && storeHasBreadbot && (
+        <Card>
+          <CardHeader title="Fetch from Breadbot" />
+          <Text style={[styles.breadbotLead, { color: C.textSecondary }]}>
+            Pull {currentStore.name}'s sales directly from the breadbot API instead of uploading a CSV. POS, delivery, and kiosk channels are summed per item.
+          </Text>
+          <TouchableOpacity
+            style={[styles.breadbotBtn, { backgroundColor: C.textPrimary }]}
+            onPress={() => {
+              setBreadbotDate(todayISO());
+              setShowBreadbotModal(true);
+            }}
+          >
+            <Ionicons name="cloud-download-outline" size={18} color={C.bgPrimary} />
+            <Text style={[styles.breadbotBtnText, { color: C.bgPrimary }]}>Fetch sales from Breadbot</Text>
+          </TouchableOpacity>
+        </Card>
+      )}
+
       {step === 'upload' && (
         <Card>
           <CardHeader title="Upload POS sales CSV" />
@@ -365,6 +434,45 @@ export default function POSImportScreen() {
         </>
       )}
     </WebScrollView>
+
+    <Modal visible={showBreadbotModal} animationType="fade" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+          <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Fetch from Breadbot</Text>
+          <Text style={[styles.modalSub, { color: C.textSecondary }]}>
+            {currentStore?.name ?? ''} · channels summed per item
+          </Text>
+          <View style={{ marginTop: Spacing.md }}>
+            <DatePicker
+              value={breadbotDate}
+              onChange={(d) => setBreadbotDate(d || todayISO())}
+              label="Sales date"
+              placeholder="Select date"
+            />
+          </View>
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalCancel, { borderColor: C.borderMedium }]}
+              onPress={() => setShowBreadbotModal(false)}
+              disabled={fetchingBreadbot}
+            >
+              <Text style={[styles.modalCancelText, { color: C.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalFetch, { backgroundColor: C.textPrimary, opacity: fetchingBreadbot ? 0.6 : 1 }]}
+              onPress={handleFetchBreadbot}
+              disabled={fetchingBreadbot}
+            >
+              {fetchingBreadbot ? (
+                <ActivityIndicator size="small" color={C.bgPrimary} />
+              ) : (
+                <Text style={[styles.modalFetchText, { color: C.bgPrimary }]}>Fetch sales</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
     </View>
   );
 }
@@ -550,4 +658,58 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
   },
   doneBtnText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '500' },
+
+  // Breadbot fetch card + modal
+  breadbotLead: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: Spacing.md,
+  },
+  breadbotBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: Radius.md,
+  },
+  breadbotBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+  },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '600' },
+  modalSub: { fontSize: FontSize.xs, marginTop: 4 },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: Spacing.lg,
+  },
+  modalCancel: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+  },
+  modalCancelText: { fontSize: FontSize.sm, fontWeight: '500' },
+  modalFetch: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalFetchText: { fontSize: FontSize.sm, fontWeight: '600' },
 });
