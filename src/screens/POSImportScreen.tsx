@@ -494,6 +494,7 @@ export default function POSImportScreen() {
             Pull {currentStore.name}'s sales directly from the breadbot API instead of uploading a CSV. POS, delivery, and kiosk channels are summed per item.
           </Text>
           <TouchableOpacity
+            testID="breadbot-open-single"
             style={[styles.breadbotBtn, { backgroundColor: C.textPrimary }]}
             onPress={() => {
               setBreadbotMode('single');
@@ -505,6 +506,7 @@ export default function POSImportScreen() {
             <Text style={[styles.breadbotBtnText, { color: C.bgPrimary }]}>Fetch sales from Breadbot</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            testID="breadbot-open-range"
             style={[styles.backfillLink, { borderColor: C.borderMedium }]}
             onPress={() => {
               setBreadbotMode('range');
@@ -564,7 +566,7 @@ export default function POSImportScreen() {
             {/* Date picker + Summary stats */}
             <View style={styles.statsBar}>
               <View style={styles.datePicker}>
-                <DatePicker value={importDate} onChange={(d) => setImportDate(d || todayISO)} label="Import date" placeholder="Select date" />
+                <DatePicker value={importDate} onChange={(d) => setImportDate(d || todayISO)} label="Import date" placeholder="Select date" testIdPrefix="posimport-import-date" />
               </View>
               <View style={styles.statChips}>
                 <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>
@@ -624,6 +626,7 @@ export default function POSImportScreen() {
 
           <View style={styles.actionRow}>
             <TouchableOpacity
+              testID="posimport-preview-cancel"
               style={[styles.cancelBtn, { borderColor: C.borderMedium }]}
               onPress={() => {
                 setStep('upload');
@@ -632,7 +635,7 @@ export default function POSImportScreen() {
             >
               <Text style={[styles.cancelBtnText, { color: C.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.importBtn, { backgroundColor: C.textPrimary }]} onPress={handleImport}>
+            <TouchableOpacity testID="posimport-confirm" style={[styles.importBtn, { backgroundColor: C.textPrimary }]} onPress={handleImport}>
               <Text style={[styles.importBtnText, { color: C.bgPrimary }]}>
                 Import {rows.length} items · {formatDisplayDate(importDate)}
               </Text>
@@ -653,6 +656,7 @@ export default function POSImportScreen() {
           {/* Mode tabs */}
           <View style={[styles.tabRow, { borderBottomColor: C.borderLight }]}>
             <TouchableOpacity
+              testID="breadbot-modal-tab-single"
               style={[
                 styles.tab,
                 breadbotMode === 'single' && { borderBottomColor: C.textPrimary, borderBottomWidth: 2 },
@@ -665,6 +669,7 @@ export default function POSImportScreen() {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
+              testID="breadbot-modal-tab-range"
               style={[
                 styles.tab,
                 breadbotMode === 'range' && { borderBottomColor: C.textPrimary, borderBottomWidth: 2 },
@@ -685,6 +690,7 @@ export default function POSImportScreen() {
                 onChange={(d) => setBreadbotDate(d || todayISO())}
                 label="Sales date"
                 placeholder="Select date"
+                testIdPrefix="breadbot-date"
               />
             </View>
           ) : (
@@ -694,12 +700,14 @@ export default function POSImportScreen() {
                 onChange={(d) => d && setBackfillStart(d)}
                 label="Start date"
                 placeholder="Select date"
+                testIdPrefix="breadbot-range-start"
               />
               <DatePicker
                 value={backfillEnd}
                 onChange={(d) => d && setBackfillEnd(d)}
                 label="End date"
                 placeholder="Select date"
+                testIdPrefix="breadbot-range-end"
               />
               <Text style={[styles.modalSub, { color: C.textSecondary, marginTop: 4 }]}>
                 {backfillDayCount > BACKFILL_MAX_DAYS
@@ -711,6 +719,7 @@ export default function POSImportScreen() {
 
           <View style={styles.modalActions}>
             <TouchableOpacity
+              testID="breadbot-modal-cancel"
               style={[styles.modalCancel, { borderColor: C.borderMedium }]}
               onPress={() => setShowBreadbotModal(false)}
               disabled={fetchingBreadbot}
@@ -719,6 +728,7 @@ export default function POSImportScreen() {
             </TouchableOpacity>
             {breadbotMode === 'single' ? (
               <TouchableOpacity
+                testID="breadbot-modal-submit"
                 style={[styles.modalFetch, { backgroundColor: C.textPrimary, opacity: fetchingBreadbot ? 0.6 : 1 }]}
                 onPress={handleFetchBreadbot}
                 disabled={fetchingBreadbot}
@@ -731,6 +741,7 @@ export default function POSImportScreen() {
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
+                testID="breadbot-modal-submit"
                 style={[
                   styles.modalFetch,
                   { backgroundColor: C.textPrimary, opacity: backfillDayCount === 0 || backfillDayCount > BACKFILL_MAX_DAYS ? 0.5 : 1 },
