@@ -1091,6 +1091,10 @@ export function UsersScreen() {
 
   // Cloud data is the source of truth. Show nothing until loaded (no seed flash).
   const isMaster = currentUser?.role === 'master';
+  // Admins can also manage stores (incl. EOD deadline); only add/edit/delete
+  // lives under this flag. Master-only privileges (modifying other admins) stay
+  // gated by isMaster below.
+  const canManageStores = currentUser?.role === 'master' || currentUser?.role === 'admin';
   const loadingUsers = cloudUsers === null;
   const rawUsers = cloudUsers || [];
   const allUsers = isMaster ? rawUsers : rawUsers.filter((u) => u.role !== 'master');
@@ -1186,8 +1190,8 @@ export function UsersScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <WebScrollView id="users-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
-        {/* Store management section (master only) */}
-        {isMaster && (
+        {/* Store management section (admin + master) */}
+        {canManageStores && (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md }}>
               <Text style={{ fontSize: FontSize.lg, fontWeight: '600', color: C.textPrimary }}>Stores ({stores.length})</Text>
@@ -1335,7 +1339,7 @@ export function UsersScreen() {
         </View>
       </Modal>
 
-      {/* Add/Edit Store Modal (master only) */}
+      {/* Add/Edit Store Modal (admin + master) */}
       <Modal visible={showStoreModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
           <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
