@@ -280,6 +280,7 @@ export async function fetchVendors(): Promise<Vendor[]> {
     id: v.id, name: v.name, contactName: v.contact_name, phone: v.phone,
     email: v.email, accountNumber: v.account_number, leadTimeDays: v.lead_time_days,
     deliveryDays: v.delivery_days || [], categories: v.categories || [], lastOrderDate: v.last_order_date,
+    orderCutoffTime: v.order_cutoff_time || undefined,
   }));
 }
 
@@ -288,6 +289,7 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<void> {
     name: vendor.name, contact_name: vendor.contactName, phone: vendor.phone,
     email: vendor.email, account_number: vendor.accountNumber,
     lead_time_days: vendor.leadTimeDays, delivery_days: vendor.deliveryDays, categories: vendor.categories,
+    ...(vendor.orderCutoffTime ? { order_cutoff_time: vendor.orderCutoffTime } : {}),
   });
   if (error) throw error;
 }
@@ -584,6 +586,8 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
   if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
   if (updates.email !== undefined) dbUpdates.email = updates.email;
   if (updates.leadTimeDays !== undefined) dbUpdates.lead_time_days = updates.leadTimeDays;
+  // Pass the empty string through too so an admin can clear a previously-set cutoff.
+  if (updates.orderCutoffTime !== undefined) dbUpdates.order_cutoff_time = updates.orderCutoffTime || null;
   await supabase.from('vendors').update(dbUpdates).eq('id', id);
 }
 
