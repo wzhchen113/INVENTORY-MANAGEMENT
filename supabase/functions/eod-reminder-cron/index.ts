@@ -96,7 +96,27 @@ async function sendEmailViaResend(
   }
 }
 
-Deno.serve(async (_req) => {
+// Gateway already validates the JWT signature (verify_jwt = true).
+// We then require the caller to have role=service_role to block anon-key callers,
+// since the anon key is a valid (public) JWT baked into the web bundle.
+function callerRole(authHeader: string | null): string | null {
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7);
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const pad = '='.repeat((4 - (parts[1].length % 4)) % 4);
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/') + pad));
+    return typeof payload?.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+Deno.serve(async (req) => {
+  if (callerRole(req.headers.get('Authorization')) !== 'service_role') {
+    return new Response(JSON.stringify({ ok: false, error: 'forbidden' }), { status: 403 });
+  }
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
