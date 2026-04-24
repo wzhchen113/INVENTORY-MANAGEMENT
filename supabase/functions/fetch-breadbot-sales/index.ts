@@ -20,7 +20,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const STORE_MAP: Record<string, string> = {
   Frederick: 'frederick',
   Charles: 'charles',
-  // York isn't in our stores table yet; add here when it is.
+  Towson: 'york', // breadbot's "york" location is what we call "Towson" internally.
 };
 
 const DEFAULT_BASE_URL = 'https://breadbot.duckdns.org/api/v1/public';

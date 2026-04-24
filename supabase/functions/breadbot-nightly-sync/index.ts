@@ -24,6 +24,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const STORE_MAP: Record<string, string> = {
   Frederick: 'frederick',
   Charles: 'charles',
+  Towson: 'york', // breadbot's "york" is our internal "Towson".
 };
 
 const DEFAULT_BASE_URL = 'https://breadbot.duckdns.org/api/v1/public';
@@ -58,13 +59,49 @@ function getConversionFactor(fromUnit: string, toUnit: string): number | null {
   return null;
 }
 
-// ─── Recipe fuzzy match (ported from POSImportScreen.tsx:263-279) ──────
+// ─── Recipe fuzzy match (ported from POSImportScreen.tsx) ──────────────
+// Keep this logic in sync with the client copy by hand.
 type RecipeRow = { id: string; store_id: string; menu_item: string };
+
+const STOP_TOKENS = new Set(['and']);
+const COUNT_TOKEN_RE = /^\d+(pc|pcs|ct|cts)?$/;
+
+function significantTokens(s: string): string[] {
+  const raw = s.toLowerCase().split(/[\s\-_\/(),.&]+/).filter(Boolean);
+  let i = 0;
+  while (i < raw.length && COUNT_TOKEN_RE.test(raw[i])) i++;
+  return raw.slice(i)
+    .map((t) => (t.length >= 4 && t.endsWith('s') ? t.slice(0, -1) : t))
+    .filter((t) => t && !STOP_TOKENS.has(t));
+}
+
+function tokensSubsetOf(a: string[], b: string[]): boolean {
+  if (a.length === 0) return false;
+  const set = new Set(b);
+  return a.every((t) => set.has(t));
+}
+
 function findRecipe(menuItem: string, recipes: RecipeRow[]): RecipeRow | undefined {
   const lower = menuItem.toLowerCase().trim();
   if (/^(no |add utensils|extra |add )/.test(lower)) return undefined;
+
   const exact = recipes.find((r) => r.menu_item.toLowerCase() === lower);
   if (exact) return exact;
+
+  // Token-set: every significant recipe token must appear in the POS tokens.
+  // Ranked by recipe token count so more specific recipes ("BBQ Wings") win
+  // over generic ones ("Wings") when both match.
+  const posTokens = significantTokens(menuItem);
+  if (posTokens.length > 0) {
+    const ranked = recipes
+      .map((r) => ({ recipe: r, rTokens: significantTokens(r.menu_item) }))
+      .filter(({ rTokens }) => tokensSubsetOf(rTokens, posTokens))
+      .sort((a, b) => b.rTokens.length - a.rTokens.length);
+    if (ranked[0]) return ranked[0].recipe;
+  }
+
+  // Containment fallback — preserves existing behavior for anything the token
+  // pass misses.
   return recipes.find((r) => {
     const rLower = r.menu_item.toLowerCase();
     if (lower.length < 4 || rLower.length < 4) return false;

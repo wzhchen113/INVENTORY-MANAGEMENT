@@ -21,7 +21,7 @@ const isWeb = Platform.OS === 'web';
 // Stores whose sales live in the breadbot public API. Must match STORE_MAP
 // in supabase/functions/fetch-breadbot-sales/index.ts — the client-side set
 // is just the UI guard; the edge function is the source of truth.
-const BREADBOT_STORES = new Set(['Frederick', 'Charles']);
+const BREADBOT_STORES = new Set(['Frederick', 'Charles', 'Towson']);
 
 interface ParsedRow {
   menuItem: string;
@@ -39,6 +39,25 @@ type BackfillResult = {
 
 const BACKFILL_MAX_DAYS = 30;
 const BACKFILL_THROTTLE_MS = 200; // ~5 req/s — well under breadbot's 60/min cap
+
+// ── Recipe-matching helpers (kept in sync with breadbot-nightly-sync/index.ts)
+const STOP_TOKENS = new Set(['and']);
+const COUNT_TOKEN_RE = /^\d+(pc|pcs|ct|cts)?$/;
+
+function significantTokens(s: string): string[] {
+  const raw = s.toLowerCase().split(/[\s\-_\/(),.&]+/).filter(Boolean);
+  let i = 0;
+  while (i < raw.length && COUNT_TOKEN_RE.test(raw[i])) i++;
+  return raw.slice(i)
+    .map((t) => (t.length >= 4 && t.endsWith('s') ? t.slice(0, -1) : t))
+    .filter((t) => t && !STOP_TOKENS.has(t));
+}
+
+function tokensSubsetOf(a: string[], b: string[]): boolean {
+  if (a.length === 0) return false;
+  const set = new Set(b);
+  return a.every((t) => set.has(t));
+}
 
 // Enumerate YYYY-MM-DD strings inclusive of both ends, using UTC math so
 // DST transitions don't drop or duplicate a day at the boundary.
@@ -269,10 +288,22 @@ export default function POSImportScreen() {
     const exact = recipes.find((r) => r.menuItem.toLowerCase() === lower);
     if (exact) return exact;
 
-    // Word-boundary fuzzy: only match if the full recipe name appears in the POS name or vice versa
+    // Token-set: drop leading counts ("6 Wings" → ["wings"]), fold plurals
+    // ("wings" → "wing"). A recipe matches if every one of its significant
+    // tokens appears in the POS tokens. Rank by recipe token count so
+    // "BBQ Wings" beats plain "Wings" when both qualify.
+    const posTokens = significantTokens(menuItem);
+    if (posTokens.length > 0) {
+      const ranked = recipes
+        .map((r) => ({ recipe: r, rTokens: significantTokens(r.menuItem) }))
+        .filter(({ rTokens }) => tokensSubsetOf(rTokens, posTokens))
+        .sort((a, b) => b.rTokens.length - a.rTokens.length);
+      if (ranked[0]) return ranked[0].recipe;
+    }
+
+    // Containment fallback — preserves existing behavior.
     return recipes.find((r) => {
       const rLower = r.menuItem.toLowerCase();
-      // POS "BBQ" should not match recipe "BBQ Sauce" — require full containment only for longer names
       if (lower.length < 4 || rLower.length < 4) return false;
       return lower.includes(rLower) || rLower.includes(lower);
     });
