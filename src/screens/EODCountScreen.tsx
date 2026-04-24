@@ -155,11 +155,6 @@ export default function EODCountScreen() {
     );
   }, [storeInventory, scheduledVendors, showAllItems]);
 
-  const categories = useMemo(
-    () => [...new Set(baseItems.map((i) => i.category))].sort(),
-    [baseItems]
-  );
-
   const vendorCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     baseItems.forEach((i) => {
@@ -172,6 +167,40 @@ export default function EODCountScreen() {
     () => Object.keys(vendorCounts).sort(),
     [vendorCounts]
   );
+
+  // Items scoped to the current vendor filter. Everything else (category pills,
+  // counts, progress bar, filledCount) derives from this so the whole screen
+  // reflects the vendor you're working on.
+  const vendorScopedItems = useMemo(() => {
+    if (!vendorFilter) return baseItems;
+    return baseItems.filter((i) => i.vendorName === vendorFilter);
+  }, [baseItems, vendorFilter]);
+
+  // Categories present within the current vendor, with per-category counts.
+  const categories = useMemo(
+    () => [...new Set(vendorScopedItems.map((i) => i.category))].sort(),
+    [vendorScopedItems]
+  );
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    vendorScopedItems.forEach((i) => {
+      counts[i.category] = (counts[i.category] || 0) + 1;
+    });
+    return counts;
+  }, [vendorScopedItems]);
+
+  // Keep vendorFilter valid: if the currently-selected vendor isn't in the
+  // day's list (e.g., the user changed day), snap to the first available one.
+  // If there are no vendors at all, clear the filter.
+  useEffect(() => {
+    if (vendorNames.length === 0) {
+      if (vendorFilter) setVendorFilter('');
+      return;
+    }
+    if (!vendorFilter || !vendorNames.includes(vendorFilter)) {
+      setVendorFilter(vendorNames[0]);
+    }
+  }, [vendorNames, vendorFilter]);
 
   const filteredItems = useMemo(() => {
     let items = baseItems;
@@ -213,16 +242,17 @@ export default function EODCountScreen() {
         vendors.add(vendor);
       }
     }
-    // Categories: complete when every base item in that category has an entry.
-    const allCats = [...new Set(baseItems.map((i) => i.category))];
+    // Categories: complete when every item in that category WITHIN THE CURRENT
+    // VENDOR is counted. Scoped to vendor so switching vendors recomputes.
+    const allCats = [...new Set(vendorScopedItems.map((i) => i.category))];
     for (const cat of allCats) {
-      const items = baseItems.filter((i) => i.category === cat);
+      const items = vendorScopedItems.filter((i) => i.category === cat);
       if (items.length > 0 && items.every((i) => countedItemIds.has(i.id))) {
         categories.add(cat);
       }
     }
     return { completedVendors: vendors, completedCategories: categories };
-  }, [myTodaySubmission, baseItems, vendorNames]);
+  }, [myTodaySubmission, baseItems, vendorNames, vendorScopedItems]);
 
   // Pre-fill counts from previous submission so user can see what's been counted
   useEffect(() => {
@@ -264,8 +294,9 @@ export default function EODCountScreen() {
     setCounts((prev) => ({ ...prev, [id]: value }));
   };
 
-  // Count filled items (legacy counts OR dual-entry cases/each)
-  const filledCount = baseItems.filter((item) => {
+  // Count filled items within the current vendor scope (progress bar + submit
+  // button reflect just the vendor the user is working on).
+  const filledCount = vendorScopedItems.filter((item) => {
     const caseQty = item.caseQty || 1;
     const hasCaseInfo = (item.casePrice || 0) > 0 && caseQty > 1;
     if (hasCaseInfo) {
@@ -816,11 +847,11 @@ export default function EODCountScreen() {
             onPress={() => setSelectedCategory(null)}
           >
             <Text style={[styles.pillText, { color: C.textSecondary }, !selectedCategory && { color: C.bgPrimary }]}>
-              All ({storeInventory.length})
+              All ({vendorScopedItems.length})
             </Text>
           </TouchableOpacity>
           {categories.map((cat) => {
-            const count = inventory.filter((i) => i.category === cat).length;
+            const count = categoryCounts[cat] || 0;
             const isActive = selectedCategory === cat;
             const done = completedCategories.has(cat);
             return (
@@ -841,18 +872,10 @@ export default function EODCountScreen() {
         </ScrollView>
       </View>
 
-      {/* Vendor filter pills */}
+      {/* Vendor filter pills — always one vendor selected, no "All vendors" */}
       {vendorNames.length > 0 && (
         <View style={styles.pillWrapper}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-            <TouchableOpacity
-              style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, !vendorFilter && styles.pillActive, !vendorFilter && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
-              onPress={() => setVendorFilter('')}
-            >
-              <Text style={[styles.pillText, { color: C.textSecondary }, !vendorFilter && { color: C.bgPrimary }]}>
-                All vendors
-              </Text>
-            </TouchableOpacity>
             {vendorNames.map((v) => {
               const isActive = vendorFilter === v;
               const done = completedVendors.has(v);
@@ -860,7 +883,7 @@ export default function EODCountScreen() {
                 <TouchableOpacity
                   key={v}
                   style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }, done && !isActive && { backgroundColor: C.successBg, borderColor: C.success }]}
-                  onPress={() => setVendorFilter(isActive ? '' : v)}
+                  onPress={() => setVendorFilter(v)}
                 >
                   {done && (
                     <Ionicons name="checkmark-circle" size={12} color={isActive ? C.bgPrimary : C.success} style={{ marginRight: 4 }} />
@@ -875,16 +898,17 @@ export default function EODCountScreen() {
         </View>
       )}
 
-      {/* Progress indicator */}
+      {/* Progress indicator — scoped to the current vendor */}
       <View style={styles.progressRow}>
         <Text style={[styles.progressText, { color: C.textSecondary }]}>
-          {filledCount} of {storeInventory.length} items counted
+          {filledCount} of {vendorScopedItems.length} items counted
+          {vendorFilter ? ` · ${vendorFilter}` : ''}
         </Text>
         <View style={[styles.progressBar, { backgroundColor: C.borderLight }]}>
           <View
             style={[
               styles.progressFill,
-              { width: `${storeInventory.length > 0 ? (filledCount / storeInventory.length) * 100 : 0}%`, backgroundColor: C.success },
+              { width: `${vendorScopedItems.length > 0 ? (filledCount / vendorScopedItems.length) * 100 : 0}%`, backgroundColor: C.success },
             ]}
           />
         </View>
