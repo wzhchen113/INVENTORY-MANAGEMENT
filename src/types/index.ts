@@ -167,6 +167,9 @@ export interface Vendor {
   deliveryDays: string[];
   categories: string[];
   lastOrderDate?: string;
+  // HH:MM in 24h (store local time). Cron fires 60/30/10 min before this on
+  // the vendor's scheduled order days, unless the order has already been placed.
+  orderCutoffTime?: string;
 }
 
 export interface POSSaleItem {

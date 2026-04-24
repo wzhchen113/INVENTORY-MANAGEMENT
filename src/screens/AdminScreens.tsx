@@ -599,12 +599,21 @@ export function VendorsScreen() {
   const [editVendor, setEditVendor] = useState<typeof vendors[0] | null>(null);
   const [dupWarning, setDupWarning] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<typeof vendors[0] | null>(null);
-  const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
+  const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '' });
+
+  // Validate HH:MM (24h); returns trimmed value if valid, empty string for empty input, null if malformed.
+  const parseHHMM = (raw: string): string | null => {
+    const v = raw.trim();
+    if (!v) return '';
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(v)) return null;
+    const [h, m] = v.split(':');
+    return `${h.padStart(2, '0')}:${m}`;
+  };
 
   const openAdd = () => {
     setEditVendor(null);
     setDupWarning('');
-    setForm({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2' });
+    setForm({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '' });
     setShowModal(true);
   };
 
@@ -618,6 +627,7 @@ export function VendorsScreen() {
       email: vendor.email || '',
       accountNumber: vendor.accountNumber || '',
       leadTimeDays: String(vendor.leadTimeDays || 2),
+      orderCutoffTime: vendor.orderCutoffTime || '',
     });
     setShowModal(true);
   };
@@ -638,10 +648,22 @@ export function VendorsScreen() {
     }
     setDupWarning('');
 
+    const cutoff = parseHHMM(form.orderCutoffTime);
+    if (cutoff === null) {
+      if (Platform.OS === 'web') alert('Order cutoff must be HH:MM in 24h (e.g. 15:00) or blank.');
+      else Alert.alert('Invalid cutoff', 'Use HH:MM in 24h (e.g. 15:00) or leave blank.');
+      return;
+    }
+
+    const payload = {
+      ...form,
+      leadTimeDays: parseInt(form.leadTimeDays) || 2,
+      orderCutoffTime: cutoff || undefined,
+    };
     if (editVendor) {
-      updateVendor(editVendor.id, { ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2 });
+      updateVendor(editVendor.id, payload);
     } else {
-      addVendor({ ...form, leadTimeDays: parseInt(form.leadTimeDays) || 2, deliveryDays: [], categories: [] });
+      addVendor({ ...payload, deliveryDays: [], categories: [] });
     }
     setShowModal(false);
   };
@@ -718,6 +740,21 @@ export function VendorsScreen() {
                 <TextInput style={[styles.formInput, { marginBottom: Spacing.md, color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={(form as any)[f.key]} onChangeText={(v) => setForm((p) => ({ ...p, [f.key]: f.keyboard ? numericFilter(v) : v }))} keyboardType={(f.keyboard as any) || 'default'} placeholderTextColor={C.textTertiary} />
               </View>
             ))}
+            <View>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Order cutoff time</Text>
+              <TextInput
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={form.orderCutoffTime}
+                onChangeText={(v) => setForm((p) => ({ ...p, orderCutoffTime: v }))}
+                placeholder="15:00"
+                placeholderTextColor={C.textTertiary}
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+              <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4, marginBottom: Spacing.md }}>
+                24h HH:MM local. On scheduled order days, reminders fire 60 / 30 / 10 min before. Leave blank to disable.
+              </Text>
+            </View>
             {dupWarning ? (
               <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
                 <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
