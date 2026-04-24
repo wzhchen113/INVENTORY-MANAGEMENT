@@ -570,11 +570,17 @@ export const useStore = create<FullStore>((set, get) => ({
     const verb = existing ? 'edited' : 'submitted';
     const msg = `${submitterName} ${verb} today's EOD count for ${submission.storeName}`;
     const { supabase } = require('../lib/supabase');
-    supabase.rpc('broadcast_notification', {
-      p_store_id: submission.storeId,
-      p_message: msg,
-      p_exclude_user_id: submission.submittedByUserId || null,
-    }).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
+    // supabase-js v2 builders (rpc, from().update(), etc.) are thenable but
+    // DON'T expose `.catch` — chaining it throws TypeError synchronously and
+    // aborts submitEOD before handleSubmit's persistToCloud call runs.
+    // Promise.resolve(...) promotes the thenable to a real Promise that has .catch.
+    Promise.resolve(
+      supabase.rpc('broadcast_notification', {
+        p_store_id: submission.storeId,
+        p_message: msg,
+        p_exclude_user_id: submission.submittedByUserId || null,
+      })
+    ).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
   },
 
   // Vendors
@@ -654,7 +660,11 @@ export const useStore = create<FullStore>((set, get) => ({
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.address !== undefined) dbUpdates.address = updates.address;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime;
-    supabase.from('stores').update(dbUpdates).eq('id', id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Promote the builder to a real Promise before .catch (builders are
+    // thenable but lack `.catch`, so chaining it throws TypeError).
+    Promise.resolve(
+      supabase.from('stores').update(dbUpdates).eq('id', id)
+    ).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   // Users
@@ -740,11 +750,15 @@ export const useStore = create<FullStore>((set, get) => ({
     const storeName = submission.storeName || get().stores.find((st) => st.id === submission.storeId)?.name || 'store';
     const msg = `${submission.vendorName} order for ${storeName} submitted by ${submitterName}`;
     const { supabase } = require('../lib/supabase');
-    supabase.rpc('broadcast_notification', {
-      p_store_id: submission.storeId,
-      p_message: msg,
-      p_exclude_user_id: get().currentUser?.id || null,
-    }).catch((e: any) => console.warn('[Supabase] broadcast_notification (order):', e?.message || e));
+    // Same fix as submitEOD: promote the rpc builder to a real Promise before
+    // .catch so it doesn't throw TypeError and abort submitOrder.
+    Promise.resolve(
+      supabase.rpc('broadcast_notification', {
+        p_store_id: submission.storeId,
+        p_message: msg,
+        p_exclude_user_id: get().currentUser?.id || null,
+      })
+    ).catch((e: any) => console.warn('[Supabase] broadcast_notification (order):', e?.message || e));
   },
 
   setTimezone: (tz) => {
