@@ -511,10 +511,11 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // EOD
   submitEOD: (submission) => {
-    // Check if this is an update to an existing submission
+    // Existing-merge lookup is store+date scoped (no user) to mirror the
+    // DB's UNIQUE (store_id, date) — admins editing a regular user's count
+    // should update the same local row, not append a parallel one.
     const existing = get().eodSubmissions.find(
       (s) =>
-        s.submittedByUserId === submission.submittedByUserId &&
         s.storeId === submission.storeId &&
         s.date === submission.date
     );

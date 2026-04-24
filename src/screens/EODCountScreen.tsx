@@ -77,12 +77,12 @@ export default function EODCountScreen() {
   // a submission that was saved during the Thursday shift (date=2026-04-23).
   const todayISO = businessToday.dateISO;
 
-  // Find if current user already submitted today
+  // Find today's submission for this store. Scope is (store, date) only —
+  // not (store, date, user) — so admins viewing the store see + can edit
+  // the same count a regular user submitted, instead of getting an empty
+  // count form and creating a parallel row.
   const myTodaySubmission = eodSubmissions.find(
-    (s) =>
-      s.submittedByUserId === currentUser?.id &&
-      s.storeId === currentStore.id &&
-      s.date === todayISO
+    (s) => s.storeId === currentStore.id && s.date === todayISO
   );
 
   const [saving, setSaving] = useState(false);
@@ -682,7 +682,7 @@ export default function EODCountScreen() {
               {wasEdited ? `  ·  Last edited ${lastEdited}` : ''}
             </Text>
             <Text style={[styles.submittedMeta, { color: C.textSecondary }]}>
-              {myTodaySubmission.entries.length} item(s) counted by {currentUser?.name}
+              {myTodaySubmission.entries.length} item(s) counted by {myTodaySubmission.submittedBy || 'Unknown'}
             </Text>
           </View>
         </View>

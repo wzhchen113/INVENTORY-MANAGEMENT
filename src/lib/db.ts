@@ -219,11 +219,12 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
 }
 
 // ─── EOD SUBMISSIONS ─────────────────────────────────────────────────────
-// Upsert (not plain insert) so the "Edit today's count" flow can save edits
-// to the same (store_id, date, submitted_by) row instead of silently creating
-// duplicates. Keyed on the UNIQUE constraint eod_submissions_store_date_user_key.
-// Entries are replaced wholesale (delete-then-insert) so items removed from the
-// edit screen disappear cleanly and we don't maintain diffing logic here.
+// One row per (store_id, date) — anyone with store access can edit the same
+// count instead of forking off a per-user duplicate. Upsert so the "Edit
+// today's count" flow updates the existing row; submitted_by tracks whoever
+// last touched it (which is also what the audit log per entry preserves).
+// Entries are replaced wholesale (delete-then-insert) so items removed from
+// the edit screen disappear cleanly and we don't maintain diffing logic here.
 //
 // Errors are console.warn'd before being rethrown so `.catch(() => null)` at
 // the call site still hides them from the user but developers can see the
@@ -239,7 +240,7 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
         status: 'submitted',
         submitted_at: new Date().toISOString(),
       },
-      { onConflict: 'store_id,date,submitted_by' }
+      { onConflict: 'store_id,date' }
     )
     .select()
     .single();
