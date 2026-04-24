@@ -103,12 +103,41 @@ export default function EODCountScreen() {
   const [pushPermission, setPushPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>(() => getPushPermission());
   const [enablingPush, setEnablingPush] = useState(false);
 
-  // "Next reminder in X min" chip — pure derivation, ticks every minute.
+  // "Next reminder in X min" chip + edit-lock check — ticks every minute.
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
+
+  // Past-deadline lock: once the clock crosses the store's EOD deadline,
+  // nobody can submit or edit today's count anymore. Fresh business-day
+  // unlocks automatically when we cross 3 AM.
+  const isLockedToday = useMemo(() => {
+    void nowTick; // retrigger every minute
+    const deadline = currentStore.eodDeadlineTime;
+    if (!deadline || !/^\d{1,2}:\d{2}$/.test(deadline)) return false;
+    const [dh, dm] = deadline.split(':').map(Number);
+    const tz = timezone || 'America/New_York';
+    // Current wall-clock parts in the store tz (unshifted — this is real time).
+    const wall = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
+      if (p.type !== 'literal') acc[p.type] = p.value;
+      return acc;
+    }, {});
+    const calendarToday = `${wall.year}-${wall.month}-${wall.day}`;
+    const businessDate = businessToday.dateISO;
+    // If we're in the overnight grace period (00:00–02:59), business-today
+    // already carries yesterday's date; that deadline (yesterday 22:00) is
+    // in the past → locked.
+    if (calendarToday !== businessDate) return true;
+    // Same calendar day — compare current wall-clock to deadline.
+    const nowMin = Number(wall.hour) * 60 + Number(wall.minute);
+    const deadlineMin = dh * 60 + dm;
+    return nowMin > deadlineMin;
+  }, [currentStore.eodDeadlineTime, timezone, businessToday.dateISO, nowTick]);
   const nextReminderLabel = useMemo(() => {
     void nowTick; // dependency trigger
     const deadline = currentStore.eodDeadlineTime;
@@ -604,11 +633,20 @@ export default function EODCountScreen() {
           </View>
         </View>
 
-        {/* Edit button */}
-        <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.infoBg, borderColor: C.info + '33' }]} onPress={startEditing}>
-          <Ionicons name="create-outline" size={16} color={C.info} />
-          <Text style={[styles.editBtnText, { color: C.info }]}>Edit today's count</Text>
-        </TouchableOpacity>
+        {/* Edit button — disabled past the EOD deadline */}
+        {isLockedToday ? (
+          <View style={[styles.editBtn, { backgroundColor: C.dangerBg, borderColor: C.danger + '33' }]}>
+            <Ionicons name="lock-closed-outline" size={16} color={C.danger} />
+            <Text style={[styles.editBtnText, { color: C.danger }]}>
+              Locked — past {currentStore.eodDeadlineTime || '22:00'} deadline
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.infoBg, borderColor: C.info + '33' }]} onPress={startEditing}>
+            <Ionicons name="create-outline" size={16} color={C.info} />
+            <Text style={[styles.editBtnText, { color: C.info }]}>Edit today's count</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Submitted entries grouped by category */}
         {submittedCategories.map((cat) => {
@@ -750,8 +788,14 @@ export default function EODCountScreen() {
           >
             <Text style={[styles.draftBtnText, { color: C.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.submitBtn, { backgroundColor: C.textPrimary }]} onPress={handleUpdate}>
-            <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>Save changes</Text>
+          <TouchableOpacity
+            style={[styles.submitBtn, { backgroundColor: C.textPrimary }, isLockedToday && { opacity: 0.4 }]}
+            onPress={handleUpdate}
+            disabled={isLockedToday}
+          >
+            <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>
+              {isLockedToday ? 'Locked — past deadline' : 'Save changes'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -1057,19 +1101,37 @@ export default function EODCountScreen() {
         </View>
       )}
 
+      {/* Locked banner (past the EOD deadline for this business day) */}
+      {isLockedToday && (
+        <View style={{ marginHorizontal: Spacing.lg, marginTop: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.sm, backgroundColor: C.dangerBg, borderWidth: 1, borderColor: C.danger, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="lock-closed-outline" size={18} color={C.danger} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: C.danger }}>
+              Today's count is locked
+            </Text>
+            <Text style={{ fontSize: 11, color: C.danger, marginTop: 2 }}>
+              Past the {currentStore.eodDeadlineTime || '22:00'} deadline. You can't submit or edit today's count anymore.
+              {myTodaySubmission ? ' Your earlier submission is preserved.' : ''}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Submit row */}
       <View style={styles.submitRow}>
         <TouchableOpacity
-          style={[styles.submitBtn, { backgroundColor: C.textPrimary }, saving && { opacity: 0.4 }]}
+          style={[styles.submitBtn, { backgroundColor: C.textPrimary }, (saving || isLockedToday) && { opacity: 0.4 }]}
           onPress={handleSubmit}
-          disabled={saving}
+          disabled={saving || isLockedToday}
         >
           <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>
             {saving
               ? 'Saving...'
-              : myTodaySubmission
-                ? `Update count (${filledCount} item${filledCount !== 1 ? 's' : ''})`
-                : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
+              : isLockedToday
+                ? 'Locked — past deadline'
+                : myTodaySubmission
+                  ? `Update count (${filledCount} item${filledCount !== 1 ? 's' : ''})`
+                  : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>
       </View>
