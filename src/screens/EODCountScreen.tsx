@@ -387,7 +387,13 @@ export default function EODCountScreen() {
   const persistToCloud = async (submission: Parameters<typeof submitEODCount>[0]): Promise<boolean> => {
     setSaving(true);
     setSaveCountdown(3);
-    const cloudSave = submitEODCount(submission).catch(() => null);
+    const cloudSave = submitEODCount(submission).catch((err) => {
+      // Log loudly — before this, silent failures meant the user saw "saved
+      // locally" and we had no way to tell if it was network, RLS, or a code
+      // bug.
+      console.warn('[EOD] cloud save failed:', err?.message || err, err);
+      return null;
+    });
     const countdown = new Promise<void>((resolve) => {
       countdownRef.current = setInterval(() => {
         setSaveCountdown((prev) => {
