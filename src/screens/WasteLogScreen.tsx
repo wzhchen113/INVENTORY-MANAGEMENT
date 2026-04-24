@@ -9,6 +9,7 @@ import { numericFilter } from '../utils';
 import { Card, CardHeader, Badge, WhoChip } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { WasteReason } from '../types';
 
@@ -58,6 +59,7 @@ export default function WasteLogScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       {/* Summary bar */}
       <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         <View style={styles.summaryItem}>

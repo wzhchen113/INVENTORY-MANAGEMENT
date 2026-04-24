@@ -31,6 +31,7 @@ import {
   RecipesScreen, VendorsScreen,
   AuditLogScreen, ReportsScreen, UsersScreen,
 } from '../screens/AdminScreens';
+import { TimezoneBar } from '../components/TimezoneBar';
 
 const Tab = createBottomTabNavigator();
 const AppStack = createStackNavigator();
@@ -481,6 +482,7 @@ function MoreScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <ScrollView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
         <View style={styles.moreList}>
           {items.map((item) => (

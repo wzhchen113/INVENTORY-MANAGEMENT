@@ -10,6 +10,7 @@ import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const isWeb = Platform.OS === 'web';
@@ -209,6 +210,7 @@ export default function POSImportScreen() {
   if (step === 'done') {
     return (
       <View style={[styles.doneContainer, { backgroundColor: C.bgTertiary }]}>
+        <TimezoneBar />
         <View style={[styles.doneCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
           <View style={[styles.doneIcon, { backgroundColor: C.successBg }]}>
             <Ionicons name="checkmark" size={28} color={C.success} />
@@ -236,6 +238,8 @@ export default function POSImportScreen() {
   }
 
   return (
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <TimezoneBar />
     <WebScrollView id="pos-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {step === 'upload' && (
         <Card>
@@ -361,6 +365,7 @@ export default function POSImportScreen() {
         </>
       )}
     </WebScrollView>
+    </View>
   );
 }
 

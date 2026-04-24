@@ -8,6 +8,7 @@ import { useStore } from '../store/useStore';
 import { numericFilter } from '../utils';
 import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
@@ -153,6 +154,7 @@ export default function ItemsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
+      <TimezoneBar />
       {/* Search bar */}
       <View style={styles.searchRow}>
         <TextInput

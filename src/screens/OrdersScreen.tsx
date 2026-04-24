@@ -12,26 +12,13 @@ import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { OrderDayVendor, Vendor } from '../types';
 import { calculateDynamicOrder, DynamicOrderLine } from '../lib/orderCalculator';
 import { getBusinessTodayParts, computeWeekdayDateISO } from '../utils/businessDay';
+import { getNowInTZ } from '../utils/timezone';
+import { TimezoneBar } from '../components/TimezoneBar';
 
 const isWeb = Platform.OS === 'web';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-const TIMEZONES = [
-  { label: 'Eastern (New York)', value: 'America/New_York' },
-  { label: 'Central (Chicago)', value: 'America/Chicago' },
-  { label: 'Mountain (Denver)', value: 'America/Denver' },
-  { label: 'Pacific (Seattle)', value: 'America/Los_Angeles' },
-  { label: 'Alaska (Anchorage)', value: 'America/Anchorage' },
-  { label: 'Hawaii (Honolulu)', value: 'Pacific/Honolulu' },
-];
-
-// ── Helpers ──────────────────────────────────────────────────
-function getNowInTZ(tz: string): Date {
-  const str = new Date().toLocaleString('en-US', { timeZone: tz });
-  return new Date(str);
-}
 
 function getDayName(tz: string): string {
   return new Date().toLocaleDateString('en-US', { timeZone: tz, weekday: 'long' });
@@ -138,7 +125,7 @@ export default function OrdersScreen() {
   const {
     currentUser, currentStore, inventory, vendors: allVendors,
     orderSchedule, orderSubmissions, eodSubmissions,
-    setOrderSchedule, submitOrder, timezone, setTimezone,
+    setOrderSchedule, submitOrder, timezone,
   } = useStore();
   const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
@@ -152,7 +139,6 @@ export default function OrdersScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editDay, setEditDay] = useState('');
   const [editVendors, setEditVendors] = useState<OrderDayVendor[]>([]);
-  const [showTZModal, setShowTZModal] = useState(false);
 
   // ── Detail modal state ──
   const [detailOpen, setDetailOpen] = useState(false);
@@ -322,24 +308,12 @@ export default function OrdersScreen() {
     exportToPDF(detailOrderLines, detailVendorName, currentStore.name, detailDate);
   };
 
-  const currentTZLabel = TIMEZONES.find((t) => t.value === timezone)?.label || timezone;
-
   // ═════════════════════════════════════════════════════════════
   // ── RENDER ─────────────────────────────────────────────────
   // ═════════════════════════════════════════════════════════════
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
-      {/* ── Timezone bar ── */}
-      <TouchableOpacity style={[styles.tzBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]} onPress={() => isAdmin && setShowTZModal(true)}>
-        <Ionicons name="time-outline" size={14} color={C.textTertiary} />
-        <Text style={[styles.tzText, { color: C.textSecondary }]}>{currentTZLabel}</Text>
-        <Text style={[styles.tzDate, { color: C.textTertiary }]}>
-          {getNowInTZ(timezone).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-          {' \u00B7 '}
-          {getNowInTZ(timezone).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-        </Text>
-        {isAdmin && <Ionicons name="chevron-forward" size={12} color={C.textTertiary} />}
-      </TouchableOpacity>
+      <TimezoneBar />
 
       {/* ── Weekly schedule ── */}
       <WebScrollView id="orders-scroll" contentContainerStyle={styles.list}>
@@ -680,27 +654,6 @@ export default function OrdersScreen() {
         </View>
       </Modal>
 
-      {/* ── Timezone Modal ── */}
-      <Modal visible={showTZModal} animationType="fade" transparent>
-        <TouchableOpacity style={styles.tzOverlay} activeOpacity={1} onPress={() => setShowTZModal(false)}>
-          <View style={[styles.tzDropdown, { backgroundColor: C.bgPrimary }]}>
-            <Text style={[styles.tzDropdownTitle, { color: C.textTertiary }]}>Time zone</Text>
-            {TIMEZONES.map((tz) => {
-              const active = tz.value === timezone;
-              return (
-                <TouchableOpacity
-                  key={tz.value}
-                  style={[styles.tzOption, active && styles.tzOptionActive, active && { backgroundColor: C.successBg }]}
-                  onPress={() => { setTimezone(tz.value); setShowTZModal(false); }}
-                >
-                  <Text style={[styles.tzOptionText, { color: C.textPrimary }, active && { fontWeight: '600' }]}>{tz.label}</Text>
-                  {active && <Ionicons name="checkmark" size={16} color={C.success} />}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
@@ -710,11 +663,6 @@ export default function OrdersScreen() {
 // ═════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgTertiary },
-
-  // TZ bar
-  tzBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.bgPrimary, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
-  tzText: { fontSize: FontSize.xs, fontWeight: '500', color: Colors.textSecondary },
-  tzDate: { flex: 1, fontSize: FontSize.xs, color: Colors.textTertiary, textAlign: 'right', marginRight: 4 },
 
   // List
   list: { padding: Spacing.lg, paddingBottom: Spacing.xxxl },
@@ -870,12 +818,4 @@ const styles = StyleSheet.create({
   addRowBtnText: { fontSize: FontSize.sm, color: Colors.info, fontWeight: '500' },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center' },
   saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
-
-  // TZ modal
-  tzOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', paddingHorizontal: Spacing.xl },
-  tzDropdown: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.xl, padding: Spacing.lg, maxWidth: 400, alignSelf: 'center', width: '100%' },
-  tzDropdownTitle: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing.md },
-  tzOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm, borderRadius: Radius.md, marginBottom: 2 },
-  tzOptionActive: { backgroundColor: Colors.successBg },
-  tzOptionText: { fontSize: FontSize.sm, color: Colors.textPrimary },
 });

@@ -8,6 +8,7 @@ import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { buildReconciliationLines } from '../utils/usageCalculations';
 
@@ -67,13 +68,18 @@ export default function ReconciliationScreen() {
 
   if (availableDates.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: C.bgTertiary, justifyContent: 'center' }}>
-        <EmptyState message="No matching POS + EOD data available for reconciliation. Import POS sales and submit EOD counts for the same date." />
+      <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+        <TimezoneBar />
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <EmptyState message="No matching POS + EOD data available for reconciliation. Import POS sales and submit EOD counts for the same date." />
+        </View>
       </View>
     );
   }
 
   return (
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <TimezoneBar />
     <WebScrollView id="recon-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Date picker */}
       <DatePicker value={selectedDate} onChange={(d) => setSelectedDate(d || availableDates[0] || '')} label="Reconciliation date" placeholder="Select a date" />
@@ -193,6 +199,7 @@ export default function ReconciliationScreen() {
 
       <View style={{ height: 32 }} />
     </WebScrollView>
+    </View>
   );
 }
 
