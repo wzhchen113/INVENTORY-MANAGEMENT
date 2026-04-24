@@ -1261,14 +1261,22 @@ export function UsersScreen() {
             <View style={styles.userMeta}>
               <Text style={[styles.userMetaLabel, { color: C.textTertiary }]}>Store access</Text>
               <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
-                {user.stores.map((sid) => {
-                  const store = stores.find((s) => s.id === sid);
-                  return store ? (
-                    <View key={sid} style={[styles.storeTag, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
-                      <Text style={[styles.storeTagText, { color: C.textSecondary }]}>{store.name}</Text>
-                    </View>
-                  ) : null;
-                })}
+                {/* Admin and Master have implicit access to every store — show "All stores"
+                    rather than the literal user_stores row, which only carries their default. */}
+                {user.role === 'master' || user.role === 'admin' ? (
+                  <View style={[styles.storeTag, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                    <Text style={[styles.storeTagText, { color: C.textSecondary }]}>All stores</Text>
+                  </View>
+                ) : (
+                  user.stores.map((sid) => {
+                    const store = stores.find((s) => s.id === sid);
+                    return store ? (
+                      <View key={sid} style={[styles.storeTag, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                        <Text style={[styles.storeTagText, { color: C.textSecondary }]}>{store.name}</Text>
+                      </View>
+                    ) : null;
+                  })
+                )}
               </View>
             </View>
             <View style={[styles.userFooter, { borderTopColor: C.borderLight }]}>
