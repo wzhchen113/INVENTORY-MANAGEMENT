@@ -123,21 +123,21 @@ export default function DashboardScreen() {
       <Card>
         <CardHeader title="Quick actions" />
         <View style={styles.quickActions}>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('EODCount')}>
+          <TouchableOpacity testID="quick-action-eod-count" style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('EODCount')}>
             <Text style={[styles.qaText, { color: C.textPrimary }]}>Submit EOD count</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('WasteLog')}>
+          <TouchableOpacity testID="quick-action-waste-log" style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('WasteLog')}>
             <Text style={[styles.qaText, { color: C.textPrimary }]}>Log waste</Text>
           </TouchableOpacity>
           {isAdmin && (
             <>
-              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Ingredients')}>
+              <TouchableOpacity testID="quick-action-ingredients" style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Ingredients')}>
                 <Text style={[styles.qaText, { color: C.textPrimary }]}>Manage ingredients</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('POSImport')}>
+              <TouchableOpacity testID="quick-action-pos-import" style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('POSImport')}>
                 <Text style={[styles.qaText, { color: C.textPrimary }]}>Import POS CSV</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Restock')}>
+              <TouchableOpacity testID="quick-action-restock" style={[styles.qa, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => nav.navigate('Restock')}>
                 <Text style={[styles.qaText, { color: C.textPrimary }]}>Restock report</Text>
               </TouchableOpacity>
             </>

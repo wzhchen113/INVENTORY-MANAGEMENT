@@ -11,6 +11,13 @@ interface DatePickerProps {
   onChange: (date: string) => void;
   label?: string;
   placeholder?: string;
+  /**
+   * Test ID prefix. When set, the internal Pressables expose stable testIDs:
+   *   `<prefix>-trigger`, `<prefix>-prev-month`, `<prefix>-next-month`,
+   *   `<prefix>-day-<n>`, `<prefix>-clear`, `<prefix>-today`.
+   * When omitted, a sensible default ("datepicker") is used.
+   */
+  testIdPrefix?: string;
 }
 
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -30,7 +37,7 @@ function formatDisplay(dateStr: string): string {
   return `${MONTHS[m - 1]?.slice(0, 3)} ${d}, ${y}`;
 }
 
-export default function DatePicker({ value, onChange, label, placeholder = 'Select date' }: DatePickerProps) {
+export default function DatePicker({ value, onChange, label, placeholder = 'Select date', testIdPrefix = 'datepicker' }: DatePickerProps) {
   const C = useColors();
   const [open, setOpen] = useState(false);
 
@@ -86,6 +93,7 @@ export default function DatePicker({ value, onChange, label, placeholder = 'Sele
     <View>
       {label && <Text style={[styles.label, { color: C.textTertiary }]}>{label}</Text>}
       <TouchableOpacity
+        testID={`${testIdPrefix}-trigger`}
         style={[styles.trigger, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
         onPress={() => {
           if (selected) { setViewYear(selected.getFullYear()); setViewMonth(selected.getMonth()); }
@@ -110,13 +118,13 @@ export default function DatePicker({ value, onChange, label, placeholder = 'Sele
           <View style={[styles.calendar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
             {/* Header */}
             <View style={styles.header}>
-              <TouchableOpacity onPress={prevMonth} style={styles.navBtn}>
+              <TouchableOpacity testID={`${testIdPrefix}-prev-month`} onPress={prevMonth} style={styles.navBtn}>
                 <Ionicons name="chevron-back" size={20} color={C.textPrimary} />
               </TouchableOpacity>
               <Text style={[styles.monthYear, { color: C.textPrimary }]}>
                 {MONTHS[viewMonth]} {viewYear}
               </Text>
-              <TouchableOpacity onPress={nextMonth} style={styles.navBtn}>
+              <TouchableOpacity testID={`${testIdPrefix}-next-month`} onPress={nextMonth} style={styles.navBtn}>
                 <Ionicons name="chevron-forward" size={20} color={C.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -140,6 +148,7 @@ export default function DatePicker({ value, onChange, label, placeholder = 'Sele
                 return (
                   <TouchableOpacity
                     key={i}
+                    testID={`${testIdPrefix}-day-${day}`}
                     style={[
                       styles.cell,
                       isToday && !isSelected && [styles.todayCell, { borderColor: C.info }],
@@ -162,10 +171,10 @@ export default function DatePicker({ value, onChange, label, placeholder = 'Sele
 
             {/* Footer */}
             <View style={styles.footer}>
-              <TouchableOpacity onPress={clear}>
+              <TouchableOpacity testID={`${testIdPrefix}-clear`} onPress={clear}>
                 <Text style={[styles.footerBtn, { color: C.danger }]}>Clear</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={goToday}>
+              <TouchableOpacity testID={`${testIdPrefix}-today`} onPress={goToday}>
                 <Text style={[styles.footerBtn, { color: C.info }]}>Today</Text>
               </TouchableOpacity>
             </View>

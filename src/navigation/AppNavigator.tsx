@@ -66,7 +66,7 @@ function StoreSelector() {
 
   return (
     <>
-      <TouchableOpacity style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => setOpen(true)}>
+      <TouchableOpacity testID="store-switcher-chip" style={[styles.storePill, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => setOpen(true)}>
         <View style={[styles.storePillDot, { backgroundColor: isAllStores ? C.info : C.success }]} />
         <Text style={[styles.storePillText, { color: C.textPrimary }]}>{currentStore.name || 'Store'}</Text>
         <Ionicons name="chevron-down" size={12} color={C.textSecondary} />
@@ -83,6 +83,7 @@ function StoreSelector() {
             {/* All Stores option */}
             {isAdmin && userStores.length > 1 && (
               <TouchableOpacity
+                testID="store-row-all"
                 style={[styles.storeOption, isAllStores && { backgroundColor: C.infoBg }]}
                 onPress={() => {
                   setCurrentStore({ id: ALL_STORES_ID, name: 'All Stores', address: '', status: 'active' });
@@ -102,6 +103,7 @@ function StoreSelector() {
               return (
                 <TouchableOpacity
                   key={store.id}
+                  testID={`store-row-${store.name.toLowerCase().replace(/\s+/g, '-')}`}
                   style={[styles.storeOption, isActive && { backgroundColor: C.successBg }]}
                   onPress={() => {
                     setCurrentStore(store);
