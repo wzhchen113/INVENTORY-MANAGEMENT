@@ -1,10 +1,15 @@
 // EOD + vendor-order reminder cron, with email fallback.
 //
-// Per user per bucket:
-//   1. Try all their Web Push subscriptions
-//   2. If none delivered, look up their auth email and send via Resend
-//   3. One dedup log row if EITHER channel delivered (no double-nagging)
-//   4. Always insert an in_app_notifications row (bell icon safety net)
+// EOD track is STORE-LEVEL: once anyone at the store submits today's count,
+// nobody (store users or admins) gets EOD reminders for that store.
+// Vendor track is also store-level: once a purchase_order for (store, vendor)
+// is placed, no vendor-cutoff reminder fires.
+//
+// Delivery per user per bucket:
+//   1. Web Push to every subscription
+//   2. If none delivered, email via Resend
+//   3. Dedup log row if either succeeded (no double-nag)
+//   4. Bell-icon row always, as the safety net
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
@@ -179,23 +184,29 @@ Deno.serve(async (_req) => {
 
     const summary: any = { eod: [], vendor: [] };
 
-    // ─── TRACK 1: EOD count per store ────────────────────────────────────
+    // ─── TRACK 1: EOD count per store (store-level) ─────────────────────
     for (const store of (stores || []) as Store[]) {
       const cutoff = store.eod_deadline_time || '22:00';
       const { minutes, localDate } = minutesUntilCutoff(cutoff, DEFAULT_TZ);
       const bucket = BUCKETS.find((b) => inWindow(minutes, b));
       if (!bucket) continue;
 
+      // Store-level gate: if ANYONE has submitted EOD for this store today,
+      // skip the whole store (don't nag other users or admins).
+      const { data: submittedRows } = await sb.from('eod_submissions')
+        .select('id').eq('store_id', store.id).eq('date', localDate).limit(1);
+      if (submittedRows && submittedRows.length > 0) {
+        summary.eod.push({ storeName: store.name, bucket, skipped: 'store_submitted' });
+        continue;
+      }
+
       const storeUsers = eligibleUsersForStore(store.id);
       if (storeUsers.size === 0) continue;
-
-      const { data: submittedRows } = await sb.from('eod_submissions').select('submitted_by').eq('store_id', store.id).eq('date', localDate);
-      const submitted = new Set((submittedRows || []).map((r: any) => r.submitted_by as string));
 
       const { data: logRows } = await sb.from('eod_reminder_log').select('user_id').eq('store_id', store.id).eq('local_date', localDate).eq('bucket', bucket);
       const alreadyPushed = new Set((logRows || []).map((r: any) => r.user_id as string));
 
-      const toRemind = [...storeUsers].filter((u) => !submitted.has(u) && !alreadyPushed.has(u));
+      const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u));
       if (toRemind.length === 0) continue;
 
       let pushed = 0, emailed = 0;
