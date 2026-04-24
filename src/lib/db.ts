@@ -219,18 +219,30 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
 }
 
 // ─── EOD SUBMISSIONS ─────────────────────────────────────────────────────
+// Upsert (not plain insert) so the "Edit today's count" flow can save edits
+// to the same (store_id, date, submitted_by) row instead of silently creating
+// duplicates. Keyed on the UNIQUE constraint eod_submissions_store_date_user_key.
+// Entries are replaced wholesale (delete-then-insert) so items removed from the
+// edit screen disappear cleanly and we don't maintain diffing logic here.
 export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Promise<string> {
   const { data, error } = await supabase
     .from('eod_submissions')
-    .insert({
-      store_id: submission.storeId,
-      date: new Date(submission.date).toISOString().split('T')[0],
-      submitted_by: submission.submittedByUserId,
-      status: 'submitted',
-    })
+    .upsert(
+      {
+        store_id: submission.storeId,
+        date: new Date(submission.date).toISOString().split('T')[0],
+        submitted_by: submission.submittedByUserId,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+      },
+      { onConflict: 'store_id,date,submitted_by' }
+    )
     .select()
     .single();
   if (error) throw error;
+
+  // Replace entries wholesale: drop the old set, then insert the new set.
+  await supabase.from('eod_entries').delete().eq('submission_id', data.id);
 
   if (submission.entries.length > 0) {
     await supabase.from('eod_entries').insert(
@@ -365,7 +377,7 @@ export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Pro
   cutoff.setDate(cutoff.getDate() - days);
   const { data, error } = await supabase
     .from('purchase_orders')
-    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, created_at, reference_date, status, total_cost')
+    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, creator:profiles!created_by(name), created_at, reference_date, status, total_cost')
     .eq('store_id', storeId)
     .gte('created_at', cutoff.toISOString())
     .order('created_at', { ascending: false });
@@ -383,12 +395,23 @@ export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Pro
         day = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
       }
     }
+    // Pre-format submittedAt ("1:27 AM") using the app's default NY tz so the
+    // Orders detail modal footer ("Submitted by <Name> at <time>") has values
+    // after a refresh. Fresh-submits populate these client-side; rehydration
+    // went through this path with blanks before.
+    const submittedAt = r.created_at
+      ? new Date(r.created_at).toLocaleTimeString('en-US', {
+          hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
+        })
+      : '';
     return {
       id: r.id,
       storeId: r.store_id,
       vendorId: r.vendor_id,
       vendorName: r.vendor?.name || '',
+      submittedBy: r.creator?.name || '',
       submittedByUserId: r.created_by,
+      submittedAt,
       totalCost: Number(r.total_cost) || 0,
       date: refDate,
       referenceDate: refDate,
