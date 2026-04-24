@@ -952,24 +952,38 @@ export async function saveOrderSchedule(storeId: string, day: string, vendors: a
 }
 
 // ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
+// Note: supabase-js v2 filter builders are thenable but don't expose `.catch`,
+// so chaining `.catch(() => {})` directly on `.delete().lt(...)` throws a
+// TypeError synchronously. We wrap each in an async helper that awaits the
+// thenable inside try/catch — one bad cleanup shouldn't break the others.
 export async function cleanupOldRecords(): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 90);
   const cutoffISO = cutoff.toISOString();
+  const nowISO = new Date().toISOString();
+
+  const safe = async (label: string, p: PromiseLike<{ error: unknown }>) => {
+    try {
+      const { error } = await p;
+      if (error) console.warn('[Supabase] cleanupOldRecords', label, error);
+    } catch (e: any) {
+      console.warn('[Supabase] cleanupOldRecords', label, e?.message || e);
+    }
+  };
 
   await Promise.all([
     // EOD entries (child rows) — delete via submissions
-    supabase.from('eod_submissions').delete().lt('submitted_at', cutoffISO).catch(() => {}),
+    safe('eod_submissions', supabase.from('eod_submissions').delete().lt('submitted_at', cutoffISO)),
     // Waste log
-    supabase.from('waste_log').delete().lt('logged_at', cutoffISO).catch(() => {}),
+    safe('waste_log', supabase.from('waste_log').delete().lt('logged_at', cutoffISO)),
     // Audit log
-    supabase.from('audit_log').delete().lt('created_at', cutoffISO).catch(() => {}),
+    safe('audit_log', supabase.from('audit_log').delete().lt('created_at', cutoffISO)),
     // POS imports (child rows cascade)
-    supabase.from('pos_imports').delete().lt('created_at', cutoffISO).catch(() => {}),
+    safe('pos_imports', supabase.from('pos_imports').delete().lt('created_at', cutoffISO)),
     // Order submissions
-    supabase.from('purchase_orders').delete().lt('created_at', cutoffISO).catch(() => {}),
+    safe('purchase_orders', supabase.from('purchase_orders').delete().lt('created_at', cutoffISO)),
     // Expired invitations
-    supabase.from('invitations').delete().lt('expires_at', new Date().toISOString()).eq('used', false).catch(() => {}),
+    safe('invitations', supabase.from('invitations').delete().lt('expires_at', nowISO).eq('used', false)),
   ]);
 }
 
