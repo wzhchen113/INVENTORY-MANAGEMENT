@@ -140,23 +140,14 @@ export async function registerInvitedUser(
   name: string
 ): Promise<AuthResult> {
   try {
-    // Check if there's a pending invitation for this email
-    const { data: invitation, error: invError } = await supabase
-      .from('invitations')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .eq('used', false)
-      .single();
+    // Fetch the pending invitation via SECURITY DEFINER RPC —
+    // anon cannot select from the invitations table directly.
+    const { data: rpcRows, error: invError } = await supabase
+      .rpc('get_pending_invitation', { p_email: email.toLowerCase() });
 
+    const invitation = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
     if (invError || !invitation) {
       return { user: null, error: 'No invitation found for this email. Please ask an admin to invite you.' };
-    }
-
-    // Check if invitation has expired
-    if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
-      // Delete expired invitation
-      await supabase.from('invitations').delete().eq('id', invitation.id);
-      return { user: null, error: 'This invitation has expired. Please ask your admin to send a new one.' };
     }
 
     // Create the Supabase auth user
@@ -189,8 +180,12 @@ export async function registerInvitedUser(
       await supabase.from('user_stores').insert({ user_id: authData.user.id, store_id: storeId });
     }
 
-    // Mark invitation as used
-    await supabase.from('invitations').update({ used: true }).eq('id', invitation.id);
+    // Mark invitation as used via SECURITY DEFINER RPC — requires a fresh
+    // authenticated session (auth.uid() must be present).
+    await supabase.rpc('consume_invitation', {
+      p_invitation_id: invitation.id,
+      p_email: email.toLowerCase(),
+    });
 
     // Send welcome email (non-blocking)
     callEdgeFunction('send-welcome-email', { email, name: invitation.name });

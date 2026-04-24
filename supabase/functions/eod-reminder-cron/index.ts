@@ -96,10 +96,36 @@ async function sendEmailViaResend(
   }
 }
 
-Deno.serve(async (_req) => {
+// Shared-bearer gate. pg_cron reads the token from public._edge_auth
+// (RLS-locked, service_role-only) and sends it as Authorization. The function
+// does the same lookup via service_role and compares. Anon-key callers cannot
+// read the table, so they cannot forge the token.
+async function expectedBearer(supabaseUrl: string, serviceRoleKey: string): Promise<string | null> {
   try {
-    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-    const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const sb = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await sb.from('_edge_auth').select('value').eq('name', 'cron_bearer').single();
+    if (error || !data?.value) return null;
+    return data.value as string;
+  } catch {
+    return null;
+  }
+}
+
+Deno.serve(async (req) => {
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+  const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    return new Response(JSON.stringify({ ok: false, error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }), { status: 500 });
+  }
+  const auth = req.headers.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const want = await expectedBearer(SUPABASE_URL, SERVICE_ROLE_KEY);
+  if (!want || token !== want) {
+    return new Response(JSON.stringify({ ok: false, error: 'forbidden' }), { status: 403 });
+  }
+  try {
     const VAPID_PUBLIC = Deno.env.get('VAPID_PUBLIC');
     const VAPID_PRIVATE = Deno.env.get('VAPID_PRIVATE');
     const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@example.com';
@@ -108,8 +134,6 @@ Deno.serve(async (_req) => {
     const RESEND_FROM = Deno.env.get('RESEND_FROM_ADDRESS') ?? 'onboarding@resend.dev';
 
     const missing: string[] = [];
-    if (!SUPABASE_URL) missing.push('SUPABASE_URL');
-    if (!SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
     if (!VAPID_PUBLIC) missing.push('VAPID_PUBLIC');
     if (!VAPID_PRIVATE) missing.push('VAPID_PRIVATE');
     if (missing.length > 0) {
