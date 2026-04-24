@@ -131,3 +131,41 @@ create policy "Admins can read eod_reminder_log"
 alter function public.update_updated_at() set search_path = public;
 alter function public.generate_po_number() set search_path = public;
 alter function public.sync_role_to_app_metadata() set search_path = public;
+
+-- ─── eod-reminder-cron shared-bearer auth ────────────────
+-- pg_cron does not sign JWTs, so the previous `verify_jwt: true` + role check
+-- broke the schedule with "Missing authorization header". We instead store a
+-- random bearer in a service_role-only table and verify it inside the function.
+create table if not exists public._edge_auth (
+  name   text primary key,
+  value  text not null,
+  created_at timestamptz default now()
+);
+alter table public._edge_auth enable row level security;
+
+insert into public._edge_auth (name, value)
+select 'cron_bearer', encode(extensions.gen_random_bytes(32), 'hex')
+where not exists (select 1 from public._edge_auth where name = 'cron_bearer');
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'eod-reminder-cron') then
+    perform cron.unschedule('eod-reminder-cron');
+  end if;
+end $$;
+
+select cron.schedule(
+  'eod-reminder-cron',
+  '*/5 * * * *',
+  $cron$
+  select net.http_post(
+    url := 'https://ebwnovzzkwhsdxkpyjka.supabase.co/functions/v1/eod-reminder-cron',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || (select value from public._edge_auth where name = 'cron_bearer'),
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $cron$
+);
