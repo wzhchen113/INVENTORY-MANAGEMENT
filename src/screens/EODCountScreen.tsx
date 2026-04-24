@@ -384,7 +384,8 @@ export default function EODCountScreen() {
   // "Saving to cloud... Xs" banner and returns whether the write made it to
   // the server so callers can toast success vs local-only. Both handleSubmit
   // and handleUpdate build the same Omit<EODSubmission,'id'> payload and hand
-  // it to submitEODCount, which upserts on (store_id, date, submitted_by).
+  // it to submitEODCount, which upserts on (store_id, date) — one row per
+  // store per day, anyone with access edits the same row.
   const persistToCloud = async (submission: Parameters<typeof submitEODCount>[0]): Promise<boolean> => {
     setSaving(true);
     setSaveCountdown(3);
@@ -595,8 +596,7 @@ export default function EODCountScreen() {
     // Persist to Supabase so the edits survive refresh — before this was wired
     // up, handleUpdate only touched local state and the DB kept the stale
     // pre-edit row. The upsert on submitEODCount updates the same parent row
-    // (keyed on store_id + date + submitted_by) and replaces eod_entries
-    // wholesale.
+    // (keyed on store_id + date) and replaces eod_entries wholesale.
     if (!currentStore || !currentUser) return;
     const submission = {
       date: myTodaySubmission.date,
