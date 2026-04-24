@@ -105,12 +105,36 @@ async function exportToPDF(data: DynamicOrderLine[], vendorName: string, storeNa
 
 // ── Main Screen ──────────────────────────────────────────────
 export default function OrderReportScreen() {
-  const { inventory, vendors, currentStore } = useStore();
+  const { inventory, vendors, currentStore, eodSubmissions, timezone } = useStore();
   const [selectedVendorId, setSelectedVendorId] = useState<string>('all');
   const [dateInput, setDateInput] = useState(toInputDate(new Date()));
   const C = useColors();
 
   const orderDate = useMemo(() => parseInputDate(dateInput) || new Date(), [dateInput]);
+
+  // Did someone submit today's EOD count for this store? If not, the
+  // eodRemaining field on each InventoryItem is stale — it reflects whatever
+  // the last submission was, not today. We surface that so the report isn't
+  // misleading.
+  const todayISO = useMemo(() => {
+    try {
+      const tz = timezone || 'America/New_York';
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
+        if (p.type !== 'literal') acc[p.type] = p.value;
+        return acc;
+      }, {});
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  }, [timezone]);
+
+  const todayHasEOD = useMemo(
+    () => eodSubmissions.some((s) => s.storeId === currentStore.id && s.date === todayISO),
+    [eodSubmissions, currentStore.id, todayISO],
+  );
 
   const storeInventory = useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -212,6 +236,21 @@ export default function OrderReportScreen() {
           <DatePicker value={dateInput} onChange={(d) => setDateInput(d || new Date().toISOString().split('T')[0])} label="Order Date" placeholder="Select date" />
         </View>
       </View>
+
+      {/* Warning banner when today's EOD count hasn't been submitted yet */}
+      {!todayHasEOD && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: Spacing.lg, marginTop: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.sm, backgroundColor: C.warningBg, borderWidth: 1, borderColor: C.warning }}>
+          <Ionicons name="alert-circle-outline" size={18} color={C.warning} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: FontSize.xs, fontWeight: '600', color: C.warning }}>
+              Today's EOD count not submitted yet
+            </Text>
+            <Text style={{ fontSize: 11, color: C.warning, marginTop: 2 }}>
+              Order suggestions below are based on the last submitted count. Submit today's EOD for accurate numbers.
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* Summary KPIs + export */}
       <View style={styles.summaryRow}>
@@ -316,14 +355,14 @@ export default function OrderReportScreen() {
                       <Text style={[styles.td, { flex: 0.9, textAlign: 'center', color: C.info }]}>
                         {line.dynamicPar}
                       </Text>
-                      <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: C.textPrimary }]}>
-                        {line.eodRemaining}
+                      <Text style={[styles.td, { flex: 0.8, textAlign: 'center', color: todayHasEOD ? C.textPrimary : C.warning, fontSize: todayHasEOD ? FontSize.sm : 10, fontStyle: todayHasEOD ? 'normal' : 'italic' }]}>
+                        {todayHasEOD ? line.eodRemaining : 'Not submitted'}
                       </Text>
-                      <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center', color: C.danger }]}>
-                        {orderLabel}
+                      <Text style={[styles.td, styles.orderQty, { flex: 0.8, textAlign: 'center', color: todayHasEOD ? C.danger : C.textTertiary }]}>
+                        {todayHasEOD ? orderLabel : '—'}
                       </Text>
-                      <Text style={[styles.td, { flex: 1, textAlign: 'right', color: C.textPrimary }]}>
-                        ${line.estimatedCost.toFixed(2)}
+                      <Text style={[styles.td, { flex: 1, textAlign: 'right', color: todayHasEOD ? C.textPrimary : C.textTertiary }]}>
+                        {todayHasEOD ? `$${line.estimatedCost.toFixed(2)}` : '—'}
                       </Text>
                     </View>
                   );
