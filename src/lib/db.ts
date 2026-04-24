@@ -556,14 +556,20 @@ export async function savePOSImport(
   storeId: string,
   filename: string,
   importedById: string,
-  items: { menuItem: string; qtySold: number; revenue: number; recipeId?: string; recipeMapped: boolean }[]
+  items: { menuItem: string; qtySold: number; revenue: number; recipeId?: string; recipeMapped: boolean }[],
+  importDate?: string,
 ): Promise<void> {
+  // importDate is the business date the sales belong to (YYYY-MM-DD). The
+  // CSV path leaves it undefined → falls back to today, which is fine since
+  // the user uploads current-day reports. Backfill passes an explicit date
+  // so `hasPOSImportForDate` can dedup correctly.
+  const date = importDate ?? new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
     .from('pos_imports')
     .insert({
       store_id: storeId, filename,
       imported_by: importedById,
-      import_date: new Date().toISOString().split('T')[0],
+      import_date: date,
     })
     .select()
     .single();
@@ -579,6 +585,22 @@ export async function savePOSImport(
       recipe_mapped: item.recipeMapped,
     }))
   );
+}
+
+// Dedup check for breadbot backfill: returns true if pos_imports already has
+// a row for this (store, date). Uses count+head so supabase returns no row
+// payload — just the aggregate count.
+export async function hasPOSImportForDate(
+  storeId: string,
+  date: string,
+): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('pos_imports')
+    .select('id', { count: 'exact', head: true })
+    .eq('store_id', storeId)
+    .eq('import_date', date);
+  if (error) throw error;
+  return (count ?? 0) > 0;
 }
 
 // ─── BREADBOT SALES PROXY ────────────────────────────────────────────────

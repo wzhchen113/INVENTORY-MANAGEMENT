@@ -13,7 +13,7 @@ import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
 import { TimezoneBar } from '../components/TimezoneBar';
-import { fetchBreadbotSales } from '../lib/db';
+import { fetchBreadbotSales, hasPOSImportForDate, savePOSImport } from '../lib/db';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const isWeb = Platform.OS === 'web';
@@ -27,6 +27,32 @@ interface ParsedRow {
   menuItem: string;
   qtySold: number;
   revenue: number;
+}
+
+// Per-day outcome from a breadbot range backfill. Rendered in the summary card.
+type BackfillResult = {
+  date: string;
+  outcome: 'imported' | 'skipped' | 'failed';
+  reason?: string;
+  itemCount?: number;
+};
+
+const BACKFILL_MAX_DAYS = 30;
+const BACKFILL_THROTTLE_MS = 200; // ~5 req/s — well under breadbot's 60/min cap
+
+// Enumerate YYYY-MM-DD strings inclusive of both ends, using UTC math so
+// DST transitions don't drop or duplicate a day at the boundary.
+function enumerateDates(start: string, end: string): string[] {
+  if (start > end) return [];
+  const out: string[] = [];
+  let cur = start;
+  while (cur <= end) {
+    out.push(cur);
+    const [y, m, d] = cur.split('-').map(Number);
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    cur = next.toISOString().split('T')[0];
+  }
+  return out;
 }
 
 // ── Proper CSV parser — handles quoted fields containing commas ──
@@ -75,9 +101,33 @@ export default function POSImportScreen() {
 
   // Breadbot fetch modal state
   const [showBreadbotModal, setShowBreadbotModal] = useState(false);
+  const [breadbotMode, setBreadbotMode] = useState<'single' | 'range'>('single');
   const [breadbotDate, setBreadbotDate] = useState(todayISO);
   const [fetchingBreadbot, setFetchingBreadbot] = useState(false);
   const storeHasBreadbot = !!currentStore && BREADBOT_STORES.has(currentStore.name);
+
+  // Backfill (date-range) state. Defaults: last 7 days ending yesterday —
+  // today is usually incomplete until breadbot's 4am rollover.
+  const [backfillStart, setBackfillStart] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+  });
+  const [backfillEnd, setBackfillEnd] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState<{ current: number; total: number; status: string }>({
+    current: 0, total: 0, status: '',
+  });
+  const [backfillResults, setBackfillResults] = useState<BackfillResult[] | null>(null);
+
+  const backfillDayCount = useMemo(
+    () => enumerateDates(backfillStart, backfillEnd).length,
+    [backfillStart, backfillEnd],
+  );
 
   const pickFile = async () => {
     if (isWeb) {
@@ -257,6 +307,93 @@ export default function POSImportScreen() {
     setStep('done');
   };
 
+  // Backfill a date range from breadbot, one day at a time. Each day is its
+  // own independent commit: we check dedup → fetch → savePOSImport (DB row
+  // for future dedup) → importPOS (in-memory state + inventory deduction via
+  // adjustStock). If day N fails, days 1..N-1 stay imported and the user
+  // can re-run to pick up from N (the dedup guard skips what's already done).
+  const runBackfill = async () => {
+    if (!currentStore || !storeHasBreadbot) return;
+    if (backfillStart > backfillEnd) {
+      Toast.show({ type: 'error', text1: 'Invalid range', text2: 'Start date must be on or before end date.', position: 'bottom' });
+      return;
+    }
+    const days = enumerateDates(backfillStart, backfillEnd);
+    if (days.length === 0) return;
+    if (days.length > BACKFILL_MAX_DAYS) {
+      Toast.show({
+        type: 'error',
+        text1: `Range too large (${days.length} days)`,
+        text2: `Max ${BACKFILL_MAX_DAYS} days per backfill.`,
+        position: 'bottom',
+      });
+      return;
+    }
+
+    setShowBreadbotModal(false);
+    setBackfillResults(null);
+    setBackfillRunning(true);
+    setBackfillProgress({ current: 0, total: days.length, status: 'Starting…' });
+
+    const results: BackfillResult[] = [];
+    for (let i = 0; i < days.length; i++) {
+      const date = days[i];
+      setBackfillProgress({ current: i + 1, total: days.length, status: `Checking ${date}…` });
+      try {
+        const already = await hasPOSImportForDate(currentStore.id, date);
+        if (already) {
+          results.push({ date, outcome: 'skipped', reason: 'already imported' });
+          continue;
+        }
+
+        setBackfillProgress({ current: i + 1, total: days.length, status: `Fetching ${date}…` });
+        const { rows: fetched } = await fetchBreadbotSales(currentStore.name, date);
+        if (fetched.length === 0) {
+          results.push({ date, outcome: 'skipped', reason: 'no data' });
+          continue;
+        }
+
+        setBackfillProgress({ current: i + 1, total: days.length, status: `Importing ${date} (${fetched.length} items)…` });
+        const dayFilename = `Breadbot · ${currentStore.name} · ${date}`;
+        const items = fetched.map((row) => {
+          const recipe = findRecipe(row.menuItem);
+          return {
+            menuItem: row.menuItem,
+            qtySold: row.qtySold,
+            revenue: row.revenue,
+            recipeId: recipe?.id,
+            recipeMapped: !!recipe,
+          };
+        });
+        // 1. Persist to pos_imports with explicit business date — this row
+        //    is what future hasPOSImportForDate() calls will see.
+        await savePOSImport(currentStore.id, dayFilename, currentUser?.id || '', items, date);
+        // 2. Update in-memory state + fire-and-forget inventory deduction.
+        //    (importPOS doesn't call savePOSImport itself; we did step 1
+        //    explicitly so dedup works across sessions/reloads.)
+        importPOS({
+          filename: dayFilename,
+          importedAt: new Date().toISOString(),
+          importedBy: currentUser?.name || '',
+          date,
+          storeId: currentStore.id,
+          items,
+        });
+        results.push({ date, outcome: 'imported', itemCount: items.length });
+      } catch (e: any) {
+        results.push({ date, outcome: 'failed', reason: e?.message || 'Unknown error' });
+      }
+
+      // Throttle between days so we don't burst the breadbot rate limit.
+      if (i < days.length - 1) {
+        await new Promise((r) => setTimeout(r, BACKFILL_THROTTLE_MS));
+      }
+    }
+
+    setBackfillRunning(false);
+    setBackfillResults(results);
+  };
+
   if (step === 'done') {
     return (
       <View style={[styles.doneContainer, { backgroundColor: C.bgTertiary }]}>
@@ -291,6 +428,65 @@ export default function POSImportScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="pos-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
+      {step === 'upload' && storeHasBreadbot && backfillResults && (
+        <Card>
+          <CardHeader
+            title="Backfill complete"
+            right={
+              <TouchableOpacity onPress={() => setBackfillResults(null)}>
+                <Ionicons name="close" size={18} color={C.textSecondary} />
+              </TouchableOpacity>
+            }
+          />
+          {(() => {
+            const imported = backfillResults.filter((r) => r.outcome === 'imported');
+            const skipped = backfillResults.filter((r) => r.outcome === 'skipped');
+            const failed = backfillResults.filter((r) => r.outcome === 'failed');
+            return (
+              <>
+                <View style={styles.statChips}>
+                  <View style={[styles.statChip, { backgroundColor: C.successBg }]}>
+                    <Text style={[styles.statVal, { color: C.success }]}>{imported.length}</Text>
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>Imported</Text>
+                  </View>
+                  <View style={[styles.statChip, { backgroundColor: C.bgSecondary }]}>
+                    <Text style={[styles.statVal, { color: C.textPrimary }]}>{skipped.length}</Text>
+                    <Text style={[styles.statLabel, { color: C.textTertiary }]}>Skipped</Text>
+                  </View>
+                  {failed.length > 0 && (
+                    <View style={[styles.statChip, { backgroundColor: C.warningBg }]}>
+                      <Text style={[styles.statVal, { color: C.warning }]}>{failed.length}</Text>
+                      <Text style={[styles.statLabel, { color: C.textTertiary }]}>Failed</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ marginTop: Spacing.sm }}>
+                  {backfillResults.map((r) => (
+                    <View key={r.date} style={[styles.previewRow, { borderBottomColor: C.borderLight }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.previewName, { color: C.textPrimary }]}>{r.date}</Text>
+                        {r.reason && (
+                          <Text style={[styles.previewQty, { color: C.textSecondary }]}>{r.reason}</Text>
+                        )}
+                        {r.outcome === 'imported' && r.itemCount !== undefined && (
+                          <Text style={[styles.previewQty, { color: C.textSecondary }]}>
+                            {r.itemCount} item{r.itemCount === 1 ? '' : 's'}
+                          </Text>
+                        )}
+                      </View>
+                      <Badge
+                        label={r.outcome}
+                        variant={r.outcome === 'imported' ? 'ok' : r.outcome === 'failed' ? 'mismatch' : 'pending'}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </>
+            );
+          })()}
+        </Card>
+      )}
+
       {step === 'upload' && storeHasBreadbot && (
         <Card>
           <CardHeader title="Fetch from Breadbot" />
@@ -300,12 +496,23 @@ export default function POSImportScreen() {
           <TouchableOpacity
             style={[styles.breadbotBtn, { backgroundColor: C.textPrimary }]}
             onPress={() => {
+              setBreadbotMode('single');
               setBreadbotDate(todayISO());
               setShowBreadbotModal(true);
             }}
           >
             <Ionicons name="cloud-download-outline" size={18} color={C.bgPrimary} />
             <Text style={[styles.breadbotBtnText, { color: C.bgPrimary }]}>Fetch sales from Breadbot</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.backfillLink, { borderColor: C.borderMedium }]}
+            onPress={() => {
+              setBreadbotMode('range');
+              setShowBreadbotModal(true);
+            }}
+          >
+            <Ionicons name="calendar-outline" size={16} color={C.textSecondary} />
+            <Text style={[styles.backfillLinkText, { color: C.textSecondary }]}>Backfill a date range</Text>
           </TouchableOpacity>
         </Card>
       )}
@@ -442,14 +649,66 @@ export default function POSImportScreen() {
           <Text style={[styles.modalSub, { color: C.textSecondary }]}>
             {currentStore?.name ?? ''} · channels summed per item
           </Text>
-          <View style={{ marginTop: Spacing.md }}>
-            <DatePicker
-              value={breadbotDate}
-              onChange={(d) => setBreadbotDate(d || todayISO())}
-              label="Sales date"
-              placeholder="Select date"
-            />
+
+          {/* Mode tabs */}
+          <View style={[styles.tabRow, { borderBottomColor: C.borderLight }]}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                breadbotMode === 'single' && { borderBottomColor: C.textPrimary, borderBottomWidth: 2 },
+              ]}
+              onPress={() => setBreadbotMode('single')}
+              disabled={fetchingBreadbot}
+            >
+              <Text style={[styles.tabText, { color: breadbotMode === 'single' ? C.textPrimary : C.textSecondary }]}>
+                Single day
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                breadbotMode === 'range' && { borderBottomColor: C.textPrimary, borderBottomWidth: 2 },
+              ]}
+              onPress={() => setBreadbotMode('range')}
+              disabled={fetchingBreadbot}
+            >
+              <Text style={[styles.tabText, { color: breadbotMode === 'range' ? C.textPrimary : C.textSecondary }]}>
+                Date range
+              </Text>
+            </TouchableOpacity>
           </View>
+
+          {breadbotMode === 'single' ? (
+            <View style={{ marginTop: Spacing.md }}>
+              <DatePicker
+                value={breadbotDate}
+                onChange={(d) => setBreadbotDate(d || todayISO())}
+                label="Sales date"
+                placeholder="Select date"
+              />
+            </View>
+          ) : (
+            <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
+              <DatePicker
+                value={backfillStart}
+                onChange={(d) => d && setBackfillStart(d)}
+                label="Start date"
+                placeholder="Select date"
+              />
+              <DatePicker
+                value={backfillEnd}
+                onChange={(d) => d && setBackfillEnd(d)}
+                label="End date"
+                placeholder="Select date"
+              />
+              <Text style={[styles.modalSub, { color: C.textSecondary, marginTop: 4 }]}>
+                {backfillDayCount > BACKFILL_MAX_DAYS
+                  ? `Range too large · max ${BACKFILL_MAX_DAYS} days`
+                  : `${backfillDayCount} day${backfillDayCount === 1 ? '' : 's'} · each imported independently, already-imported days skipped`}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.modalActions}>
             <TouchableOpacity
               style={[styles.modalCancel, { borderColor: C.borderMedium }]}
@@ -458,18 +717,51 @@ export default function POSImportScreen() {
             >
               <Text style={[styles.modalCancelText, { color: C.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalFetch, { backgroundColor: C.textPrimary, opacity: fetchingBreadbot ? 0.6 : 1 }]}
-              onPress={handleFetchBreadbot}
-              disabled={fetchingBreadbot}
-            >
-              {fetchingBreadbot ? (
-                <ActivityIndicator size="small" color={C.bgPrimary} />
-              ) : (
-                <Text style={[styles.modalFetchText, { color: C.bgPrimary }]}>Fetch sales</Text>
-              )}
-            </TouchableOpacity>
+            {breadbotMode === 'single' ? (
+              <TouchableOpacity
+                style={[styles.modalFetch, { backgroundColor: C.textPrimary, opacity: fetchingBreadbot ? 0.6 : 1 }]}
+                onPress={handleFetchBreadbot}
+                disabled={fetchingBreadbot}
+              >
+                {fetchingBreadbot ? (
+                  <ActivityIndicator size="small" color={C.bgPrimary} />
+                ) : (
+                  <Text style={[styles.modalFetchText, { color: C.bgPrimary }]}>Fetch sales</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.modalFetch,
+                  { backgroundColor: C.textPrimary, opacity: backfillDayCount === 0 || backfillDayCount > BACKFILL_MAX_DAYS ? 0.5 : 1 },
+                ]}
+                onPress={runBackfill}
+                disabled={backfillDayCount === 0 || backfillDayCount > BACKFILL_MAX_DAYS}
+              >
+                <Text style={[styles.modalFetchText, { color: C.bgPrimary }]}>
+                  Backfill {backfillDayCount} day{backfillDayCount === 1 ? '' : 's'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
+        </View>
+      </View>
+    </Modal>
+
+    {/* Backfill in-progress overlay — blocks interaction until done. */}
+    <Modal visible={backfillRunning} animationType="fade" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color={C.textPrimary} />
+          <Text style={[styles.modalTitle, { color: C.textPrimary, marginTop: Spacing.md }]}>
+            Backfilling from Breadbot
+          </Text>
+          <Text style={[styles.modalSub, { color: C.textSecondary, marginTop: 4 }]}>
+            Day {backfillProgress.current} of {backfillProgress.total}
+          </Text>
+          <Text style={[styles.modalSub, { color: C.textTertiary, marginTop: 4, textAlign: 'center' }]}>
+            {backfillProgress.status}
+          </Text>
         </View>
       </View>
     </Modal>
@@ -675,6 +967,30 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   breadbotBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
+  backfillLink: {
+    marginTop: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    borderWidth: 0.5,
+  },
+  backfillLinkText: { fontSize: FontSize.xs, fontWeight: '500' },
+  tabRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.md,
+    borderBottomWidth: 0.5,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabText: { fontSize: FontSize.sm, fontWeight: '500' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
