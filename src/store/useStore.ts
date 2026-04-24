@@ -563,6 +563,18 @@ export const useStore = create<FullStore>((set, get) => ({
         value: `${entry.actualRemaining} ${entry.unit}`,
       });
     });
+
+    // Broadcast a bell-icon notification to every other admin + linked user
+    // of this store. In-app only; push/email stays scoped to the reminder cron.
+    const submitterName = submission.submittedBy || get().currentUser?.name || 'someone';
+    const verb = existing ? 'edited' : 'submitted';
+    const msg = `${submitterName} ${verb} today's EOD count for ${submission.storeName}`;
+    const { supabase } = require('../lib/supabase');
+    supabase.rpc('broadcast_notification', {
+      p_store_id: submission.storeId,
+      p_message: msg,
+      p_exclude_user_id: submission.submittedByUserId || null,
+    }).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
   },
 
   // Vendors
@@ -718,6 +730,17 @@ export const useStore = create<FullStore>((set, get) => ({
         orderSubmissions: s.orderSubmissions.map((o) => o.id === tempId ? { ...o, id: serverId } : o),
       }));
     }).catch((e: any) => console.warn('[Supabase] submitOrder:', e?.message || e));
+
+    // Broadcast a bell-icon notification to admins + linked users.
+    const submitterName = get().currentUser?.name || 'someone';
+    const storeName = submission.storeName || get().stores.find((st) => st.id === submission.storeId)?.name || 'store';
+    const msg = `${submission.vendorName} order for ${storeName} submitted by ${submitterName}`;
+    const { supabase } = require('../lib/supabase');
+    supabase.rpc('broadcast_notification', {
+      p_store_id: submission.storeId,
+      p_message: msg,
+      p_exclude_user_id: get().currentUser?.id || null,
+    }).catch((e: any) => console.warn('[Supabase] broadcast_notification (order):', e?.message || e));
   },
 
   setTimezone: (tz) => {
