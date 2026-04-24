@@ -197,6 +197,33 @@ export default function EODCountScreen() {
     return cats.sort();
   }, [filteredItems]);
 
+  // Completion maps — checkmark on each pill when every inventory item in that
+  // group has an entry in today's submission. Derived from myTodaySubmission so
+  // it reflects the persisted state, not in-progress typing.
+  const { completedVendors, completedCategories } = useMemo(() => {
+    const vendors = new Set<string>();
+    const categories = new Set<string>();
+    if (!myTodaySubmission) return { completedVendors: vendors, completedCategories: categories };
+    const countedItemIds = new Set(myTodaySubmission.entries.map((e) => e.itemId));
+
+    // Vendors: complete when every base item with that vendor name has an entry.
+    for (const vendor of vendorNames) {
+      const items = baseItems.filter((i) => i.vendorName === vendor);
+      if (items.length > 0 && items.every((i) => countedItemIds.has(i.id))) {
+        vendors.add(vendor);
+      }
+    }
+    // Categories: complete when every base item in that category has an entry.
+    const allCats = [...new Set(baseItems.map((i) => i.category))];
+    for (const cat of allCats) {
+      const items = baseItems.filter((i) => i.category === cat);
+      if (items.length > 0 && items.every((i) => countedItemIds.has(i.id))) {
+        categories.add(cat);
+      }
+    }
+    return { completedVendors: vendors, completedCategories: categories };
+  }, [myTodaySubmission, baseItems, vendorNames]);
+
   // Pre-fill counts from previous submission so user can see what's been counted
   useEffect(() => {
     if (myTodaySubmission && Object.keys(counts).length === 0) {
@@ -795,13 +822,17 @@ export default function EODCountScreen() {
           {categories.map((cat) => {
             const count = inventory.filter((i) => i.category === cat).length;
             const isActive = selectedCategory === cat;
+            const done = completedCategories.has(cat);
             return (
               <TouchableOpacity
                 key={cat}
-                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }, done && !isActive && { backgroundColor: C.successBg, borderColor: C.success }]}
                 onPress={() => setSelectedCategory(isActive ? null : cat)}
               >
-                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
+                {done && (
+                  <Ionicons name="checkmark-circle" size={12} color={isActive ? C.bgPrimary : C.success} style={{ marginRight: 4 }} />
+                )}
+                <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }, done && !isActive && { color: C.success, fontWeight: '600' }]}>
                   {cat} ({count})
                 </Text>
               </TouchableOpacity>
@@ -824,13 +855,17 @@ export default function EODCountScreen() {
             </TouchableOpacity>
             {vendorNames.map((v) => {
               const isActive = vendorFilter === v;
+              const done = completedVendors.has(v);
               return (
                 <TouchableOpacity
                   key={v}
-                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }]}
+                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }, done && !isActive && { backgroundColor: C.successBg, borderColor: C.success }]}
                   onPress={() => setVendorFilter(isActive ? '' : v)}
                 >
-                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }]}>
+                  {done && (
+                    <Ionicons name="checkmark-circle" size={12} color={isActive ? C.bgPrimary : C.success} style={{ marginRight: 4 }} />
+                  )}
+                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }, done && !isActive && { color: C.success, fontWeight: '600' }]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>
@@ -962,7 +997,11 @@ export default function EODCountScreen() {
           disabled={saving}
         >
           <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>
-            {saving ? 'Saving...' : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
+            {saving
+              ? 'Saving...'
+              : myTodaySubmission
+                ? `Update count (${filledCount} item${filledCount !== 1 ? 's' : ''})`
+                : `Submit count (${filledCount} item${filledCount !== 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -990,7 +1029,7 @@ const styles = StyleSheet.create({
   // Category pills
   pillWrapper: { marginBottom: Spacing.md },
   pillRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingRight: Spacing.md },
-  pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
+  pill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgPrimary, borderWidth: 0.5, borderColor: Colors.borderLight },
   pillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
   pillText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '500' },
   pillTextActive: { color: Colors.bgPrimary },
