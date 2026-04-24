@@ -104,7 +104,7 @@ export default function LoginScreen() {
             />
           </View>
 
-          <TouchableOpacity style={[styles.loginBtn, { backgroundColor: C.textPrimary }]} onPress={handleLogin} disabled={loading}>
+          <TouchableOpacity testID="signin-submit" style={[styles.loginBtn, { backgroundColor: C.textPrimary }]} onPress={handleLogin} disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color={C.white} />
             ) : (
@@ -128,8 +128,14 @@ export default function LoginScreen() {
               const roleLabel = u.role === 'admin'
                 ? 'Admin · All stores'
                 : `${storeNames.join(', ')} user`;
+              const testId = `signin-demo-${u.name.toLowerCase().replace(/\s+/g, '-')}`;
               return (
-                <TouchableOpacity key={u.email} style={[styles.demoUser, { borderBottomColor: C.borderLight }]} onPress={() => quickLogin(u.email)}>
+                <TouchableOpacity
+                  key={u.email}
+                  testID={testId}
+                  style={[styles.demoUser, { borderBottomColor: C.borderLight }]}
+                  onPress={() => quickLogin(u.email)}
+                >
                   <View style={[styles.demoAvatar, { backgroundColor: u.color + '22' }]}>
                     <Text style={[styles.demoAvatarText, { color: u.color }]}>
                       {u.initials}
