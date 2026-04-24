@@ -26,28 +26,44 @@ export default function ReconciliationScreen() {
   const C = useColors();
   const [adminNote, setAdminNote] = useState('');
 
-  // Available dates that have BOTH POS + EOD data for current store
-  const availableDates = useMemo(() => {
-    const posDates = new Set(
-      posImports.filter((p) => p.storeId === currentStore.id).map((p) => p.date)
-    );
-    const eodDates = new Set(
-      eodSubmissions.filter((e) => e.storeId === currentStore.id).map((e) => e.date)
-    );
-    return [...posDates].filter((d) => eodDates.has(d)).sort().reverse();
+  // Default to the most recent EOD date (closing-count day) for this store,
+  // falling back to the most recent POS date, then to "" if no data at all.
+  const defaultDate = useMemo(() => {
+    const eodDates = eodSubmissions
+      .filter((e) => e.storeId === currentStore.id).map((e) => e.date).sort().reverse();
+    if (eodDates[0]) return eodDates[0];
+    const posDates = posImports
+      .filter((p) => p.storeId === currentStore.id).map((p) => p.date).sort().reverse();
+    return posDates[0] || '';
   }, [posImports, eodSubmissions, currentStore.id]);
 
-  const [selectedDate, setSelectedDate] = useState(availableDates[0] || '');
+  // True when the store has any POS or EOD data at all — used for the
+  // "nothing to reconcile yet" empty state.
+  const hasAnyData = useMemo(
+    () => posImports.some((p) => p.storeId === currentStore.id)
+       || eodSubmissions.some((e) => e.storeId === currentStore.id),
+    [posImports, eodSubmissions, currentStore.id],
+  );
 
-  const dateIdx = availableDates.indexOf(selectedDate);
-  const canPrev = dateIdx < availableDates.length - 1;
-  const canNext = dateIdx > 0;
+  const [mode, setMode] = useState<'single' | 'range'>('single');
+  const [startDate, setStartDate] = useState(defaultDate);
+  const [endDate, setEndDate] = useState(defaultDate);
+
+  // Effective range: in single mode start === end.
+  const effectiveStart = mode === 'single' ? endDate : startDate;
+  const effectiveEnd = endDate;
+  const rangeValid = effectiveStart !== '' && effectiveEnd !== '' && effectiveStart <= effectiveEnd;
+
+  const eodOnEnd = useMemo(
+    () => eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === effectiveEnd),
+    [eodSubmissions, currentStore.id, effectiveEnd],
+  );
 
   const lines = useMemo(
-    () => selectedDate
-      ? buildReconciliationLines(selectedDate, currentStore.id, posImports, recipes, eodSubmissions, inventory)
+    () => rangeValid
+      ? buildReconciliationLines(effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory)
       : [],
-    [selectedDate, currentStore.id, posImports, recipes, eodSubmissions, inventory]
+    [rangeValid, effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory]
   );
 
   const matched = lines.filter((l) => l.result === 'match').length;
@@ -66,12 +82,12 @@ export default function ReconciliationScreen() {
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  if (availableDates.length === 0) {
+  if (!hasAnyData) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
         <TimezoneBar />
         <View style={{ flex: 1, justifyContent: 'center' }}>
-          <EmptyState message="No matching POS + EOD data available for reconciliation. Import POS sales and submit EOD counts for the same date." />
+          <EmptyState message="No POS or EOD data yet for this store. Import POS sales and submit EOD counts to start reconciling." />
         </View>
       </View>
     );
@@ -81,8 +97,76 @@ export default function ReconciliationScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="recon-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
-      {/* Date picker */}
-      <DatePicker value={selectedDate} onChange={(d) => setSelectedDate(d || availableDates[0] || '')} label="Reconciliation date" placeholder="Select a date" />
+      {/* Mode toggle */}
+      <View style={[styles.modeRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+        <TouchableOpacity
+          testID="recon-mode-single"
+          style={[styles.modeBtn, mode === 'single' && { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+          onPress={() => setMode('single')}
+        >
+          <Text style={[styles.modeText, { color: mode === 'single' ? C.textPrimary : C.textSecondary }]}>Single date</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="recon-mode-range"
+          style={[styles.modeBtn, mode === 'range' && { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
+          onPress={() => {
+            setMode('range');
+            // Default the start to a week before end so the user has something sensible.
+            if (endDate && startDate === endDate) {
+              const d = new Date(endDate + 'T00:00:00');
+              d.setDate(d.getDate() - 6);
+              setStartDate(d.toISOString().split('T')[0]);
+            }
+          }}
+        >
+          <Text style={[styles.modeText, { color: mode === 'range' ? C.textPrimary : C.textSecondary }]}>Date range</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Date pickers */}
+      {mode === 'single' ? (
+        <DatePicker
+          value={endDate}
+          onChange={(d) => { setEndDate(d || defaultDate || ''); setStartDate(d || defaultDate || ''); }}
+          label="Reconciliation date"
+          placeholder="Select a date"
+        />
+      ) : (
+        <View style={styles.rangeRow}>
+          <View style={{ flex: 1 }}>
+            <DatePicker
+              testIdPrefix="recon-start"
+              value={startDate}
+              onChange={(d) => setStartDate(d || defaultDate || '')}
+              label="Start date"
+              placeholder="Start"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <DatePicker
+              testIdPrefix="recon-end"
+              value={endDate}
+              onChange={(d) => setEndDate(d || defaultDate || '')}
+              label="End date (EOD count)"
+              placeholder="End"
+            />
+          </View>
+        </View>
+      )}
+
+      {/* Range validation / EOD warnings */}
+      {mode === 'range' && !rangeValid && effectiveStart && effectiveEnd && (
+        <View style={[styles.warnBox, { backgroundColor: C.warningBg ?? '#fff3e0', borderColor: C.warning }]}>
+          <Text style={[styles.warnText, { color: C.warning }]}>Start date must be on or before end date.</Text>
+        </View>
+      )}
+      {rangeValid && !eodOnEnd && (
+        <View style={[styles.warnBox, { backgroundColor: C.warningBg ?? '#fff3e0', borderColor: C.warning }]}>
+          <Text style={[styles.warnText, { color: C.warning }]}>
+            No EOD submission on {mode === 'range' ? 'end date' : 'this date'}. Submit an EOD count to reconcile.
+          </Text>
+        </View>
+      )}
 
       {/* Summary bar */}
       <View style={[styles.summaryBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, marginTop: Spacing.sm }]}>
@@ -231,4 +315,10 @@ const styles = StyleSheet.create({
   noteInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary, height: 80, textAlignVertical: 'top', marginBottom: Spacing.sm },
   saveNoteBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: 9, alignItems: 'center' },
   saveNoteBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
+  modeRow: { flexDirection: 'row', borderRadius: Radius.md, borderWidth: 0.5, padding: 2, marginBottom: Spacing.sm },
+  modeBtn: { flex: 1, paddingVertical: 8, paddingHorizontal: Spacing.md, alignItems: 'center', borderRadius: Radius.sm, borderWidth: 0.5, borderColor: 'transparent' },
+  modeText: { fontSize: FontSize.sm, fontWeight: '500' },
+  rangeRow: { flexDirection: 'row', gap: Spacing.sm },
+  warnBox: { borderWidth: 0.5, borderRadius: Radius.md, padding: Spacing.sm, marginTop: Spacing.sm, marginBottom: Spacing.sm },
+  warnText: { fontSize: FontSize.xs, fontWeight: '500' },
 });

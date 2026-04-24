@@ -141,25 +141,30 @@ function getOpeningStock(
 }
 
 export function buildReconciliationLines(
-  date: string,
+  startDate: string,
+  endDate: string,
   storeId: string,
   posImports: POSImport[],
   recipes: Recipe[],
   eodSubmissions: EODSubmission[],
   inventory: InventoryItem[],
 ): ReconciliationLine[] {
+  // EOD submission on the END of the range — closing count for the period.
+  // For single-day reconciliation startDate === endDate.
   const eodSub = eodSubmissions.find(
-    (s) => s.storeId === storeId && s.date === date
+    (s) => s.storeId === storeId && s.date === endDate
   );
   if (!eodSub) return [];
 
-  const usage = calculateIngredientUsage(posImports, recipes, storeId, date, date);
+  const usage = calculateIngredientUsage(posImports, recipes, storeId, startDate, endDate);
 
-  // Build a map of POS qty sold per ingredient for display
+  // Build a map of POS qty sold per ingredient for display, summed across the range.
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   const posQtyPerItem = new Map<string, number>();
-  const dayImports = posImports.filter((p) => p.storeId === storeId && p.date === date);
-  for (const imp of dayImports) {
+  const rangeImports = posImports.filter(
+    (p) => p.storeId === storeId && p.date >= startDate && p.date <= endDate,
+  );
+  for (const imp of rangeImports) {
     for (const sale of imp.items) {
       if (!sale.recipeMapped || !sale.recipeId) continue;
       const recipe = recipeMap.get(sale.recipeId);
@@ -170,9 +175,9 @@ export function buildReconciliationLines(
     }
   }
 
-  // Build recipe usage description per item
+  // Build recipe usage description per item — first occurrence per recipe.
   const recipeUsagePerItem = new Map<string, string>();
-  for (const imp of dayImports) {
+  for (const imp of rangeImports) {
     for (const sale of imp.items) {
       if (!sale.recipeMapped || !sale.recipeId) continue;
       const recipe = recipeMap.get(sale.recipeId);
@@ -188,7 +193,8 @@ export function buildReconciliationLines(
   }
 
   return eodSub.entries.map((entry) => {
-    const openingStock = getOpeningStock(entry.itemId, date, storeId, eodSubmissions, inventory);
+    // Opening stock is EOD-end-of-day before the range began.
+    const openingStock = getOpeningStock(entry.itemId, startDate, storeId, eodSubmissions, inventory);
     const usageData = usage.get(entry.itemId);
     const expectedDeduction = usageData ? Math.round(usageData.totalUsed * 100) / 100 : 0;
     const expectedRemaining = Math.round((openingStock - expectedDeduction) * 100) / 100;
