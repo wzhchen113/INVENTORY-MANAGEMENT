@@ -16,7 +16,7 @@ import { EODEntry } from '../types';
 import { getPushPermission, requestPermissionAndSubscribe } from '../lib/webPush';
 
 export default function EODCountScreen() {
-  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule } = useStore();
+  const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule, timezone } = useStore();
   const C = useColors();
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [casesCount, setCasesCount] = useState<Record<string, string>>({});
@@ -29,6 +29,52 @@ export default function EODCountScreen() {
 
   const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const actualToday = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+  // For each weekday, compute the date of its NEXT occurrence in store-local
+  // time: today if today's weekday matches, otherwise the future date within
+  // the next 7 days. Example (if today is Thu 23rd):
+  //   Mon → Mon 27th, Tue → Tue 28th, Wed → Wed 29th,
+  //   Thu → Thu 23rd, Fri → Fri 24th, Sat → Sat 25th, Sun → Sun 26th
+  const dayLabels = useMemo(() => {
+    const tz = timezone || 'America/New_York';
+    // Today's Y/M/D in the store's timezone, built so UTC arithmetic from
+    // here doesn't drift across DST.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
+      if (p.type !== 'literal') acc[p.type] = p.value;
+      return acc;
+    }, {});
+    const base = new Date(Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    ));
+    const baseWeekday = base.getUTCDay(); // 0 = Sunday … 6 = Saturday
+
+    const weekdayIndex: Record<string, number> = {
+      Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+    };
+
+    const ordinal = (n: number): string => {
+      if (n % 100 >= 11 && n % 100 <= 13) return 'th';
+      switch (n % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+
+    const labels: Record<string, string> = {};
+    for (const [name, idx] of Object.entries(weekdayIndex)) {
+      let daysAhead = idx - baseWeekday;
+      if (daysAhead < 0) daysAhead += 7; // already passed this week → next week
+      const target = new Date(base);
+      target.setUTCDate(target.getUTCDate() + daysAhead);
+      const d = target.getUTCDate();
+      labels[name] = `${name.slice(0, 3)} ${d}${ordinal(d)}`;
+    }
+    return labels;
+  }, [timezone]);
   const [selectedDay, setSelectedDay] = useState(actualToday);
 
   const todayISO = new Date().toISOString().split('T')[0];
@@ -795,7 +841,7 @@ export default function EODCountScreen() {
               onPress={() => { setSelectedDay(day); setVendorFilter(''); setSelectedCategory(null); }}
             >
               <Text style={[{ fontSize: FontSize.xs, color: C.textSecondary }, isActive && { color: C.bgPrimary, fontWeight: '600' }]}>
-                {day.slice(0, 3)}{hasVendors ? '' : ''}
+                {dayLabels[day] || day.slice(0, 3)}
               </Text>
               {hasVendors && <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: isActive ? C.bgPrimary : C.success, alignSelf: 'center', marginTop: 2 }} />}
             </TouchableOpacity>
