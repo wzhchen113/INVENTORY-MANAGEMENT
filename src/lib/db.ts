@@ -256,6 +256,54 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
   return data.id;
 }
 
+// Fetch the last N days of EOD submissions for a store and map them to the
+// client EODSubmission shape so they can populate useStore.eodSubmissions on
+// login / store switch / refresh. This is the rehydration path that makes the
+// vendor/category checkmarks + myTodaySubmission survive reload.
+export async function fetchRecentEODSubmissions(storeId: string, days = 14): Promise<any[]> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffISO = cutoff.toISOString().split('T')[0];
+
+  const { data, error } = await supabase
+    .from('eod_submissions')
+    .select(`id, store_id, date, submitted_by, submitted_at, status,
+             submitter:profiles!submitted_by(name),
+             eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+                         item:inventory_items(name, unit))`)
+    .eq('store_id', storeId)
+    .gte('date', cutoffISO)
+    .order('submitted_at', { ascending: false });
+  if (error) { console.warn('[Supabase] fetchRecentEODSubmissions:', error.message); return []; }
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    storeId: row.store_id,
+    storeName: '', // filled downstream if needed
+    date: row.date,
+    submittedBy: row.submitter?.name || '',
+    submittedByUserId: row.submitted_by,
+    timestamp: row.submitted_at,
+    status: row.status || 'submitted',
+    itemCount: (row.eod_entries || []).length,
+    entries: (row.eod_entries || []).map((e: any) => ({
+      id: e.id,
+      itemId: e.item_id,
+      itemName: e.item?.name || '',
+      actualRemaining: Number(e.actual_remaining) || 0,
+      actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
+      actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
+      unit: e.item?.unit || '',
+      submittedBy: row.submitter?.name || '',
+      submittedByUserId: row.submitted_by,
+      timestamp: e.created_at || row.submitted_at,
+      date: row.date,
+      storeId: row.store_id,
+      notes: e.notes || '',
+    })),
+  }));
+}
+
 export async function fetchEODSubmissions(storeId: string, date?: string): Promise<any[]> {
   let query = supabase
     .from('eod_submissions')
@@ -270,6 +318,67 @@ export async function fetchEODSubmissions(storeId: string, date?: string): Promi
   const { data, error } = await query;
   if (error) throw error;
   return data || [];
+}
+
+// ─── PURCHASE ORDERS ─────────────────────────────────────────────────────
+// Records a submitted order ("Mark as Submitted"). Keeps a minimal row so
+// (a) refresh restores the submitted state, and (b) the reminder cron can
+// detect "already ordered today" via purchase_orders.created_at.
+export async function createPurchaseOrder(params: {
+  storeId: string;
+  vendorId?: string;
+  vendorName?: string;
+  submittedByUserId?: string;
+  totalCost?: number;
+  day?: string;
+  date?: string; // YYYY-MM-DD
+}): Promise<string | null> {
+  // Prefer vendor_id; fall back to name lookup if only a name is provided.
+  let vendorId = params.vendorId;
+  if (!vendorId && params.vendorName) {
+    const { data: v } = await supabase.from('vendors').select('id').ilike('name', params.vendorName).maybeSingle();
+    vendorId = v?.id;
+  }
+  if (!vendorId) return null;
+
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .insert({
+      store_id: params.storeId,
+      vendor_id: vendorId,
+      created_by: params.submittedByUserId || null,
+      total_cost: params.totalCost ?? null,
+      status: 'submitted',
+    })
+    .select('id')
+    .single();
+  if (error) { console.warn('[Supabase] createPurchaseOrder:', error.message); return null; }
+  return data?.id || null;
+}
+
+export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Promise<any[]> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const { data, error } = await supabase
+    .from('purchase_orders')
+    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, created_at, status, total_cost')
+    .eq('store_id', storeId)
+    .gte('created_at', cutoff.toISOString())
+    .order('created_at', { ascending: false });
+  if (error) { console.warn('[Supabase] fetchRecentPurchaseOrders:', error.message); return []; }
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    storeId: r.store_id,
+    vendorId: r.vendor_id,
+    vendorName: r.vendor?.name || '',
+    submittedByUserId: r.created_by,
+    totalCost: Number(r.total_cost) || 0,
+    date: r.created_at ? r.created_at.split('T')[0] : '',
+    timestamp: r.created_at,
+    status: r.status,
+    // Best-effort day-of-week at creation (UTC; close enough for display).
+    day: r.created_at ? new Date(r.created_at).toLocaleDateString('en-US', { weekday: 'long' }) : '',
+  }));
 }
 
 // ─── VENDORS ─────────────────────────────────────────────────────────────
@@ -720,7 +829,11 @@ export async function deleteIngredientCategory(name: string): Promise<void> {
 
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
-  const [inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, categories, ingCategories, conversions, orderSched] = await Promise.all([
+  const [
+    inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
+    categories, ingCategories, conversions, orderSched,
+    eodSubmissions, orderSubmissions,
+  ] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
     fetchPrepRecipes().catch(() => []), // fetch ALL stores so sub-recipe store validation works
@@ -731,8 +844,15 @@ export async function fetchAllForStore(storeId: string) {
     fetchIngredientCategories().catch(() => []),
     fetchIngredientConversions().catch(() => []),
     fetchOrderSchedule(storeId).catch(() => ({})),
+    fetchRecentEODSubmissions(storeId).catch(() => []),
+    fetchRecentPurchaseOrders(storeId).catch(() => []),
   ]);
-  return { inventory, recipes, prepRecipes, vendors, wasteLog, auditLog, recipeCategories: categories, ingredientCategories: ingCategories, ingredientConversions: conversions, orderSchedule: orderSched };
+  return {
+    inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
+    recipeCategories: categories, ingredientCategories: ingCategories,
+    ingredientConversions: conversions, orderSchedule: orderSched,
+    eodSubmissions, orderSubmissions,
+  };
 }
 
 // ─── ORDER SCHEDULE ─────────────────────────────────────────────────────
