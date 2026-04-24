@@ -379,6 +379,32 @@ export default function EODCountScreen() {
     return counts[item.id] !== undefined && counts[item.id] !== '';
   }).length;
 
+  // Shared cloud-save flow for both fresh submits and edits. Drives the 3 s
+  // "Saving to cloud... Xs" banner and returns whether the write made it to
+  // the server so callers can toast success vs local-only. Both handleSubmit
+  // and handleUpdate build the same Omit<EODSubmission,'id'> payload and hand
+  // it to submitEODCount, which upserts on (store_id, date, submitted_by).
+  const persistToCloud = async (submission: Parameters<typeof submitEODCount>[0]): Promise<boolean> => {
+    setSaving(true);
+    setSaveCountdown(3);
+    const cloudSave = submitEODCount(submission).catch(() => null);
+    const countdown = new Promise<void>((resolve) => {
+      countdownRef.current = setInterval(() => {
+        setSaveCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            resolve();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    });
+    const [cloudResult] = await Promise.all([cloudSave, countdown]);
+    setSaving(false);
+    return cloudResult !== null;
+  };
+
   const handleSubmit = () => {
     const entries: EODEntry[] = storeInventory
       .filter((item) => {
@@ -442,42 +468,23 @@ export default function EODCountScreen() {
       setSelectedCategory(null);
 
       // Save to cloud + 3s minimum delay
-      setSaving(true);
-      setSaveCountdown(3);
-      const cloudSave = submitEODCount(submission).catch(() => null);
-      const countdown = new Promise<void>((resolve) => {
-        countdownRef.current = setInterval(() => {
-          setSaveCountdown((prev) => {
-            if (prev <= 1) {
-              if (countdownRef.current) clearInterval(countdownRef.current);
-              resolve();
-              return 0;
+      const ok = await persistToCloud(submission);
+      addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
+      Toast.show(
+        ok
+          ? {
+              type: 'success',
+              text1: 'EOD Count saved',
+              text2: 'Your count has been saved to the cloud.',
+              visibilityTime: 4000,
             }
-            return prev - 1;
-          });
-        }, 1000);
-      });
-
-      const [cloudResult] = await Promise.all([cloudSave, countdown]);
-      setSaving(false);
-
-      if (cloudResult !== null) {
-        addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
-        Toast.show({
-          type: 'success',
-          text1: 'EOD Count saved',
-          text2: 'Your count has been saved to the cloud.',
-          visibilityTime: 4000,
-        });
-      } else {
-        addNotification(`${currentStore.name} by ${currentUser?.name || 'Unknown'} — EOD Count is submitted`);
-        Toast.show({
-          type: 'info',
-          text1: 'EOD Count saved locally',
-          text2: 'Cloud sync unavailable — saved locally.',
-          visibilityTime: 4000,
-        });
-      }
+          : {
+              type: 'info',
+              text1: 'EOD Count saved locally',
+              text2: 'Cloud sync unavailable — saved locally.',
+              visibilityTime: 4000,
+            }
+      );
     };
 
     if (Platform.OS === 'web') {
@@ -526,7 +533,7 @@ export default function EODCountScreen() {
     setIsEditing(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!myTodaySubmission) return;
 
     const updatedEntries: EODEntry[] = myTodaySubmission.entries.map((entry) => {
@@ -560,18 +567,59 @@ export default function EODCountScreen() {
       };
     });
 
-    // Update the submission in the store
+    const now = new Date().toISOString();
+
+    // Update the submission in the store (local cache — fast UI feedback)
     submitEOD({
       ...myTodaySubmission,
       entries: updatedEntries,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
     });
 
+    // Exit edit mode + clear the edit state. We do this BEFORE the cloud save
+    // so the read-only "Submitted" view snaps back immediately; the 3 s
+    // "Saving to cloud..." banner covers the round-trip.
     setIsEditing(false);
     setEditCounts({});
     setEditCasesCount({});
     setEditEachCount({});
     setEditNotes({});
+
+    // Persist to Supabase so the edits survive refresh — before this was wired
+    // up, handleUpdate only touched local state and the DB kept the stale
+    // pre-edit row. The upsert on submitEODCount updates the same parent row
+    // (keyed on store_id + date + submitted_by) and replaces eod_entries
+    // wholesale.
+    if (!currentStore || !currentUser) return;
+    const submission = {
+      date: myTodaySubmission.date,
+      storeId: currentStore.id,
+      storeName: currentStore.name,
+      submittedBy: currentUser.name || '',
+      submittedByUserId: currentUser.id || '',
+      timestamp: now,
+      itemCount: updatedEntries.length,
+      status: 'submitted' as const,
+      entries: updatedEntries,
+    };
+
+    const ok = await persistToCloud(submission);
+    addNotification(`${currentStore.name} by ${currentUser.name || 'Unknown'} — EOD Count updated`);
+    Toast.show(
+      ok
+        ? {
+            type: 'success',
+            text1: 'EOD Count updated',
+            text2: 'Your edits have been saved to the cloud.',
+            visibilityTime: 4000,
+          }
+        : {
+            type: 'info',
+            text1: 'EOD Count saved locally',
+            text2: 'Cloud sync unavailable — saved locally.',
+            visibilityTime: 4000,
+          }
+    );
   };
 
   const formatDateTime = (isoStr: string) => {
@@ -789,12 +837,16 @@ export default function EODCountScreen() {
             <Text style={[styles.draftBtnText, { color: C.textSecondary }]}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.submitBtn, { backgroundColor: C.textPrimary }, isLockedToday && { opacity: 0.4 }]}
+            style={[styles.submitBtn, { backgroundColor: C.textPrimary }, (saving || isLockedToday) && { opacity: 0.4 }]}
             onPress={handleUpdate}
-            disabled={isLockedToday}
+            disabled={saving || isLockedToday}
           >
             <Text style={[styles.submitBtnText, { color: C.bgPrimary }]}>
-              {isLockedToday ? 'Locked — past deadline' : 'Save changes'}
+              {saving
+                ? `Saving... ${saveCountdown}s`
+                : isLockedToday
+                ? 'Locked — past deadline'
+                : 'Save changes'}
             </Text>
           </TouchableOpacity>
         </View>
