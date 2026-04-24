@@ -210,6 +210,15 @@ export const useStore = create<FullStore>((set, get) => ({
         vendors: data.vendors,
         wasteLog: data.wasteLog,
         auditLog: data.auditLog,
+        // Rehydrate recent EOD submissions + order submissions so checkmarks
+        // and "submitted" pills survive a refresh. Backfill storeName so
+        // selectors that compare against currentStore.name still match.
+        eodSubmissions: (data.eodSubmissions || []).map((s: any) => ({
+          ...s, storeName: s.storeName || get().stores.find((st) => st.id === s.storeId)?.name || '',
+        })),
+        orderSubmissions: (data.orderSubmissions || []).map((o: any) => ({
+          ...o, storeName: o.storeName || get().stores.find((st) => st.id === o.storeId)?.name || '',
+        })),
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
         ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
@@ -690,8 +699,25 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   submitOrder: (submission) => {
-    const id = `ord${Date.now()}`;
-    set((s) => ({ orderSubmissions: [...s.orderSubmissions, { ...submission, id }] }));
+    // Optimistic local write so the "submitted" pill flips immediately.
+    const tempId = `ord${Date.now()}`;
+    set((s) => ({ orderSubmissions: [...s.orderSubmissions, { ...submission, id: tempId }] }));
+    // Persist to purchase_orders so it survives refresh + is visible to the
+    // reminder cron's "already ordered today" check.
+    db.createPurchaseOrder({
+      storeId: submission.storeId,
+      vendorId: (submission as any).vendorId,
+      vendorName: submission.vendorName,
+      submittedByUserId: get().currentUser?.id,
+      totalCost: (submission as any).totalCost,
+      day: submission.day,
+      date: submission.date,
+    }).then((serverId) => {
+      if (!serverId) return;
+      set((s) => ({
+        orderSubmissions: s.orderSubmissions.map((o) => o.id === tempId ? { ...o, id: serverId } : o),
+      }));
+    }).catch((e: any) => console.warn('[Supabase] submitOrder:', e?.message || e));
   },
 
   setTimezone: (tz) => {
