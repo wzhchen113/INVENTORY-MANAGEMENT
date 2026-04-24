@@ -1,17 +1,16 @@
-// EOD + vendor-order reminder cron.
+// EOD + vendor-order reminder cron, with email fallback.
 //
-// Two reminder tracks per cron tick:
-//  (1) EOD count per store  — fires at 60/30/10 min before store.eod_deadline_time
-//  (2) Vendor order cutoff   — fires at 60/30/10 min before vendor.order_cutoff_time
-//                             ONLY on days where order_schedule has (store, vendor)
-//                             AND no purchase_order for (store, vendor) has been placed today
-//
-// Eligible user set for either track for a given store: user_stores ∪ admins/masters.
+// Per user per bucket:
+//   1. Try all their Web Push subscriptions
+//   2. If none delivered, look up their auth email and send via Resend
+//   3. One dedup log row if EITHER channel delivered (no double-nagging)
+//   4. Always insert an in_app_notifications row (bell icon safety net)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
 const BUCKETS = [60, 30, 10] as const;
 const TOLERANCE_MIN = 2.5;
+const APP_URL = 'https://hopeful-lewin.vercel.app';
 
 type Store = { id: string; name: string; eod_deadline_time: string | null };
 type Vendor = { id: string; name: string; order_cutoff_time: string | null };
@@ -44,9 +43,8 @@ function inWindow(minutesUntil: number, bucket: number) {
 
 async function sendPushAll(
   sb: any, webpush: any, userSubs: Sub[], payload: string,
-): Promise<{ sentAny: boolean; errors: any[] }> {
+): Promise<{ sentAny: boolean }> {
   let sentAny = false;
-  const errors: any[] = [];
   for (const s of userSubs) {
     try {
       await webpush.sendNotification(
@@ -59,10 +57,33 @@ async function sendPushAll(
       if (statusCode === 404 || statusCode === 410) {
         await sb.from('push_subscriptions').delete().eq('endpoint', s.endpoint);
       }
-      errors.push({ statusCode, message: e?.message });
     }
   }
-  return { sentAny, errors };
+  return { sentAny };
+}
+
+async function sendEmailViaResend(
+  apiKey: string, from: string, to: string, subject: string, html: string,
+): Promise<boolean> {
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      console.error('resend send failed:', r.status, body.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.error('resend fetch threw:', e?.message || e);
+    return false;
+  }
 }
 
 Deno.serve(async (_req) => {
@@ -73,6 +94,8 @@ Deno.serve(async (_req) => {
     const VAPID_PRIVATE = Deno.env.get('VAPID_PRIVATE');
     const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@example.com';
     const DEFAULT_TZ = Deno.env.get('DEFAULT_TIMEZONE') ?? 'America/New_York';
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const RESEND_FROM = Deno.env.get('RESEND_FROM_ADDRESS') ?? 'onboarding@resend.dev';
 
     const missing: string[] = [];
     if (!SUPABASE_URL) missing.push('SUPABASE_URL');
@@ -93,6 +116,41 @@ Deno.serve(async (_req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    // Cache of userId -> email so we don't call auth admin API more than once per user per tick.
+    const emailCache = new Map<string, string | null>();
+    async function lookupEmail(userId: string): Promise<string | null> {
+      if (emailCache.has(userId)) return emailCache.get(userId)!;
+      try {
+        const { data, error } = await sb.auth.admin.getUserById(userId);
+        if (error) { emailCache.set(userId, null); return null; }
+        const email = data?.user?.email || null;
+        emailCache.set(userId, email);
+        return email;
+      } catch { emailCache.set(userId, null); return null; }
+    }
+
+    async function deliverReminder(
+      userId: string,
+      userSubs: Sub[],
+      payloadJson: string,
+      emailSubject: string,
+      emailBodyHtml: string,
+    ): Promise<{ pushed: boolean; emailed: boolean }> {
+      const { sentAny } = await sendPushAll(sb, webpush, userSubs, payloadJson);
+      let emailed = false;
+      if (!sentAny) {
+        if (!RESEND_API_KEY) {
+          console.warn(`[email fallback] no RESEND_API_KEY; push failed for user ${userId}, no email sent`);
+        } else {
+          const email = await lookupEmail(userId);
+          if (email) {
+            emailed = await sendEmailViaResend(RESEND_API_KEY, RESEND_FROM, email, emailSubject, emailBodyHtml);
+          }
+        }
+      }
+      return { pushed: sentAny, emailed };
+    }
+
     const { data: stores, error: storesErr } = await sb
       .from('stores')
       .select('id, name, eod_deadline_time')
@@ -104,7 +162,6 @@ Deno.serve(async (_req) => {
     if (adminErr) return new Response(JSON.stringify({ ok: false, error: `admins: ${adminErr.message}` }), { status: 500 });
     const adminUserIds = new Set((adminRows || []).map((r: any) => r.id as string));
 
-    // Pre-fetch all user_stores and all push_subscriptions once for efficiency.
     const { data: usRows } = await sb.from('user_stores').select('user_id, store_id');
     const usersByStore = new Map<string, Set<string>>();
     for (const r of (usRows || []) as any[]) {
@@ -141,28 +198,27 @@ Deno.serve(async (_req) => {
       const toRemind = [...storeUsers].filter((u) => !submitted.has(u) && !alreadyPushed.has(u));
       if (toRemind.length === 0) continue;
 
-      let pushed = 0;
+      let pushed = 0, emailed = 0;
       for (const userId of toRemind) {
+        const pushTitle = `EOD count — ${bucket} min left`;
+        const pushBody = `Submit your count for ${store.name}. Cutoff at ${cutoff}.`;
+        const payloadJson = JSON.stringify({ title: pushTitle, body: pushBody, tag: `eod-${store.id}-${localDate}`, url: '/' });
+        const emailHtml = `<p><strong>${pushBody}</strong></p><p>Open the app to submit: <a href="${APP_URL}">${APP_URL}</a></p>`;
+
+        const result = await deliverReminder(userId, subsByUser.get(userId) || [], payloadJson, `${pushTitle} (${store.name})`, emailHtml);
         const msg = `EOD count — ${bucket} min left. Submit for ${store.name} (cutoff ${cutoff}).`;
-        const payload = JSON.stringify({
-          title: `EOD count — ${bucket} min left`,
-          body: `Submit your count for ${store.name}. Cutoff at ${cutoff}.`,
-          tag: `eod-${store.id}-${localDate}`, url: '/',
-        });
-        const { sentAny } = await sendPushAll(sb, webpush, subsByUser.get(userId) || [], payload);
         await sb.from('in_app_notifications').insert({ user_id: userId, message: msg });
-        if (sentAny) {
-          pushed++;
-          await sb.from('eod_reminder_log').insert({
-            user_id: userId, store_id: store.id, local_date: localDate, bucket,
-          });
+        if (result.pushed) pushed++;
+        if (result.emailed) emailed++;
+        if (result.pushed || result.emailed) {
+          await sb.from('eod_reminder_log').insert({ user_id: userId, store_id: store.id, local_date: localDate, bucket });
         }
       }
-      summary.eod.push({ storeName: store.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed });
+      summary.eod.push({ storeName: store.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed, emailed });
     }
 
     // ─── TRACK 2: Vendor order cutoff ────────────────────────────────────
-    const { weekday } = minutesUntilCutoff('00:00', DEFAULT_TZ); // just to fetch weekday
+    const { weekday } = minutesUntilCutoff('00:00', DEFAULT_TZ);
     const { data: schedRows } = await sb.from('order_schedule')
       .select('store_id, vendor_id').eq('day_of_week', weekday);
 
@@ -182,7 +238,6 @@ Deno.serve(async (_req) => {
         const store = (stores || []).find((s: any) => s.id === row.store_id) as Store | undefined;
         if (!store) continue;
 
-        // Skip if the order's already been placed today for this (store, vendor)
         const { data: po } = await sb.from('purchase_orders')
           .select('id').eq('store_id', row.store_id).eq('vendor_id', row.vendor_id)
           .gte('created_at', `${localDate}T00:00:00Z`)
@@ -204,25 +259,26 @@ Deno.serve(async (_req) => {
         const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u));
         if (toRemind.length === 0) continue;
 
-        let pushed = 0;
+        let pushed = 0, emailed = 0;
         for (const userId of toRemind) {
+          const pushTitle = `${vendor.name} order — ${bucket} min left`;
+          const pushBody = `Submit ${vendor.name} order for ${store.name}. Cutoff at ${vendor.order_cutoff_time}.`;
+          const payloadJson = JSON.stringify({ title: pushTitle, body: pushBody, tag: `vendor-${row.store_id}-${row.vendor_id}-${localDate}`, url: '/' });
+          const emailHtml = `<p><strong>${pushBody}</strong></p><p>Open the app to submit: <a href="${APP_URL}">${APP_URL}</a></p>`;
+
+          const result = await deliverReminder(userId, subsByUser.get(userId) || [], payloadJson, `${pushTitle} (${store.name})`, emailHtml);
           const msg = `${vendor.name} order — ${bucket} min left. Submit ${vendor.name} order for ${store.name} (cutoff ${vendor.order_cutoff_time}).`;
-          const payload = JSON.stringify({
-            title: `${vendor.name} order — ${bucket} min left`,
-            body: `Submit ${vendor.name} order for ${store.name}. Cutoff at ${vendor.order_cutoff_time}.`,
-            tag: `vendor-${row.store_id}-${row.vendor_id}-${localDate}`, url: '/',
-          });
-          const { sentAny } = await sendPushAll(sb, webpush, subsByUser.get(userId) || [], payload);
           await sb.from('in_app_notifications').insert({ user_id: userId, message: msg });
-          if (sentAny) {
-            pushed++;
+          if (result.pushed) pushed++;
+          if (result.emailed) emailed++;
+          if (result.pushed || result.emailed) {
             await sb.from('vendor_reminder_log').insert({
               user_id: userId, store_id: row.store_id, vendor_id: row.vendor_id,
               local_date: localDate, bucket,
             });
           }
         }
-        summary.vendor.push({ storeName: store.name, vendorName: vendor.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed });
+        summary.vendor.push({ storeName: store.name, vendorName: vendor.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed, emailed });
       }
     }
 
