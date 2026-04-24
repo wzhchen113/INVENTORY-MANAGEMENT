@@ -581,6 +581,45 @@ export async function savePOSImport(
   );
 }
 
+// ─── BREADBOT SALES PROXY ────────────────────────────────────────────────
+// Thin client wrapper around the fetch-breadbot-sales edge function. The
+// edge function holds the API key server-side and returns rows in the same
+// shape POSImportScreen's CSV parser produces, so the caller can hand the
+// output straight to the existing preview → confirm → importPOS pipeline.
+export interface BreadbotSalesRow {
+  menuItem: string;
+  qtySold: number;
+  revenue: number;
+}
+
+export interface BreadbotSalesResult {
+  rows: BreadbotSalesRow[];
+  freshness: any;
+  meta: { store_code: string; date: string; upstream_row_count: number; collapsed_row_count: number };
+}
+
+export async function fetchBreadbotSales(
+  storeName: string,
+  date: string,
+): Promise<BreadbotSalesResult> {
+  const { data, error } = await supabase.functions.invoke('fetch-breadbot-sales', {
+    body: { storeName, date },
+  });
+  if (error) {
+    // supabase-js throws FunctionsHttpError with details on the response body.
+    // Surface the upstream message when possible so the UI can show it.
+    const ctx: any = (error as any).context;
+    if (ctx?.error) throw new Error(ctx.error);
+    throw error;
+  }
+  if (data?.error) throw new Error(data.error);
+  return {
+    rows: data?.rows || [],
+    freshness: data?.freshness_by_channel ?? null,
+    meta: data?.meta ?? {},
+  };
+}
+
 // ─── DELETE INVENTORY ────────────────────────────────────────────────────
 export async function deleteInventoryItem(id: string): Promise<void> {
   if (!id || id.length < 10) return; // Skip local temp IDs
