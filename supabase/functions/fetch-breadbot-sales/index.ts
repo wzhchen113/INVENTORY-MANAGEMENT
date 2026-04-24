@@ -25,6 +25,17 @@ const STORE_MAP: Record<string, string> = {
 
 const DEFAULT_BASE_URL = 'https://breadbot.duckdns.org/api/v1/public';
 
+// Browsers send a CORS preflight (OPTIONS) before the real POST. Without these
+// headers the preflight fails with 405 Method Not Allowed and the button in
+// POSImportScreen dies with "Failed to send a request to the Edge Function".
+// The cron path doesn't need this (server-to-server, no preflight).
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age': '86400',
+};
+
 type BreadbotSaleRow = {
   date: string;
   store_id: string;
@@ -36,12 +47,15 @@ type BreadbotSaleRow = {
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   });
 }
 
 Deno.serve(async (req) => {
   try {
+    if (req.method === 'OPTIONS') {
+      return new Response('ok', { status: 200, headers: CORS_HEADERS });
+    }
     if (req.method !== 'POST') {
       return json(405, { error: 'Method not allowed' });
     }
