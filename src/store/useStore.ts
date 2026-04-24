@@ -724,6 +724,10 @@ export const useStore = create<FullStore>((set, get) => ({
       totalCost: (submission as any).totalCost,
       day: submission.day,
       date: submission.date,
+      // Caller (OrdersScreen) already stamps submission.date with the day-card
+      // reference date, so forwarding it as referenceDate persists that
+      // context into the DB's reference_date column.
+      referenceDate: submission.date,
     }).then((serverId) => {
       if (!serverId) return;
       set((s) => ({

@@ -11,7 +11,7 @@ import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { OrderDayVendor, Vendor } from '../types';
 import { calculateDynamicOrder, DynamicOrderLine } from '../lib/orderCalculator';
-import { getBusinessTodayParts } from '../utils/businessDay';
+import { getBusinessTodayParts, computeWeekdayDateISO } from '../utils/businessDay';
 
 const isWeb = Platform.OS === 'web';
 
@@ -191,10 +191,18 @@ export default function OrdersScreen() {
     [orderSubmissions, currentStore.id],
   );
 
+  // For each weekly day-card, compare against the DAY CARD's own calendar date
+  // (not todayISO). A submission is "belongs to this card" when its
+  // reference_date matches the card's date. This makes the "Submitted" pill
+  // sticky across refresh and across midnight/day rollover.
   const isDaySubmitted = useCallback(
-    (day: string, vendorName: string) =>
-      weekSubmissions.some((s) => s.day === day && s.vendorName === vendorName && s.date === todayISO),
-    [weekSubmissions, todayISO],
+    (day: string, vendorName: string) => {
+      const dayISO = computeWeekdayDateISO(day, timezone);
+      return weekSubmissions.some(
+        (s) => s.vendorName === vendorName && s.date === dayISO,
+      );
+    },
+    [weekSubmissions, timezone],
   );
 
   // ── Detail modal computed order lines ──
@@ -244,7 +252,7 @@ export default function OrdersScreen() {
   const detailDaysCover = detailLines.length > 0 ? detailLines[0].daysToCover : 0;
   const detailSubmitted = isDaySubmitted(detailDay, detailVendorName);
   const detailSubmission = weekSubmissions.find(
-    (s) => s.day === detailDay && s.vendorName === detailVendorName && s.date === todayISO,
+    (s) => s.vendorName === detailVendorName && s.date === computeWeekdayDateISO(detailDay, timezone),
   );
 
   // ── Handlers ──
@@ -289,10 +297,14 @@ export default function OrdersScreen() {
   };
 
   const handleMarkSubmitted = () => {
+    // Stamp the submission with the DAY CARD's calendar date, not "now".
+    // Without this, a Thursday-card submission marked at 3 AM Friday would
+    // carry Friday's date and the Thursday pill would never match.
+    const referenceDate = computeWeekdayDateISO(detailDay, timezone);
     submitOrder({
       storeId: currentStore.id,
       day: detailDay,
-      date: todayISO,
+      date: referenceDate,
       vendorName: detailVendorName,
       submittedBy: currentUser?.name || '',
       submittedAt: getNowInTZ(timezone).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),

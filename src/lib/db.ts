@@ -331,7 +331,8 @@ export async function createPurchaseOrder(params: {
   submittedByUserId?: string;
   totalCost?: number;
   day?: string;
-  date?: string; // YYYY-MM-DD
+  date?: string;           // YYYY-MM-DD (the day-card the order belongs to, store-local)
+  referenceDate?: string;  // explicit alias; takes precedence over date
 }): Promise<string | null> {
   // Prefer vendor_id; fall back to name lookup if only a name is provided.
   let vendorId = params.vendorId;
@@ -341,6 +342,8 @@ export async function createPurchaseOrder(params: {
   }
   if (!vendorId) return null;
 
+  const referenceDate = params.referenceDate || params.date || null;
+
   const { data, error } = await supabase
     .from('purchase_orders')
     .insert({
@@ -349,6 +352,7 @@ export async function createPurchaseOrder(params: {
       created_by: params.submittedByUserId || null,
       total_cost: params.totalCost ?? null,
       status: 'submitted',
+      ...(referenceDate ? { reference_date: referenceDate } : {}),
     })
     .select('id')
     .single();
@@ -361,24 +365,38 @@ export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Pro
   cutoff.setDate(cutoff.getDate() - days);
   const { data, error } = await supabase
     .from('purchase_orders')
-    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, created_at, status, total_cost')
+    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, created_at, reference_date, status, total_cost')
     .eq('store_id', storeId)
     .gte('created_at', cutoff.toISOString())
     .order('created_at', { ascending: false });
   if (error) { console.warn('[Supabase] fetchRecentPurchaseOrders:', error.message); return []; }
-  return (data || []).map((r: any) => ({
-    id: r.id,
-    storeId: r.store_id,
-    vendorId: r.vendor_id,
-    vendorName: r.vendor?.name || '',
-    submittedByUserId: r.created_by,
-    totalCost: Number(r.total_cost) || 0,
-    date: r.created_at ? r.created_at.split('T')[0] : '',
-    timestamp: r.created_at,
-    status: r.status,
-    // Best-effort day-of-week at creation (UTC; close enough for display).
-    day: r.created_at ? new Date(r.created_at).toLocaleDateString('en-US', { weekday: 'long' }) : '',
-  }));
+  return (data || []).map((r: any) => {
+    // Prefer reference_date (day-card's calendar date); fall back to UTC day
+    // of created_at for pre-migration rows that somehow slipped through.
+    const refDate: string = r.reference_date || (r.created_at ? r.created_at.split('T')[0] : '');
+    // Derive day-of-week from refDate so it always matches the card. UTC-safe
+    // because refDate is a pure YYYY-MM-DD string with no tz component.
+    let day = '';
+    if (refDate) {
+      const [y, m, d] = refDate.split('-').map(Number);
+      if (!Number.isNaN(y + m + d)) {
+        day = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      }
+    }
+    return {
+      id: r.id,
+      storeId: r.store_id,
+      vendorId: r.vendor_id,
+      vendorName: r.vendor?.name || '',
+      submittedByUserId: r.created_by,
+      totalCost: Number(r.total_cost) || 0,
+      date: refDate,
+      referenceDate: refDate,
+      timestamp: r.created_at,
+      status: r.status,
+      day,
+    };
+  });
 }
 
 // ─── VENDORS ─────────────────────────────────────────────────────────────
