@@ -11,6 +11,7 @@ import { WebScrollView } from '../components/WebScrollView';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { OrderDayVendor, Vendor } from '../types';
 import { calculateDynamicOrder, DynamicOrderLine } from '../lib/orderCalculator';
+import { getBusinessTodayParts } from '../utils/businessDay';
 
 const isWeb = Platform.OS === 'web';
 
@@ -141,8 +142,11 @@ export default function OrdersScreen() {
   } = useStore();
   const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
-  const todayName = getDayName(timezone);
-  const todayISO = getNowInTZ(timezone).toISOString().split('T')[0];
+  // Business-day aware "today" — rolls over at 3 AM local so late-night closing
+  // shifts stay on the previous calendar day's entries.
+  const businessToday = getBusinessTodayParts(timezone);
+  const todayName = businessToday.weekday;
+  const todayISO = businessToday.dateISO;
 
   // ── Schedule edit state ──
   const [showEditModal, setShowEditModal] = useState(false);
