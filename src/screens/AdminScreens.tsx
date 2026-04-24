@@ -1213,7 +1213,7 @@ export function UsersScreen() {
                       <TouchableOpacity onPress={() => openEditStore(store)}>
                         <Ionicons name="create-outline" size={16} color={C.textSecondary} />
                       </TouchableOpacity>
-                      {stores.length > 1 && (
+                      {isMaster && stores.length > 1 && (
                         <TouchableOpacity onPress={() => { setDeleteStoreTarget(store); setDeleteConfirmName(''); }}>
                           <Ionicons name="trash-outline" size={16} color={C.danger} />
                         </TouchableOpacity>
