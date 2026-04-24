@@ -124,14 +124,11 @@ export const useStore = create<FullStore>((set, get) => ({
   vendors: VENDORS,
   posImports: POS_IMPORTS,
   auditLog: AUDIT_LOG,
+  // Start empty — real schedule comes from Supabase via loadFromSupabase.
+  // Demo vendors used to live here but leaked into fresh users' Orders
+  // screens whenever their store had no order_schedule rows in DB yet.
   orderSchedule: {
-    Monday: [{ vendorName: 'US Foods', deliveryDay: 'Wednesday' }],
-    Tuesday: [{ vendorName: 'Sysco', deliveryDay: 'Thursday' }],
-    Wednesday: [{ vendorName: 'Local Farms Co.', deliveryDay: 'Friday' }],
-    Thursday: [],
-    Friday: [],
-    Saturday: [],
-    Sunday: [],
+    Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
   },
   orderSubmissions: [],
   timezone: 'America/New_York',
@@ -222,7 +219,13 @@ export const useStore = create<FullStore>((set, get) => ({
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
         ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
-        ...(data.orderSchedule && Object.keys(data.orderSchedule).length > 0 ? { orderSchedule: { ...get().orderSchedule, ...data.orderSchedule } } : {}),
+        // Replace — not merge — so switching from a store with scheduled
+        // vendors to one with none doesn't leave the old store's days
+        // visible. Baseline = 7 empty days, then spread whatever DB has.
+        orderSchedule: {
+          Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
+          ...(data.orderSchedule || {}),
+        },
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
