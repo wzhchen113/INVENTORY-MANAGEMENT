@@ -14,6 +14,7 @@ import { WebScrollView } from '../components/WebScrollView';
 import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
 import { getPushPermission, requestPermissionAndSubscribe } from '../lib/webPush';
+import { getBusinessTodayParts } from '../utils/businessDay';
 
 export default function EODCountScreen() {
   const { currentUser, currentStore, inventory, eodSubmissions, submitEOD, addNotification, vendors, orderSchedule, timezone } = useStore();
@@ -28,26 +29,21 @@ export default function EODCountScreen() {
   const [showAllItems, setShowAllItems] = useState(false);
 
   const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const actualToday = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+  // Business day rolls over at 3 AM local — so "today" stays on yesterday's
+  // calendar date until the late-night closing shift is well done.
+  const businessToday = useMemo(
+    () => getBusinessTodayParts(timezone || 'America/New_York'),
+    [timezone],
+  );
+  const actualToday = businessToday.weekday;
 
   // For each weekday, compute the date of its NEXT occurrence in store-local
-  // time: today if today's weekday matches, otherwise the future date within
-  // the next 7 days. Example (if today is Thu 23rd):
+  // business-day time. Example (if business-today is Thu 23rd):
   //   Mon → Mon 27th, Tue → Tue 28th, Wed → Wed 29th,
   //   Thu → Thu 23rd, Fri → Fri 24th, Sat → Sat 25th, Sun → Sun 26th
   const dayLabels = useMemo(() => {
-    const tz = timezone || 'America/New_York';
-    // Today's Y/M/D in the store's timezone, built so UTC arithmetic from
-    // here doesn't drift across DST.
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
-      if (p.type !== 'literal') acc[p.type] = p.value;
-      return acc;
-    }, {});
-    const base = new Date(Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-    ));
+    const base = new Date(Date.UTC(businessToday.year, businessToday.month - 1, businessToday.day));
     const baseWeekday = base.getUTCDay(); // 0 = Sunday … 6 = Saturday
 
     const weekdayIndex: Record<string, number> = {
@@ -74,10 +70,12 @@ export default function EODCountScreen() {
       labels[name] = `${name.slice(0, 3)} ${d}${ordinal(d)}`;
     }
     return labels;
-  }, [timezone]);
+  }, [businessToday]);
   const [selectedDay, setSelectedDay] = useState(actualToday);
 
-  const todayISO = new Date().toISOString().split('T')[0];
+  // Business-day ISO, so at 1 AM Friday the "today's EOD" lookup still matches
+  // a submission that was saved during the Thursday shift (date=2026-04-23).
+  const todayISO = businessToday.dateISO;
 
   // Find if current user already submitted today
   const myTodaySubmission = eodSubmissions.find(

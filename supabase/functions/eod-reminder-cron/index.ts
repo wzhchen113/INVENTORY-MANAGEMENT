@@ -1,20 +1,13 @@
 // EOD + vendor-order reminder cron, with email fallback.
-//
-// EOD track is STORE-LEVEL: once anyone at the store submits today's count,
-// nobody (store users or admins) gets EOD reminders for that store.
-// Vendor track is also store-level: once a purchase_order for (store, vendor)
-// is placed, no vendor-cutoff reminder fires.
-//
-// Delivery per user per bucket:
-//   1. Web Push to every subscription
-//   2. If none delivered, email via Resend
-//   3. Dedup log row if either succeeded (no double-nag)
-//   4. Bell-icon row always, as the safety net
+// Business day rolls over at 3 AM local — so a 01:30 AM reminder check on
+// what's calendar-Friday still considers the current date to be Thursday for
+// EOD / order dedup purposes, matching the client's view.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
 const BUCKETS = [60, 30, 10] as const;
 const TOLERANCE_MIN = 2.5;
+const BUSINESS_DAY_ROLLOVER_HOURS = 3;
 const APP_URL = 'https://hopeful-lewin.vercel.app';
 
 type Store = { id: string; name: string; eod_deadline_time: string | null };
@@ -22,24 +15,39 @@ type Vendor = { id: string; name: string; order_cutoff_time: string | null };
 type SchedRow = { store_id: string; vendor_id: string };
 type Sub = { user_id: string; endpoint: string; p256dh: string; auth: string };
 
-function nowPartsInTZ(tz: string) {
+function wallPartsInTZ(tz: string, at?: Date) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: tz, weekday: 'long',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
+  }).formatToParts(at ?? new Date()).reduce<Record<string, string>>((acc, p) => {
     if (p.type !== 'literal') acc[p.type] = p.value;
     return acc;
   }, {});
 }
 
+// Business-day date + weekday for "now minus 3 hours" — used for matching
+// against eod_submissions.date / purchase_orders.created_at ~today, and for
+// order_schedule.day_of_week.
+function businessTodayInTZ(tz: string) {
+  const shifted = new Date(Date.now() - BUSINESS_DAY_ROLLOVER_HOURS * 3_600_000);
+  const parts = wallPartsInTZ(tz, shifted);
+  return {
+    localDate: `${parts.year}-${parts.month}-${parts.day}`,
+    weekday: parts.weekday,
+  };
+}
+
+// Wall-clock "minutes until cutoff" — uses the REAL current time in tz, because
+// reminder buckets fire against the cutoff time on the wall clock, not against
+// the business-day date. Returns the business-day date for dedup purposes.
 function minutesUntilCutoff(cutoffHHMM: string, tz: string) {
-  const parts = nowPartsInTZ(tz);
-  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
-  const localMinutes = Number(parts.hour) * 60 + Number(parts.minute);
+  const wall = wallPartsInTZ(tz);
+  const biz = businessTodayInTZ(tz);
+  const localMinutes = Number(wall.hour) * 60 + Number(wall.minute);
   const [ch, cm] = cutoffHHMM.split(':').map(Number);
   const cutoffMinutes = ch * 60 + cm;
-  return { minutes: cutoffMinutes - localMinutes, localDate, weekday: parts.weekday };
+  return { minutes: cutoffMinutes - localMinutes, localDate: biz.localDate, weekday: biz.weekday };
 }
 
 function inWindow(minutesUntil: number, bucket: number) {
@@ -73,10 +81,7 @@ async function sendEmailViaResend(
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to, subject, html }),
     });
     if (!r.ok) {
@@ -121,7 +126,6 @@ Deno.serve(async (_req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // Cache of userId -> email so we don't call auth admin API more than once per user per tick.
     const emailCache = new Map<string, string | null>();
     async function lookupEmail(userId: string): Promise<string | null> {
       if (emailCache.has(userId)) return emailCache.get(userId)!;
@@ -145,7 +149,7 @@ Deno.serve(async (_req) => {
       let emailed = false;
       if (!sentAny) {
         if (!RESEND_API_KEY) {
-          console.warn(`[email fallback] no RESEND_API_KEY; push failed for user ${userId}, no email sent`);
+          console.warn(`[email fallback] no RESEND_API_KEY; push failed for user ${userId}`);
         } else {
           const email = await lookupEmail(userId);
           if (email) {
@@ -157,9 +161,7 @@ Deno.serve(async (_req) => {
     }
 
     const { data: stores, error: storesErr } = await sb
-      .from('stores')
-      .select('id, name, eod_deadline_time')
-      .eq('status', 'active');
+      .from('stores').select('id, name, eod_deadline_time').eq('status', 'active');
     if (storesErr) return new Response(JSON.stringify({ ok: false, error: `stores: ${storesErr.message}` }), { status: 500 });
 
     const { data: adminRows, error: adminErr } = await sb
@@ -191,8 +193,6 @@ Deno.serve(async (_req) => {
       const bucket = BUCKETS.find((b) => inWindow(minutes, b));
       if (!bucket) continue;
 
-      // Store-level gate: if ANYONE has submitted EOD for this store today,
-      // skip the whole store (don't nag other users or admins).
       const { data: submittedRows } = await sb.from('eod_submissions')
         .select('id').eq('store_id', store.id).eq('date', localDate).limit(1);
       if (submittedRows && submittedRows.length > 0) {
@@ -228,8 +228,8 @@ Deno.serve(async (_req) => {
       summary.eod.push({ storeName: store.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed, emailed });
     }
 
-    // ─── TRACK 2: Vendor order cutoff ────────────────────────────────────
-    const { weekday } = minutesUntilCutoff('00:00', DEFAULT_TZ);
+    // ─── TRACK 2: Vendor order cutoff (store-level via purchase_orders) ─────────
+    const { weekday } = businessTodayInTZ(DEFAULT_TZ);
     const { data: schedRows } = await sb.from('order_schedule')
       .select('store_id, vendor_id').eq('day_of_week', weekday);
 

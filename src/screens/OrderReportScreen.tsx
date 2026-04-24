@@ -11,6 +11,7 @@ import DatePicker from '../components/DatePicker';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { calculateDynamicOrder, getDaysToCover, DynamicOrderLine } from '../lib/orderCalculator';
 import { Vendor } from '../types';
+import { getBusinessTodayParts } from '../utils/businessDay';
 
 // ── Day helpers ───────────────────────────────────────────────
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -116,20 +117,10 @@ export default function OrderReportScreen() {
   // eodRemaining field on each InventoryItem is stale — it reflects whatever
   // the last submission was, not today. We surface that so the report isn't
   // misleading.
-  const todayISO = useMemo(() => {
-    try {
-      const tz = timezone || 'America/New_York';
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      }).formatToParts(new Date()).reduce<Record<string, string>>((acc, p) => {
-        if (p.type !== 'literal') acc[p.type] = p.value;
-        return acc;
-      }, {});
-      return `${parts.year}-${parts.month}-${parts.day}`;
-    } catch {
-      return new Date().toISOString().split('T')[0];
-    }
-  }, [timezone]);
+  const todayISO = useMemo(
+    () => getBusinessTodayParts(timezone || 'America/New_York').dateISO,
+    [timezone],
+  );
 
   const todayHasEOD = useMemo(
     () => eodSubmissions.some((s) => s.storeId === currentStore.id && s.date === todayISO),
