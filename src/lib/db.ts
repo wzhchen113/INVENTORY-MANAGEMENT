@@ -224,6 +224,10 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
 // duplicates. Keyed on the UNIQUE constraint eod_submissions_store_date_user_key.
 // Entries are replaced wholesale (delete-then-insert) so items removed from the
 // edit screen disappear cleanly and we don't maintain diffing logic here.
+//
+// Errors are console.warn'd before being rethrown so `.catch(() => null)` at
+// the call site still hides them from the user but developers can see the
+// real reason (RLS, unique-key mismatch, network) in the browser console.
 export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Promise<string> {
   const { data, error } = await supabase
     .from('eod_submissions')
@@ -239,13 +243,20 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
     )
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    console.warn('[Supabase] submitEODCount upsert parent:', error.message, error);
+    throw error;
+  }
 
   // Replace entries wholesale: drop the old set, then insert the new set.
-  await supabase.from('eod_entries').delete().eq('submission_id', data.id);
+  const del = await supabase.from('eod_entries').delete().eq('submission_id', data.id);
+  if (del.error) {
+    console.warn('[Supabase] submitEODCount delete entries:', del.error.message, del.error);
+    throw del.error;
+  }
 
   if (submission.entries.length > 0) {
-    await supabase.from('eod_entries').insert(
+    const ins = await supabase.from('eod_entries').insert(
       submission.entries.map((e) => ({
         submission_id: data.id,
         item_id: e.itemId,
@@ -255,13 +266,22 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
         notes: e.notes || '',
       }))
     );
+    if (ins.error) {
+      console.warn('[Supabase] submitEODCount insert entries:', ins.error.message, ins.error);
+      throw ins.error;
+    }
 
     // Update eod_remaining on each item
     for (const entry of submission.entries) {
-      await supabase
+      const upd = await supabase
         .from('inventory_items')
         .update({ eod_remaining: entry.actualRemaining, last_updated_by: submission.submittedByUserId })
         .eq('id', entry.itemId);
+      if (upd.error) {
+        console.warn('[Supabase] submitEODCount update item:', entry.itemId, upd.error.message);
+        // Don't throw — parent + entries already landed, item-level eod_remaining
+        // is a nice-to-have. Surface in console for debugging.
+      }
     }
   }
 
