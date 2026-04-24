@@ -11,6 +11,7 @@ import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/c
 import { PrepRecipe, PrepRecipeIngredient } from '../types';
 import IngredientEditor from '../components/IngredientEditor';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 
 const PREP_CATEGORIES = ['Marinades', 'Sauces', 'Bases', 'Seasonings', 'Prep'];
 
@@ -282,6 +283,7 @@ export default function PrepRecipesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       {/* Info bar */}
       <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
         <Text style={[styles.infoText, { color: C.info }]}>

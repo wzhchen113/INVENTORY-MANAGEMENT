@@ -10,6 +10,7 @@ import { numericFilter, toCSV, downloadCSV, numFirstSort } from '../utils';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 
 const UNITS = ['lbs', 'oz', 'cases', 'each', 'gal', 'qt', 'loaves', 'bags'];
 
@@ -542,6 +543,7 @@ export default function IngredientsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
+      <TimezoneBar />
       {/* Header row */}
       <View style={styles.headerRow}>
         <View style={[styles.searchBar, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>

@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { EODSubmission } from '../types';
 
@@ -56,6 +57,7 @@ export default function EODHistoryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
+      <TimezoneBar />
       {/* Store filter pills */}
       <View style={styles.pillWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>

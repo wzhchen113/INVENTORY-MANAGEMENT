@@ -9,6 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, KpiCard, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 
 const ALL_STORES_ID = '__all__';
@@ -67,7 +68,9 @@ export default function DashboardScreen() {
   const foodCostPct = storeInventory.length > 0 ? 31.4 : 0;
 
   return (
-    <WebScrollView id="dashboard-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
+      <WebScrollView id="dashboard-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Store info bar */}
       <View style={styles.storeInfoBar}>
         <View style={{ flex: 1 }}>
@@ -190,6 +193,7 @@ export default function DashboardScreen() {
       <View style={{ height: 40 }} />
 
     </WebScrollView>
+    </View>
   );
 }
 

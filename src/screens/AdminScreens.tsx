@@ -15,6 +15,7 @@ import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../compon
 import IngredientEditor from '../components/IngredientEditor';
 import DatePicker from '../components/DatePicker';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { Recipe, Vendor, RecipeIngredient, RecipePrepItem } from '../types';
 import { calculateWeeklyUsageTrend } from '../utils/usageCalculations';
@@ -245,6 +246,7 @@ export function RecipesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <View style={[styles.infoBar, { backgroundColor: C.infoBg }]}>
         <Text style={[styles.infoText, { color: C.info }]}>Map each menu item to exact ingredient quantities. POS sales will auto-deduct inventory using these ratios.</Text>
       </View>
@@ -681,6 +683,7 @@ export function VendorsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <WebScrollView id="vendors-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
@@ -819,6 +822,7 @@ export function AuditLogScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <View style={{ paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm }}>
         <DatePicker value={dateFilter} onChange={setDateFilter} label="Filter by date" placeholder="All dates" />
       </View>
@@ -871,6 +875,8 @@ export function ReportsScreen() {
   );
 
   return (
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <TimezoneBar />
     <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg, backgroundColor: C.bgTertiary }}>
       {/* Tabs */}
       <View style={[styles.tabBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
@@ -979,6 +985,7 @@ export function ReportsScreen() {
         </>
       )}
     </WebScrollView>
+    </View>
   );
 }
 
@@ -1189,6 +1196,7 @@ export function UsersScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <WebScrollView id="users-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         {/* Store management section (admin + master) */}
         {canManageStores && (

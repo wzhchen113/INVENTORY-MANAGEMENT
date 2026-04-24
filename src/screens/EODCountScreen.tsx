@@ -11,6 +11,7 @@ import { submitEODCount } from '../lib/db';
 import { numericFilter } from '../utils';
 import { Card, CardHeader } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
+import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, Spacing, Radius, FontSize, useColors } from '../theme/colors';
 import { EODEntry } from '../types';
 import { getPushPermission, requestPermissionAndSubscribe } from '../lib/webPush';
@@ -669,6 +670,8 @@ export default function EODCountScreen() {
     ].sort();
 
     return (
+      <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <WebScrollView id="eod-submitted-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
         {/* Summary header */}
         <View style={[styles.submittedHeader, { backgroundColor: C.successBg }]}>
@@ -730,6 +733,7 @@ export default function EODCountScreen() {
 
         <View style={{ height: 40 }} />
       </WebScrollView>
+      </View>
     );
   }
 
@@ -743,6 +747,8 @@ export default function EODCountScreen() {
     ].sort();
 
     return (
+      <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+      <TimezoneBar />
       <WebScrollView id="eod-edit-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
         <View style={[styles.editingBanner, { backgroundColor: C.warningBg }]}>
           <Ionicons name="create-outline" size={16} color={C.warning} />
@@ -859,11 +865,14 @@ export default function EODCountScreen() {
 
         <View style={{ height: 40 }} />
       </WebScrollView>
+      </View>
     );
   }
 
   // ── New count view ──────────────────────────────────────
   return (
+    <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <TimezoneBar />
     <WebScrollView id="eod-count-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
       {/* Attribution notice */}
       <View style={[styles.notice, { backgroundColor: C.infoBg }]}>
@@ -1196,6 +1205,7 @@ export default function EODCountScreen() {
 
       <View style={{ height: 40 }} />
     </WebScrollView>
+    </View>
   );
 }
 
