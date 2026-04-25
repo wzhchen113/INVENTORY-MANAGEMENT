@@ -70,13 +70,14 @@ export function calculateWeeklyUsageTrend(
   posImports: POSImport[],
   recipes: Recipe[],
   storeId: string,
-  numWeeks = 4,
+  endDateISO: string,
+  numWeeks: number,
 ): UsageTrendItem[] {
-  const today = new Date();
+  const endAnchor = new Date(endDateISO + 'T00:00:00');
   const allItems = new Map<string, { itemName: string; unit: string; weeks: number[] }>();
 
   for (let w = 0; w < numWeeks; w++) {
-    const end = new Date(today);
+    const end = new Date(endAnchor);
     end.setDate(end.getDate() - w * 7);
     const start = new Date(end);
     start.setDate(start.getDate() - 6);

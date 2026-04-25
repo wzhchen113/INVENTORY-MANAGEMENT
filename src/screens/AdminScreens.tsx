@@ -14,6 +14,7 @@ import Toast from 'react-native-toast-message';
 import { Card, CardHeader, Badge, WhoChip, KpiCard, EmptyState } from '../components';
 import IngredientEditor from '../components/IngredientEditor';
 import DatePicker from '../components/DatePicker';
+import DateScopeBar, { DateScopeMode } from '../components/DateScopeBar';
 import { WebScrollView } from '../components/WebScrollView';
 import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
@@ -863,21 +864,91 @@ export function AuditLogScreen() {
 }
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function shortDate(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export function ReportsScreen() {
   const C = useColors();
   const [tab, setTab] = useState<'foodcost' | 'usage' | 'waste'>('foodcost');
   const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore } = useStore();
 
-  const totalWaste = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
-  const usageTrend = React.useMemo(
-    () => calculateWeeklyUsageTrend(posImports, recipes, currentStore.id, 4),
-    [posImports, recipes, currentStore.id]
+  const today = todayISO();
+  const [mode, setMode] = useState<DateScopeMode>('range');
+  const [startDate, setStartDate] = useState(() => shiftDays(today, -27));
+  const [endDate, setEndDate] = useState(today);
+
+  const effectiveStart = mode === 'single' ? endDate : startDate;
+  const effectiveEnd = endDate;
+  const rangeValid = !!effectiveStart && !!effectiveEnd && effectiveStart <= effectiveEnd;
+
+  const numWeeks = useMemo(() => {
+    if (!rangeValid) return 1;
+    const start = new Date(effectiveStart + 'T00:00:00');
+    const end = new Date(effectiveEnd + 'T00:00:00');
+    const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+    return Math.max(1, Math.ceil(days / 7));
+  }, [effectiveStart, effectiveEnd, rangeValid]);
+
+  const usageTrend = useMemo(
+    () => rangeValid
+      ? calculateWeeklyUsageTrend(posImports, recipes, currentStore.id, effectiveEnd, numWeeks)
+      : [],
+    [posImports, recipes, currentStore.id, effectiveEnd, numWeeks, rangeValid]
   );
+
+  const wasteInRange = useMemo(
+    () => rangeValid
+      ? wasteLog.filter((e) =>
+          e.storeId === currentStore.id
+          && (e.timestamp || '').slice(0, 10) >= effectiveStart
+          && (e.timestamp || '').slice(0, 10) <= effectiveEnd
+        )
+      : [],
+    [wasteLog, currentStore.id, effectiveStart, effectiveEnd, rangeValid]
+  );
+  const totalWaste = wasteInRange.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
+
+  const rangeLabel = effectiveStart === effectiveEnd
+    ? shortDate(effectiveStart)
+    : `${shortDate(effectiveStart)} – ${shortDate(effectiveEnd)}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="reports-scroll" contentContainerStyle={{ padding: Spacing.lg, backgroundColor: C.bgTertiary }}>
+      {/* Date scope */}
+      <DateScopeBar
+        mode={mode}
+        startDate={startDate}
+        endDate={endDate}
+        onModeChange={setMode}
+        onStartChange={setStartDate}
+        onEndChange={setEndDate}
+        defaultDate={today}
+        testIdPrefix="reports"
+        singleLabel="Reports date"
+        singleToRangeGapDays={27}
+      />
+      {!rangeValid && (
+        <View style={[styles.warnBox, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
+          <Text style={[styles.warnText, { color: C.warning }]}>Start date must be on or before end date.</Text>
+        </View>
+      )}
+
       {/* Tabs */}
       <View style={[styles.tabBar, { backgroundColor: C.bgPrimary, borderBottomColor: C.borderLight }]}>
         {(['foodcost', 'usage', 'waste'] as const).map((t) => (
@@ -891,6 +962,9 @@ export function ReportsScreen() {
 
       {tab === 'foodcost' && (
         <>
+          <Text style={[styles.snapshotHint, { color: C.textTertiary }]}>
+            Snapshot — not affected by the selected date range.
+          </Text>
           <View style={styles.kpiRow}>
             <KpiCard label="Overall food cost %" value="31.4%" sub="Target 28–35% ✓" variant="success" />
             <View style={{ width: Spacing.sm }} />
@@ -938,7 +1012,7 @@ export function ReportsScreen() {
         <Card>
           <CardHeader title={`Weekly ingredient usage — ${currentStore.name}`} />
           {usageTrend.length === 0 ? (
-            <EmptyState message="No POS data imported yet. Import sales from the POS screen to see usage trends." />
+            <EmptyState message="No POS data in the selected range. Pick a wider window or import POS sales." />
           ) : (
             usageTrend.map((u) => {
               const maxVal = Math.max(...u.weeklyAmounts, 1);
@@ -966,21 +1040,25 @@ export function ReportsScreen() {
       {tab === 'waste' && (
         <>
           <View style={styles.kpiRow}>
-            <KpiCard label="Total waste" value={`$${totalWaste.toFixed(0)}`} sub="This week" variant="warning" />
+            <KpiCard label="Total waste" value={`$${totalWaste.toFixed(0)}`} sub={rangeLabel} variant="warning" />
             <View style={{ width: Spacing.sm }} />
             <KpiCard label="As % of revenue" value="1.6%" sub="Industry avg 2–4%" variant="success" />
           </View>
           <Card>
             <CardHeader title="Waste entries" />
-            {wasteLog.map((e) => (
-              <View key={e.id} style={[styles.wasteReportRow, { borderBottomColor: C.borderLight }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.reportName, { color: C.textPrimary }]}>{e.itemName}</Text>
-                  <Text style={[styles.reportSub, { color: C.textSecondary }]}>{e.reason} · {e.quantity} {e.unit}</Text>
+            {wasteInRange.length === 0 ? (
+              <EmptyState message="No waste entries in this range." />
+            ) : (
+              wasteInRange.map((e) => (
+                <View key={e.id} style={[styles.wasteReportRow, { borderBottomColor: C.borderLight }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.reportName, { color: C.textPrimary }]}>{e.itemName}</Text>
+                    <Text style={[styles.reportSub, { color: C.textSecondary }]}>{e.reason} · {e.quantity} {e.unit}</Text>
+                  </View>
+                  <Text style={[styles.reportPct, { color: C.warning }]}>${(e.quantity * e.costPerUnit).toFixed(2)}</Text>
                 </View>
-                <Text style={[styles.reportPct, { color: C.warning }]}>${(e.quantity * e.costPerUnit).toFixed(2)}</Text>
-              </View>
-            ))}
+              ))
+            )}
           </Card>
         </>
       )}
@@ -1502,6 +1580,9 @@ const styles = StyleSheet.create({
   weekBar: { width: 14, borderRadius: 2 },
   weekLabel: { fontSize: 8, color: Colors.textTertiary },
   wasteReportRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
+  warnBox: { borderWidth: 0.5, borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm },
+  warnText: { fontSize: FontSize.xs, fontWeight: '500' },
+  snapshotHint: { fontSize: FontSize.xs, fontStyle: 'italic', marginBottom: Spacing.sm },
   userCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
   userTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
   userAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
