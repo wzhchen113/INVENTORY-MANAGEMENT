@@ -866,12 +866,12 @@ export function AuditLogScreen() {
 export function ReportsScreen() {
   const C = useColors();
   const [tab, setTab] = useState<'foodcost' | 'usage' | 'waste'>('foodcost');
-  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore } = useStore();
+  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore, inventory, ingredientConversions } = useStore();
 
   const totalWaste = wasteLog.reduce((s, e) => s + e.quantity * e.costPerUnit, 0);
   const usageTrend = React.useMemo(
-    () => calculateWeeklyUsageTrend(posImports, recipes, currentStore.id, 4),
-    [posImports, recipes, currentStore.id]
+    () => calculateWeeklyUsageTrend(posImports, recipes, inventory, currentStore.id, 4, ingredientConversions),
+    [posImports, recipes, inventory, currentStore.id, ingredientConversions]
   );
 
   return (

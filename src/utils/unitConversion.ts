@@ -1,5 +1,5 @@
 // src/utils/unitConversion.ts
-import { IngredientConversion } from '../types';
+import { IngredientConversion, InventoryItem } from '../types';
 
 // ─── Standard unit conversion to absolute base units ────────────────────
 // Weight → grams (base unit: 'g')
@@ -170,6 +170,87 @@ export function getAllDisplayUnits(unit: string, itemConversions?: IngredientCon
     return [...standard, ...abstract];
   }
   return standard;
+}
+
+// ─── Recipe → Inventory unit reconciliation ─────────────────────────────
+
+/**
+ * Convert a recipe-side quantity into the inventory item's tracking unit.
+ *
+ * Used by reconciliation / usage trend / order calc — wherever we need to
+ * say "X sales × Y per-recipe = Z of the inventory unit". The recipe unit
+ * (`fromUnit`) and the item's tracking unit (`item.unit`) are independent
+ * fields, so e.g. a recipe can say "0.5 oz" of an item tracked in "cases".
+ *
+ * Resolution order (first match wins):
+ *   1. Same unit (case-insensitive) → no conversion needed.
+ *   2. Both standard weight or both standard volume → convert via the
+ *      base-unit table (oz↔lbs, g↔kg, fl_oz↔cups…).
+ *   3. Recipe in a standard sub-unit, item tracked in cases (or other
+ *      abstract pack) → use item.caseQty × item.subUnitSize to get total
+ *      sub-units per case, then divide. This is the common case for things
+ *      like "0.5 oz cheese, tracked in cases of 20×80oz".
+ *   4. Item has an `IngredientConversion` row whose `purchaseUnit` matches
+ *      the item's tracking unit → use smartToBase / smartFromBase to
+ *      bridge any unit pair (handles per-store custom packs).
+ *
+ * Returns `null` if none of the above resolve — the caller should mark the
+ * line `unitMismatch: true` and exclude it from variance classification
+ * rather than display a misleading number.
+ */
+export function convertToItemUnit(
+  qty: number,
+  fromUnit: string,
+  item: InventoryItem | undefined,
+  conversions?: IngredientConversion[],
+): number | null {
+  if (!item) return null;
+  const from = (fromUnit || '').toLowerCase().trim();
+  const to = (item.unit || '').toLowerCase().trim();
+  if (!from || !to) return null;
+
+  // Case 1: identical units.
+  if (from === to) return qty;
+
+  // Case 2: both within the same standard group (weight↔weight, vol↔vol).
+  const direct = convertQuantity(qty, from, to);
+  if (direct !== null) return direct;
+
+  // Case 3: item tracked in an abstract pack. caseQty × subUnitSize tells
+  // us how many of the pack's sub-units are inside one tracking unit. If
+  // the recipe is in that sub-unit (or a standard cousin like oz vs lbs),
+  // we can convert.
+  const totalSubUnitsPerTrackingUnit = (item.caseQty || 0) * (item.subUnitSize || 0);
+  if (totalSubUnitsPerTrackingUnit > 0 && item.subUnitUnit) {
+    const subUnit = item.subUnitUnit.toLowerCase().trim();
+    if (from === subUnit) {
+      return qty / totalSubUnitsPerTrackingUnit;
+    }
+    // Recipe in a standard cousin of the sub-unit (e.g. oz when sub is lbs).
+    const toSubUnit = convertQuantity(qty, from, subUnit);
+    if (toSubUnit !== null) {
+      return toSubUnit / totalSubUnitsPerTrackingUnit;
+    }
+  }
+
+  // Case 4: item-specific conversion rows. Bridge through the base unit.
+  if (conversions && conversions.length > 0) {
+    const itemConvs = conversions.filter((c) => c.inventoryItemId === item.id);
+    if (itemConvs.length > 0) {
+      const base = smartToBase(qty, from, itemConvs);
+      const back = smartFromBase(base.quantity, base.unit, item.unit, itemConvs);
+      // smartFromBase returns 1:1 fallback when it can't resolve — guard
+      // against that by requiring at least one of the legs to have actually
+      // matched (i.e. base.unit must differ from a literal-fallback path
+      // OR a matching conversion row exists for item.unit).
+      const itemUnitHasConv = itemConvs.some(
+        (c) => c.purchaseUnit.toLowerCase() === item.unit.toLowerCase(),
+      );
+      if (itemUnitHasConv) return back;
+    }
+  }
+
+  return null;
 }
 
 /** Calculate unit cost from case pricing */
