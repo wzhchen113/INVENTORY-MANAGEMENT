@@ -1088,6 +1088,11 @@ export function UsersScreen() {
   const [deleteStoreTarget, setDeleteStoreTarget] = useState<typeof stores[0] | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
+  // User-delete typed-confirm state. Mirrors the store-delete pattern: open
+  // a modal that demands the user's email before the destructive action fires.
+  const [deleteUserTarget, setDeleteUserTarget] = useState<typeof users[0] | null>(null);
+  const [deleteUserConfirmEmail, setDeleteUserConfirmEmail] = useState('');
+
   // Validate HH:MM (24h); returns trimmed value if valid, empty string for empty input, null if malformed.
   const parseHHMM = (raw: string): string | null => {
     const v = raw.trim();
@@ -1237,38 +1242,50 @@ export function UsersScreen() {
       return;
     }
 
-    const title = isSelf ? 'Delete your account?' : `Delete ${user.name}?`;
-    const message = isSelf
-      ? 'This will permanently delete your account and sign you out. This cannot be undone.'
-      : `This will permanently remove ${user.name} from the system. This cannot be undone.`;
+    // Open the typed-confirm modal — actual delete fires from
+    // handleConfirmDeleteUser only when the typed email matches.
+    setDeleteUserTarget(user);
+    setDeleteUserConfirmEmail('');
+  };
 
-    const doDelete = async () => {
-      removeUser(user.id);
-      const { deleteUser: supabaseDelete } = await import('../lib/auth');
-      await supabaseDelete(user.id);
+  // Email match: case-insensitive (RFC says emails are) and whitespace-trimmed
+  // (paste foot-gun). Empty target email blocks the action — we don't want a
+  // seeded user with a missing email to be deletable by typing nothing.
+  const deleteUserTargetEmail = (deleteUserTarget?.email ?? '').trim().toLowerCase();
+  const deleteUserEmailMatches =
+    deleteUserTargetEmail.length > 0 &&
+    deleteUserConfirmEmail.trim().toLowerCase() === deleteUserTargetEmail;
 
-      addNotification(`${user.name} account has been deleted.`);
+  const closeDeleteUserModal = () => {
+    setDeleteUserTarget(null);
+    setDeleteUserConfirmEmail('');
+  };
 
-      if (isSelf) {
-        Toast.show({ type: 'success', text1: 'Account deleted', text2: 'Your account has been removed. Signing out...', visibilityTime: 2000 });
-        logout();
-        // Force reload to login page after a brief delay
-        if (Platform.OS === 'web') {
-          setTimeout(() => { window.location.href = '/'; }, 1500);
-        }
-      } else {
-        Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been successfully removed.`, visibilityTime: 3000 });
-        refreshCloudUsers();
+  const handleConfirmDeleteUser = async () => {
+    if (!deleteUserTarget || !deleteUserEmailMatches) return;
+    const user = deleteUserTarget;
+    const isSelf = user.id === currentUser?.id;
+
+    // Close the modal first so the user sees the toast/sign-out flow rather
+    // than a stale dialog.
+    closeDeleteUserModal();
+
+    removeUser(user.id);
+    const { deleteUser: supabaseDelete } = await import('../lib/auth');
+    await supabaseDelete(user.id);
+
+    addNotification(`${user.name} account has been deleted.`);
+
+    if (isSelf) {
+      Toast.show({ type: 'success', text1: 'Account deleted', text2: 'Your account has been removed. Signing out...', visibilityTime: 2000 });
+      logout();
+      // Force reload to login page after a brief delay
+      if (Platform.OS === 'web') {
+        setTimeout(() => { window.location.href = '/'; }, 1500);
       }
-    };
-
-    if (Platform.OS === 'web') {
-      if (confirm(title + '\n' + message)) doDelete();
     } else {
-      Alert.alert(title, message, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
+      Toast.show({ type: 'success', text1: 'User deleted', text2: `${user.name} has been successfully removed.`, visibilityTime: 3000 });
+      refreshCloudUsers();
     }
   };
 
@@ -1506,6 +1523,71 @@ export function UsersScreen() {
                 disabled={deleteConfirmName !== deleteStoreTarget?.name}
               >
                 <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>Delete store</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete User Confirmation Modal — type-the-email gate */}
+      <Modal visible={!!deleteUserTarget} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmBox, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+            <Text style={[styles.confirmTitle, { color: C.danger }]}>
+              {deleteUserTarget?.id === currentUser?.id ? 'Delete your account' : 'Delete user'}
+            </Text>
+            {deleteUserTarget?.id === currentUser?.id ? (
+              <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>
+                This will permanently delete your account
+                {deleteUserTarget?.email ? (
+                  <>
+                    {' ('}
+                    <Text style={{ fontWeight: '700', color: C.textPrimary }}>{deleteUserTarget.email}</Text>
+                    {')'}
+                  </>
+                ) : null}
+                {' '}and sign you out. This cannot be undone.
+              </Text>
+            ) : (
+              <Text style={[styles.confirmMessage, { color: C.textSecondary }]}>
+                This will permanently delete{' '}
+                <Text style={{ fontWeight: '700', color: C.textPrimary }}>"{deleteUserTarget?.name}"</Text>
+                {deleteUserTarget?.email ? (
+                  <>
+                    {' ('}
+                    <Text style={{ fontWeight: '700', color: C.textPrimary }}>{deleteUserTarget.email}</Text>
+                    {')'}
+                  </>
+                ) : null}
+                . This cannot be undone.
+              </Text>
+            )}
+            <Text style={[styles.confirmMessage, { color: C.textSecondary, marginTop: Spacing.sm }]}>
+              Type the email address to confirm:
+            </Text>
+            <TextInput
+              style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium, marginTop: Spacing.sm }]}
+              value={deleteUserConfirmEmail}
+              onChangeText={setDeleteUserConfirmEmail}
+              placeholder={deleteUserTarget?.email || ''}
+              placeholderTextColor={C.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              autoFocus
+            />
+            <View style={styles.confirmBtnRow}>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.bgSecondary }]} onPress={closeDeleteUserModal}>
+                <Text style={[styles.confirmBtnText, { color: C.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: C.danger }, !deleteUserEmailMatches && { opacity: 0.3 }]}
+                onPress={handleConfirmDeleteUser}
+                disabled={!deleteUserEmailMatches}
+              >
+                <Text style={[styles.confirmBtnText, { color: C.bgPrimary }]}>
+                  {deleteUserTarget?.id === currentUser?.id ? 'Delete account' : 'Delete user'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
