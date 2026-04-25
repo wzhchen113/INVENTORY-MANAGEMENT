@@ -48,6 +48,18 @@ export default function ItemsScreen() {
 
   const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
 
+  // Chip counts: derived from the full store inventory, NOT the post-filter
+  // list. The chips are a navigation tool — "Protein (8)" should mean "8
+  // proteins exist", not "8 proteins matching your current search". Mirrors
+  // the IngredientsScreen pattern.
+  const allCount = storeInventory.length;
+  const lowCount = storeInventory.filter((i) => getItemStatus(i) === 'low').length;
+  const outCount = storeInventory.filter((i) => getItemStatus(i) === 'out').length;
+  const categoryCounts: Record<string, number> = {};
+  storeInventory.forEach((i) => {
+    categoryCounts[i.category] = (categoryCounts[i.category] || 0) + 1;
+  });
+
   const filtered = storeInventory.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (catFilter && item.category !== catFilter) return false;
@@ -185,11 +197,12 @@ export default function ItemsScreen() {
             onPress={() => { setCatFilter(''); setStatusFilter(''); }}
           >
             <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === '' && statusFilter === '' && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
-              All
+              All ({allCount})
             </Text>
           </TouchableOpacity>
           {statusChips.map((chip) => {
             const active = statusFilter === chip.key;
+            const count = chip.key === 'low' ? lowCount : outCount;
             return (
               <TouchableOpacity
                 key={chip.key}
@@ -197,7 +210,7 @@ export default function ItemsScreen() {
                 onPress={() => setStatusFilter(active ? '' : chip.key)}
               >
                 <Text style={[styles.catChipText, { color: C.textSecondary }, active && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
-                  {chip.label}
+                  {chip.label} ({count})
                 </Text>
               </TouchableOpacity>
             );
@@ -209,7 +222,7 @@ export default function ItemsScreen() {
               onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
             >
               <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === cat && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
-                {cat}
+                {cat} ({categoryCounts[cat] || 0})
               </Text>
             </TouchableOpacity>
           ))}
