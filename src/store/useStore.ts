@@ -12,6 +12,23 @@ import {
   EOD_SUBMISSIONS, POS_IMPORTS,
 } from '../data/seed';
 import * as db from '../lib/db';
+import { supabase } from '../lib/supabase';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const DARK_MODE_KEY = 'darkMode';
+
+// Fire-and-forget local cache so the boot-time hydrator in App.tsx can
+// restore the theme before the first paint, without waiting on Supabase.
+function persistDarkModeLocal(value: boolean) {
+  try {
+    if (Platform.OS === 'web') {
+      window.localStorage.setItem(DARK_MODE_KEY, String(value));
+    } else {
+      AsyncStorage.setItem(DARK_MODE_KEY, String(value)).catch(() => { /* best-effort */ });
+    }
+  } catch { /* best-effort */ }
+}
 
 interface StoreActions {
   // Auth
@@ -79,6 +96,9 @@ interface StoreActions {
   submitOrder: (submission: Omit<OrderSubmission, 'id'>) => void;
   setTimezone: (tz: string) => void;
   toggleDarkMode: () => void;
+  /** Apply a dark-mode value WITHOUT persisting — used at boot to restore
+   *  the cached / DB-stored preference. */
+  setDarkMode: (value: boolean) => void;
 
   // Notifications
   addNotification: (message: string) => void;
@@ -827,7 +847,23 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   toggleDarkMode: () => {
-    set((s) => ({ darkMode: !s.darkMode }));
+    const next = !get().darkMode;
+    set({ darkMode: next });
+    // Persist locally (web localStorage / native AsyncStorage) for instant
+    // boot-time restore, plus push to profiles.dark_mode so it follows the
+    // user across devices. Both writes are fire-and-forget — UI never waits.
+    persistDarkModeLocal(next);
+    const userId = get().currentUser?.id;
+    if (userId) {
+      supabase.from('profiles').update({ dark_mode: next }).eq('id', userId)
+        .then(({ error }) => {
+          if (error) console.warn('[Supabase] persist dark_mode:', error.message);
+        });
+    }
+  },
+
+  setDarkMode: (value) => {
+    set({ darkMode: value });
   },
 
   // Notifications — optimistic in-memory write, then persist to Supabase so the

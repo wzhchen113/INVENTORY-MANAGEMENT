@@ -1,16 +1,46 @@
 // App.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useLayoutEffect } from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator from './src/navigation/AppNavigator';
 import { useColors } from './src/theme/colors';
 import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked } from './src/lib/webPush';
+
+const DARK_MODE_KEY = 'darkMode';
+
+/**
+ * Read the cached dark-mode flag from local storage and apply it to the
+ * Zustand store BEFORE the first paint so the user doesn't see a flash of
+ * the wrong theme. Called from a useLayoutEffect with `Platform.OS === 'web'`
+ * so it's a synchronous localStorage hit; native is a quick AsyncStorage
+ * await tucked inside the same useEffect that runs getSession.
+ */
+function readCachedDarkModeSync(): boolean | null {
+  if (Platform.OS !== 'web') return null;
+  try {
+    const v = window.localStorage.getItem(DARK_MODE_KEY);
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+async function readCachedDarkModeAsync(): Promise<boolean | null> {
+  if (Platform.OS === 'web') return readCachedDarkModeSync();
+  try {
+    const v = await AsyncStorage.getItem(DARK_MODE_KEY);
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+  } catch { /* best-effort */ }
+  return null;
+}
 
 /**
  * DEV-only: accept `?session=<url-encoded-JSON>` on boot so an automated
@@ -66,15 +96,31 @@ if (Platform.OS !== 'web') {
 export default function App() {
   const C = useColors();
   const login = useStore((s) => s.login);
+  const setDarkMode = useStore((s) => s.setDarkMode);
+
+  // Synchronous theme restore at first paint (web only). Native falls through
+  // to the async restore in the session-restore effect below.
+  useLayoutEffect(() => {
+    const cached = readCachedDarkModeSync();
+    if (cached !== null) setDarkMode(cached);
+  }, []);
 
   // Restore session on app start
   useEffect(() => {
     (async () => {
       // Must run BEFORE getSession so the injected session is what getSession sees.
       await hydrateDevSessionFromUrl();
+      // Native — pick up the cached flag if useLayoutEffect didn't already.
+      if (Platform.OS !== 'web') {
+        const cached = await readCachedDarkModeAsync();
+        if (cached !== null) setDarkMode(cached);
+      }
       const result = await getSession();
       if (result.user) {
         login(result.user);
+        // DB is the cross-device source of truth — overrides the cached value
+        // if they differ. Only applies when the user is actually logged in.
+        if (typeof result.darkMode === 'boolean') setDarkMode(result.darkMode);
       }
     })();
   }, []);

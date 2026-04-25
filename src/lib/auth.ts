@@ -5,6 +5,9 @@ import { User } from '../types';
 export interface AuthResult {
   user: User | null;
   error: string | null;
+  /** Saved theme preference from profiles.dark_mode. Undefined = unknown
+   *  (e.g. signed out). Callers should apply this to the store after login. */
+  darkMode?: boolean;
 }
 
 /** Sign in with email + password */
@@ -65,7 +68,7 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     color: profile.color || '#378ADD',
   };
 
-  return { user, error: null };
+  return { user, error: null, darkMode: !!profile.dark_mode };
 }
 
 /** Helper: call a Supabase Edge Function */
