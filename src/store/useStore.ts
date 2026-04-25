@@ -61,6 +61,10 @@ interface StoreActions {
   // POS Import
   importPOS: (posImport: Omit<POSImport, 'id'>) => void;
 
+  // POS recipe aliases (POS-name → recipe_id mappings, store-scoped)
+  upsertPosRecipeAliases: (rows: { posName: string; recipeId: string }[]) => Promise<void>;
+  applyAliasToPastImports: (posName: string, recipeId: string) => Promise<number>;
+
   // Stores
   addStore: (store: Omit<Store, 'id'>) => void;
   updateStore: (id: string, updates: Partial<Store>) => void;
@@ -123,6 +127,7 @@ export const useStore = create<FullStore>((set, get) => ({
   eodSubmissions: EOD_SUBMISSIONS,
   vendors: VENDORS,
   posImports: POS_IMPORTS,
+  posRecipeAliases: [],
   auditLog: AUDIT_LOG,
   // Start empty — real schedule comes from Supabase via loadFromSupabase.
   // Demo vendors used to live here but leaked into fresh users' Orders
@@ -194,6 +199,7 @@ export const useStore = create<FullStore>((set, get) => ({
           ...(allData[0]?.recipeCategories?.length ? { recipeCategories: allData[0].recipeCategories } : {}),
           ...(allData[0]?.ingredientCategories?.length ? { ingredientCategories: allData[0].ingredientCategories } : {}),
           ...(allData[0]?.ingredientConversions ? { ingredientConversions: allData[0].ingredientConversions } : {}),
+          posRecipeAliases: allData.flatMap((d) => d?.posRecipeAliases || []),
         });
         return;
       }
@@ -219,6 +225,7 @@ export const useStore = create<FullStore>((set, get) => ({
         ...(data.recipeCategories.length > 0 ? { recipeCategories: data.recipeCategories } : {}),
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
         ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
+        posRecipeAliases: data.posRecipeAliases || [],
         // Replace — not merge — so switching from a store with scheduled
         // vendors to one with none doesn't leave the old store's days
         // visible. Baseline = 7 empty days, then spread whatever DB has.
@@ -656,6 +663,42 @@ export const useStore = create<FullStore>((set, get) => ({
       itemRef: posImport.filename,
       value: `${posImport.items.length} items`,
     });
+  },
+
+  // POS recipe aliases — persistent (pos_name → recipe_id) per store. Called
+  // by POSImportScreen after Confirm Import so the same POS string never
+  // re-fuzzy-matches on subsequent imports.
+  upsertPosRecipeAliases: async (rows) => {
+    const storeId = get().currentStore.id;
+    if (!storeId || rows.length === 0) return;
+    const normalized = rows.map((r) => ({ posName: r.posName.trim(), recipeId: r.recipeId, storeId }));
+    set((s) => {
+      const remaining = s.posRecipeAliases.filter((a) =>
+        !normalized.some((n) => n.posName.toLowerCase() === a.pos_name.toLowerCase() && a.store_id === storeId)
+      );
+      return {
+        posRecipeAliases: [
+          ...remaining,
+          ...normalized.map((n) => ({ pos_name: n.posName, recipe_id: n.recipeId, store_id: storeId })),
+        ],
+      };
+    });
+    try {
+      await db.upsertPosRecipeAliases(normalized);
+    } catch (e: any) {
+      console.warn('[Supabase] upsertPosRecipeAliases:', e?.message || e);
+    }
+  },
+
+  applyAliasToPastImports: async (posName, recipeId) => {
+    const storeId = get().currentStore.id;
+    if (!storeId) return 0;
+    try {
+      return await db.applyAliasToPastImports(storeId, posName, recipeId);
+    } catch (e: any) {
+      console.warn('[Supabase] applyAliasToPastImports:', e?.message || e);
+      return 0;
+    }
   },
 
   // Stores

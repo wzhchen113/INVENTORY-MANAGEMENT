@@ -59,12 +59,15 @@ function getConversionFactor(fromUnit: string, toUnit: string): number | null {
   return null;
 }
 
-// ─── Recipe fuzzy match (ported from POSImportScreen.tsx) ──────────────
-// Keep this logic in sync with the client copy by hand.
+// ─── Recipe matcher (mirrors src/utils/recipeMatch.ts) ─────────────────
+// Waterfall: alias → exact → token-set → containment → none. Keep in sync
+// with the client copy by hand (Deno can't reach into src/).
 type RecipeRow = { id: string; store_id: string; menu_item: string };
+type AliasRow = { pos_name: string; recipe_id: string };
 
 const STOP_TOKENS = new Set(['and']);
 const COUNT_TOKEN_RE = /^\d+(pc|pcs|ct|cts)?$/;
+const SKIP_RE = /^(no |add utensils|extra |add )/;
 
 function significantTokens(s: string): string[] {
   const raw = s.toLowerCase().split(/[\s\-_\/(),.&]+/).filter(Boolean);
@@ -81,16 +84,23 @@ function tokensSubsetOf(a: string[], b: string[]): boolean {
   return a.every((t) => set.has(t));
 }
 
-function findRecipe(menuItem: string, recipes: RecipeRow[]): RecipeRow | undefined {
+function findRecipe(menuItem: string, recipes: RecipeRow[], aliases: AliasRow[]): RecipeRow | undefined {
   const lower = menuItem.toLowerCase().trim();
-  if (/^(no |add utensils|extra |add )/.test(lower)) return undefined;
+  if (!lower || SKIP_RE.test(lower)) return undefined;
 
+  // 1. Alias — case-insensitive on pos_name.
+  const alias = aliases.find((a) => a.pos_name.toLowerCase().trim() === lower);
+  if (alias) {
+    const r = recipes.find((rec) => rec.id === alias.recipe_id);
+    if (r) return r;
+    // alias points to a deleted recipe — fall through
+  }
+
+  // 2. Exact case-insensitive
   const exact = recipes.find((r) => r.menu_item.toLowerCase() === lower);
   if (exact) return exact;
 
-  // Token-set: every significant recipe token must appear in the POS tokens.
-  // Ranked by recipe token count so more specific recipes ("BBQ Wings") win
-  // over generic ones ("Wings") when both match.
+  // 3. Token-set, ranked by recipe specificity.
   const posTokens = significantTokens(menuItem);
   if (posTokens.length > 0) {
     const ranked = recipes
@@ -100,8 +110,7 @@ function findRecipe(menuItem: string, recipes: RecipeRow[]): RecipeRow | undefin
     if (ranked[0]) return ranked[0].recipe;
   }
 
-  // Containment fallback — preserves existing behavior for anything the token
-  // pass misses.
+  // 4. Containment fallback.
   return recipes.find((r) => {
     const rLower = r.menu_item.toLowerCase();
     if (lower.length < 4 || rLower.length < 4) return false;
@@ -177,7 +186,7 @@ function json(status: number, body: unknown) {
 
 // ─── Per-store worker ──────────────────────────────────────────────────
 type StoreOutcome =
-  | { store: string; outcome: 'imported'; itemCount: number; mappedCount: number; upstreamRows: number }
+  | { store: string; outcome: 'imported'; itemCount: number; mappedCount: number; unmappedCount: number; upstreamRows: number }
   | { store: string; outcome: 'skipped'; reason: string }
   | { store: string; outcome: 'failed'; error: string };
 
@@ -213,11 +222,16 @@ async function syncStore(
     return { store: storeName, outcome: 'skipped', reason: 'no_upstream_data' };
   }
 
-  // Load recipes + ingredients + inventory for this store.
+  // Load recipes + ingredients + inventory + aliases for this store.
   const { data: recipes, error: recErr } = await sb
     .from('recipes').select('id, store_id, menu_item').eq('store_id', storeId);
   if (recErr) throw new Error(`recipes: ${recErr.message}`);
   const recipeRows = (recipes || []) as RecipeRow[];
+
+  const { data: aliasRows } = await sb
+    .from('pos_recipe_aliases').select('pos_name, recipe_id')
+    .or(`store_id.eq.${storeId},store_id.is.null`);
+  const aliases = (aliasRows || []) as AliasRow[];
 
   const recipeIds = recipeRows.map((r) => r.id);
   const { data: ingRows, error: ingErr } = recipeIds.length > 0
@@ -258,9 +272,9 @@ async function syncStore(
   if (insErr) throw new Error(`pos_imports insert: ${insErr.message}`);
   const importId = importRow.id as string;
 
-  // Build pos_import_items with recipe matches.
+  // Build pos_import_items with recipe matches (alias → exact → fuzzy).
   const items = upstream.map((row) => {
-    const recipe = findRecipe(row.menuItem, recipeRows);
+    const recipe = findRecipe(row.menuItem, recipeRows, aliases);
     return {
       import_id: importId,
       menu_item: row.menuItem,
@@ -272,6 +286,7 @@ async function syncStore(
   });
   const { error: itemsErr } = await sb.from('pos_import_items').insert(items);
   if (itemsErr) throw new Error(`pos_import_items insert: ${itemsErr.message}`);
+  const unmappedCount = items.filter((i) => !i.recipe_mapped).length;
 
   // Deduct inventory — serial writes so subsequent sales in this run read
   // post-decrement stock. Matches useStore.ts:610-645 (with conversion)
@@ -306,6 +321,7 @@ async function syncStore(
     outcome: 'imported',
     itemCount: items.length,
     mappedCount,
+    unmappedCount,
     upstreamRows: upstream.length,
   };
 }

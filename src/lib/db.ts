@@ -950,12 +950,103 @@ export async function deleteIngredientCategory(name: string): Promise<void> {
   await supabase.from('ingredient_categories').delete().eq('name', name);
 }
 
+// ─── POS RECIPE ALIASES ─────────────────────────────────────────────────
+// Persistent (pos_name → recipe_id) mappings keyed per store. The matcher
+// (src/utils/recipeMatch.ts) consults these before fuzzy logic so confirmed
+// imports never re-fuzzy-match the same POS string.
+export type PosRecipeAlias = {
+  pos_name: string;
+  recipe_id: string;
+  store_id: string | null;
+};
+
+export async function fetchPosRecipeAliases(storeId: string): Promise<PosRecipeAlias[]> {
+  const { data, error } = await supabase
+    .from('pos_recipe_aliases')
+    .select('pos_name, recipe_id, store_id')
+    .or(`store_id.eq.${storeId},store_id.is.null`);
+  if (error) {
+    console.warn('[Supabase] fetchPosRecipeAliases:', error.message);
+    return [];
+  }
+  return (data || []) as PosRecipeAlias[];
+}
+
+export async function upsertPosRecipeAliases(
+  rows: { posName: string; recipeId: string; storeId: string }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const payload = rows.map((r) => ({
+    pos_name: r.posName.trim(),
+    recipe_id: r.recipeId,
+    store_id: r.storeId,
+    last_used_at: new Date().toISOString(),
+  }));
+  const { error } = await supabase
+    .from('pos_recipe_aliases')
+    .upsert(payload, { onConflict: 'pos_name,store_id' });
+  if (error) console.warn('[Supabase] upsertPosRecipeAliases:', error.message);
+}
+
+// Past unmapped pos_import_items grouped by menu_item, for the review section
+// in POSImportScreen. Last 30 days, current store only.
+export async function fetchUnmappedPosImports(storeId: string): Promise<{ menu_item: string; count: number }[]> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('pos_import_items')
+    .select('menu_item, pos_imports!inner(store_id, import_date)')
+    .eq('recipe_mapped', false)
+    .eq('pos_imports.store_id', storeId)
+    .gte('pos_imports.import_date', since);
+  if (error) {
+    console.warn('[Supabase] fetchUnmappedPosImports:', error.message);
+    return [];
+  }
+  const counts = new Map<string, number>();
+  for (const row of (data || []) as any[]) {
+    const name = (row.menu_item || '').trim();
+    if (!name) continue;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([menu_item, count]) => ({ menu_item, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// Retroactively map past unmapped pos_import_items rows to a recipe. v1 fixes
+// only the display flag — does NOT deduct inventory (user can re-import the
+// affected day if stock adjustment is needed).
+export async function applyAliasToPastImports(
+  storeId: string,
+  posName: string,
+  recipeId: string,
+): Promise<number> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: imports, error: impErr } = await supabase
+    .from('pos_imports').select('id')
+    .eq('store_id', storeId)
+    .gte('import_date', since);
+  if (impErr || !imports || imports.length === 0) return 0;
+  const importIds = imports.map((i: any) => i.id);
+  const { error: updErr, count } = await supabase
+    .from('pos_import_items')
+    .update({ recipe_id: recipeId, recipe_mapped: true }, { count: 'exact' })
+    .ilike('menu_item', posName)
+    .eq('recipe_mapped', false)
+    .in('import_id', importIds);
+  if (updErr) {
+    console.warn('[Supabase] applyAliasToPastImports:', updErr.message);
+    return 0;
+  }
+  return count || 0;
+}
+
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
   const [
     inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
     categories, ingCategories, conversions, orderSched,
-    eodSubmissions, orderSubmissions,
+    eodSubmissions, orderSubmissions, posRecipeAliases,
   ] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
@@ -969,12 +1060,13 @@ export async function fetchAllForStore(storeId: string) {
     fetchOrderSchedule(storeId).catch(() => ({})),
     fetchRecentEODSubmissions(storeId).catch(() => []),
     fetchRecentPurchaseOrders(storeId).catch(() => []),
+    fetchPosRecipeAliases(storeId).catch(() => [] as PosRecipeAlias[]),
   ]);
   return {
     inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
     recipeCategories: categories, ingredientCategories: ingCategories,
     ingredientConversions: conversions, orderSchedule: orderSched,
-    eodSubmissions, orderSubmissions,
+    eodSubmissions, orderSubmissions, posRecipeAliases,
   };
 }
 

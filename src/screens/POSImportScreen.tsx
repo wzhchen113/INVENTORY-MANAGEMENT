@@ -1,8 +1,8 @@
 // src/screens/POSImportScreen.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert, Platform, TextInput,
-  Modal, ActivityIndicator,
+  Modal, ActivityIndicator, ScrollView,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import * as DocumentPicker from 'expo-document-picker';
@@ -13,8 +13,9 @@ import { Card, CardHeader, Badge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import DatePicker from '../components/DatePicker';
 import { TimezoneBar } from '../components/TimezoneBar';
-import { fetchBreadbotSales, hasPOSImportForDate, savePOSImport } from '../lib/db';
+import { fetchBreadbotSales, hasPOSImportForDate, savePOSImport, fetchUnmappedPosImports } from '../lib/db';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
+import { matchRecipe, MatchResult } from '../utils/recipeMatch';
 
 const isWeb = Platform.OS === 'web';
 
@@ -39,25 +40,6 @@ type BackfillResult = {
 
 const BACKFILL_MAX_DAYS = 30;
 const BACKFILL_THROTTLE_MS = 200; // ~5 req/s — well under breadbot's 60/min cap
-
-// ── Recipe-matching helpers (kept in sync with breadbot-nightly-sync/index.ts)
-const STOP_TOKENS = new Set(['and']);
-const COUNT_TOKEN_RE = /^\d+(pc|pcs|ct|cts)?$/;
-
-function significantTokens(s: string): string[] {
-  const raw = s.toLowerCase().split(/[\s\-_\/(),.&]+/).filter(Boolean);
-  let i = 0;
-  while (i < raw.length && COUNT_TOKEN_RE.test(raw[i])) i++;
-  return raw.slice(i)
-    .map((t) => (t.length >= 4 && t.endsWith('s') ? t.slice(0, -1) : t))
-    .filter((t) => t && !STOP_TOKENS.has(t));
-}
-
-function tokensSubsetOf(a: string[], b: string[]): boolean {
-  if (a.length === 0) return false;
-  const set = new Set(b);
-  return a.every((t) => set.has(t));
-}
 
 // Enumerate YYYY-MM-DD strings inclusive of both ends, using UTC math so
 // DST transitions don't drop or duplicate a day at the boundary.
@@ -110,13 +92,41 @@ function formatDisplayDate(iso: string) {
 }
 
 export default function POSImportScreen() {
-  const { recipes, importPOS, currentUser, currentStore } = useStore();
+  const {
+    recipes, importPOS, currentUser, currentStore,
+    posRecipeAliases, upsertPosRecipeAliases, applyAliasToPastImports,
+  } = useStore();
   const C = useColors();
   const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
   const [filename, setFilename] = useState('');
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [importDate, setImportDate] = useState(todayISO);
   const [fileType, setFileType] = useState<'items' | 'modifiers'>('items');
+
+  // Per-row match state — initialized from the matchRecipe waterfall when rows
+  // load, then user can override via the recipe picker. The user's choice (or
+  // accepted fuzzy guess) is what gets imported AND saved as a persistent alias.
+  type RowMatch = { recipeId: string | null; matchType: MatchResult['matchType'] };
+  const [rowMatches, setRowMatches] = useState<RowMatch[]>([]);
+  // pickerForIdx is the row index the picker is editing; -1 means we're
+  // mapping an "unmapped past" entry (pickerUnmappedName carries the POS string).
+  const [pickerForIdx, setPickerForIdx] = useState<number | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerUnmappedName, setPickerUnmappedName] = useState('');
+
+  // Past unmapped POS items (last 30 days, this store) — surfaced in a review
+  // section above the upload UI so admins can map names that the cron missed.
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
+  const [unmapped, setUnmapped] = useState<{ menu_item: string; count: number }[]>([]);
+  const [unmappedRefresh, setUnmappedRefresh] = useState(0);
+  useEffect(() => {
+    if (!currentStore?.id || !isAdmin) { setUnmapped([]); return; }
+    let cancelled = false;
+    fetchUnmappedPosImports(currentStore.id).then((rows) => {
+      if (!cancelled) setUnmapped(rows);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentStore?.id, isAdmin, unmappedRefresh]);
 
   // Breadbot fetch modal state
   const [showBreadbotModal, setShowBreadbotModal] = useState(false);
@@ -279,52 +289,39 @@ export default function POSImportScreen() {
     setStep('preview');
   };
 
-  const findRecipe = (menuItem: string) => {
-    // Skip non-food items and removal modifiers
-    const lower = menuItem.toLowerCase().trim();
-    if (/^(no |add utensils|extra |add )/.test(lower)) return undefined;
-
-    // Exact match
-    const exact = recipes.find((r) => r.menuItem.toLowerCase() === lower);
-    if (exact) return exact;
-
-    // Token-set: drop leading counts ("6 Wings" → ["wings"]), fold plurals
-    // ("wings" → "wing"). A recipe matches if every one of its significant
-    // tokens appears in the POS tokens. Rank by recipe token count so
-    // "BBQ Wings" beats plain "Wings" when both qualify.
-    const posTokens = significantTokens(menuItem);
-    if (posTokens.length > 0) {
-      const ranked = recipes
-        .map((r) => ({ recipe: r, rTokens: significantTokens(r.menuItem) }))
-        .filter(({ rTokens }) => tokensSubsetOf(rTokens, posTokens))
-        .sort((a, b) => b.rTokens.length - a.rTokens.length);
-      if (ranked[0]) return ranked[0].recipe;
-    }
-
-    // Containment fallback — preserves existing behavior.
-    return recipes.find((r) => {
-      const rLower = r.menuItem.toLowerCase();
-      if (lower.length < 4 || rLower.length < 4) return false;
-      return lower.includes(rLower) || rLower.includes(lower);
-    });
-  };
+  // Re-run the waterfall whenever rows / recipes / aliases change. The user
+  // can still override per-row via the picker; their override survives a
+  // re-run because we only reset rowMatches when `rows` itself changes
+  // (uploaded a new file / fetched new breadbot data).
+  useEffect(() => {
+    setRowMatches(rows.map((r) => {
+      const m = matchRecipe(r.menuItem, recipes, posRecipeAliases);
+      return { recipeId: m.recipeId, matchType: m.matchType };
+    }));
+  }, [rows, recipes, posRecipeAliases]);
 
   const matchedCount = useMemo(
-    () => rows.filter((r) => findRecipe(r.menuItem)).length,
-    [rows, recipes],
+    () => rowMatches.filter((m) => m.recipeId).length,
+    [rowMatches],
   );
   const totalQty = rows.reduce((s, r) => s + r.qtySold, 0);
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
 
-  const handleImport = () => {
-    const items = rows.map((row) => {
-      const recipe = findRecipe(row.menuItem);
+  const setRowMatch = (idx: number, recipeId: string | null) => {
+    setRowMatches((prev) => prev.map((m, i) =>
+      i === idx ? { recipeId, matchType: recipeId ? 'alias' : 'none' } : m
+    ));
+  };
+
+  const handleImport = async () => {
+    const items = rows.map((row, idx) => {
+      const m = rowMatches[idx];
       return {
         menuItem: row.menuItem,
         qtySold: row.qtySold,
         revenue: row.revenue,
-        recipeId: recipe?.id,
-        recipeMapped: !!recipe,
+        recipeId: m?.recipeId ?? undefined,
+        recipeMapped: !!m?.recipeId,
       };
     });
     importPOS({
@@ -335,7 +332,30 @@ export default function POSImportScreen() {
       storeId: currentStore.id,
       items,
     });
+    // Persist every confirmed match as an alias so the same POS string never
+    // re-fuzzy-matches on subsequent imports (cron or manual).
+    const aliasesToSave = rows
+      .map((row, idx) => ({ posName: row.menuItem, recipeId: rowMatches[idx]?.recipeId }))
+      .filter((a): a is { posName: string; recipeId: string } => !!a.recipeId);
+    if (aliasesToSave.length > 0) {
+      upsertPosRecipeAliases(aliasesToSave).catch(() => { /* best-effort */ });
+    }
     setStep('done');
+  };
+
+  // Past unmapped review — picking a recipe upserts the alias AND retroactively
+  // flips matching pos_import_items in the last 30 days to recipe_mapped=true.
+  // (Inventory deduction is NOT retroactively applied; user re-imports if needed.)
+  const handleMapUnmapped = async (posName: string, recipeId: string) => {
+    await upsertPosRecipeAliases([{ posName, recipeId }]);
+    const updated = await applyAliasToPastImports(posName, recipeId);
+    Toast.show({
+      type: 'success',
+      text1: 'Alias saved',
+      text2: updated > 0 ? `Updated ${updated} past row${updated === 1 ? '' : 's'}.` : 'Future imports will use this mapping.',
+      position: 'bottom',
+    });
+    setUnmappedRefresh((n) => n + 1);
   };
 
   // Backfill a date range from breadbot, one day at a time. Each day is its
@@ -387,13 +407,13 @@ export default function POSImportScreen() {
         setBackfillProgress({ current: i + 1, total: days.length, status: `Importing ${date} (${fetched.length} items)…` });
         const dayFilename = `Breadbot · ${currentStore.name} · ${date}`;
         const items = fetched.map((row) => {
-          const recipe = findRecipe(row.menuItem);
+          const m = matchRecipe(row.menuItem, recipes, posRecipeAliases);
           return {
             menuItem: row.menuItem,
             qtySold: row.qtySold,
             revenue: row.revenue,
-            recipeId: recipe?.id,
-            recipeMapped: !!recipe,
+            recipeId: m.recipeId ?? undefined,
+            recipeMapped: !!m.recipeId,
           };
         });
         // 1. Persist to pos_imports with explicit business date — this row
@@ -459,6 +479,37 @@ export default function POSImportScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="pos-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
+      {step === 'upload' && isAdmin && unmapped.length > 0 && (
+        <Card>
+          <CardHeader title={`Items needing mapping (${unmapped.length})`} />
+          <Text style={[styles.breadbotLead, { color: C.textSecondary }]}>
+            Past 30 days, this store. Mapping a name saves an alias so future imports auto-match — and flips matching past rows to mapped.
+          </Text>
+          {unmapped.map((u) => (
+            <View key={u.menu_item} style={[styles.previewRow, { borderBottomColor: C.borderLight }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.previewName, { color: C.textPrimary }]}>{u.menu_item}</Text>
+                <Text style={[styles.previewQty, { color: C.textSecondary }]}>
+                  {u.count} unmapped row{u.count === 1 ? '' : 's'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                testID={`posimport-unmapped-pick-${u.menu_item}`}
+                onPress={() => {
+                  setPickerForIdx(-1);
+                  setPickerSearch('');
+                  setPickerUnmappedName(u.menu_item);
+                }}
+                style={[styles.matchPill, { backgroundColor: C.dangerBg, borderColor: C.danger, borderWidth: 1 }]}
+              >
+                <Text style={[styles.matchPillText, { color: C.danger }]}>Map…</Text>
+                <Ionicons name="chevron-down" size={12} color={C.danger} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </Card>
+      )}
+
       {step === 'upload' && storeHasBreadbot && backfillResults && (
         <Card>
           <CardHeader
@@ -635,9 +686,19 @@ export default function POSImportScreen() {
               </Text>
             </View>
 
-            {/* Preview rows */}
+            {/* Preview rows — tap the recipe pill to change the match. */}
             {rows.map((row, idx) => {
-              const recipe = findRecipe(row.menuItem);
+              const m = rowMatches[idx];
+              const recipe = m?.recipeId ? recipes.find((r) => r.id === m.recipeId) : null;
+              const isFuzzy = m?.matchType === 'fuzzy';
+              const isNone = m?.matchType === 'none' || !recipe;
+              const pillStyle = isNone
+                ? { backgroundColor: C.dangerBg, borderColor: C.danger, borderWidth: 1 }
+                : isFuzzy
+                  ? { backgroundColor: C.warningBg, borderColor: C.warning, borderWidth: 1 }
+                  : { backgroundColor: C.successBg, borderColor: C.success, borderWidth: 0.5 };
+              const pillTextColor = isNone ? C.danger : isFuzzy ? C.warning : C.success;
+              const label = recipe?.menuItem ?? 'No match — tap to pick';
               return (
                 <View key={idx} style={[styles.previewRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
@@ -646,10 +707,22 @@ export default function POSImportScreen() {
                       {row.qtySold} sold{row.revenue > 0 ? ` · $${row.revenue.toFixed(2)}` : ''}
                     </Text>
                   </View>
-                  <Badge
-                    label={recipe ? recipe.menuItem : 'No recipe'}
-                    variant={recipe ? 'ok' : 'low'}
-                  />
+                  <TouchableOpacity
+                    testID={`posimport-row-picker-${idx}`}
+                    onPress={() => { setPickerForIdx(idx); setPickerSearch(''); }}
+                    style={[styles.matchPill, pillStyle]}
+                  >
+                    <Text
+                      style={[
+                        styles.matchPillText,
+                        { color: pillTextColor },
+                        isFuzzy && { fontStyle: 'italic' },
+                      ]}
+                    >
+                      {label}{isFuzzy ? ' (guess)' : ''}
+                    </Text>
+                    <Ionicons name="chevron-down" size={12} color={pillTextColor} />
+                  </TouchableOpacity>
                 </View>
               );
             })}
@@ -786,6 +859,77 @@ export default function POSImportScreen() {
               </TouchableOpacity>
             )}
           </View>
+        </View>
+      </View>
+    </Modal>
+
+    {/* Recipe picker modal — used for both per-row override and past unmapped review. */}
+    <Modal visible={pickerForIdx !== null} animationType="fade" transparent onRequestClose={() => setPickerForIdx(null)}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, maxHeight: '80%', width: '90%' }]}>
+          <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Pick a recipe</Text>
+          {pickerForIdx !== null && pickerForIdx >= 0 && rows[pickerForIdx] && (
+            <Text style={[styles.modalSub, { color: C.textSecondary, marginBottom: Spacing.sm }]}>
+              POS: <Text style={{ fontWeight: '600' }}>{rows[pickerForIdx].menuItem}</Text>
+            </Text>
+          )}
+          {pickerForIdx === -1 && (
+            <Text style={[styles.modalSub, { color: C.textSecondary, marginBottom: Spacing.sm }]}>
+              POS: <Text style={{ fontWeight: '600' }}>{pickerUnmappedName}</Text>
+            </Text>
+          )}
+          <TextInput
+            testID="posimport-picker-search"
+            value={pickerSearch}
+            onChangeText={setPickerSearch}
+            placeholder="Search recipes…"
+            placeholderTextColor={C.textTertiary}
+            style={{
+              borderWidth: 0.5, borderColor: C.borderMedium, borderRadius: Radius.md,
+              padding: Spacing.sm, marginBottom: Spacing.sm,
+              color: C.textPrimary, backgroundColor: C.bgSecondary,
+            }}
+          />
+          <ScrollView style={{ maxHeight: 320 }}>
+            {/* "No match" option — clears the row's recipe (preview mode only). */}
+            {pickerForIdx !== null && pickerForIdx >= 0 && (
+              <TouchableOpacity
+                testID="posimport-picker-none"
+                onPress={() => {
+                  setRowMatch(pickerForIdx, null);
+                  setPickerForIdx(null);
+                }}
+                style={{ paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: C.borderLight }}
+              >
+                <Text style={{ color: C.danger, fontWeight: '500' }}>— No match (skip this item) —</Text>
+              </TouchableOpacity>
+            )}
+            {recipes
+              .filter((r) => !pickerSearch || r.menuItem.toLowerCase().includes(pickerSearch.toLowerCase()))
+              .sort((a, b) => a.menuItem.localeCompare(b.menuItem))
+              .map((r) => (
+                <TouchableOpacity
+                  key={r.id}
+                  testID={`posimport-picker-recipe-${r.id}`}
+                  onPress={() => {
+                    if (pickerForIdx !== null && pickerForIdx >= 0) {
+                      setRowMatch(pickerForIdx, r.id);
+                    } else if (pickerForIdx === -1 && pickerUnmappedName) {
+                      handleMapUnmapped(pickerUnmappedName, r.id);
+                    }
+                    setPickerForIdx(null);
+                    setPickerUnmappedName('');
+                  }}
+                  style={{ paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: C.borderLight }}
+                >
+                  <Text style={{ color: C.textPrimary, fontSize: FontSize.sm, fontWeight: '500' }}>{r.menuItem}</Text>
+                  <Text style={{ color: C.textTertiary, fontSize: 10 }}>${r.sellPrice?.toFixed(2) || '0.00'}</Text>
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+          <TouchableOpacity onPress={() => { setPickerForIdx(null); setPickerUnmappedName(''); }} style={{ marginTop: Spacing.sm, alignSelf: 'flex-end' }}>
+            <Text style={{ color: C.textSecondary, fontWeight: '500' }}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -927,6 +1071,13 @@ const styles = StyleSheet.create({
   },
   previewName: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary },
   previewQty: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  matchPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: Radius.round,
+    maxWidth: 220,
+  },
+  matchPillText: { fontSize: FontSize.xs, fontWeight: '500' },
   actionRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
   cancelBtn: {
     flex: 1,

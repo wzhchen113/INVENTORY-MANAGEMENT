@@ -283,6 +283,7 @@ export interface AppState {
   eodSubmissions: EODSubmission[];
   vendors: Vendor[];
   posImports: POSImport[];
+  posRecipeAliases: { pos_name: string; recipe_id: string; store_id: string | null }[];
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
