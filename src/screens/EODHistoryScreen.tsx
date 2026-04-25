@@ -50,9 +50,16 @@ export default function EODHistoryScreen() {
     return user?.color || '#378ADD';
   };
 
-  const getUserInitials = (userId: string) => {
-    const user = users.find((u) => u.id === userId);
-    return user?.initials || '??';
+  const getUserInitials = (sub: EODSubmission) => {
+    const user = users.find((u) => u.id === sub.submittedByUserId);
+    if (user?.initials) return user.initials;
+    // Orphan submission (deleted user / seeded data with placeholder
+    // userId) — fall back to deriving initials from the display name.
+    const name = (sub.submittedBy ?? '').trim();
+    if (!name) return '?';
+    const parts = name.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   };
 
   return (
@@ -153,7 +160,7 @@ export default function EODHistoryScreen() {
                 <View style={styles.cardTop}>
                   <View style={[styles.avatar, { backgroundColor: color + '22' }]}>
                     <Text style={[styles.avatarText, { color }]}>
-                      {getUserInitials(sub.submittedByUserId)}
+                      {getUserInitials(sub)}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
