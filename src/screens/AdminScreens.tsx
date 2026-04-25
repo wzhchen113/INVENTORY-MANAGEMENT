@@ -689,8 +689,9 @@ export function VendorsScreen() {
         <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]} onPress={openAdd}>
           <Text style={[styles.addRowText, { color: C.info }]}>+ Add vendor</Text>
         </TouchableOpacity>
+        <View style={styles.vendorGrid}>
         {[...vendors].sort((a, b) => numFirstSort(a.name, b.name)).map((vendor) => (
-          <View key={vendor.id} style={[styles.vendorCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }]}>
+          <View key={vendor.id} style={[styles.vendorCard, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, width: '49%' }]}>
             <View style={styles.vendorTop}>
               <View style={[styles.vendorLogo, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
                 <Text style={[styles.vendorLogoText, { color: C.textSecondary }]}>{vendor.name.slice(0, 2).toUpperCase()}</Text>
@@ -721,6 +722,7 @@ export function VendorsScreen() {
             </View>
           </View>
         ))}
+        </View>
       </WebScrollView>
 
       {/* Add/Edit Modal */}
@@ -1534,6 +1536,7 @@ const styles = StyleSheet.create({
   editRecipeBtnText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   prepTag: { backgroundColor: Colors.infoBg, borderRadius: Radius.round, paddingHorizontal: 5, paddingVertical: 1 },
   prepTagText: { fontSize: 8, fontWeight: '600', color: Colors.info },
+  vendorGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   vendorCard: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 0.5, borderColor: Colors.borderLight },
   vendorTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
   vendorLogo: { width: 40, height: 40, borderRadius: Radius.md, backgroundColor: Colors.bgSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: Colors.borderLight },
