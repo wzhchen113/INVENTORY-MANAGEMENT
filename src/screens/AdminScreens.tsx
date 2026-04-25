@@ -1192,7 +1192,7 @@ export function UsersScreen() {
     setInviteWarning('');
 
     // Save to local state
-    inviteUser({ ...form, stores: form.storeIds, status: 'pending', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: C.userAdmin });
+    inviteUser({ ...form, stores: form.storeIds, status: 'pending', nickname: '', initials: form.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(), color: C.userAdmin });
 
     // Save to Supabase
     const storeNames = form.storeIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
@@ -1281,7 +1281,7 @@ export function UsersScreen() {
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md }}>
               <Text style={{ fontSize: FontSize.lg, fontWeight: '600', color: C.textPrimary }}>Stores ({stores.length})</Text>
-              <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.md }]} onPress={openAddStore}>
+              <TouchableOpacity style={{ backgroundColor: C.textPrimary, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.md }} onPress={openAddStore}>
                 <Ionicons name="add" size={14} color={C.bgPrimary} />
                 <Text style={{ color: C.bgPrimary, fontSize: FontSize.xs, fontWeight: '500' }}>Add store</Text>
               </TouchableOpacity>
@@ -1551,7 +1551,6 @@ const styles = StyleSheet.create({
   tabText: { fontSize: FontSize.sm, color: Colors.textSecondary },
   tabTextActive: { color: Colors.textPrimary, fontWeight: '500' },
   filterScroll: { backgroundColor: Colors.bgPrimary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight, flexGrow: 0 },
-  filterChip: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
   filterChipActive: { backgroundColor: Colors.textPrimary },
   filterText: { fontSize: FontSize.xs, color: Colors.textSecondary },
   filterTextActive: { color: Colors.bgPrimary, fontWeight: '500' },
