@@ -547,6 +547,11 @@ export const useStore = create<FullStore>((set, get) => ({
           item.id === entry.itemId
             ? {
                 ...item,
+                // EOD count is the authoritative re-measurement of the shelf,
+                // so reset currentStock too. Without this, dashboard tiles
+                // (inventory value, low/out-of-stock, stock alerts) keep
+                // showing pre-count zeros — see DashboardScreen `inventoryValue`.
+                currentStock: entry.actualRemaining,
                 eodRemaining: entry.actualRemaining,
                 lastUpdatedBy: entry.submittedBy,
                 lastUpdatedAt: entry.timestamp,
@@ -554,6 +559,15 @@ export const useStore = create<FullStore>((set, get) => ({
             : item
         ),
       }));
+      // Persist the recalibration so it survives reload. Mirrors the
+      // adjustStock action's db.adjustItemStock call (line ~325 above).
+      db
+        .adjustItemStock(
+          entry.itemId,
+          entry.actualRemaining,
+          entry.submittedByUserId || get().currentUser?.id || '',
+        )
+        .catch((e: any) => console.warn('[Supabase]', e?.message || e));
       get().addAuditEvent({
         timestamp: entry.timestamp,
         userId: entry.submittedByUserId,
