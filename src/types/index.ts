@@ -204,6 +204,14 @@ export interface ReconciliationLine {
   variance: number;
   unit: string;
   result: 'match' | 'mismatch' | 'review';
+  /**
+   * True when at least one recipe contributing to this line had a unit we
+   * couldn't convert into the inventory item's tracking unit. The numeric
+   * fields (expectedDeduction / variance) still reflect rows that DID
+   * convert, but the line is forced to `result: 'review'` and the screen
+   * surfaces a "Unit mismatch" badge so the admin knows to fix the recipe.
+   */
+  unitMismatch?: boolean;
 }
 
 export interface AuditEvent {
@@ -281,6 +289,15 @@ export interface AppState {
   timezone: string;
   darkMode: boolean;
   notifications: AppNotification[];
+  /**
+   * Per-item unit-conversion rows used to bridge recipe units (oz, fl_oz,
+   * ea, ...) to the inventory item's tracking unit (cases, bags, ...).
+   * Optional in the type because not every store has populated these yet,
+   * but `useStore` always initializes it to []. Read by `convertToItemUnit`
+   * (src/utils/unitConversion.ts) when caseQty/subUnitSize alone can't bridge
+   * the units (e.g. custom packs).
+   */
+  ingredientConversions?: IngredientConversion[];
 }
 
 export interface AppNotification {

@@ -884,7 +884,7 @@ function shortDate(iso: string): string {
 export function ReportsScreen() {
   const C = useColors();
   const [tab, setTab] = useState<'foodcost' | 'usage' | 'waste'>('foodcost');
-  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore } = useStore();
+  const { recipes, getRecipeCost, getRecipeFoodCostPct, wasteLog, posImports, currentStore, inventory, ingredientConversions } = useStore();
 
   const today = todayISO();
   const [mode, setMode] = useState<DateScopeMode>('range');
@@ -905,9 +905,9 @@ export function ReportsScreen() {
 
   const usageTrend = useMemo(
     () => rangeValid
-      ? calculateWeeklyUsageTrend(posImports, recipes, currentStore.id, effectiveEnd, numWeeks)
+      ? calculateWeeklyUsageTrend(posImports, recipes, inventory, currentStore.id, effectiveEnd, numWeeks, ingredientConversions)
       : [],
-    [posImports, recipes, currentStore.id, effectiveEnd, numWeeks, rangeValid]
+    [posImports, recipes, inventory, currentStore.id, effectiveEnd, numWeeks, rangeValid, ingredientConversions]
   );
 
   const wasteInRange = useMemo(
