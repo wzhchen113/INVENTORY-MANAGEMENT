@@ -1027,17 +1027,30 @@ export default function IngredientsScreen() {
               />
             </View>
 
-            {/* Current stock */}
+            {/* Current stock — editable on Add (initial seed). On Edit it's
+                read-only because the rolling stock count is owned by EOD
+                count + the per-item Adjust stock action; an editable input
+                here would silently overwrite both with no audit trail. */}
             <View style={styles.formField}>
               <Text style={[styles.formLabel, { color: C.textSecondary }]}>Current stock</Text>
               <TextInput
-                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                style={[
+                  styles.formInput,
+                  { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium },
+                  editItem && { opacity: 0.6 },
+                ]}
                 value={form.currentStock}
                 onChangeText={(v) => setForm((p) => ({ ...p, currentStock: numericFilter(v) }))}
                 placeholder="0"
                 placeholderTextColor={C.textTertiary}
                 keyboardType="decimal-pad"
+                editable={!editItem}
               />
+              {editItem ? (
+                <Text style={[styles.formHint, { color: C.textTertiary }]}>
+                  Updated by EOD count or stock adjustment
+                </Text>
+              ) : null}
             </View>
 
             {/* Par level */}
@@ -1351,6 +1364,7 @@ const styles = StyleSheet.create({
   formField: { marginBottom: Spacing.lg },
   formLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, marginBottom: 6 },
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
+  formHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 4, fontStyle: 'italic' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.round, backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight },
   chipActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },

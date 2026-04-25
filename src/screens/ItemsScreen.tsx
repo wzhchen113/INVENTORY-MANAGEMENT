@@ -2,20 +2,29 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Modal, Alert, FlatList,
+  TouchableOpacity, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { numericFilter } from '../utils';
-import { Card, Badge, WhoChip, ProgressBar, Button, StatusBadge } from '../components';
+import { Badge, WhoChip, ProgressBar, StatusBadge } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
 import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
+type StatusFilter = '' | 'low' | 'out';
+
 export default function ItemsScreen() {
-  const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem, ingredientCategories } = useStore();
+  // This screen is the stock-status / quick-adjustment view. Item creation
+  // and editing live on IngredientsScreen, which has the canonical Add/Edit
+  // form (categories, vendor, par level, cost, units, usage per portion).
+  // Both screens read the same `inventory` slice, so anything added there
+  // shows up here automatically.
+  const {
+    currentUser, currentStore, inventory, getItemStatus,
+    adjustStock, addAuditEvent, ingredientCategories,
+  } = useStore();
   const C = useColors();
-  const isAdmin = currentUser?.role === 'admin';
 
   // Categories come from the same store-managed list as IngredientsScreen so
   // the chips here stay in sync with whatever admins added via Manage
@@ -24,24 +33,41 @@ export default function ItemsScreen() {
   const CATEGORIES = ingredientCategories.length > 0
     ? ingredientCategories
     : ['Protein', 'Seafood', 'Dry goods', 'Condiments', 'Drinks', 'Desserts'];
-  const defaultCategory = CATEGORIES[0];
 
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
 
-  // Form state
-  const [form, setForm] = useState({
-    name: '', category: defaultCategory, unit: 'lbs', costPerUnit: '',
-    currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '',
-  });
+  // Adjust-stock modal: per-item one-off correction (delivery received,
+  // found a case in the back, breakage). Goes through `adjustStock` so
+  // it persists to Supabase, and writes a 'Stock adjusted' audit event.
+  // This is the only mutation this screen offers.
+  const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
+  const [adjustValue, setAdjustValue] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
 
   const storeInventory = inventory.filter((i) => i.storeId === currentStore.id);
+
+  // Chip counts: derived from the full store inventory, NOT the post-filter
+  // list. The chips are a navigation tool — "Protein (8)" should mean "8
+  // proteins exist", not "8 proteins matching your current search". Mirrors
+  // the IngredientsScreen pattern.
+  const allCount = storeInventory.length;
+  const lowCount = storeInventory.filter((i) => getItemStatus(i) === 'low').length;
+  const outCount = storeInventory.filter((i) => getItemStatus(i) === 'out').length;
+  const categoryCounts: Record<string, number> = {};
+  storeInventory.forEach((i) => {
+    categoryCounts[i.category] = (categoryCounts[i.category] || 0) + 1;
+  });
 
   const filtered = storeInventory.filter((item) => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (catFilter && item.category !== catFilter) return false;
+    if (statusFilter) {
+      const s = getItemStatus(item);
+      if (statusFilter === 'out' && s !== 'out') return false;
+      if (statusFilter === 'low' && s !== 'low') return false;
+    }
     return true;
   });
 
@@ -50,61 +76,49 @@ export default function ItemsScreen() {
     'Admin': C.userAdmin, 'Ana R.': C.userAna,
   };
 
-  const openAdd = () => {
-    setEditItem(null);
-    setDupWarning('');
-    setForm({ name: '', category: defaultCategory, unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '' });
-    setShowModal(true);
+  const openAdjust = (item: InventoryItem) => {
+    setAdjustItem(item);
+    setAdjustValue(String(item.currentStock));
+    setAdjustReason('');
   };
 
-  const openEdit = (item: InventoryItem) => {
-    setEditItem(item);
-    setDupWarning('');
-    setForm({
-      name: item.name, category: item.category, unit: item.unit,
-      costPerUnit: String(item.costPerUnit), currentStock: String(item.currentStock),
-      parLevel: String(item.parLevel), vendorName: item.vendorName,
-      usagePerPortion: String(item.usagePerPortion),
-    });
-    setShowModal(true);
-  };
-
-  const [dupWarning, setDupWarning] = useState('');
-
-  const handleSave = () => {
-    if (!form.name.trim()) { Alert.alert('Error', 'Item name is required'); return; }
-
-    const trimmedName = form.name.trim().toLowerCase();
-    const duplicate = storeInventory.some(
-      (i) => i.name.toLowerCase() === trimmedName && (!editItem || i.id !== editItem.id)
-    );
-
-    if (duplicate) {
-      setDupWarning(`An item named "${form.name.trim()}" already exists.`);
+  const handleAdjustSave = () => {
+    if (!adjustItem) return;
+    const newStock = parseFloat(adjustValue);
+    if (Number.isNaN(newStock) || newStock < 0) {
+      if (Platform.OS === 'web') alert('Enter a valid stock number');
+      else Alert.alert('Error', 'Enter a valid stock number');
       return;
     }
-    setDupWarning('');
-
-    const data = {
-      name: form.name.trim(), category: form.category, unit: form.unit,
-      costPerUnit: parseFloat(form.costPerUnit) || 0,
-      currentStock: parseFloat(form.currentStock) || 0,
-      parLevel: parseFloat(form.parLevel) || 0,
-      vendorId: '', vendorName: form.vendorName,
-      usagePerPortion: parseFloat(form.usagePerPortion) || 0,
-      lastUpdatedBy: currentUser?.name || 'Admin',
-      lastUpdatedAt: new Date().toLocaleTimeString(),
-      eodRemaining: parseFloat(form.currentStock) || 0,
-      averageDailyUsage: 0, safetyStock: 0,
-      storeId: currentStore.id, expiryDate: '',
-    };
-    if (editItem) {
-      updateItem(editItem.id, data);
-    } else {
-      addItem(data);
+    const oldStock = adjustItem.currentStock;
+    if (newStock === oldStock) {
+      // No change — close without writing an audit row.
+      setAdjustItem(null);
+      return;
     }
-    setShowModal(false);
+    adjustStock(adjustItem.id, newStock, currentUser?.name || 'Unknown');
+    addAuditEvent({
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || '',
+      userName: currentUser?.name || 'Unknown',
+      userRole: currentUser?.role || 'user',
+      storeId: currentStore.id,
+      storeName: currentStore.name,
+      action: 'Stock adjusted',
+      detail: adjustReason.trim() || 'Manual adjustment',
+      itemRef: adjustItem.name,
+      value: `${oldStock} → ${newStock} ${adjustItem.unit}`,
+    });
+    setAdjustItem(null);
   };
+
+  // Status chips: a second tap on the active chip clears it. Sit between
+  // 'All' and the category list so triage filters are reachable without
+  // scrolling past the categories.
+  const statusChips: { key: Exclude<StatusFilter, ''>; label: string }[] = [
+    { key: 'low', label: 'Low stock' },
+    { key: 'out', label: 'Out of stock' },
+  ];
 
   const renderItem = ({ item }: { item: InventoryItem }) => {
     const status = getItemStatus(item);
@@ -149,11 +163,12 @@ export default function ItemsScreen() {
 
         <View style={[styles.itemFooter, { borderTopColor: C.borderLight }]}>
           <WhoChip name={item.lastUpdatedBy} color={color} time={item.lastUpdatedAt} />
-          {isAdmin && (
-            <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
-              <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Edit</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
+            onPress={() => openAdjust(item)}
+          >
+            <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Adjust stock</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -162,7 +177,7 @@ export default function ItemsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: C.bgTertiary }]}>
       <TimezoneBar />
-      {/* Search bar */}
+      {/* Search bar — full width, no Add button (Add lives on Ingredients) */}
       <View style={styles.searchRow}>
         <TextInput
           style={[styles.search, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, color: C.textPrimary }]}
@@ -171,24 +186,43 @@ export default function ItemsScreen() {
           value={search}
           onChangeText={setSearch}
         />
-        {isAdmin && (
-          <TouchableOpacity style={[styles.addBtn, { backgroundColor: C.textPrimary }]} onPress={openAdd}>
-            <Text style={[styles.addBtnText, { color: C.bgPrimary }]}>+ Add item</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
-      {/* Category filter */}
+      {/* Filter row: All → status chips (low/out) → store-managed categories */}
       <View style={styles.catWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
-          {['', ...CATEGORIES].map((cat) => (
+          <TouchableOpacity
+            key="all"
+            style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === '' && statusFilter === '' && [styles.catChipActive, { backgroundColor: C.textPrimary }]]}
+            onPress={() => { setCatFilter(''); setStatusFilter(''); }}
+          >
+            <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === '' && statusFilter === '' && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
+              All ({allCount})
+            </Text>
+          </TouchableOpacity>
+          {statusChips.map((chip) => {
+            const active = statusFilter === chip.key;
+            const count = chip.key === 'low' ? lowCount : outCount;
+            return (
+              <TouchableOpacity
+                key={chip.key}
+                style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, active && [styles.catChipActive, { backgroundColor: C.textPrimary }]]}
+                onPress={() => setStatusFilter(active ? '' : chip.key)}
+              >
+                <Text style={[styles.catChipText, { color: C.textSecondary }, active && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
+                  {chip.label} ({count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          {CATEGORIES.map((cat) => (
             <TouchableOpacity
-              key={cat || 'all'}
+              key={cat}
               style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, catFilter === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }]]}
-              onPress={() => setCatFilter(cat)}
+              onPress={() => setCatFilter(catFilter === cat ? '' : cat)}
             >
               <Text style={[styles.catChipText, { color: C.textSecondary }, catFilter === cat && [styles.catChipTextActive, { color: C.bgPrimary }]]}>
-                {cat || 'All'}
+                {cat} ({categoryCounts[cat] || 0})
               </Text>
             </TouchableOpacity>
           ))}
@@ -205,63 +239,58 @@ export default function ItemsScreen() {
         )}
       </WebScrollView>
 
-      {/* Add/Edit Modal */}
-      <Modal visible={showModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
-            <Text style={[styles.modalTitle, { color: C.textPrimary }]}>{editItem ? 'Edit item' : 'Add item'}</Text>
-            <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView contentContainerStyle={styles.modalBody}>
-            {[
-              { label: 'Item name *', key: 'name', placeholder: 'e.g. Chicken breast' },
-              { label: 'Unit', key: 'unit', placeholder: 'lbs, oz, cases, each' },
-              { label: 'Cost per unit ($)', key: 'costPerUnit', placeholder: '0.00', keyboard: 'decimal-pad' },
-              { label: 'Current stock', key: 'currentStock', placeholder: '0', keyboard: 'decimal-pad' },
-              { label: 'Par level (min)', key: 'parLevel', placeholder: '0', keyboard: 'decimal-pad' },
-              { label: 'Usage per portion sold', key: 'usagePerPortion', placeholder: '0.5', keyboard: 'decimal-pad' },
-            ].map((f) => (
-              <View key={f.key} style={styles.formField}>
-                <Text style={[styles.formLabel, { color: C.textSecondary }]}>{f.label}</Text>
+      {/* Adjust-stock modal */}
+      <Modal visible={!!adjustItem} animationType="slide" presentationStyle="pageSheet">
+        {adjustItem && (
+          <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+              <View>
+                <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Adjust stock</Text>
+                <Text style={[styles.itemCat, { color: C.textTertiary, marginTop: 2 }]}>
+                  {adjustItem.name}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setAdjustItem(null)}>
+                <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalBody}>
+              <View style={[styles.adjustCurrentRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[styles.formLabel, { color: C.textTertiary }]}>Current stock</Text>
+                <Text style={[styles.statValue, { color: C.textPrimary }]}>
+                  {adjustItem.currentStock} {adjustItem.unit}
+                </Text>
+              </View>
+
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>New stock ({adjustItem.unit})</Text>
                 <TextInput
                   style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-                  value={(form as any)[f.key]}
-                  onChangeText={(v) => setForm((prev) => ({ ...prev, [f.key]: f.keyboard ? numericFilter(v) : v }))}
-                  placeholder={f.placeholder}
+                  value={adjustValue}
+                  onChangeText={(v) => setAdjustValue(numericFilter(v))}
+                  placeholder="0"
                   placeholderTextColor={C.textTertiary}
-                  keyboardType={(f.keyboard as any) || 'default'}
+                  keyboardType="decimal-pad"
                 />
               </View>
-            ))}
 
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: C.textSecondary }]}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {CATEGORIES.map((cat) => (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[styles.catChip, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, form.category === cat && [styles.catChipActive, { backgroundColor: C.textPrimary }], { marginRight: 6 }]}
-                    onPress={() => setForm((p) => ({ ...p, category: cat }))}
-                  >
-                    <Text style={[styles.catChipText, { color: C.textSecondary }, form.category === cat && [styles.catChipTextActive, { color: C.bgPrimary }]]}>{cat}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {dupWarning ? (
-              <View style={[styles.dupWarning, { backgroundColor: C.warningBg, borderColor: C.warning }]}>
-                <Text style={[styles.dupWarningText, { color: C.warning }]}>{dupWarning}</Text>
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Reason (optional)</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={adjustReason}
+                  onChangeText={setAdjustReason}
+                  placeholder="e.g. delivery received, found in back, breakage"
+                  placeholderTextColor={C.textTertiary}
+                />
               </View>
-            ) : null}
 
-            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleSave}>
-              <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save item</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAdjustSave}>
+                <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save adjustment</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
       </Modal>
     </View>
   );
@@ -271,8 +300,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgTertiary },
   searchRow: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.lg, paddingBottom: 0 },
   search: { flex: 1, backgroundColor: Colors.bgPrimary, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 8, fontSize: FontSize.base, borderWidth: 0.5, borderColor: Colors.borderLight, color: Colors.textPrimary },
-  addBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 8, justifyContent: 'center' },
-  addBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
   catWrapper: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   catRow: { flexDirection: 'row', alignItems: 'center' },
   catChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, marginRight: 6, borderWidth: 0.5, borderColor: Colors.borderLight },
@@ -291,6 +318,11 @@ const styles = StyleSheet.create({
   itemFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 0.5, borderTopColor: Colors.borderLight },
   editBtn: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.sm, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 0.5, borderColor: Colors.borderLight },
   editBtnText: { fontSize: FontSize.xs, color: Colors.textPrimary },
+  adjustCurrentRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight,
+    borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md,
+  },
   empty: { textAlign: 'center', color: Colors.textTertiary, padding: Spacing.xxxl },
   modal: { flex: 1, backgroundColor: Colors.bgPrimary },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
@@ -302,6 +334,4 @@ const styles = StyleSheet.create({
   formInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.base, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary },
   saveBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: Spacing.md + 2, alignItems: 'center', marginTop: Spacing.md },
   saveBtnText: { color: Colors.bgPrimary, fontSize: FontSize.base, fontWeight: '600' },
-  dupWarning: { borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.sm },
-  dupWarningText: { fontSize: FontSize.sm, fontWeight: '500' },
 });
