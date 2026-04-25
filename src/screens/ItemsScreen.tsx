@@ -71,6 +71,14 @@ export default function ItemsScreen() {
     return true;
   });
 
+  // Sort: digit-prefixed names first (Unicode order puts digits before
+  // letters), then A→Z. `numeric: true` gives natural ordering within the
+  // digit group ("1/8" < "2/8" < "10/8"). `sensitivity: 'base'` makes the
+  // alphabetical run case-insensitive.
+  const sorted = [...filtered].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+  );
+
   const userColors: Record<string, string> = {
     'Maria G.': C.userMaria, 'James T.': C.userJames,
     'Admin': C.userAdmin, 'Ana R.': C.userAna,
@@ -230,10 +238,10 @@ export default function ItemsScreen() {
       </View>
 
       <WebScrollView id="items-scroll" contentContainerStyle={styles.list}>
-        {filtered.length === 0 ? (
+        {sorted.length === 0 ? (
           <Text style={[styles.empty, { color: C.textTertiary }]}>No items found</Text>
         ) : (
-          filtered.map((item) => (
+          sorted.map((item) => (
             <View key={item.id}>{renderItem({ item })}</View>
           ))
         )}
