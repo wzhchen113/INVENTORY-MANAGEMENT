@@ -22,6 +22,7 @@ const USER_COLORS: Record<string, string> = {
 export default function ReconciliationScreen() {
   const {
     posImports, recipes, eodSubmissions, inventory, currentStore,
+    ingredientConversions,
   } = useStore();
   const C = useColors();
   const [adminNote, setAdminNote] = useState('');
@@ -61,15 +62,18 @@ export default function ReconciliationScreen() {
 
   const lines = useMemo(
     () => rangeValid
-      ? buildReconciliationLines(effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory)
+      ? buildReconciliationLines(effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory, ingredientConversions)
       : [],
-    [rangeValid, effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory]
+    [rangeValid, effectiveStart, effectiveEnd, currentStore.id, posImports, recipes, eodSubmissions, inventory, ingredientConversions]
   );
 
   const matched = lines.filter((l) => l.result === 'match').length;
   const mismatched = lines.filter((l) => l.result === 'mismatch').length;
   const review = lines.filter((l) => l.result === 'review').length;
-  const mismatchLines = lines.filter((l) => l.result === 'mismatch');
+  // Cost-impact analysis is only meaningful when variance is trustworthy.
+  // Lines flagged unitMismatch live in the regular list with a warning chip
+  // but are kept out of the dollar-impact summary.
+  const mismatchLines = lines.filter((l) => l.result === 'mismatch' && !l.unitMismatch);
 
   const varianceColor = (v: number) => {
     if (v === 0) return C.success;
@@ -194,6 +198,11 @@ export default function ReconciliationScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.lineName, { color: C.textPrimary }]}>{line.itemName}</Text>
                 <Text style={[styles.lineRecipe, { color: C.textSecondary }]}>{line.recipeUsed}</Text>
+                {line.unitMismatch && (
+                  <Text style={[styles.unitMismatchNote, { color: C.warning }]}>
+                    ⚠️ Unit mismatch — recipe unit doesn't convert to {line.unit}. Fix recipe ingredient units to enable variance check.
+                  </Text>
+                )}
               </View>
               <Badge
                 label={line.result === 'match' ? 'Match' : line.result === 'mismatch' ? 'Mismatch' : 'Review'}
@@ -208,7 +217,9 @@ export default function ReconciliationScreen() {
               </View>
               <View style={styles.lineStat}>
                 <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Expected deduction</Text>
-                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.expectedDeduction} {line.unit}</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>
+                  {line.unitMismatch ? '—' : `${line.expectedDeduction} ${line.unit}`}
+                </Text>
               </View>
               <View style={styles.lineStat}>
                 <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Opening stock</Text>
@@ -216,7 +227,9 @@ export default function ReconciliationScreen() {
               </View>
               <View style={styles.lineStat}>
                 <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Expected rem.</Text>
-                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>{line.expectedRemaining} {line.unit}</Text>
+                <Text style={[styles.lineStatVal, { color: C.textPrimary }]}>
+                  {line.unitMismatch ? '—' : `${line.expectedRemaining} ${line.unit}`}
+                </Text>
               </View>
             </View>
 
@@ -235,8 +248,10 @@ export default function ReconciliationScreen() {
               </View>
               <View style={styles.eodRight}>
                 <Text style={[styles.lineStatLabel, { color: C.textTertiary }]}>Variance</Text>
-                <Text style={[styles.varianceVal, { color: varianceColor(line.variance) }]}>
-                  {line.variance === 0 ? '0' : `${line.variance > 0 ? '+' : ''}${line.variance} ${line.unit}`}
+                <Text style={[styles.varianceVal, { color: line.unitMismatch ? C.textTertiary : varianceColor(line.variance) }]}>
+                  {line.unitMismatch
+                    ? '—'
+                    : line.variance === 0 ? '0' : `${line.variance > 0 ? '+' : ''}${line.variance} ${line.unit}`}
                 </Text>
               </View>
             </View>
@@ -300,6 +315,7 @@ const styles = StyleSheet.create({
   lineTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: Spacing.sm },
   lineName: { fontSize: FontSize.base, fontWeight: '500', color: Colors.textPrimary },
   lineRecipe: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2 },
+  unitMismatchNote: { fontSize: FontSize.xs, color: Colors.warning, marginTop: 4, fontWeight: '500' },
   lineStats: { flexDirection: 'row', marginBottom: Spacing.sm, paddingBottom: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
   lineStat: { flex: 1, alignItems: 'center' },
   lineStatLabel: { fontSize: 9, color: Colors.textTertiary, marginBottom: 2 },
