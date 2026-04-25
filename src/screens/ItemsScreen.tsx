@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Modal, Alert, FlatList,
+  TouchableOpacity, Modal, Alert, FlatList, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
 import { numericFilter } from '../utils';
@@ -13,7 +13,10 @@ import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
 export default function ItemsScreen() {
-  const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem, ingredientCategories } = useStore();
+  const {
+    currentUser, currentStore, inventory, getItemStatus,
+    addItem, updateItem, adjustStock, addAuditEvent, ingredientCategories,
+  } = useStore();
   const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
 
@@ -30,6 +33,13 @@ export default function ItemsScreen() {
   const [catFilter, setCatFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+
+  // Adjust-stock modal: per-item one-off correction (delivery received,
+  // found a case in the back, breakage). Goes through `adjustStock` so
+  // it persists to Supabase, and writes a 'Stock adjusted' audit event.
+  const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
+  const [adjustValue, setAdjustValue] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
 
   // Form state
   const [form, setForm] = useState({
@@ -67,6 +77,42 @@ export default function ItemsScreen() {
       usagePerPortion: String(item.usagePerPortion),
     });
     setShowModal(true);
+  };
+
+  const openAdjust = (item: InventoryItem) => {
+    setAdjustItem(item);
+    setAdjustValue(String(item.currentStock));
+    setAdjustReason('');
+  };
+
+  const handleAdjustSave = () => {
+    if (!adjustItem) return;
+    const newStock = parseFloat(adjustValue);
+    if (Number.isNaN(newStock) || newStock < 0) {
+      if (Platform.OS === 'web') alert('Enter a valid stock number');
+      else Alert.alert('Error', 'Enter a valid stock number');
+      return;
+    }
+    const oldStock = adjustItem.currentStock;
+    if (newStock === oldStock) {
+      // No change — close without writing an audit row.
+      setAdjustItem(null);
+      return;
+    }
+    adjustStock(adjustItem.id, newStock, currentUser?.name || 'Unknown');
+    addAuditEvent({
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || '',
+      userName: currentUser?.name || 'Unknown',
+      userRole: currentUser?.role || 'user',
+      storeId: currentStore.id,
+      storeName: currentStore.name,
+      action: 'Stock adjusted',
+      detail: adjustReason.trim() || 'Manual adjustment',
+      itemRef: adjustItem.name,
+      value: `${oldStock} → ${newStock} ${adjustItem.unit}`,
+    });
+    setAdjustItem(null);
   };
 
   const [dupWarning, setDupWarning] = useState('');
@@ -149,11 +195,19 @@ export default function ItemsScreen() {
 
         <View style={[styles.itemFooter, { borderTopColor: C.borderLight }]}>
           <WhoChip name={item.lastUpdatedBy} color={color} time={item.lastUpdatedAt} />
-          {isAdmin && (
-            <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
-              <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Edit</Text>
+          <View style={styles.footerActions}>
+            <TouchableOpacity
+              style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}
+              onPress={() => openAdjust(item)}
+            >
+              <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Adjust stock</Text>
             </TouchableOpacity>
-          )}
+            {isAdmin && (
+              <TouchableOpacity style={[styles.editBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
+                <Text style={[styles.editBtnText, { color: C.textPrimary }]}>Edit</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -263,6 +317,60 @@ export default function ItemsScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Adjust-stock modal */}
+      <Modal visible={!!adjustItem} animationType="slide" presentationStyle="pageSheet">
+        {adjustItem && (
+          <View style={[styles.modal, { backgroundColor: C.bgPrimary }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: C.borderLight }]}>
+              <View>
+                <Text style={[styles.modalTitle, { color: C.textPrimary }]}>Adjust stock</Text>
+                <Text style={[styles.itemCat, { color: C.textTertiary, marginTop: 2 }]}>
+                  {adjustItem.name}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setAdjustItem(null)}>
+                <Text style={[styles.modalClose, { color: C.info }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalBody}>
+              <View style={[styles.adjustCurrentRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <Text style={[styles.formLabel, { color: C.textTertiary }]}>Current stock</Text>
+                <Text style={[styles.statValue, { color: C.textPrimary }]}>
+                  {adjustItem.currentStock} {adjustItem.unit}
+                </Text>
+              </View>
+
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>New stock ({adjustItem.unit})</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={adjustValue}
+                  onChangeText={(v) => setAdjustValue(numericFilter(v))}
+                  placeholder="0"
+                  placeholderTextColor={C.textTertiary}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: C.textSecondary }]}>Reason (optional)</Text>
+                <TextInput
+                  style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                  value={adjustReason}
+                  onChangeText={setAdjustReason}
+                  placeholder="e.g. delivery received, found in back, breakage"
+                  placeholderTextColor={C.textTertiary}
+                />
+              </View>
+
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.textPrimary }]} onPress={handleAdjustSave}>
+                <Text style={[styles.saveBtnText, { color: C.bgPrimary }]}>Save adjustment</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -289,8 +397,14 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 9, color: Colors.textTertiary },
   statValue: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary },
   itemFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 0.5, borderTopColor: Colors.borderLight },
+  footerActions: { flexDirection: 'row', gap: Spacing.sm },
   editBtn: { backgroundColor: Colors.bgSecondary, borderRadius: Radius.sm, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 0.5, borderColor: Colors.borderLight },
   editBtnText: { fontSize: FontSize.xs, color: Colors.textPrimary },
+  adjustCurrentRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: Colors.bgSecondary, borderWidth: 0.5, borderColor: Colors.borderLight,
+    borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md,
+  },
   empty: { textAlign: 'center', color: Colors.textTertiary, padding: Spacing.xxxl },
   modal: { flex: 1, backgroundColor: Colors.bgPrimary },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight },
