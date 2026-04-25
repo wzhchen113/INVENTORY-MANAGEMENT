@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { Card, CardHeader, Badge, WhoChip, EmptyState } from '../components';
 import { WebScrollView } from '../components/WebScrollView';
-import DatePicker from '../components/DatePicker';
+import DateScopeBar, { DateScopeMode } from '../components/DateScopeBar';
 import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { buildReconciliationLines } from '../utils/usageCalculations';
@@ -46,7 +46,7 @@ export default function ReconciliationScreen() {
     [posImports, eodSubmissions, currentStore.id],
   );
 
-  const [mode, setMode] = useState<'single' | 'range'>('single');
+  const [mode, setMode] = useState<DateScopeMode>('single');
   const [startDate, setStartDate] = useState(defaultDate);
   const [endDate, setEndDate] = useState(defaultDate);
 
@@ -101,62 +101,20 @@ export default function ReconciliationScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
     <TimezoneBar />
     <WebScrollView id="recon-scroll" contentContainerStyle={[styles.content, { backgroundColor: C.bgTertiary }] as any}>
-      {/* Mode toggle */}
-      <View style={[styles.modeRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
-        <TouchableOpacity
-          testID="recon-mode-single"
-          style={[styles.modeBtn, mode === 'single' && { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
-          onPress={() => setMode('single')}
-        >
-          <Text style={[styles.modeText, { color: mode === 'single' ? C.textPrimary : C.textSecondary }]}>Single date</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          testID="recon-mode-range"
-          style={[styles.modeBtn, mode === 'range' && { backgroundColor: C.bgPrimary, borderColor: C.borderMedium }]}
-          onPress={() => {
-            setMode('range');
-            // Default the start to a week before end so the user has something sensible.
-            if (endDate && startDate === endDate) {
-              const d = new Date(endDate + 'T00:00:00');
-              d.setDate(d.getDate() - 6);
-              setStartDate(d.toISOString().split('T')[0]);
-            }
-          }}
-        >
-          <Text style={[styles.modeText, { color: mode === 'range' ? C.textPrimary : C.textSecondary }]}>Date range</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Date pickers */}
-      {mode === 'single' ? (
-        <DatePicker
-          value={endDate}
-          onChange={(d) => { setEndDate(d || defaultDate || ''); setStartDate(d || defaultDate || ''); }}
-          label="Reconciliation date"
-          placeholder="Select a date"
-        />
-      ) : (
-        <View style={styles.rangeRow}>
-          <View style={{ flex: 1 }}>
-            <DatePicker
-              testIdPrefix="recon-start"
-              value={startDate}
-              onChange={(d) => setStartDate(d || defaultDate || '')}
-              label="Start date"
-              placeholder="Start"
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <DatePicker
-              testIdPrefix="recon-end"
-              value={endDate}
-              onChange={(d) => setEndDate(d || defaultDate || '')}
-              label="End date (EOD count)"
-              placeholder="End"
-            />
-          </View>
-        </View>
-      )}
+      {/* Date scope */}
+      <DateScopeBar
+        mode={mode}
+        startDate={startDate}
+        endDate={endDate}
+        onModeChange={setMode}
+        onStartChange={setStartDate}
+        onEndChange={setEndDate}
+        defaultDate={defaultDate}
+        testIdPrefix="recon"
+        singleLabel="Reconciliation date"
+        rangeStartLabel="Start date"
+        rangeEndLabel="End date (EOD count)"
+      />
 
       {/* Range validation / EOD warnings */}
       {mode === 'range' && !rangeValid && effectiveStart && effectiveEnd && (
@@ -331,10 +289,6 @@ const styles = StyleSheet.create({
   noteInput: { borderWidth: 0.5, borderColor: Colors.borderMedium, borderRadius: Radius.md, padding: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, backgroundColor: Colors.bgSecondary, height: 80, textAlignVertical: 'top', marginBottom: Spacing.sm },
   saveNoteBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.md, padding: 9, alignItems: 'center' },
   saveNoteBtnText: { color: Colors.bgPrimary, fontSize: FontSize.sm, fontWeight: '500' },
-  modeRow: { flexDirection: 'row', borderRadius: Radius.md, borderWidth: 0.5, padding: 2, marginBottom: Spacing.sm },
-  modeBtn: { flex: 1, paddingVertical: 8, paddingHorizontal: Spacing.md, alignItems: 'center', borderRadius: Radius.sm, borderWidth: 0.5, borderColor: 'transparent' },
-  modeText: { fontSize: FontSize.sm, fontWeight: '500' },
-  rangeRow: { flexDirection: 'row', gap: Spacing.sm },
   warnBox: { borderWidth: 0.5, borderRadius: Radius.md, padding: Spacing.sm, marginTop: Spacing.sm, marginBottom: Spacing.sm },
   warnText: { fontSize: FontSize.xs, fontWeight: '500' },
 });
