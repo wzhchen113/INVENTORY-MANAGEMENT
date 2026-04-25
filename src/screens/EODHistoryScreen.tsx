@@ -219,7 +219,7 @@ export default function EODHistoryScreen() {
             <View style={[styles.submitterRow, { backgroundColor: C.bgSecondary, borderBottomColor: C.borderLight }]}>
               <View style={[styles.avatar, { backgroundColor: getUserColor(selectedSubmission.submittedByUserId) + '22' }]}>
                 <Text style={[styles.avatarText, { color: getUserColor(selectedSubmission.submittedByUserId) }]}>
-                  {getUserInitials(selectedSubmission.submittedByUserId)}
+                  {getUserInitials(selectedSubmission)}
                 </Text>
               </View>
               <View>
@@ -236,19 +236,26 @@ export default function EODHistoryScreen() {
                 <Text style={[styles.tableHeaderText, { flex: 2, color: C.textTertiary }]}>Item</Text>
                 <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right', color: C.textTertiary }]}>Remaining</Text>
               </View>
-              {selectedSubmission.entries.map((entry) => (
-                <View key={entry.id} style={[styles.tableRow, { borderBottomColor: C.borderLight }]}>
-                  <View style={{ flex: 2 }}>
-                    <Text style={[styles.entryName, { color: C.textPrimary }]}>{entry.itemName}</Text>
-                    {entry.notes ? (
-                      <Text style={[styles.entryNote, { color: C.textTertiary }]}>{entry.notes}</Text>
-                    ) : null}
+              {selectedSubmission.entries.map((entry) => {
+                const item = inventory.find((i) => i.id === entry.itemId);
+                const vendorName = item?.vendorName?.trim();
+                return (
+                  <View key={entry.id} style={[styles.tableRow, { borderBottomColor: C.borderLight }]}>
+                    <View style={{ flex: 2 }}>
+                      <Text style={[styles.entryName, { color: C.textPrimary }]}>{entry.itemName}</Text>
+                      {vendorName ? (
+                        <Text style={[styles.entryVendor, { color: C.textTertiary }]}>{vendorName}</Text>
+                      ) : null}
+                      {entry.notes ? (
+                        <Text style={[styles.entryNote, { color: C.textTertiary }]}>{entry.notes}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.entryValue, { color: C.textPrimary }]}>
+                      {entry.actualRemaining} {entry.unit}
+                    </Text>
                   </View>
-                  <Text style={[styles.entryValue, { color: C.textPrimary }]}>
-                    {entry.actualRemaining} {entry.unit}
-                  </Text>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
           </View>
         )}
@@ -335,6 +342,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
   },
   entryName: { fontSize: FontSize.sm, fontWeight: '500', color: Colors.textPrimary },
+  entryVendor: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 },
   entryNote: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2, fontStyle: 'italic' },
   entryValue: { flex: 1, fontSize: FontSize.sm, fontWeight: '600', color: Colors.textPrimary, textAlign: 'right' },
 });
