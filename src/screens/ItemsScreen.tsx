@@ -12,12 +12,19 @@ import { TimezoneBar } from '../components/TimezoneBar';
 import { Colors, useColors, Spacing, Radius, FontSize } from '../theme/colors';
 import { InventoryItem } from '../types';
 
-const CATEGORIES = ['Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts'];
-
 export default function ItemsScreen() {
-  const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem } = useStore();
+  const { currentUser, currentStore, inventory, getItemStatus, addItem, updateItem, ingredientCategories } = useStore();
   const C = useColors();
   const isAdmin = currentUser?.role === 'admin';
+
+  // Categories come from the same store-managed list as IngredientsScreen so
+  // the chips here stay in sync with whatever admins added via Manage
+  // categories. Falls back to a reasonable default before the store hydrates
+  // from Supabase.
+  const CATEGORIES = ingredientCategories.length > 0
+    ? ingredientCategories
+    : ['Protein', 'Seafood', 'Dry goods', 'Condiments', 'Drinks', 'Desserts'];
+  const defaultCategory = CATEGORIES[0];
 
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
@@ -26,7 +33,7 @@ export default function ItemsScreen() {
 
   // Form state
   const [form, setForm] = useState({
-    name: '', category: 'Protein', unit: 'lbs', costPerUnit: '',
+    name: '', category: defaultCategory, unit: 'lbs', costPerUnit: '',
     currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '',
   });
 
@@ -46,7 +53,7 @@ export default function ItemsScreen() {
   const openAdd = () => {
     setEditItem(null);
     setDupWarning('');
-    setForm({ name: '', category: 'Protein', unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '' });
+    setForm({ name: '', category: defaultCategory, unit: 'lbs', costPerUnit: '', currentStock: '', parLevel: '', vendorName: 'Sysco', usagePerPortion: '' });
     setShowModal(true);
   };
 
