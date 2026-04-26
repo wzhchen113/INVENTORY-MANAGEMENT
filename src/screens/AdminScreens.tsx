@@ -597,7 +597,7 @@ export function RecipesScreen() {
 // ─── VENDORS ────────────────────────────────────────────────────────────────
 export function VendorsScreen() {
   const C = useColors();
-  const { vendors, addVendor, updateVendor, deleteVendor } = useStore();
+  const { vendors, addVendor, updateVendor, deleteVendor, currentStore } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [editVendor, setEditVendor] = useState<typeof vendors[0] | null>(null);
   const [dupWarning, setDupWarning] = useState('');
@@ -781,6 +781,32 @@ export function VendorsScreen() {
                 keyboardType="numbers-and-punctuation"
                 maxLength={5}
               />
+              {/*
+                Live preview of the effective deadline so the admin sees what
+                this vendor will actually use. Blank = inherit, valid override
+                = green callout, malformed = quiet hint (parseHHMM still
+                catches it on save).
+              */}
+              {(() => {
+                const trimmed = form.eodDeadlineTime.trim();
+                const validOverride = /^([01]?\d|2[0-3]):[0-5]\d$/.test(trimmed);
+                const storeFallback = currentStore.eodDeadlineTime || '22:00';
+                if (!trimmed) {
+                  return (
+                    <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4, marginBottom: 2 }}>
+                      Currently inheriting store-wide deadline: <Text style={{ fontWeight: '600', color: C.textSecondary }}>{storeFallback}</Text>
+                    </Text>
+                  );
+                }
+                if (validOverride) {
+                  return (
+                    <Text style={{ fontSize: 11, color: C.success, marginTop: 4, marginBottom: 2, fontWeight: '600' }}>
+                      Override active — locks at {trimmed}
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
               <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4, marginBottom: Spacing.md }}>
                 24h HH:MM local. Locks today's count for this vendor's items past this time. Leave blank to use the store-wide deadline.
               </Text>

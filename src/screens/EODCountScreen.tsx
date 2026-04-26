@@ -155,9 +155,13 @@ export default function EODCountScreen() {
   }, [vendorFilter, vendors, currentStore.eodDeadlineTime, timezone, businessToday.dateISO, nowTick]);
 
   const effectiveDeadlineLabel = effectiveDeadlineFor(vendorFilter || null) || '22:00';
+
   const nextReminderLabel = useMemo(() => {
     void nowTick; // dependency trigger
-    const deadline = currentStore.eodDeadlineTime;
+    // Active vendor's effective deadline — falls back to store-wide. Critical
+    // because the user looks at this chip to know how much time is left, and
+    // they're working on the currently-selected vendor.
+    const deadline = effectiveDeadlineFor(vendorFilter || null);
     if (!deadline || !/^\d{1,2}:\d{2}$/.test(deadline)) return null;
     const [dh, dm] = deadline.split(':').map(Number);
     // Current wall-clock in the app's timezone (same as store's local time).
@@ -185,7 +189,8 @@ export default function EODCountScreen() {
     }
     if (next.triggersIn === 0) return { text: `Reminder now (${next.b} min before)`, ok: false };
     return { text: `Next reminder in ${next.triggersIn} min`, ok: null };
-  }, [currentStore.eodDeadlineTime, nowTick, myTodaySubmission]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorFilter, vendors, currentStore.eodDeadlineTime, nowTick, myTodaySubmission]);
 
   const handleEnableReminders = async () => {
     if (!currentUser?.id) return;
@@ -257,6 +262,19 @@ export default function EODCountScreen() {
     () => Object.keys(vendorCounts).sort(),
     [vendorCounts]
   );
+
+  // Pre-compute which vendor pills are past their effective deadline so each
+  // pill can render its own 🔒 + dimmed styling without recomputing on every
+  // render. Recomputed when the minute-tick fires.
+  const lockedVendors = useMemo(() => {
+    void nowTick; // retrigger every minute
+    const set = new Set<string>();
+    for (const v of vendorNames) {
+      if (isPastDeadline(effectiveDeadlineFor(v))) set.add(v);
+    }
+    return set;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorNames, vendors, currentStore.eodDeadlineTime, timezone, businessToday.dateISO, nowTick]);
 
   // Items scoped to the current vendor filter. Everything else (category pills,
   // counts, progress bar, filledCount) derives from this so the whole screen
@@ -1050,16 +1068,37 @@ export default function EODCountScreen() {
             {vendorNames.map((v) => {
               const isActive = vendorFilter === v;
               const done = completedVendors.has(v);
+              const locked = lockedVendors.has(v);
               return (
                 <TouchableOpacity
                   key={v}
-                  style={[styles.pill, { backgroundColor: C.bgPrimary, borderColor: C.borderLight }, isActive && styles.pillActive, isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary }, done && !isActive && { backgroundColor: C.successBg, borderColor: C.success }]}
+                  style={[
+                    styles.pill,
+                    { backgroundColor: C.bgPrimary, borderColor: C.borderLight },
+                    isActive && styles.pillActive,
+                    isActive && { backgroundColor: C.textPrimary, borderColor: C.textPrimary },
+                    done && !isActive && { backgroundColor: C.successBg, borderColor: C.success },
+                    // Locked styling beats both default and "done" — but stays
+                    // beneath isActive so the active pill always pops.
+                    locked && !isActive && { backgroundColor: C.dangerBg, borderColor: C.danger, opacity: 0.7 },
+                  ]}
                   onPress={() => setVendorFilter(v)}
                 >
-                  {done && (
+                  {locked ? (
+                    // Lock takes precedence over the checkmark — if the
+                    // deadline passed without a count, "done" stops mattering
+                    // (you can't change it now anyway).
+                    <Ionicons name="lock-closed" size={11} color={isActive ? C.bgPrimary : C.danger} style={{ marginRight: 4 }} />
+                  ) : done ? (
                     <Ionicons name="checkmark-circle" size={12} color={isActive ? C.bgPrimary : C.success} style={{ marginRight: 4 }} />
-                  )}
-                  <Text style={[styles.pillText, { color: C.textSecondary }, isActive && { color: C.bgPrimary }, done && !isActive && { color: C.success, fontWeight: '600' }]}>
+                  ) : null}
+                  <Text style={[
+                    styles.pillText,
+                    { color: C.textSecondary },
+                    isActive && { color: C.bgPrimary },
+                    done && !isActive && !locked && { color: C.success, fontWeight: '600' },
+                    locked && !isActive && { color: C.danger, fontWeight: '600' },
+                  ]}>
                     {v} ({vendorCounts[v]})
                   </Text>
                 </TouchableOpacity>
