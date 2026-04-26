@@ -8,6 +8,7 @@ import {
   FlatList, TextInput, Modal, Alert, Platform,
 } from 'react-native';
 import { useStore } from '../store/useStore';
+import * as db from '../lib/db';
 import { numericFilter, toCSV, downloadCSV, numFirstSort } from '../utils';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
@@ -39,6 +40,16 @@ export function RecipesScreen() {
   const [sellPrice, setSellPrice] = useState('');
   const [category, setCategory] = useState(recipeCategories[0] || 'Mains');
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+  // Stores that already had this recipe at modal-open time. Used by handleSave
+  // to scope the "delete from deselected stores" loop to stores the user could
+  // actually see + intentionally uncheck (prevents silently deleting rows the
+  // user had no visibility into).
+  const [initialStoreIds, setInitialStoreIds] = useState<string[]>([]);
+  // When true, propagate ingredients/conversions to existing rows in other
+  // selected stores while preserving each store's sellPrice. See handleSave.
+  const [syncComposition, setSyncComposition] = useState(false);
+  // True briefly while openEdit awaits the cross-store presence query.
+  const [openingEdit, setOpeningEdit] = useState(false);
 
   // Ingredient editing state (unified in main modal)
   const [editIngredients, setEditIngredients] = useState<RecipeIngredient[]>([]);
@@ -109,12 +120,16 @@ export function RecipesScreen() {
     setSellPrice('');
     setCategory(recipeCategories[0] || 'Mains');
     setSelectedStoreIds(stores.map((s) => s.id));
+    setInitialStoreIds([]);
+    setSyncComposition(false);
     setEditIngredients([]);
     setEditPrepItems([]);
     setShowModal(true);
   };
 
-  const openEdit = (recipe: Recipe) => {
+  const openEdit = async (recipe: Recipe) => {
+    if (openingEdit) return; // ignore double-clicks during the async query
+    setOpeningEdit(true);
     setEditItem(recipe);
     setDupWarning('');
     setMenuItem(recipe.menuItem);
@@ -122,14 +137,36 @@ export function RecipesScreen() {
     setCategory(recipe.category);
     setEditIngredients([...recipe.ingredients]);
     setEditPrepItems([...(recipe.prepItems || [])]);
-    const storesWithRecipe = recipes
-      .filter((r) => r.menuItem.toLowerCase() === recipe.menuItem.toLowerCase())
-      .map((r) => r.storeId);
-    setSelectedStoreIds([...new Set(storesWithRecipe)]);
+    setSyncComposition(false);
+
+    // Query the DB for true cross-store presence BEFORE opening the modal so
+    // the store-picker count is accurate from the first frame the user sees.
+    // ~100–200ms one-time cost; avoids the flicker of opening with stale
+    // in-memory state and then snapping to the true count.
+    let trueStoreIds: string[] = [];
+    try {
+      const allStoreIds = stores.map((s) => s.id);
+      const allRows = await db.findRecipesByMenuItem(recipe.menuItem, allStoreIds);
+      trueStoreIds = [...new Set(allRows.map((r) => r.storeId))];
+    } catch (e) {
+      console.warn('[openEdit] cross-store query failed, falling back to in-memory', e);
+      trueStoreIds = [...new Set(
+        recipes
+          .filter((r) => r.menuItem.toLowerCase() === recipe.menuItem.toLowerCase())
+          .map((r) => r.storeId)
+      )];
+    }
+    // Defensive fallback: if the query returns nothing (e.g., RLS edge case),
+    // at minimum include the row we know exists.
+    if (trueStoreIds.length === 0) trueStoreIds = [recipe.storeId];
+
+    setSelectedStoreIds(trueStoreIds);
+    setInitialStoreIds(trueStoreIds);
     setShowModal(true);
+    setOpeningEdit(false);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!menuItem.trim()) { Alert.alert('Error', 'Recipe name required'); return; }
     if (selectedStoreIds.length === 0) {
       if (Platform.OS === 'web') alert('Select at least one store');
@@ -160,74 +197,123 @@ export function RecipesScreen() {
     setDupWarning('');
 
     const price = parseFloat(sellPrice) || 0;
+    const cleanName = menuItem.trim();
 
     if (editItem) {
-      // Find all existing copies across stores
-      const existingRecipes = recipes.filter(
-        (r) => r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase()
-      );
-      const existingStoreIds = existingRecipes.map((r) => r.storeId);
+      // Source of truth: query the DB for existing rows across ALL stores.
+      // Required because state.recipes only holds the active store's rows in
+      // single-store view, so the previous in-memory filter silently no-op'd
+      // for any non-current store.
+      const allStoreIds = stores.map((s) => s.id);
+      let existingRows: { id: string; storeId: string }[] = [];
+      try {
+        existingRows = await db.findRecipesByMenuItem(editItem.menuItem, allStoreIds);
+      } catch (e) {
+        console.warn('[handleSave] cross-store query failed, falling back to in-memory', e);
+        existingRows = recipes
+          .filter((r) => r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase())
+          .map((r) => ({ id: r.id, storeId: r.storeId }));
+      }
+      const existingByStoreId = new Map(existingRows.map((r) => [r.storeId, r.id]));
 
-      // Update existing copies in selected stores (metadata + translated ingredients)
-      existingRecipes.forEach((r) => {
-        if (selectedStoreIds.includes(r.storeId)) {
-          const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, r.storeId);
-          updateRecipe(r.id, {
-            menuItem: menuItem.trim(), category, sellPrice: price,
-            ingredients, prepItems,
+      // (1) Selected stores — update existing or create new.
+      //
+      // Behavior matrix:
+      //   Current store + existing row     → full update (price + composition)
+      //   Current store + no row           → create with modal's price
+      //   Other store + existing + Sync ON → composition only (preserve sellPrice)
+      //   Other store + existing + Sync OFF→ leave row UNTOUCHED
+      //   Other store + no row             → create with modal's price (newly added)
+      for (const storeId of selectedStoreIds) {
+        const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, storeId);
+        const existingId = existingByStoreId.get(storeId);
+        const isCurrentStore = storeId === currentStore.id;
+
+        if (existingId) {
+          if (isCurrentStore) {
+            // Full update for the store the user is editing in
+            updateRecipe(existingId, {
+              menuItem: cleanName, category, sellPrice: price, ingredients, prepItems,
+            });
+          } else if (syncComposition) {
+            // Push composition to other stores, but keep their independent price
+            updateRecipe(existingId, {
+              menuItem: cleanName, category, ingredients, prepItems,
+            });
+          }
+          // else: other store + Sync OFF → leave the row alone
+        } else {
+          // No row in this store — create a new one (uses modal's price)
+          addRecipe({
+            menuItem: cleanName, category, sellPrice: price,
+            ingredients, prepItems, storeId,
           });
         }
-      });
+      }
 
-      // Delete from deselected stores
-      existingRecipes.forEach((r) => {
-        if (!selectedStoreIds.includes(r.storeId)) deleteRecipe(r.id);
-      });
-
-      // Add to newly selected stores
-      const newStoreIds = selectedStoreIds.filter((sid) => !existingStoreIds.includes(sid));
-      for (const storeId of newStoreIds) {
-        const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, storeId);
-        addRecipe({ menuItem: menuItem.trim(), category, sellPrice: price, ingredients, prepItems, storeId });
+      // (2) Delete from deselected stores — but only stores the user could SEE
+      // in the initial selection. Prevents silently nuking rows the user had
+      // no visibility into (e.g., a row in a store the modal never showed as
+      // checked in the first place).
+      const deselectedFromInitial = initialStoreIds.filter(
+        (sid) => !selectedStoreIds.includes(sid)
+      );
+      for (const sid of deselectedFromInitial) {
+        const id = existingByStoreId.get(sid);
+        if (id) deleteRecipe(id);
       }
     } else {
       // Create: add to all selected stores with translated ingredients
       for (const storeId of selectedStoreIds) {
         const { ingredients, prepItems } = translateForStore(editIngredients, editPrepItems, storeId);
-        addRecipe({ menuItem: menuItem.trim(), category, sellPrice: price, ingredients, prepItems, storeId });
+        addRecipe({ menuItem: cleanName, category, sellPrice: price, ingredients, prepItems, storeId });
       }
     }
     setShowModal(false);
   };
 
-  const handleDeleteEntirely = () => {
+  const handleDeleteEntirely = async () => {
     if (!editItem) return;
     if (selectedStoreIds.length === 0) {
       if (Platform.OS === 'web') alert('Select at least one store to delete from');
       else Alert.alert('Error', 'Select at least one store to delete from');
       return;
     }
-    const copiesInScope = recipes.filter(
-      (r) =>
-        r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase() &&
-        selectedStoreIds.includes(r.storeId)
-    );
-    if (copiesInScope.length === 0) {
+    // Query DB for the actual rows so we can delete cross-store (state.recipes
+    // only holds the active store in single-store view).
+    let rowsInScope: { id: string; storeId: string }[] = [];
+    try {
+      rowsInScope = await db.findRecipesByMenuItem(editItem.menuItem, selectedStoreIds);
+    } catch (e) {
+      console.warn('[handleDeleteEntirely] cross-store query failed, falling back to in-memory', e);
+      rowsInScope = recipes
+        .filter(
+          (r) =>
+            r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase() &&
+            selectedStoreIds.includes(r.storeId)
+        )
+        .map((r) => ({ id: r.id, storeId: r.storeId }));
+    }
+    if (rowsInScope.length === 0) {
       if (Platform.OS === 'web') alert('Recipe does not exist in any of the selected stores');
       else Alert.alert('Nothing to delete', 'Recipe does not exist in any of the selected stores');
       return;
     }
-    const selectedNames = stores
-      .filter((s) => selectedStoreIds.includes(s.id))
+    // Confirm dialog names the stores actually being affected, derived from
+    // the DB result (not just the selection — covers the case where the
+    // user selected stores that don't actually have the recipe).
+    const affectedStoreIds = new Set(rowsInScope.map((r) => r.storeId));
+    const affectedNames = stores
+      .filter((s) => affectedStoreIds.has(s.id))
       .map((s) => s.name);
-    const isAllStores = selectedStoreIds.length === stores.length;
+    const isAllStores = affectedStoreIds.size === stores.length;
     const scopeLabel = isAllStores
       ? 'all stores'
-      : selectedNames.length === 1
-        ? selectedNames[0]
-        : `${selectedNames.length} stores (${selectedNames.join(', ')})`;
+      : affectedNames.length === 1
+        ? affectedNames[0]
+        : `${affectedNames.length} stores (${affectedNames.join(', ')})`;
     const doDelete = () => {
-      copiesInScope.forEach((r) => deleteRecipe(r.id));
+      rowsInScope.forEach(({ id }) => deleteRecipe(id));
       setShowModal(false);
     };
     const msg = `Delete "${editItem.menuItem}" from ${scopeLabel}? This cannot be undone.`;
@@ -448,6 +534,30 @@ export function RecipesScreen() {
                 {selectedStoreIds.length} of {stores.length} store{stores.length !== 1 ? 's' : ''} selected
               </Text>
             </View>
+
+            {/* Sync composition toggle — only meaningful when 2+ stores are selected */}
+            {editItem && selectedStoreIds.length > 1 && (
+              <View style={[styles.syncRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <TouchableOpacity
+                  style={styles.syncRowMain}
+                  onPress={() => setSyncComposition(!syncComposition)}
+                >
+                  <Ionicons
+                    name={syncComposition ? 'checkbox' : 'square-outline'}
+                    size={20}
+                    color={syncComposition ? C.info : C.textSecondary}
+                  />
+                  <Text style={[styles.syncRowText, { color: C.textPrimary }]}>
+                    Sync ingredients & conversions to all selected stores
+                  </Text>
+                </TouchableOpacity>
+                <Text style={[styles.syncHint, { color: C.textTertiary }]}>
+                  Each store keeps its own sell price. Only ingredients, prep items,
+                  and quantities are propagated. Recipe IDs remain unchanged so POS
+                  mappings stay intact.
+                </Text>
+              </View>
+            )}
 
             <Text style={[styles.formLabel, { color: C.textSecondary }]}>Menu item name</Text>
             <TextInput style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]} value={menuItem} onChangeText={setMenuItem} placeholder="e.g. Grilled Chicken Plate" placeholderTextColor={C.textTertiary} />
@@ -1792,6 +1902,10 @@ const styles = StyleSheet.create({
   storeChipCheck: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: Colors.borderMedium, alignItems: 'center', justifyContent: 'center' },
   storeChipText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
   storeHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6 },
+  syncRow: { borderWidth: 1, borderColor: Colors.borderLight, borderRadius: Radius.md, padding: Spacing.md, marginBottom: Spacing.md },
+  syncRowMain: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  syncRowText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '500', flex: 1 },
+  syncHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6, lineHeight: 16 },
   deleteRecipeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing.md, marginTop: Spacing.md },
   deleteRecipeBtnText: { color: Colors.danger, fontSize: FontSize.base, fontWeight: '500' },
   filterChip: { backgroundColor: Colors.bgPrimary, borderRadius: Radius.round, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 0.5, borderColor: Colors.borderLight },

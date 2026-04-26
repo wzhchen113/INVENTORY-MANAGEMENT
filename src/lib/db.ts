@@ -689,6 +689,33 @@ export async function deleteRecipe(id: string): Promise<void> {
   await supabase.from('recipes').delete().eq('id', id);
 }
 
+/**
+ * Look up recipe rows by menu name across one or more stores.
+ * Used by the recipe edit/delete UI to operate on rows that may not
+ * be loaded in local Zustand state (single-store view only loads the
+ * active store's recipes; this query reaches all stores).
+ *
+ * Returns `{ id, storeId }` pairs so callers can drive `updateRecipe` /
+ * `deleteRecipe` against any store, while preserving each row's
+ * `recipe_id` (POS aliases stay intact).
+ */
+export async function findRecipesByMenuItem(
+  menuItem: string,
+  storeIds: string[]
+): Promise<{ id: string; storeId: string }[]> {
+  if (storeIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('id, store_id')
+    .ilike('menu_item', menuItem)
+    .in('store_id', storeIds);
+  if (error) {
+    console.warn('[Supabase] findRecipesByMenuItem', error.message);
+    return [];
+  }
+  return (data || []).map((r: any) => ({ id: r.id, storeId: r.store_id }));
+}
+
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
 export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
   let query = supabase
