@@ -202,17 +202,39 @@ export function RecipesScreen() {
 
   const handleDeleteEntirely = () => {
     if (!editItem) return;
-    const allCopies = recipes.filter(
-      (r) => r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase()
+    if (selectedStoreIds.length === 0) {
+      if (Platform.OS === 'web') alert('Select at least one store to delete from');
+      else Alert.alert('Error', 'Select at least one store to delete from');
+      return;
+    }
+    const copiesInScope = recipes.filter(
+      (r) =>
+        r.menuItem.toLowerCase() === editItem.menuItem.toLowerCase() &&
+        selectedStoreIds.includes(r.storeId)
     );
+    if (copiesInScope.length === 0) {
+      if (Platform.OS === 'web') alert('Recipe does not exist in any of the selected stores');
+      else Alert.alert('Nothing to delete', 'Recipe does not exist in any of the selected stores');
+      return;
+    }
+    const selectedNames = stores
+      .filter((s) => selectedStoreIds.includes(s.id))
+      .map((s) => s.name);
+    const isAllStores = selectedStoreIds.length === stores.length;
+    const scopeLabel = isAllStores
+      ? 'all stores'
+      : selectedNames.length === 1
+        ? selectedNames[0]
+        : `${selectedNames.length} stores (${selectedNames.join(', ')})`;
     const doDelete = () => {
-      allCopies.forEach((r) => deleteRecipe(r.id));
+      copiesInScope.forEach((r) => deleteRecipe(r.id));
       setShowModal(false);
     };
+    const msg = `Delete "${editItem.menuItem}" from ${scopeLabel}? This cannot be undone.`;
     if (Platform.OS === 'web') {
-      if (confirm(`Delete "${editItem.menuItem}" from all stores? This cannot be undone.`)) doDelete();
+      if (confirm(msg)) doDelete();
     } else {
-      Alert.alert('Delete recipe', `Delete "${editItem.menuItem}" from all stores? This cannot be undone.`, [
+      Alert.alert('Delete recipe', msg, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: doDelete },
       ]);
@@ -473,7 +495,15 @@ export function RecipesScreen() {
             {editItem && isAdmin && (
               <TouchableOpacity style={[styles.deleteRecipeBtn, { borderColor: C.danger }]} onPress={handleDeleteEntirely}>
                 <Ionicons name="trash-outline" size={16} color={C.danger} />
-                <Text style={[styles.deleteRecipeBtnText, { color: C.danger }]}>Delete from all stores</Text>
+                <Text style={[styles.deleteRecipeBtnText, { color: C.danger }]}>
+                  {selectedStoreIds.length === 0
+                    ? 'Delete recipe'
+                    : selectedStoreIds.length === stores.length
+                      ? 'Delete from all stores'
+                      : selectedStoreIds.length === 1
+                        ? 'Delete from 1 store'
+                        : `Delete from ${selectedStoreIds.length} stores`}
+                </Text>
               </TouchableOpacity>
             )}
           </ScrollView>
