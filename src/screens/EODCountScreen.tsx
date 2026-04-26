@@ -156,6 +156,20 @@ export default function EODCountScreen() {
 
   const effectiveDeadlineLabel = effectiveDeadlineFor(vendorFilter || null) || '22:00';
 
+  // Where does the displayed deadline come from? Drives the "(vendor
+  // override)" / "(store-wide)" suffix in the locked banner so the user
+  // can tell at a glance whether they're seeing a custom override or the
+  // inherited store-wide value (without this, two different sources can
+  // render identical text and look like a bug).
+  const effectiveDeadlineSource: 'override' | 'store' | 'default' = (() => {
+    if (vendorFilter) {
+      const v = vendors.find((x) => x.name === vendorFilter);
+      if (v?.eodDeadlineTime) return 'override';
+    }
+    if (currentStore.eodDeadlineTime) return 'store';
+    return 'default'; // hardcoded 22:00 fallback in the label
+  })();
+
   const nextReminderLabel = useMemo(() => {
     void nowTick; // dependency trigger
     // Active vendor's effective deadline — falls back to store-wide. Critical
@@ -163,6 +177,15 @@ export default function EODCountScreen() {
     // they're working on the currently-selected vendor.
     const deadline = effectiveDeadlineFor(vendorFilter || null);
     if (!deadline || !/^\d{1,2}:\d{2}$/.test(deadline)) return null;
+    // Business-day-aware past check. Without this, the 00:00–02:59 overnight
+    // grace period reads "minutes until today's 22:00" (positive, future)
+    // even though the BUSINESS day's 22:00 already passed and the count is
+    // locked. Defer to lockedForCurrentVendor (uses isPastDeadline) so chip
+    // and banner agree.
+    if (lockedForCurrentVendor) {
+      return { text: `Past ${deadline} deadline`, ok: false };
+    }
+    if (!!myTodaySubmission) return { text: '✓ Submitted for today', ok: true };
     const [dh, dm] = deadline.split(':').map(Number);
     // Current wall-clock in the app's timezone (same as store's local time).
     const tz = useStore.getState().timezone || 'America/New_York';
@@ -175,8 +198,6 @@ export default function EODCountScreen() {
     const localMin = Number(parts.hour) * 60 + Number(parts.minute);
     const cutoffMin = dh * 60 + dm;
     const minutesUntilCutoff = cutoffMin - localMin;
-    if (minutesUntilCutoff < 0) return { text: 'Past deadline', ok: false };
-    if (!!myTodaySubmission) return { text: '✓ Submitted for today', ok: true };
     // Find the next upcoming reminder bucket (60/30/10 min before cutoff).
     const buckets = [60, 30, 10];
     const next = buckets
@@ -185,12 +206,12 @@ export default function EODCountScreen() {
       .sort((a, b) => a.triggersIn - b.triggersIn)[0];
     if (!next) {
       // Past all three buckets but before cutoff
-      return { text: `Cutoff in ${minutesUntilCutoff} min`, ok: false };
+      return { text: `Cutoff at ${deadline} in ${minutesUntilCutoff} min`, ok: false };
     }
-    if (next.triggersIn === 0) return { text: `Reminder now (${next.b} min before)`, ok: false };
-    return { text: `Next reminder in ${next.triggersIn} min`, ok: null };
+    if (next.triggersIn === 0) return { text: `${deadline} cutoff · reminder now (${next.b} min before)`, ok: false };
+    return { text: `${deadline} cutoff · next reminder in ${next.triggersIn} min`, ok: null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendorFilter, vendors, currentStore.eodDeadlineTime, nowTick, myTodaySubmission]);
+  }, [vendorFilter, vendors, currentStore.eodDeadlineTime, nowTick, myTodaySubmission, lockedForCurrentVendor]);
 
   const handleEnableReminders = async () => {
     if (!currentUser?.id) return;
@@ -1232,7 +1253,13 @@ export default function EODCountScreen() {
               {vendorFilter ? `${vendorFilter} count is locked` : "Today's count is locked"}
             </Text>
             <Text style={{ fontSize: 11, color: C.danger, marginTop: 2 }}>
-              Past the {effectiveDeadlineLabel} deadline{vendorFilter ? ` for ${vendorFilter}` : ''}. You can't submit or edit {vendorFilter ? "this vendor's" : "today's"} count anymore.
+              Past the {effectiveDeadlineLabel} deadline{
+                effectiveDeadlineSource === 'override'
+                  ? ' (vendor override)'
+                  : effectiveDeadlineSource === 'store'
+                    ? ' (store-wide)'
+                    : ''
+              }{vendorFilter ? ` for ${vendorFilter}` : ''}. You can't submit or edit {vendorFilter ? "this vendor's" : "today's"} count anymore.
               {myTodaySubmission ? ' Your earlier submission is preserved.' : ''}
             </Text>
           </View>
