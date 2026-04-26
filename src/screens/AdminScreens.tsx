@@ -31,7 +31,7 @@ export function RecipesScreen() {
     addRecipe, updateRecipe, deleteRecipe,
     addRecipeCategory, updateRecipeCategory, deleteRecipeCategory,
   } = useStore();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
 
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<Recipe | null>(null);
@@ -283,9 +283,11 @@ export function RecipesScreen() {
 
       <WebScrollView id="recipes-scroll" contentContainerStyle={{ padding: Spacing.lg }}>
         <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md }}>
-          <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, flex: 1, marginBottom: 0 }]} onPress={openAdd}>
-            <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
-          </TouchableOpacity>
+          {isAdmin && (
+            <TouchableOpacity style={[styles.addRow, { backgroundColor: C.bgPrimary, borderColor: C.borderLight, flex: 1, marginBottom: 0 }]} onPress={openAdd}>
+              <Text style={[styles.addRowText, { color: C.info }]}>+ New recipe / menu item</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={{ backgroundColor: C.bgPrimary, borderRadius: Radius.md, borderWidth: 0.5, borderColor: C.borderLight, width: 40, alignItems: 'center', justifyContent: 'center' }}
             onPress={() => {
@@ -366,9 +368,11 @@ export function RecipesScreen() {
                   <Text style={[styles.noIng, { color: C.textTertiary }]}>No ingredients mapped yet — tap Edit to add</Text>
                 )}
               </View>
-              <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium }]} onPress={() => openEdit(recipe)}>
-                <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit</Text>
-              </TouchableOpacity>
+              {isAdmin && (
+                <TouchableOpacity style={[styles.editRecipeBtn, { borderColor: C.borderMedium }]} onPress={() => openEdit(recipe)}>
+                  <Text style={[styles.editRecipeBtnText, { color: C.textSecondary }]}>Edit</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         })}
