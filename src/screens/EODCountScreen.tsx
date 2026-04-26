@@ -1090,6 +1090,11 @@ export default function EODCountScreen() {
               const isActive = vendorFilter === v;
               const done = completedVendors.has(v);
               const locked = lockedVendors.has(v);
+              // Show every vendor's effective deadline so staff don't have
+              // to remember which vendors got overrides. Falls back to the
+              // store-wide value or the hardcoded '22:00' so each pill
+              // always carries a time and the row stays visually uniform.
+              const cutoffLabel = effectiveDeadlineFor(v) || '22:00';
               return (
                 <TouchableOpacity
                   key={v}
@@ -1120,7 +1125,7 @@ export default function EODCountScreen() {
                     done && !isActive && !locked && { color: C.success, fontWeight: '600' },
                     locked && !isActive && { color: C.danger, fontWeight: '600' },
                   ]}>
-                    {v} ({vendorCounts[v]})
+                    {v} ({vendorCounts[v]}) · {cutoffLabel}
                   </Text>
                 </TouchableOpacity>
               );
