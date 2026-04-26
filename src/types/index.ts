@@ -170,6 +170,11 @@ export interface Vendor {
   // HH:MM in 24h (store local time). Cron fires 60/30/10 min before this on
   // the vendor's scheduled order days, unless the order has already been placed.
   orderCutoffTime?: string;
+  // HH:MM in 24h (store local time). Locks the EOD count screen for this
+  // vendor's items once this time passes. Falls back to the store-wide
+  // eodDeadlineTime when not set. Distinct from orderCutoffTime, which gates
+  // when the order itself must be placed with the vendor.
+  eodDeadlineTime?: string;
 }
 
 export interface POSSaleItem {

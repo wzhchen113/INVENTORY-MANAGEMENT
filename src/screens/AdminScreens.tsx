@@ -602,7 +602,7 @@ export function VendorsScreen() {
   const [editVendor, setEditVendor] = useState<typeof vendors[0] | null>(null);
   const [dupWarning, setDupWarning] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<typeof vendors[0] | null>(null);
-  const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '' });
+  const [form, setForm] = useState({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '', eodDeadlineTime: '' });
 
   // Validate HH:MM (24h); returns trimmed value if valid, empty string for empty input, null if malformed.
   const parseHHMM = (raw: string): string | null => {
@@ -616,7 +616,7 @@ export function VendorsScreen() {
   const openAdd = () => {
     setEditVendor(null);
     setDupWarning('');
-    setForm({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '' });
+    setForm({ name: '', contactName: '', phone: '', email: '', accountNumber: '', leadTimeDays: '2', orderCutoffTime: '', eodDeadlineTime: '' });
     setShowModal(true);
   };
 
@@ -631,6 +631,7 @@ export function VendorsScreen() {
       accountNumber: vendor.accountNumber || '',
       leadTimeDays: String(vendor.leadTimeDays || 2),
       orderCutoffTime: vendor.orderCutoffTime || '',
+      eodDeadlineTime: vendor.eodDeadlineTime || '',
     });
     setShowModal(true);
   };
@@ -658,10 +659,18 @@ export function VendorsScreen() {
       return;
     }
 
+    const eodDeadline = parseHHMM(form.eodDeadlineTime);
+    if (eodDeadline === null) {
+      if (Platform.OS === 'web') alert('EOD count deadline must be HH:MM in 24h (e.g. 22:00) or blank.');
+      else Alert.alert('Invalid deadline', 'Use HH:MM in 24h (e.g. 22:00) or leave blank.');
+      return;
+    }
+
     const payload = {
       ...form,
       leadTimeDays: parseInt(form.leadTimeDays) || 2,
       orderCutoffTime: cutoff || undefined,
+      eodDeadlineTime: eodDeadline || undefined,
     };
     if (editVendor) {
       updateVendor(editVendor.id, payload);
@@ -759,6 +768,21 @@ export function VendorsScreen() {
               />
               <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4, marginBottom: Spacing.md }}>
                 24h HH:MM local. On scheduled order days, reminders fire 60 / 30 / 10 min before. Leave blank to disable.
+              </Text>
+            </View>
+            <View>
+              <Text style={[styles.formLabel, { color: C.textSecondary }]}>EOD count deadline</Text>
+              <TextInput
+                style={[styles.formInput, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+                value={form.eodDeadlineTime}
+                onChangeText={(v) => setForm((p) => ({ ...p, eodDeadlineTime: v }))}
+                placeholder="22:00"
+                placeholderTextColor={C.textTertiary}
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+              <Text style={{ fontSize: 11, color: C.textTertiary, marginTop: 4, marginBottom: Spacing.md }}>
+                24h HH:MM local. Locks today's count for this vendor's items past this time. Leave blank to use the store-wide deadline.
               </Text>
             </View>
             {dupWarning ? (
