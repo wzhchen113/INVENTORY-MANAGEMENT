@@ -716,6 +716,29 @@ export async function findRecipesByMenuItem(
   return (data || []).map((r: any) => ({ id: r.id, storeId: r.store_id }));
 }
 
+/**
+ * Set the per-user notifications kill switch. The eod-reminder-cron edge
+ * function reads `profiles.notifications_enabled` to decide whether to
+ * send push or email fallback to a given user. Default is true; flipping
+ * to false silences both channels for that user across all their devices.
+ *
+ * Returns false if the write failed so the caller can roll the UI back.
+ */
+export async function updateProfileNotifications(
+  userId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ notifications_enabled: enabled })
+    .eq('id', userId);
+  if (error) {
+    console.warn('[Supabase] updateProfileNotifications:', error.message);
+    return false;
+  }
+  return true;
+}
+
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
 export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
   let query = supabase

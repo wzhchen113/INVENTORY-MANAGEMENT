@@ -193,6 +193,19 @@ Deno.serve(async (req) => {
     if (adminErr) return new Response(JSON.stringify({ ok: false, error: `admins: ${adminErr.message}` }), { status: 500 });
     const adminUserIds = new Set((adminRows || []).map((r: any) => r.id as string));
 
+    // Per-user notifications kill switch. Anyone with notifications_enabled
+    // explicitly set to false is excluded from BOTH push and email fallback.
+    // Users without a profile row, or with the column NULL/missing, are
+    // treated as enabled (matches the client-side default).
+    const { data: optedOutRows, error: optedOutErr } = await sb
+      .from('profiles').select('id').eq('notifications_enabled', false);
+    if (optedOutErr) {
+      // Non-fatal — log and proceed without filtering rather than dropping
+      // every reminder on a transient query error.
+      console.warn('[cron] notifications_enabled fetch failed:', optedOutErr.message);
+    }
+    const optedOutUserIds = new Set((optedOutRows || []).map((r: any) => r.id as string));
+
     const { data: usRows } = await sb.from('user_stores').select('user_id, store_id');
     const usersByStore = new Map<string, Set<string>>();
     for (const r of (usRows || []) as any[]) {
@@ -230,7 +243,7 @@ Deno.serve(async (req) => {
       const { data: logRows } = await sb.from('eod_reminder_log').select('user_id').eq('store_id', store.id).eq('local_date', localDate).eq('bucket', bucket);
       const alreadyPushed = new Set((logRows || []).map((r: any) => r.user_id as string));
 
-      const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u));
+      const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u) && !optedOutUserIds.has(u));
       if (toRemind.length === 0) continue;
 
       let pushed = 0, emailed = 0;
@@ -291,7 +304,7 @@ Deno.serve(async (req) => {
           .eq('local_date', localDate).eq('bucket', bucket);
         const alreadyPushed = new Set((logRows || []).map((r: any) => r.user_id as string));
 
-        const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u));
+        const toRemind = [...storeUsers].filter((u) => !alreadyPushed.has(u) && !optedOutUserIds.has(u));
         if (toRemind.length === 0) continue;
 
         let pushed = 0, emailed = 0;

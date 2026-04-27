@@ -1,9 +1,16 @@
 // src/navigation/AppNavigator.tsx
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
   TextInput, Platform, Alert, Switch, ActivityIndicator,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
+import {
+  getPushPermission,
+  requestPermissionAndSubscribe,
+  unsubscribeFromPush,
+} from '../lib/webPush';
+import { updateProfileNotifications } from '../lib/db';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -153,6 +160,19 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Notifications toggle — single switch that controls BOTH web push (this
+  // device's subscription) AND server-side email fallback (via
+  // profiles.notifications_enabled which the eod-reminder-cron filters on).
+  // OS permission state is observed (not driven) so the status sub-line can
+  // explain why the toggle is doing what it's doing.
+  const [pushPermission, setPushPermission] = useState(getPushPermission());
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  // Re-sample permission whenever the sidebar opens so users who flipped it
+  // in OS settings see the truth without having to refresh.
+  useEffect(() => {
+    if (visible) setPushPermission(getPushPermission());
+  }, [visible]);
+
   const handleClose = () => {
     setEditingNickname(false);
     setChangingPassword(false);
@@ -198,6 +218,78 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
   const handleSignOut = () => {
     handleClose();
     logout();
+  };
+
+  // Treat undefined as enabled (legacy rows / pre-migration sessions).
+  const notificationsEnabled = currentUser?.notificationsEnabled !== false;
+
+  // Status sub-line drives the in-context "why isn't this working" copy.
+  // Order of precedence: the explicit OFF state always wins over permission
+  // chatter — saying "Tap to enable" when the user just turned it OFF would
+  // be confusing.
+  const notificationsStatus = ((): { text: string; tone: 'ok' | 'warn' | 'info' } => {
+    if (!notificationsEnabled) return { text: 'Off — no push or email reminders', tone: 'info' };
+    if (pushPermission === 'unsupported') return { text: 'Push not supported in this browser — emails still send', tone: 'info' };
+    if (pushPermission === 'denied') return { text: 'Blocked in browser settings — re-allow in OS settings', tone: 'warn' };
+    if (pushPermission === 'default') return { text: 'Tap to enable push on this device', tone: 'info' };
+    // granted
+    return { text: 'On — 60 / 30 / 10 min before deadlines', tone: 'ok' };
+  })();
+
+  const handleToggleNotifications = async (next: boolean) => {
+    if (!currentUser?.id || savingNotifications) return;
+    setSavingNotifications(true);
+    if (next) {
+      // Turning ON: persist preference first so the cron picks it up even if
+      // the browser-side subscription fails (e.g. iOS Safari without PWA
+      // install). The user still gets email fallback in that case.
+      const ok = await updateProfileNotifications(currentUser.id, true);
+      if (!ok) {
+        Toast.show({ type: 'error', text1: 'Could not save', text2: 'Notifications preference not updated. Try again.', visibilityTime: 4500 });
+        setSavingNotifications(false);
+        return;
+      }
+      updateUser(currentUser.id, { notificationsEnabled: true });
+      // Now subscribe THIS device to push if the browser supports it.
+      const result = await requestPermissionAndSubscribe(currentUser.id);
+      setPushPermission(getPushPermission());
+      setSavingNotifications(false);
+      if (result.ok) {
+        Toast.show({ type: 'success', text1: 'Reminders on', text2: `You'll be notified 60 / 30 / 10 min before deadlines.`, visibilityTime: 3500 });
+        return;
+      }
+      // Push setup failed but the server-side preference is on, so emails
+      // will still fire. Tell the user exactly why push won't work here.
+      const messages: Record<string, { text1: string; text2: string; type: 'error' | 'info' }> = {
+        'unsupported': { type: 'info', text1: 'Push not supported here', text2: 'Emails will still arrive.' },
+        'no-vapid': { type: 'error', text1: 'Config missing', text2: 'Server is missing the VAPID public key.' },
+        'no-user': { type: 'error', text1: 'Not logged in', text2: 'Re-login and try again.' },
+        'permission-denied': { type: 'info', text1: 'Push blocked', text2: 'Allow notifications in OS settings. Emails will still arrive.' },
+        'permission-default': { type: 'info', text1: 'Permission needed', text2: 'Tap the toggle again to re-prompt.' },
+        'sw-register-failed': { type: 'error', text1: 'Service worker error', text2: 'Could not register /sw.js.' },
+        'subscribe-failed': { type: 'error', text1: 'Subscribe failed', text2: 'iOS? Add to Home Screen and open from there.' },
+        'subscription-incomplete': { type: 'error', text1: 'Invalid subscription', text2: 'Missing endpoint or keys from the browser.' },
+        'save-failed': { type: 'error', text1: 'Server save failed', text2: 'Push subscription not stored. Emails will still arrive.' },
+      };
+      const info = messages[result.code] || { type: 'error' as const, text1: 'Push setup failed', text2: result.code };
+      Toast.show({ type: info.type, text1: info.text1, text2: info.detail ? `${info.text2}\n(${result.code})` : info.text2, visibilityTime: 5500 });
+      console.warn('[Profile notifications] subscribe failed', result);
+      return;
+    }
+    // Turning OFF: persist preference first (kills email + cross-device push
+    // for this user via the cron filter), then unsubscribe THIS device so
+    // any previously-stored push subscription is dropped immediately.
+    const ok = await updateProfileNotifications(currentUser.id, false);
+    if (!ok) {
+      Toast.show({ type: 'error', text1: 'Could not save', text2: 'Notifications preference not updated. Try again.', visibilityTime: 4500 });
+      setSavingNotifications(false);
+      return;
+    }
+    updateUser(currentUser.id, { notificationsEnabled: false });
+    await unsubscribeFromPush();
+    setPushPermission(getPushPermission());
+    setSavingNotifications(false);
+    Toast.show({ type: 'success', text1: 'Reminders off', text2: 'No push or email reminders will be sent.', visibilityTime: 3500 });
   };
 
   if (!currentUser) return null;
@@ -355,6 +447,46 @@ function ProfileSidebar({ visible, onClose }: { visible: boolean; onClose: () =>
                   thumbColor={C.white}
                 />
               </View>
+            </View>
+
+            {/* Notifications */}
+            <View style={sidebarStyles.section}>
+              <Text style={[sidebarStyles.sectionTitle, { color: C.textTertiary }]}>Notifications</Text>
+              <View style={[sidebarStyles.settingRow, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <Ionicons
+                    name={notificationsEnabled ? 'notifications' : 'notifications-off-outline'}
+                    size={16}
+                    color={C.textSecondary}
+                  />
+                  <Text style={[sidebarStyles.settingValue, { color: C.textPrimary }]}>Reminders (push + email)</Text>
+                </View>
+                {savingNotifications ? (
+                  <ActivityIndicator size="small" color={C.textSecondary} />
+                ) : (
+                  <Switch
+                    value={notificationsEnabled}
+                    onValueChange={handleToggleNotifications}
+                    trackColor={{ false: C.borderMedium, true: C.success }}
+                    thumbColor={C.white}
+                  />
+                )}
+              </View>
+              <Text
+                style={[
+                  sidebarStyles.notifHint,
+                  {
+                    color:
+                      notificationsStatus.tone === 'warn'
+                        ? C.danger
+                        : notificationsStatus.tone === 'ok'
+                          ? C.success
+                          : C.textTertiary,
+                  },
+                ]}
+              >
+                {notificationsStatus.text}
+              </Text>
             </View>
 
             {/* Divider */}
@@ -827,6 +959,13 @@ const sidebarStyles = StyleSheet.create({
     padding: Spacing.md,
     borderWidth: 0.5,
     borderColor: Colors.borderLight,
+  },
+  notifHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginTop: 6,
+    lineHeight: 16,
+    paddingHorizontal: 2,
   },
   settingValue: {
     fontSize: FontSize.base,

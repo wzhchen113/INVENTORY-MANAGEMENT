@@ -12,6 +12,14 @@ export interface User {
   status: 'active' | 'pending';
   initials: string;
   color: string;
+  /**
+   * Per-user kill switch for EOD/order reminders. When false, the
+   * eod-reminder-cron edge function skips this user for BOTH push AND
+   * the Resend email fallback. Toggled from the Profile sidebar.
+   * Optional because older sessions may not have loaded it yet —
+   * readers should treat `undefined` as "enabled" (default).
+   */
+  notificationsEnabled?: boolean;
 }
 
 export interface InventoryItem {

@@ -66,6 +66,8 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     status: profile.status,
     initials: profile.role === 'master' ? 'M' : (profile.initials || profile.name.slice(0, 2).toUpperCase()),
     color: profile.color || '#378ADD',
+    // Default to true for legacy rows where the column hasn't been backfilled.
+    notificationsEnabled: profile.notifications_enabled !== false,
   };
 
   return { user, error: null, darkMode: !!profile.dark_mode };
@@ -261,6 +263,7 @@ export async function fetchAllUsers(): Promise<User[]> {
         status: p.status,
         initials: p.role === 'master' ? 'M' : (p.initials || p.name.slice(0, 2).toUpperCase()),
         color: p.color || '#378ADD',
+        notificationsEnabled: p.notifications_enabled !== false,
       } as User;
     });
   } catch {

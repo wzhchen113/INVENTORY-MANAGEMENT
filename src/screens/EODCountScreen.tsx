@@ -245,7 +245,10 @@ export default function EODCountScreen() {
     Platform.OS === 'web' &&
     pushPermission !== 'granted' &&
     pushPermission !== 'unsupported' &&
-    !!currentStore.eodDeadlineTime;
+    !!currentStore.eodDeadlineTime &&
+    // Honor the per-user kill switch from the Profile sidebar — if the user
+    // explicitly turned reminders off, don't pester them to re-enable here.
+    currentUser?.notificationsEnabled !== false;
 
   const storeInventory = useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
