@@ -5,16 +5,20 @@
 // function and we inject Authorization: Bearer on the server side.
 //
 // Input  (POST body): { storeName: string, date: 'YYYY-MM-DD' }
-// Output (200): { rows: Array<{menuItem, qtySold, revenue}>, freshness_by_channel, meta }
+// Output (200): { rows: Array<{rawItemName, canonical, qtySold, revenue}>, freshness_by_channel, meta }
 // Output (4xx/5xx): { error: string }
 //
-// Shape of `rows` matches the existing CSV parser's ParsedRow in
-// src/screens/POSImportScreen.tsx so the caller can hand it straight to the
-// existing preview → confirm → importPOS pipeline. Revenue is 0 because
-// breadbot doesn't expose it; reconciliation only reads qtySold.
+// Endpoint: /sales (NOT /sales/daily). Breadbot now exposes a richer payload
+// with both raw_item_name (exactly what the POS recorded) and canonical
+// (Breadbot's own consolidation across 159 aliases — e.g. BIRD & BURIED →
+// Chicken Tender Basket). We pass BOTH fields through so the client can
+// display the canonical as an informational hint while still feeding the raw
+// POS string into our existing recipe-matcher pipeline (pos_recipe_aliases
+// is keyed against raw POS strings — feeding canonical there would break
+// every existing alias).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Our stores.name → breadbot /sales/daily?store=<code>
+// Our stores.name → breadbot /sales?store=<code>
 // Keep in sync with the client-side guard in POSImportScreen.tsx so the
 // button is only visible for stores breadbot actually has data for.
 const STORE_MAP: Record<string, string> = {
@@ -39,7 +43,15 @@ const CORS_HEADERS = {
 type BreadbotSaleRow = {
   date: string;
   store_id: string;
+  raw_item_name: string;
+  // Back-compat copy from upstream (currently equals raw). Kept so we can
+  // gracefully fall back if a partial deploy on Breadbot's side ever sends
+  // `item_name` without `raw_item_name`.
   item_name: string;
+  item_id?: number;
+  // Breadbot's canonicalized name resolved via its own 159-alias table.
+  // The live /sales endpoint emits this as `canonical_item_name`.
+  canonical_item_name: string;
   channel: string;
   quantity_sold: number;
 };
@@ -104,10 +116,13 @@ Deno.serve(async (req) => {
     const code = STORE_MAP[storeName];
     if (!code) return json(400, { error: `Store not mapped: ${storeName}` });
 
-    // Call breadbot. /sales/daily returns all items for one (store, date).
-    const upstreamUrl = new URL(`${BREADBOT_BASE_URL}/sales/daily`);
+    // Call breadbot. /sales takes a date RANGE via start/end (inclusive). For
+    // a single business day we set both to the same value; the upstream
+    // returns the rows whose `date` field equals that day.
+    const upstreamUrl = new URL(`${BREADBOT_BASE_URL}/sales`);
     upstreamUrl.searchParams.set('store', code);
-    upstreamUrl.searchParams.set('date', date);
+    upstreamUrl.searchParams.set('start', date);
+    upstreamUrl.searchParams.set('end', date);
 
     let upstream: Response;
     try {
@@ -136,19 +151,39 @@ Deno.serve(async (req) => {
 
     const upstreamRows: BreadbotSaleRow[] = Array.isArray(payload?.data) ? payload.data : [];
 
-    // Collapse channels: sum quantity per item_name. POS import tables don't
-    // carry a channel column today; the CSV flow was already channel-agnostic.
-    const totals = new Map<string, number>();
+    // Collapse channels: sum quantity per (raw_item_name, canonical). POS
+    // import tables don't carry a channel column today; the CSV flow was
+    // already channel-agnostic. We key on the pair (using a control-char
+    // separator that can't appear in either name) so two raw POS strings that
+    // resolve to the same canonical are still preserved as distinct rows in
+    // our DB — preserves the audit trail of what the POS actually recorded.
+    const totals = new Map<string, { rawItemName: string; canonical: string; qty: number }>();
     for (const r of upstreamRows) {
-      const name = (r.item_name || '').trim();
-      if (!name) continue;
+      // Prefer raw_item_name; fall back to item_name (BC) so a partial
+      // upstream deploy doesn't crash the proxy.
+      const raw = (r.raw_item_name || r.item_name || '').trim();
+      if (!raw) continue;
+      // Upstream emits canonical_item_name; fall back to raw if absent so
+      // our rows are always meaningful.
+      const canonical = (r.canonical_item_name || raw).trim();
       const qty = Number(r.quantity_sold) || 0;
-      totals.set(name, (totals.get(name) || 0) + qty);
+      const key = `${raw}\u0001${canonical}`;
+      const existing = totals.get(key);
+      if (existing) {
+        existing.qty += qty;
+      } else {
+        totals.set(key, { rawItemName: raw, canonical, qty });
+      }
     }
 
-    const rows = Array.from(totals.entries())
-      .filter(([, qty]) => qty > 0)
-      .map(([menuItem, qtySold]) => ({ menuItem, qtySold, revenue: 0 }))
+    const rows = Array.from(totals.values())
+      .filter((v) => v.qty > 0)
+      .map((v) => ({
+        rawItemName: v.rawItemName,
+        canonical: v.canonical,
+        qtySold: v.qty,
+        revenue: 0,
+      }))
       .sort((a, b) => b.qtySold - a.qtySold);
 
     return json(200, {
@@ -157,6 +192,7 @@ Deno.serve(async (req) => {
       meta: {
         store_code: code,
         date,
+        endpoint: 'sales',
         upstream_row_count: upstreamRows.length,
         collapsed_row_count: rows.length,
       },

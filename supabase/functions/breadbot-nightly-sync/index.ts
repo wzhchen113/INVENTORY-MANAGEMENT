@@ -138,11 +138,27 @@ function yesterdayInTZ(tz: string): string {
 type BreadbotSaleRow = {
   date: string;
   store_id: string;
+  raw_item_name: string;
+  // BC fallback — Breadbot still emits this, currently == raw.
   item_name: string;
+  item_id?: number;
+  // Breadbot's own canonical (resolved via 159 aliases). Upstream field
+  // name on the live /sales endpoint is `canonical_item_name`.
+  canonical_item_name: string;
   channel: string;
   quantity_sold: number;
 };
-type CollapsedRow = { menuItem: string; qtySold: number; revenue: number };
+// Both raw and canonical surface here. Recipe matching feeds rawItemName
+// into findRecipe (pos_recipe_aliases is keyed on raw POS strings). DB
+// writes also store rawItemName as menu_item to preserve the audit trail.
+// Canonical is captured for future use but not persisted in this PR (no
+// schema change).
+type CollapsedRow = {
+  rawItemName: string;
+  canonical: string;
+  qtySold: number;
+  revenue: number;
+};
 
 async function fetchBreadbotDay(
   baseUrl: string,
@@ -150,9 +166,12 @@ async function fetchBreadbotDay(
   storeCode: string,
   date: string,
 ): Promise<CollapsedRow[]> {
-  const url = new URL(`${baseUrl}/sales/daily`);
+  // /sales takes start/end (inclusive). For one business day, set both
+  // to the same value.
+  const url = new URL(`${baseUrl}/sales`);
   url.searchParams.set('store', storeCode);
-  url.searchParams.set('date', date);
+  url.searchParams.set('start', date);
+  url.searchParams.set('end', date);
   const r = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -164,16 +183,31 @@ async function fetchBreadbotDay(
   try { payload = JSON.parse(text); }
   catch { throw new Error('Breadbot returned non-JSON'); }
   const rows: BreadbotSaleRow[] = Array.isArray(payload?.data) ? payload.data : [];
-  const totals = new Map<string, number>();
+  // Collapse by (raw_item_name, canonical). Control-char separator avoids
+  // collisions with names containing pipe/colon/etc.
+  const totals = new Map<string, { rawItemName: string; canonical: string; qty: number }>();
   for (const row of rows) {
-    const name = (row.item_name || '').trim();
-    if (!name) continue;
+    const raw = (row.raw_item_name || row.item_name || '').trim();
+    if (!raw) continue;
+    // Upstream emits canonical_item_name; raw fallback keeps rows meaningful.
+    const canonical = (row.canonical_item_name || raw).trim();
     const qty = Number(row.quantity_sold) || 0;
-    totals.set(name, (totals.get(name) || 0) + qty);
+    const key = `${raw}\u0001${canonical}`;
+    const existing = totals.get(key);
+    if (existing) {
+      existing.qty += qty;
+    } else {
+      totals.set(key, { rawItemName: raw, canonical, qty });
+    }
   }
-  return Array.from(totals.entries())
-    .filter(([, qty]) => qty > 0)
-    .map(([menuItem, qtySold]) => ({ menuItem, qtySold, revenue: 0 }))
+  return Array.from(totals.values())
+    .filter((v) => v.qty > 0)
+    .map((v) => ({
+      rawItemName: v.rawItemName,
+      canonical: v.canonical,
+      qtySold: v.qty,
+      revenue: 0,
+    }))
     .sort((a, b) => b.qtySold - a.qtySold);
 }
 
@@ -273,11 +307,15 @@ async function syncStore(
   const importId = importRow.id as string;
 
   // Build pos_import_items with recipe matches (alias → exact → fuzzy).
+  // Feed rawItemName into findRecipe — pos_recipe_aliases is keyed against
+  // raw POS strings, so matching on canonical here would silently break
+  // every existing alias. menu_item is also the raw string to preserve the
+  // audit trail of what the POS actually recorded.
   const items = upstream.map((row) => {
-    const recipe = findRecipe(row.menuItem, recipeRows, aliases);
+    const recipe = findRecipe(row.rawItemName, recipeRows, aliases);
     return {
       import_id: importId,
-      menu_item: row.menuItem,
+      menu_item: row.rawItemName,
       qty_sold: row.qtySold,
       revenue: row.revenue,
       recipe_id: recipe?.id ?? null,

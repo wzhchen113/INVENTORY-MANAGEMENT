@@ -28,6 +28,12 @@ interface ParsedRow {
   menuItem: string;
   qtySold: number;
   revenue: number;
+  /** Breadbot's canonicalized name, surfaced from the /sales endpoint. Set
+   *  only on Breadbot-sourced rows; CSV imports leave this undefined.
+   *  Display-only — does NOT participate in recipe matching (we feed
+   *  menuItem, the raw POS string, into matchRecipe so pos_recipe_aliases
+   *  resolves identically to before). */
+  canonical?: string;
 }
 
 // Per-day outcome from a breadbot range backfill. Rendered in the summary card.
@@ -203,9 +209,17 @@ export default function POSImportScreen() {
         setFetchingBreadbot(false);
         return;
       }
+      // menuItem = rawItemName so all downstream matching / DB writes use the
+      // raw POS string. canonical is kept alongside for the preview hint.
+      const parsed: ParsedRow[] = fetched.map((r) => ({
+        menuItem: r.rawItemName,
+        qtySold: r.qtySold,
+        revenue: r.revenue ?? 0,
+        canonical: r.canonical || undefined,
+      }));
       setFilename(`Breadbot · ${currentStore.name} · ${breadbotDate}`);
       setFileType('items');
-      setRows(fetched);
+      setRows(parsed);
       setImportDate(breadbotDate);
       setShowBreadbotModal(false);
       setStep('preview');
@@ -406,10 +420,13 @@ export default function POSImportScreen() {
 
         setBackfillProgress({ current: i + 1, total: days.length, status: `Importing ${date} (${fetched.length} items)…` });
         const dayFilename = `Breadbot · ${currentStore.name} · ${date}`;
+        // Feed rawItemName into matchRecipe — pos_recipe_aliases is keyed
+        // against the raw POS string. menu_item written to DB is also raw
+        // (preserves audit trail of what the POS actually recorded).
         const items = fetched.map((row) => {
-          const m = matchRecipe(row.menuItem, recipes, posRecipeAliases);
+          const m = matchRecipe(row.rawItemName, recipes, posRecipeAliases);
           return {
-            menuItem: row.menuItem,
+            menuItem: row.rawItemName,
             qtySold: row.qtySold,
             revenue: row.revenue,
             recipeId: m.recipeId ?? undefined,
@@ -703,6 +720,11 @@ export default function POSImportScreen() {
                 <View key={idx} style={[styles.previewRow, { borderBottomColor: C.borderLight }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.previewName, { color: C.textPrimary }]}>{row.menuItem}</Text>
+                    {row.canonical && row.canonical.toLowerCase() !== row.menuItem.toLowerCase() && (
+                      <Text style={{ fontSize: FontSize.xs, color: C.textTertiary, marginTop: 2 }}>
+                        → Breadbot: {row.canonical}
+                      </Text>
+                    )}
                     <Text style={[styles.previewQty, { color: C.textSecondary }]}>
                       {row.qtySold} sold{row.revenue > 0 ? ` · $${row.revenue.toFixed(2)}` : ''}
                     </Text>

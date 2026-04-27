@@ -607,11 +607,19 @@ export async function hasPOSImportForDate(
 
 // ─── BREADBOT SALES PROXY ────────────────────────────────────────────────
 // Thin client wrapper around the fetch-breadbot-sales edge function. The
-// edge function holds the API key server-side and returns rows in the same
-// shape POSImportScreen's CSV parser produces, so the caller can hand the
-// output straight to the existing preview → confirm → importPOS pipeline.
+// edge function holds the API key server-side and now consumes Breadbot's
+// /sales endpoint, which exposes both the raw POS string and Breadbot's
+// own canonicalized name (resolved via 159 aliases). The caller maps
+// rawItemName → ParsedRow.menuItem so all downstream logic (matchRecipe,
+// pos_import_items writes, alias upserts) keeps using the raw POS string
+// as it does today; canonical is surfaced as an informational hint only.
 export interface BreadbotSalesRow {
-  menuItem: string;
+  /** Exactly what the POS recorded (e.g. "BIRD & BURIED"). Use this for
+   *  matching against pos_recipe_aliases and writing pos_import_items. */
+  rawItemName: string;
+  /** Breadbot's canonicalized name (e.g. "Chicken Tender Basket"). Display
+   *  only — does NOT participate in our recipe matching. */
+  canonical: string;
   qtySold: number;
   revenue: number;
 }
@@ -619,7 +627,7 @@ export interface BreadbotSalesRow {
 export interface BreadbotSalesResult {
   rows: BreadbotSalesRow[];
   freshness: any;
-  meta: { store_code: string; date: string; upstream_row_count: number; collapsed_row_count: number };
+  meta: { store_code: string; date: string; endpoint?: string; upstream_row_count: number; collapsed_row_count: number };
 }
 
 export async function fetchBreadbotSales(
