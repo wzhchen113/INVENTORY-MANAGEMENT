@@ -199,6 +199,19 @@ export default function IngredientEditor({
         } else {
           allUnits = [baseUnit];
         }
+        // Sub-unit injection: when the inventory item is sold in packs but
+        // recipes are written per-piece (e.g. Pita Bread tracked in `bags` of
+        // 10 `each`), expose the sub-unit so the user can type "1 each" rather
+        // than "0.1 bags". Cost calc and POS deduction both handle the
+        // sub-unit ↔ tracking-unit conversion via subUnitSize.
+        if (!isSubRecipe && invItem?.subUnitUnit && (invItem.subUnitSize || 0) > 1) {
+          const sub = invItem.subUnitUnit.toLowerCase();
+          if (sub && sub !== baseUnit.toLowerCase()) {
+            // Insert right after the tracking unit so the picker order stays
+            // intuitive: tracking → sub-unit → standard-group cousins.
+            allUnits = [baseUnit, invItem.subUnitUnit, ...allUnits.filter((u) => u.toLowerCase() !== baseUnit.toLowerCase())];
+          }
+        }
         // Deduplicate
         allUnits = [...new Set(allUnits)];
 

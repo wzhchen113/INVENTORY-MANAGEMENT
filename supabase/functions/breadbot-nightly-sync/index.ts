@@ -59,6 +59,36 @@ function getConversionFactor(fromUnit: string, toUnit: string): number | null {
   return null;
 }
 
+// Convert a recipe ingredient quantity into the inventory item's tracking
+// unit, including the sub-unit ladder. Mirrors the waterfall in
+// src/store/useStore.ts:990-1010 (cost calc — already verified correct):
+//   1. Same unit → return qty as-is.
+//   2. Same standard group (weight↔weight, volume↔volume) → use getConversionFactor.
+//   3. Sub-unit branch — recipe says "1 each" but inventory tracks "bags" of
+//      10 each. Need to divide by subUnitSize, NOT (caseQty × subUnitSize) —
+//      the tracking unit is the bag, not the case.
+// Returns null when no path applies — caller should skip the line rather
+// than fall back to a wrong number that silently corrupts stock.
+function convertToTrackingUnit(
+  qty: number,
+  fromUnit: string,
+  inv: { unit: string; subUnitSize?: number; subUnitUnit?: string },
+): number | null {
+  if (!fromUnit || !inv.unit) return null;
+  if (fromUnit.toLowerCase() === inv.unit.toLowerCase()) return qty;
+  const direct = getConversionFactor(fromUnit, inv.unit);
+  if (direct !== null) return qty * direct;
+  const subSize = inv.subUnitSize || 0;
+  const subUnit = (inv.subUnitUnit || '').toLowerCase();
+  if (subSize > 0 && subUnit) {
+    if (fromUnit.toLowerCase() === subUnit) return qty / subSize;
+    // Recipe in a standard cousin of the sub-unit (e.g. oz when sub is lbs).
+    const toSub = getConversionFactor(fromUnit, inv.subUnitUnit!);
+    if (toSub !== null) return (qty * toSub) / subSize;
+  }
+  return null;
+}
+
 // ─── Recipe matcher (mirrors src/utils/recipeMatch.ts) ─────────────────
 // Waterfall: alias → exact → token-set → containment → none. Keep in sync
 // with the client copy by hand (Deno can't reach into src/).
@@ -283,14 +313,24 @@ async function syncStore(
     });
   }
 
+  // Pull sub-unit columns too — recipes can now use the per-piece unit
+  // (e.g. "1 each" against an inventory item tracked in "bags" of 10).
+  // convertToTrackingUnit needs subUnitSize + subUnitUnit to translate.
   const { data: invRows, error: invErr } = await sb
-    .from('inventory_items').select('id, current_stock, unit').eq('store_id', storeId);
+    .from('inventory_items')
+    .select('id, current_stock, unit, sub_unit_size, sub_unit_unit')
+    .eq('store_id', storeId);
   if (invErr) throw new Error(`inventory_items: ${invErr.message}`);
-  const inventoryById = new Map<string, { current_stock: number; unit: string }>();
+  const inventoryById = new Map<
+    string,
+    { current_stock: number; unit: string; subUnitSize: number; subUnitUnit: string }
+  >();
   for (const row of (invRows || []) as any[]) {
     inventoryById.set(row.id, {
       current_stock: Number(row.current_stock) || 0,
       unit: String(row.unit || ''),
+      subUnitSize: Number(row.sub_unit_size) || 0,
+      subUnitUnit: String(row.sub_unit_unit || ''),
     });
   }
 
@@ -337,8 +377,16 @@ async function syncStore(
     for (const ing of ings) {
       const inv = inventoryById.get(ing.item_id);
       if (!inv) continue;
-      const factor = getConversionFactor(ing.unit, inv.unit);
-      const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+      const convertedQty = convertToTrackingUnit(ing.quantity, ing.unit, inv);
+      if (convertedQty === null) {
+        // Unrecognized unit pair (e.g. recipe in `each` for an item without
+        // a sub-unit). Skip rather than fall back to a 1:1 multiplier that
+        // would silently over-deduct. Reconciliation surfaces the drift.
+        console.warn(
+          `[${storeName}] skipping unconvertible unit ${ing.unit} → ${inv.unit} for item ${ing.item_id}`,
+        );
+        continue;
+      }
       const newStock = Math.max(0, inv.current_stock - convertedQty * item.qty_sold);
       const { error: updErr } = await sb
         .from('inventory_items')

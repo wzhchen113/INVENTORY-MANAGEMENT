@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { AppState, User, Store, InventoryItem, ItemStatus } from '../types';
 import { signIn, signOut, getSession } from '../lib/auth';
 import * as db from '../lib/db';
+import { convertToItemUnit } from '../utils/unitConversion';
 
 interface SupabaseStoreActions {
   // Auth
@@ -282,17 +283,28 @@ export const useStore = create<FullStore>((set, get) => ({
       get().currentUser?.id || '',
       posImport.items
     );
-    // Deduct inventory using recipe mappings
+    // Deduct inventory using recipe mappings. Use convertToItemUnit so the
+    // recipe's unit is translated into the inventory tracking unit — handles
+    // weight↔weight, volume↔volume, and the sub-unit ladder (e.g. "1 each"
+    // against a Pita Bread tracked in `bags` of 10). Skip the line when no
+    // path resolves rather than fall back to a 1:1 multiplier that would
+    // silently corrupt stock.
     for (const saleItem of posImport.items) {
       if (saleItem.recipeId) {
         const recipe = get().recipes.find((r) => r.id === saleItem.recipeId);
         if (recipe) {
           for (const ing of recipe.ingredients) {
             const item = get().inventory.find((i) => i.id === ing.itemId);
-            if (item) {
-              const newStock = Math.max(0, item.currentStock - ing.quantity * saleItem.qtySold);
-              await db.adjustItemStock(item.id, newStock, get().currentUser?.id || '');
+            if (!item) continue;
+            const convertedQty = convertToItemUnit(ing.quantity, ing.unit, item);
+            if (convertedQty === null) {
+              console.warn(
+                `[POS import] skipping unconvertible unit ${ing.unit} → ${item.unit} for ${item.name}`,
+              );
+              continue;
             }
+            const newStock = Math.max(0, item.currentStock - convertedQty * saleItem.qtySold);
+            await db.adjustItemStock(item.id, newStock, get().currentUser?.id || '');
           }
         }
       }

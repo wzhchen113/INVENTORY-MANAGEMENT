@@ -216,20 +216,23 @@ export function convertToItemUnit(
   const direct = convertQuantity(qty, from, to);
   if (direct !== null) return direct;
 
-  // Case 3: item tracked in an abstract pack. caseQty × subUnitSize tells
-  // us how many of the pack's sub-units are inside one tracking unit. If
-  // the recipe is in that sub-unit (or a standard cousin like oz vs lbs),
-  // we can convert.
-  const totalSubUnitsPerTrackingUnit = (item.caseQty || 0) * (item.subUnitSize || 0);
-  if (totalSubUnitsPerTrackingUnit > 0 && item.subUnitUnit) {
+  // Case 3: item tracked in an abstract pack with a sub-unit (e.g. Pita
+  // Bread tracked in `bags` of 10 `each`). subUnitSize is "sub-units per
+  // tracking unit" by definition of the IngredientEditor's "Size per unit"
+  // field — so 1 each = 1/subUnitSize bags. Earlier versions multiplied by
+  // caseQty here, which gave sub-units-per-CASE rather than per tracking
+  // unit and produced a 12× error for items where the tracking unit is the
+  // bag (not the case). subUnitSize alone is the correct factor.
+  const subSize = item.subUnitSize || 0;
+  if (subSize > 0 && item.subUnitUnit) {
     const subUnit = item.subUnitUnit.toLowerCase().trim();
     if (from === subUnit) {
-      return qty / totalSubUnitsPerTrackingUnit;
+      return qty / subSize;
     }
     // Recipe in a standard cousin of the sub-unit (e.g. oz when sub is lbs).
     const toSubUnit = convertQuantity(qty, from, subUnit);
     if (toSubUnit !== null) {
-      return toSubUnit / totalSubUnitsPerTrackingUnit;
+      return toSubUnit / subSize;
     }
   }
 
