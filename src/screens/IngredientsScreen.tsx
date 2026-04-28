@@ -529,8 +529,32 @@ export default function IngredientsScreen() {
           </Text>
         </View>
         <View style={styles.rowRight}>
-          <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(3)}</Text>
-          <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
+          {(() => {
+            // Stack up to 3 prices so the user can see the full price ladder at
+            // a glance: per case → per inventory unit → per sub-unit. Skip
+            // redundant lines (e.g. when 1 case = 1 unit there's no point
+            // restating the same number) and the sub-unit line when none is set.
+            const showCase = (item.casePrice || 0) > 0 && (item.caseQty || 0) > 1;
+            const subSize = item.subUnitSize || 0;
+            const showSub = subSize > 1 && !!item.subUnitUnit && item.subUnitUnit !== item.unit;
+            const subPrice = showSub ? item.costPerUnit / subSize : 0;
+            return (
+              <>
+                {showCase && (
+                  <Text style={[styles.rowCostSecondary, { color: C.textTertiary }]}>
+                    ${item.casePrice.toFixed(3)} / case
+                  </Text>
+                )}
+                <Text style={[styles.rowCost, { color: C.textPrimary }]}>${item.costPerUnit.toFixed(3)}</Text>
+                <Text style={[styles.rowCostLabel, { color: C.textTertiary }]}>per {item.unit}</Text>
+                {showSub && (
+                  <Text style={[styles.rowCostSecondary, { color: C.textTertiary }]}>
+                    ${subPrice.toFixed(3)} / {item.subUnitUnit}
+                  </Text>
+                )}
+              </>
+            );
+          })()}
         </View>
         {isAdmin && !bulkMode && (
           <TouchableOpacity style={[styles.rowEditBtn, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]} onPress={() => openEdit(item)}>
@@ -1362,6 +1386,10 @@ const styles = StyleSheet.create({
   rowRight: { alignItems: 'flex-end', marginRight: Spacing.sm },
   rowCost: { fontSize: FontSize.base, fontWeight: '600', color: Colors.textPrimary },
   rowCostLabel: { fontSize: 9, color: Colors.textTertiary },
+  // Secondary per-case / per-sub-unit prices stacked above and below the
+  // primary per-unit price on each ingredient row. Smaller and dimmer than
+  // rowCost so the per-unit price stays the visual anchor.
+  rowCostSecondary: { fontSize: 10, color: Colors.textTertiary, lineHeight: 13 },
   rowEditBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.bgSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: Colors.borderLight },
 
   // Empty
