@@ -11,7 +11,7 @@ import { useColors } from './src/theme/colors';
 import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
-import { registerServiceWorker, ensureManifestLinked } from './src/lib/webPush';
+import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -129,9 +129,10 @@ export default function App() {
     if (Platform.OS !== 'web') {
       registerForPushNotifications();
     } else {
-      // Web: link the PWA manifest and register the service worker.
+      // Web: link the PWA manifest + apple-touch-icon and register the SW.
       // Permission + subscription happen on user gesture via the EOD screen banner.
       ensureManifestLinked();
+      ensureAppleTouchIconLinked();
       registerServiceWorker();
     }
   }, []);

@@ -162,6 +162,23 @@ export function ensureManifestLinked(): void {
   document.head.appendChild(link);
 }
 
+/**
+ * Inject <link rel="apple-touch-icon"> so iOS Safari shows the brand logo on
+ * "Add to Home Screen" rather than a screenshot. iOS Safari also auto-
+ * discovers /apple-touch-icon.png at the site root, but this link tag is
+ * belt-and-suspenders for crawlers / headless browsers / DOM inspectors.
+ * Safe to call multiple times.
+ */
+export function ensureAppleTouchIconLinked(): void {
+  if (typeof document === 'undefined') return;
+  if (document.querySelector('link[rel="apple-touch-icon"]')) return;
+  const link = document.createElement('link');
+  link.rel = 'apple-touch-icon';
+  link.setAttribute('sizes', '180x180');
+  link.href = '/apple-touch-icon.png';
+  document.head.appendChild(link);
+}
+
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
   const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
