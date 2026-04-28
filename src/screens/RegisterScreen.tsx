@@ -47,7 +47,7 @@ export default function RegisterScreen() {
         <WebScrollView contentContainerStyle={styles.scroll} id="register-scroll">
           <View style={styles.logo}>
             <View style={[styles.logoIcon, { backgroundColor: C.textPrimary }]}>
-              <Text style={styles.logoIconText}>2AM</Text>
+              <Text style={styles.logoIconText}>I.M.R</Text>
             </View>
           </View>
 
@@ -70,9 +70,9 @@ export default function RegisterScreen() {
       <WebScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" id="register-scroll">
         <View style={styles.logo}>
           <View style={[styles.logoIcon, { backgroundColor: C.textPrimary }]}>
-            <Text style={styles.logoIconText}>2AM</Text>
+            <Text style={styles.logoIconText}>I.M.R</Text>
           </View>
-          <Text style={[styles.logoTitle, { color: C.textPrimary }]}>2AM Inventory</Text>
+          <Text style={[styles.logoTitle, { color: C.textPrimary }]}>Inventory Management for Restaurant</Text>
           <Text style={[styles.logoSub, { color: C.textSecondary }]}>Create your account</Text>
         </View>
 
@@ -148,8 +148,12 @@ const styles = StyleSheet.create({
   scroll: { padding: Spacing.xl, paddingTop: 60 },
   logo: { alignItems: 'center', marginBottom: Spacing.xxxl },
   logoIcon: { width: 64, height: 64, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
-  logoIconText: { fontSize: 22, fontWeight: '700', color: Colors.white, letterSpacing: -0.5 },
-  logoTitle: { fontSize: 22, fontWeight: '600' },
+  // Tighter letter-spacing so "I.M.R" (5 glyphs incl. dots) fits the same
+  // 64×64 logo box "2AM" (3 glyphs) used to occupy.
+  logoIconText: { fontSize: 18, fontWeight: '700', color: Colors.white, letterSpacing: -0.5 },
+  // Smaller fontSize + center-align + flexWrap so the longer brand name
+  // ("Inventory Management for Restaurant") wraps cleanly on narrow phones.
+  logoTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center', flexWrap: 'wrap' },
   logoSub: { fontSize: FontSize.sm, marginTop: 4 },
   card: { borderRadius: Radius.xl, padding: Spacing.xl, marginBottom: Spacing.lg, ...Shadow.md },
   formTitle: { fontSize: FontSize.lg, fontWeight: '600', marginBottom: Spacing.xs },

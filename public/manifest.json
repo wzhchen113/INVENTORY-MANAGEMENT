@@ -1,6 +1,6 @@
 {
-  "name": "2AM Inventory",
-  "short_name": "2AM",
+  "name": "I.M.R — Inventory Management for Restaurant",
+  "short_name": "I.M.R",
   "description": "Restaurant inventory management",
   "start_url": "/",
   "display": "standalone",
