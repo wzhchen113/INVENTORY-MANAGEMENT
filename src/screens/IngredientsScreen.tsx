@@ -924,16 +924,33 @@ export default function IngredientsScreen() {
             </View>
 
             {/* Breakdown summary */}
-            {parseFloat(form.casePrice) > 0 && (
-              <View style={[styles.priceSummary, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
-                <Text style={[styles.priceSummaryText, { color: C.textSecondary }]}>
-                  1 case = {form.caseQty} {form.unit}{parseFloat(form.subUnitSize) > 1 ? ` (${form.subUnitSize} ${form.subUnitUnit || form.unit} each)` : ''}
-                </Text>
-                <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
-                  ${parseFloat(form.casePrice).toFixed(2)}/case → ${form.costPerUnit}/{form.unit}
-                </Text>
-              </View>
-            )}
+            {parseFloat(form.casePrice) > 0 && (() => {
+              // When the inventory is counted in `unit` (e.g. bags) but each unit
+              // contains `subUnitSize` of a smaller `subUnitUnit` (e.g. each), recipes
+              // typically consume the smaller unit. Surface that per-sub-unit price
+              // here so the user can see what 1 each / 1 oz / etc actually costs —
+              // getIngredientLineCost already does this conversion when computing
+              // recipe cost, so this is a display-only nudge to keep the math visible.
+              const subSize = parseFloat(form.subUnitSize) || 0;
+              const cpu = parseFloat(form.costPerUnit) || 0;
+              const showSub = subSize > 1 && !!form.subUnitUnit && form.subUnitUnit !== form.unit;
+              const cps = showSub ? cpu / subSize : 0;
+              // Round to 4dp instead of 2dp when sub-cent (e.g. tiny portions of a
+              // spice bag) so the user doesn't see a misleading $0.00.
+              const cpsLabel = cps >= 0.01 ? cps.toFixed(2) : cps.toFixed(4);
+              const unitSingular = form.unit.replace(/s$/, '') || form.unit;
+              return (
+                <View style={[styles.priceSummary, { backgroundColor: C.bgSecondary, borderColor: C.borderLight }]}>
+                  <Text style={[styles.priceSummaryText, { color: C.textSecondary }]}>
+                    1 case = {form.caseQty} {form.unit}{showSub ? ` (${form.subUnitSize} ${form.subUnitUnit} per ${unitSingular})` : ''}
+                  </Text>
+                  <Text style={[styles.priceSummaryBold, { color: C.textPrimary }]}>
+                    ${parseFloat(form.casePrice).toFixed(2)}/case → ${form.costPerUnit}/{form.unit}
+                    {showSub ? ` → $${cpsLabel}/${form.subUnitUnit}` : ''}
+                  </Text>
+                </View>
+              );
+            })()}
 
             {/* Prep & Yield Data — shows for abstract units */}
             {(() => {

@@ -362,7 +362,21 @@ export default function IngredientEditor({
                       >
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.pickerItemName, { color: C.textPrimary }]}>{item.name}</Text>
-                          <Text style={[styles.pickerItemSub, { color: C.textSecondary }]}>{item.unit} · ${item.costPerUnit.toFixed(2)}/{item.unit}</Text>
+                          <Text style={[styles.pickerItemSub, { color: C.textSecondary }]}>
+                            {(() => {
+                              // When the item is counted by `unit` (e.g. bags) but contains
+                              // a smaller `subUnitUnit` (e.g. 10 each per bag), recipes
+                              // typically consume the smaller unit — show its price too so
+                              // users picking the ingredient see what each piece costs.
+                              const subSize = item.subUnitSize || 0;
+                              const showSub = subSize > 1 && !!item.subUnitUnit && item.subUnitUnit !== item.unit;
+                              const head = `${item.unit} · $${item.costPerUnit.toFixed(2)}/${item.unit}`;
+                              if (!showSub) return head;
+                              const cps = item.costPerUnit / subSize;
+                              const cpsLabel = cps >= 0.01 ? cps.toFixed(2) : cps.toFixed(4);
+                              return `${head} ($${cpsLabel}/${item.subUnitUnit})`;
+                            })()}
+                          </Text>
                         </View>
                         {alreadyAdded ? (
                           <Ionicons name="checkmark-circle" size={18} color={C.success} />
