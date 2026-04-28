@@ -18,7 +18,12 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'EOD count reminder';
   const options = {
     body: payload.body || 'Submit your end-of-day count.',
-    icon: '/favicon.png',
+    // 192×192 is the standard notification-icon size; /favicon.png is 32×32
+    // and was rendering as a tiny dot (often appearing blank) on macOS / iOS.
+    icon: '/icon-192.png',
+    // Badge stays small — macOS ignores badge entirely; on Android the
+    // status-bar dot reads fine at 32×32 even though the spec calls for
+    // 96×96 monochrome.
     badge: '/favicon.png',
     tag: payload.tag || 'eod-reminder',
     renotify: true,
