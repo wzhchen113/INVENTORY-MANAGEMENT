@@ -1,5 +1,5 @@
 -- ============================================================
--- Towson Inventory — Supabase Database Schema
+-- I.M.R — Supabase Database Schema
 -- Run this entire file in: Supabase Dashboard → SQL Editor → New query
 -- ============================================================
 

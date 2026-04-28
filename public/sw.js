@@ -1,4 +1,4 @@
-// 2AM Inventory — service worker
+// I.M.R — service worker
 // Receives Web Push messages from the eod-reminder-cron edge function and
 // surfaces them as OS notifications, then routes clicks into the app.
 

@@ -4,7 +4,7 @@ A mobile inventory management system built for multi-location restaurant operati
 
 ## Purpose
 
-Restaurant inventory is typically managed through manual spreadsheets and disconnected processes, leading to waste, stockouts, and unreliable food cost numbers. Towson Inventory consolidates these workflows into a single mobile app so that kitchen staff can count stock, log waste, and receive deliveries from their phone, while managers get real-time visibility into costs and variances across locations.
+Restaurant inventory is typically managed through manual spreadsheets and disconnected processes, leading to waste, stockouts, and unreliable food cost numbers. I.M.R consolidates these workflows into a single mobile app so that kitchen staff can count stock, log waste, and receive deliveries from their phone, while managers get real-time visibility into costs and variances across locations.
 
 ## Features
 

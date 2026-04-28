@@ -148,8 +148,8 @@ const styles = StyleSheet.create({
   scroll: { padding: Spacing.xl, paddingTop: 60 },
   logo: { alignItems: 'center', marginBottom: Spacing.xxxl },
   logoIcon: { width: 64, height: 64, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
-  // Tighter letter-spacing so "I.M.R" (5 glyphs incl. dots) fits the same
-  // 64×64 logo box "2AM" (3 glyphs) used to occupy.
+  // Smaller fontSize + tight letter-spacing so "I.M.R" (5 glyphs incl. dots)
+  // fits cleanly inside the 64×64 logo box.
   logoIconText: { fontSize: 18, fontWeight: '700', color: Colors.white, letterSpacing: -0.5 },
   // Smaller fontSize + center-align + flexWrap so the longer brand name
   // ("Inventory Management for Restaurant") wraps cleanly on narrow phones.
