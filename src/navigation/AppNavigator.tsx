@@ -46,6 +46,7 @@ const RootStack = createStackNavigator();
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Dashboard: 'grid-outline',
+  Recipes: 'restaurant-outline',
   Items: 'list-outline',
   EODCount: 'clipboard-outline',
   Orders: 'cart-outline',
@@ -672,6 +673,10 @@ function TabNavigator() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      {/* Menu Items / BOM lives in the bottom nav AND in the More menu — the
+          More entry calls navigate('Recipes') which resolves up to this tab,
+          so both entry points land on the same screen. */}
+      <Tab.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Menu Items / BOM' }} />
       <Tab.Screen name="Items" component={ItemsScreen} options={{ title: 'Items & costs' }} />
       <Tab.Screen name="EODCount" component={EODCountScreen} options={{ title: 'EOD Count' }} />
       <Tab.Screen name="Orders" component={OrdersScreen} />
@@ -721,7 +726,8 @@ function AppStackNavigator() {
         <AppStack.Screen name="Ingredients" component={IngredientsScreen} options={{ title: 'Ingredients', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="PrepRecipes" component={PrepRecipesScreen} options={{ title: 'Prep recipes', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="EODHistory" component={EODHistoryScreen} options={{ title: 'EOD History', headerLeft: () => <StackHeaderLeft /> }} />
-        <AppStack.Screen name="Recipes" component={RecipesScreen} options={{ title: 'Menu Items / BOM', headerLeft: () => <StackHeaderLeft /> }} />
+        {/* Recipes / Menu Items / BOM is now a Tab.Screen (see TabNavigator).
+            The More menu's navigate('Recipes') resolves up to that tab. */}
         <AppStack.Screen name="Vendors" component={VendorsScreen} options={{ headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="OrderReport" component={OrderReportScreen} options={{ title: 'Suggested Orders', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="POSImport" component={POSImportScreen} options={{ title: 'POS import', headerLeft: () => <StackHeaderLeft /> }} />
