@@ -281,11 +281,16 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Inventory
   addItem: (item) => {
-    const id = makeId('i', ++itemCounter);
-    const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id };
+    const tempId = makeId('i', ++itemCounter);
+    const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id: tempId };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
-    // Sync to Supabase
-    db.createInventoryItem(item).catch((e) => console.warn('[Supabase] createItem failed:', e?.message || e));
+    // Swap temp id for server-assigned UUID once insert resolves so an
+    // immediate edit/delete after create hits the real row.
+    db.createInventoryItem(item)
+      .then((saved) => set((s) => ({
+        inventory: s.inventory.map((i) => (i.id === tempId ? saved : i)),
+      })))
+      .catch((e) => console.warn('[Supabase] createItem failed:', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -398,9 +403,13 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Recipes
   addRecipe: (recipe) => {
-    const id = makeId('r', ++recipeCounter);
-    set((s) => ({ recipes: [...s.recipes, { ...recipe, id }] }));
-    db.createRecipe(recipe).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    const tempId = makeId('r', ++recipeCounter);
+    set((s) => ({ recipes: [...s.recipes, { ...recipe, id: tempId }] }));
+    db.createRecipe(recipe)
+      .then((saved) => set((s) => ({
+        recipes: s.recipes.map((r) => (r.id === tempId ? saved : r)),
+      })))
+      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -454,9 +463,13 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Prep Recipes
   addPrepRecipe: (recipe) => {
-    const id = makeId('pr', ++prepRecipeCounter);
-    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id }] }));
-    db.createPrepRecipe(recipe).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    const tempId = makeId('pr', ++prepRecipeCounter);
+    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id: tempId }] }));
+    db.createPrepRecipe(recipe)
+      .then((newId) => set((s) => ({
+        prepRecipes: s.prepRecipes.map((r) => (r.id === tempId ? { ...r, id: newId } : r)),
+      })))
+      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -630,9 +643,13 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Vendors
   addVendor: (vendor) => {
-    const id = makeId('v', ++vendorCounter);
-    set((s) => ({ vendors: [...s.vendors, { ...vendor, id }] }));
-    db.createVendor(vendor).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    const tempId = makeId('v', ++vendorCounter);
+    set((s) => ({ vendors: [...s.vendors, { ...vendor, id: tempId }] }));
+    db.createVendor(vendor)
+      .then((saved) => set((s) => ({
+        vendors: s.vendors.map((v) => (v.id === tempId ? saved : v)),
+      })))
+      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
   updateVendor: (id, updates) => {

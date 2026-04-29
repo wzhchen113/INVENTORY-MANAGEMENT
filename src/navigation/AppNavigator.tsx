@@ -1,5 +1,5 @@
 // src/navigation/AppNavigator.tsx
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
   TextInput, Platform, Alert, Switch, ActivityIndicator,
@@ -703,8 +703,22 @@ function AppStackNavigator() {
   const storeId = useStore((s) => s.currentStore?.id);
   const C = useColors();
 
+  // Debounce: a multi-store insert (e.g. propagating one menu item across 6
+  // stores) fires N realtime events back-to-back. Without the debounce each
+  // would trigger its own loadFromSupabase. 400ms quiet-period collapses the
+  // burst into a single reload.
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSync = useCallback(() => {
-    console.log('[Realtime] Data changed on server');
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      const sid = useStore.getState().currentStore?.id;
+      if (sid) useStore.getState().loadFromSupabase(sid);
+    }, 400);
+  }, []);
+
+  useEffect(() => () => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
   }, []);
 
   useRealtimeSync(storeId, handleSync);

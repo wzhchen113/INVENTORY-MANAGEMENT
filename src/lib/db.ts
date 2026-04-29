@@ -456,15 +456,16 @@ export async function fetchVendors(): Promise<Vendor[]> {
   }));
 }
 
-export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<void> {
-  const { error } = await supabase.from('vendors').insert({
+export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> {
+  const { data, error } = await supabase.from('vendors').insert({
     name: vendor.name, contact_name: vendor.contactName, phone: vendor.phone,
     email: vendor.email, account_number: vendor.accountNumber,
     lead_time_days: vendor.leadTimeDays, delivery_days: vendor.deliveryDays, categories: vendor.categories,
     ...(vendor.orderCutoffTime ? { order_cutoff_time: vendor.orderCutoffTime } : {}),
     ...(vendor.eodDeadlineTime ? { eod_deadline_time: vendor.eodDeadlineTime } : {}),
-  });
+  }).select().single();
   if (error) throw error;
+  return { ...vendor, id: data.id };
 }
 
 // ─── IN-APP NOTIFICATIONS ────────────────────────────────────────────────
