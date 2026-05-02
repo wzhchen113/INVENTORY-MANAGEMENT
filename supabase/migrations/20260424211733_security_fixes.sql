@@ -147,25 +147,41 @@ insert into public._edge_auth (name, value)
 select 'cron_bearer', encode(extensions.gen_random_bytes(32), 'hex')
 where not exists (select 1 from public._edge_auth where name = 'cron_bearer');
 
+-- Schedule the cron iff a function URL is configured in _edge_auth.
+-- Local dev does not seed cron_url → cron is skipped, so the local stack
+-- never pings prod. Prod (where this migration was already applied with
+-- a hardcoded URL) is unaffected: postgres tracks this migration as done
+-- and won't re-run it. New prod environments would set the URL via:
+--   insert into public._edge_auth (name, value)
+--   values ('cron_url', 'https://<project-ref>.supabase.co/functions/v1/eod-reminder-cron');
 do $$
+declare
+  v_url text;
 begin
   if exists (select 1 from cron.job where jobname = 'eod-reminder-cron') then
     perform cron.unschedule('eod-reminder-cron');
   end if;
-end $$;
 
-select cron.schedule(
-  'eod-reminder-cron',
-  '*/5 * * * *',
-  $cron$
-  select net.http_post(
-    url := 'https://ebwnovzzkwhsdxkpyjka.supabase.co/functions/v1/eod-reminder-cron',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || (select value from public._edge_auth where name = 'cron_bearer'),
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb,
-    timeout_milliseconds := 30000
+  select value into v_url from public._edge_auth where name = 'cron_url';
+
+  if v_url is null then
+    raise notice 'cron_url not configured in _edge_auth — skipping eod-reminder-cron schedule (expected for local dev)';
+    return;
+  end if;
+
+  perform cron.schedule(
+    'eod-reminder-cron',
+    '*/5 * * * *',
+    format($cron_inner$
+      select net.http_post(
+        url := %L,
+        headers := jsonb_build_object(
+          'Authorization', 'Bearer ' || (select value from public._edge_auth where name = 'cron_bearer'),
+          'Content-Type', 'application/json'
+        ),
+        body := '{}'::jsonb,
+        timeout_milliseconds := 30000
+      );
+    $cron_inner$, v_url)
   );
-  $cron$
-);
+end $$;
