@@ -29,7 +29,10 @@ function MobileStack() {
     <AuthedStack.Navigator
       screenOptions={{
         headerShown: false,
-        cardStyle: { backgroundColor: C.bg },
+        // flex:1 + minHeight:0 so the screen card is bounded by the
+        // navigator's available height instead of auto-sizing to content
+        // (which broke list-pane scrolling at sections with long lists).
+        cardStyle: { backgroundColor: C.bg, flex: 1, minHeight: 0 },
       }}
     >
       <AuthedStack.Screen name="Inventory" component={InventoryListScreen} />
@@ -61,7 +64,10 @@ function DesktopShell() {
     <AuthedStack.Navigator
       screenOptions={{
         headerShown: false,
-        cardStyle: { backgroundColor: C.bg },
+        // flex:1 + minHeight:0 so the screen card is bounded by the
+        // navigator's available height instead of auto-sizing to content
+        // (which broke list-pane scrolling at sections with long lists).
+        cardStyle: { backgroundColor: C.bg, flex: 1, minHeight: 0 },
       }}
     >
       <AuthedStack.Screen name="DesktopLayout" component={InventoryDesktopLayout} />

@@ -42,6 +42,7 @@ export default function VendorsSection() {
           backgroundColor: C.panel,
           borderRightWidth: 1,
           borderRightColor: C.border,
+          minHeight: 0,
         }}
       >
         <View
@@ -62,6 +63,7 @@ export default function VendorsSection() {
           </Text>
         </View>
         <FlatList
+          style={{ flex: 1, minHeight: 0 }}
           data={vendors}
           keyExtractor={(v) => v.id}
           renderItem={({ item: v }) => {
@@ -95,7 +97,7 @@ export default function VendorsSection() {
       </View>
 
       {/* Detail pane */}
-      <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flex: 1, backgroundColor: C.bg, minHeight: 0, minWidth: 0 }}>
         {!sel ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
@@ -124,7 +126,7 @@ export default function VendorsSection() {
                 </View>
               }
             />
-            <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+            <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
               {/* Hero */}
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

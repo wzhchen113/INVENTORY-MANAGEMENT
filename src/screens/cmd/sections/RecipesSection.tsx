@@ -75,6 +75,7 @@ export default function RecipesSection() {
           backgroundColor: C.panel,
           borderRightWidth: 1,
           borderRightColor: C.border,
+          minHeight: 0,
         }}
       >
         <View
@@ -95,6 +96,7 @@ export default function RecipesSection() {
           </Text>
         </View>
         <FlatList
+          style={{ flex: 1, minHeight: 0 }}
           data={storeRecipes}
           keyExtractor={(r) => r.id}
           ListEmptyComponent={
@@ -154,7 +156,7 @@ export default function RecipesSection() {
       </View>
 
       {/* Detail pane */}
-      <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flex: 1, backgroundColor: C.bg, minHeight: 0, minWidth: 0 }}>
         {!sel ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
@@ -185,7 +187,7 @@ export default function RecipesSection() {
                 ) : null
               }
             />
-            <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+            <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.id)}</Text>

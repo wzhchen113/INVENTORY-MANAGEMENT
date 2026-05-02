@@ -156,13 +156,13 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const inventoryTitle = role === 'admin' ? 'Inventory' : 'Count queue';
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
       <TitleBar
         storeName={currentStore?.name || 'store'}
         section={section}
         itemSlug={section === 'Inventory' && item ? item.name : undefined}
       />
-      <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
+      <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar
           groups={groups}
           selectedId={section}
@@ -230,6 +230,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                 backgroundColor: C.panel,
                 borderRightWidth: 1,
                 borderRightColor: C.border,
+                minHeight: 0,
               }}
             >
               <View
@@ -251,6 +252,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                 <FilterInput value={filterText} onChangeText={setFilterText} />
               </View>
               <FlatList
+                style={{ flex: 1, minHeight: 0 }}
                 data={items}
                 keyExtractor={(it) => it.id}
                 renderItem={({ item: it }) => (
