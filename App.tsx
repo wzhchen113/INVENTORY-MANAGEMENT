@@ -13,7 +13,7 @@ import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
 import { NEW_UI } from './src/lib/featureFlags';
-import CmdAtomsPreview from './src/screens/dev/CmdAtomsPreview';
+import CmdNavigator from './src/navigation/CmdNavigator';
 import { useFonts } from 'expo-font';
 import {
   InterTight_400Regular,
@@ -175,14 +175,11 @@ export default function App() {
 
   if (!fontsLoaded) return null;
 
-  // Phase 2 dev preview gate. Phase 5 will swap this for `<CmdNavigator />`.
-  const showCmdPreview = __DEV__ && NEW_UI;
-
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        {showCmdPreview ? <CmdAtomsPreview /> : <AppNavigator />}
+        {NEW_UI ? <CmdNavigator /> : <AppNavigator />}
         <Toast />
       </SafeAreaProvider>
     </GestureHandlerRootView>

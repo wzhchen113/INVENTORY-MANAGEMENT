@@ -26,6 +26,10 @@ interface Props {
 const statusFor = (stock: number, par: number): Status =>
   stock <= 0 ? 'out' : stock < par ? 'low' : 'ok';
 
+// Real items use UUIDs; the design mock uses short tokens (i03). Show a
+// 6-char prefix on long ids so the row stays compact.
+const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
+
 // Two-line row used in both desktop list pane and mobile list.
 // Top: status dot · name (sans 13/600) · ID (mono 10 fg3)
 // Bottom: qty/par (mono tabular) · 3px par-bar · category right-aligned
@@ -59,7 +63,7 @@ export const InventoryRow: React.FC<Props> = ({
         <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
           {item.name}
         </Text>
-        <Text style={[Type.kbd, { color: C.fg3 }]}>{item.id}</Text>
+        <Text style={[Type.kbd, { color: C.fg3 }]}>{shortId(item.id)}</Text>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <Text style={[Type.tableNum, { color: C.fg2, minWidth: 90 }]}>
