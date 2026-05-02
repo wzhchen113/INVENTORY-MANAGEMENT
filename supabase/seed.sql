@@ -65,27 +65,3 @@ end $$;
 insert into public.user_stores (user_id, store_id)
 select '11111111-1111-1111-1111-111111111111', id from public.stores
 on conflict do nothing;
-
--- ─── local-only RLS fixup ────────────────────────────────
--- init_schema enables RLS on these tables but defines no policies, so
--- Postgres defaults to "deny all" — the app sees empty arrays for
--- everything. The actual policies live in prod (added via the SQL
--- editor and never captured in a migration). Until those are
--- reconstructed properly, we add permissive policies here so the app
--- works locally. Lives in seed.sql (NOT a migration) so we never
--- accidentally push these to prod.
-do $$
-declare
-  tbl text;
-begin
-  foreach tbl in array array[
-    'stores', 'user_stores', 'vendors',
-    'recipe_ingredients', 'po_items', 'pos_import_items'
-  ] loop
-    execute format('drop policy if exists "local dev all access" on public.%I', tbl);
-    execute format(
-      'create policy "local dev all access" on public.%I for all to authenticated using (true) with check (true)',
-      tbl
-    );
-  end loop;
-end $$;
