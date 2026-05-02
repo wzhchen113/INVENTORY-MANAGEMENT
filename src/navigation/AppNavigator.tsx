@@ -526,17 +526,19 @@ function HeaderRight() {
             : <Ionicons name="refresh-outline" size={22} color={C.textSecondary} />
           }
         </TouchableOpacity>
-        {/* Notification bell — admins only */}
-        {isAdmin && (
-          <TouchableOpacity onPress={() => setShowNotifs(true)} activeOpacity={0.7}>
-            <Ionicons name="notifications-outline" size={22} color={C.textSecondary} />
-            {unreadCount > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
+        {/* Notification bell — visible to every logged-in user.
+            EOD-reminder cron writes to in_app_notifications for store
+            members + admins, so regular staff need this to see "EOD
+            count due in 30 min" reminders. RLS scopes notifications to
+            the current user, so users only see their own. */}
+        <TouchableOpacity onPress={() => setShowNotifs(true)} activeOpacity={0.7}>
+          <Ionicons name="notifications-outline" size={22} color={C.textSecondary} />
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.headerAvatar, { backgroundColor: (currentUser?.color || '#378ADD') + '33' }]}
           onPress={() => setShowProfile(true)}
