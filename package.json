@@ -11,6 +11,8 @@
     "db": "json-server db.json --port 3001"
   },
   "dependencies": {
+    "@expo-google-fonts/inter-tight": "^0.4.2",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^6.5.20",
@@ -22,6 +24,7 @@
     "expo": "^54.0.0",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.21",
+    "expo-font": "~14.0.11",
     "expo-notifications": "~0.32.16",
     "expo-sharing": "~14.0.8",
     "expo-sqlite": "~16.0.10",

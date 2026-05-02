@@ -12,6 +12,19 @@ import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
+import { useFonts } from 'expo-font';
+import {
+  InterTight_400Regular,
+  InterTight_500Medium,
+  InterTight_600SemiBold,
+  InterTight_700Bold,
+} from '@expo-google-fonts/inter-tight';
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+  JetBrainsMono_600SemiBold,
+  JetBrainsMono_700Bold,
+} from '@expo-google-fonts/jetbrains-mono';
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -98,6 +111,19 @@ export default function App() {
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
 
+  // Hold first paint until Inter Tight + JetBrains Mono are registered, so
+  // numeric values don't flash in the system font then snap to mono.
+  const [fontsLoaded] = useFonts({
+    InterTight_400Regular,
+    InterTight_500Medium,
+    InterTight_600SemiBold,
+    InterTight_700Bold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_600SemiBold,
+    JetBrainsMono_700Bold,
+  });
+
   // Synchronous theme restore at first paint (web only). Native falls through
   // to the async restore in the session-restore effect below.
   useLayoutEffect(() => {
@@ -144,6 +170,8 @@ export default function App() {
       document.body.style.backgroundColor = C.bgTertiary;
     }
   }, [C.bgTertiary]);
+
+  if (!fontsLoaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bgTertiary }}>

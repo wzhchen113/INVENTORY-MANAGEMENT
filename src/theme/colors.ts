@@ -157,3 +157,56 @@ export const Shadow = {
     elevation: 3,
   },
 };
+
+// ── Command palette (C direction) ────────────────────────────
+// Separate from LightColors/DarkColors so existing screens stay unchanged.
+// Hex values for `accent`/`accentBg` are precomputed from the OKLCH spec in
+// the design handoff — RN doesn't accept oklch() directly.
+export const LightCmd = {
+  bg:           '#FAFAF8',
+  panel:        '#FFFFFF',
+  panel2:       '#F4F4F0',
+  border:       'rgba(20,20,20,0.07)',
+  borderStrong: 'rgba(20,20,20,0.14)',
+  fg:           '#0E1014',
+  fg2:          '#5A5F68',
+  fg3:          '#9094A0',
+  accent:       '#3F7C20',
+  accentBg:     '#E0EFC9',
+  ok:           '#3B6D11',
+  okBg:         '#EAF3DE',
+  warn:         '#854F0B',
+  warnBg:       '#FAEEDA',
+  danger:       '#791F1F',
+  dangerBg:     '#FCEBEB',
+  info:         '#185FA5',
+  infoBg:       '#E6F1FB',
+};
+
+export const DarkCmd: typeof LightCmd = {
+  bg:           '#08090C',
+  panel:        '#0E1014',
+  panel2:       '#181B22',
+  border:       'rgba(255,255,255,0.06)',
+  borderStrong: 'rgba(255,255,255,0.12)',
+  fg:           '#E6E8EC',
+  fg2:          '#9BA0AB',
+  fg3:          '#5C6270',
+  accent:       '#7DD668',
+  accentBg:     'rgba(58,130,40,0.40)',
+  ok:           '#5CB832',
+  okBg:         'rgba(92,184,50,0.15)',
+  warn:         '#E0A030',
+  warnBg:       'rgba(224,160,48,0.15)',
+  danger:       '#E04848',
+  dangerBg:     'rgba(224,72,72,0.15)',
+  info:         '#5AA8F0',
+  infoBg:       'rgba(90,168,240,0.15)',
+};
+
+export function useCmdColors() {
+  const darkMode = useStore((s) => s.darkMode);
+  return darkMode ? DarkCmd : LightCmd;
+}
+
+export const CmdRadius = { xs: 3, sm: 4, md: 5, lg: 6 };
