@@ -15,3 +15,5 @@ web-build/
 android/
 ios/
 .vercel
+supabase/.temp/
+supabase/.branches/
