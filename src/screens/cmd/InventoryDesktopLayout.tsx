@@ -30,6 +30,12 @@ import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
 import ReceivingSection from './sections/ReceivingSection';
 import RestockSection from './sections/RestockSection';
+import POsSection from './sections/POsSection';
+import RecipesSection from './sections/RecipesSection';
+import ReconciliationSection from './sections/ReconciliationSection';
+import POSImportsSection from './sections/POSImportsSection';
+import AuditLogSection from './sections/AuditLogSection';
+import ReportsSection from './sections/ReportsSection';
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -188,6 +194,18 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <ReceivingSection />
         ) : section === 'Restock' ? (
           <RestockSection />
+        ) : section === 'PurchaseOrders' ? (
+          <POsSection />
+        ) : section === 'Recipes' ? (
+          <RecipesSection />
+        ) : section === 'Reconciliation' ? (
+          <ReconciliationSection />
+        ) : section === 'POSImports' ? (
+          <POSImportsSection />
+        ) : section === 'AuditLog' ? (
+          <AuditLogSection />
+        ) : section === 'Reports' ? (
+          <ReportsSection />
         ) : section !== 'Inventory' ? (
           // Right side collapses to ComingSoon for the remaining 9 tree
           // items per G3 — keep the chrome consistent.
