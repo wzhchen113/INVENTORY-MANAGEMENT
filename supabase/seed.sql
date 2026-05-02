@@ -65,6 +65,102 @@ begin
   on conflict (id) do nothing;
 end $$;
 
+-- ─── manager user (regular role, Towson + Frederick only) ─
+-- Login: manager@local.test / password
+-- Use this account to verify what a non-admin actually sees:
+-- store dropdown limited to assigned stores, no admin nav,
+-- profiles RLS hides other users' rows.
+do $$
+declare
+  manager_id constant uuid := '22222222-2222-2222-2222-222222222222';
+begin
+  insert into auth.users (
+    id, instance_id, aud, role,
+    email, encrypted_password,
+    email_confirmed_at, created_at, updated_at,
+    raw_app_meta_data, raw_user_meta_data,
+    is_super_admin, is_anonymous,
+    confirmation_token, recovery_token,
+    email_change_token_new, email_change,
+    email_change_token_current, phone_change,
+    phone_change_token, reauthentication_token
+  ) values (
+    manager_id,
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated',
+    'manager@local.test',
+    crypt('password', gen_salt('bf')),
+    now(), now(), now(),
+    jsonb_build_object('provider', 'email', 'providers', array['email'], 'role', 'user'),
+    '{}'::jsonb,
+    false, false,
+    '', '', '', '', '', '', '', ''
+  )
+  on conflict (id) do nothing;
+
+  insert into auth.identities (
+    id, user_id, provider_id, identity_data, provider,
+    last_sign_in_at, created_at, updated_at
+  ) values (
+    gen_random_uuid(), manager_id, manager_id::text,
+    jsonb_build_object('sub', manager_id::text, 'email', 'manager@local.test', 'email_verified', true),
+    'email', now(), now(), now()
+  )
+  on conflict (provider_id, provider) do nothing;
+
+  insert into public.profiles (id, name, role, initials, color, status)
+  values (manager_id, 'Tara Manager', 'user', 'TM', '#E0853B', 'active')
+  on conflict (id) do nothing;
+end $$;
+
+-- ─── master user (master role, all stores) ────────────────
+-- Login: master@local.test / password
+-- master and admin share the same RLS bypass via
+-- `auth.jwt() -> 'app_metadata' ->> 'role' IN ('admin','master')`.
+-- Useful for testing any UI that special-cases role='master'.
+do $$
+declare
+  master_id constant uuid := '33333333-3333-3333-3333-333333333333';
+begin
+  insert into auth.users (
+    id, instance_id, aud, role,
+    email, encrypted_password,
+    email_confirmed_at, created_at, updated_at,
+    raw_app_meta_data, raw_user_meta_data,
+    is_super_admin, is_anonymous,
+    confirmation_token, recovery_token,
+    email_change_token_new, email_change,
+    email_change_token_current, phone_change,
+    phone_change_token, reauthentication_token
+  ) values (
+    master_id,
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated',
+    'master@local.test',
+    crypt('password', gen_salt('bf')),
+    now(), now(), now(),
+    jsonb_build_object('provider', 'email', 'providers', array['email'], 'role', 'master'),
+    '{}'::jsonb,
+    false, false,
+    '', '', '', '', '', '', '', ''
+  )
+  on conflict (id) do nothing;
+
+  insert into auth.identities (
+    id, user_id, provider_id, identity_data, provider,
+    last_sign_in_at, created_at, updated_at
+  ) values (
+    gen_random_uuid(), master_id, master_id::text,
+    jsonb_build_object('sub', master_id::text, 'email', 'master@local.test', 'email_verified', true),
+    'email', now(), now(), now()
+  )
+  on conflict (provider_id, provider) do nothing;
+
+  insert into public.profiles (id, name, role, initials, color, status)
+  values (master_id, 'Mae Master', 'master', 'MM', '#7A4FCF', 'active')
+  on conflict (id) do nothing;
+end $$;
+
 -- ─── real prod stores ────────────────────────────────────
 -- 4 stores from prod. Towson's id matches what init_schema
 -- already inserts; the ON CONFLICT makes that row a no-op.
@@ -80,9 +176,24 @@ on conflict (id) do nothing;
 -- Real prod doesn't have it, so we keep local in sync.
 delete from public.stores where id = '00000000-0000-0000-0000-000000000002';
 
--- ─── grant admin access to all real stores ───────────────
+-- ─── store-access grants ─────────────────────────────────
+-- Admin + master: all 4 stores (role-based RLS bypass means
+-- user_stores rows aren't strictly required, but the app reads
+-- this table to populate the store-switcher dropdown, so we
+-- mirror the data path for both privileged accounts).
 insert into public.user_stores (user_id, store_id)
-select '11111111-1111-1111-1111-111111111111', id from public.stores
+select u.user_id, s.id
+from (values
+  ('11111111-1111-1111-1111-111111111111'::uuid),  -- admin
+  ('33333333-3333-3333-3333-333333333333'::uuid)   -- master
+) as u(user_id), public.stores s
+on conflict do nothing;
+
+-- Manager: only Towson + Frederick. Lets us verify the
+-- non-admin path — store dropdown should show 2, not 4.
+insert into public.user_stores (user_id, store_id) values
+  ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000001'),  -- Towson
+  ('22222222-2222-2222-2222-222222222222', '0f240390-edda-4b25-8c72-45eeb2ce1988')   -- Frederick
 on conflict do nothing;
 
 -- ─── real prod vendors (PII masked) ──────────────────────
