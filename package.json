@@ -8,7 +8,12 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
-    "db": "json-server db.json --port 3001"
+    "db": "json-server db.json --port 3001",
+    "dev:db": "supabase start",
+    "dev:db:status": "supabase status",
+    "dev:db:reset": "supabase db reset",
+    "dev:db:stop": "supabase stop",
+    "dev:functions": "supabase functions serve --env-file ./supabase/functions/.env.local"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
