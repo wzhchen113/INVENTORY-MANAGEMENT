@@ -32,6 +32,7 @@ import ReceivingSection from './sections/ReceivingSection';
 import RestockSection from './sections/RestockSection';
 import POsSection from './sections/POsSection';
 import RecipesSection from './sections/RecipesSection';
+import PrepRecipesSection from './sections/PrepRecipesSection';
 import ReconciliationSection from './sections/ReconciliationSection';
 import POSImportsSection from './sections/POSImportsSection';
 import AuditLogSection from './sections/AuditLogSection';
@@ -109,7 +110,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       items: [
         { id: 'PurchaseOrders',  label: 'Purchase orders' },
         { id: 'Vendors',         label: 'Vendors' },
-        { id: 'Recipes',         label: 'Recipes' },
+        { id: 'Recipes',         label: 'Menu items / BOM' },
+        { id: 'PrepRecipes',     label: 'Prep recipes' },
         { id: 'Restock',         label: 'Restock' },
       ],
     },
@@ -134,7 +136,10 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
     },
     {
       label: 'Reference',
-      items: [{ id: 'Recipes', label: 'Recipes' }],
+      items: [
+        { id: 'Recipes',     label: 'Menu items / BOM' },
+        { id: 'PrepRecipes', label: 'Prep recipes' },
+      ],
     },
     {
       label: 'Admin-only',
@@ -198,6 +203,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <POsSection />
         ) : section === 'Recipes' ? (
           <RecipesSection />
+        ) : section === 'PrepRecipes' ? (
+          <PrepRecipesSection />
         ) : section === 'Reconciliation' ? (
           <ReconciliationSection />
         ) : section === 'POSImports' ? (

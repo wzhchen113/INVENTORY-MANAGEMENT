@@ -52,7 +52,8 @@ export default function NavDrawerScreen() {
       items: [
         { id: 'PurchaseOrders',  label: 'Purchase orders',  onPress: () => goAndClose('ComingSoon', { sectionName: 'Purchase orders' }) },
         { id: 'Vendors',         label: 'Vendors',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Vendors' }) },
-        { id: 'Recipes',         label: 'Recipes',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Recipes' }) },
+        { id: 'Recipes',         label: 'Menu items / BOM', onPress: () => goAndClose('ComingSoon', { sectionName: 'Menu items / BOM' }) },
+        { id: 'PrepRecipes',     label: 'Prep recipes',     onPress: () => goAndClose('ComingSoon', { sectionName: 'Prep recipes' }) },
         { id: 'Restock',         label: 'Restock',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Restock' }) },
       ],
     },
@@ -77,7 +78,8 @@ export default function NavDrawerScreen() {
     {
       label: 'Reference',
       items: [
-        { id: 'Recipes',         label: 'Recipes',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Recipes' }) },
+        { id: 'Recipes',     label: 'Menu items / BOM', onPress: () => goAndClose('ComingSoon', { sectionName: 'Menu items / BOM' }) },
+        { id: 'PrepRecipes', label: 'Prep recipes',     onPress: () => goAndClose('ComingSoon', { sectionName: 'Prep recipes' }) },
       ],
     },
     {
