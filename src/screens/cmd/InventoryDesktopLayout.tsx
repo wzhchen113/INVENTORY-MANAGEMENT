@@ -27,6 +27,9 @@ import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import VendorsSection from './sections/VendorsSection';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
+import EODCountSection from './sections/EODCountSection';
+import ReceivingSection from './sections/ReceivingSection';
+import RestockSection from './sections/RestockSection';
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -179,6 +182,12 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <VendorsSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
+        ) : section === 'EODCount' ? (
+          <EODCountSection />
+        ) : section === 'Receiving' ? (
+          <ReceivingSection />
+        ) : section === 'Restock' ? (
+          <RestockSection />
         ) : section !== 'Inventory' ? (
           // Right side collapses to ComingSoon for the remaining 9 tree
           // items per G3 — keep the chrome consistent.
