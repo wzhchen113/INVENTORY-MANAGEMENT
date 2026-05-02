@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator from './src/navigation/AppNavigator';
-import { useColors } from './src/theme/colors';
+import { useColors, useCmdColors } from './src/theme/colors';
 import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
@@ -110,6 +110,11 @@ if (Platform.OS !== 'web') {
 
 export default function App() {
   const C = useColors();
+  const Cmd = useCmdColors();
+  // Under NEW_UI=true, use the Command palette's `bg` for the html/body
+  // background so overscroll on web matches the new chrome instead of
+  // the legacy bgTertiary tone.
+  const bodyBg = NEW_UI ? Cmd.bg : C.bgTertiary;
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
 
@@ -168,15 +173,15 @@ export default function App() {
   // Set HTML body background for overscroll coverage on web
   useEffect(() => {
     if (Platform.OS === 'web') {
-      document.documentElement.style.backgroundColor = C.bgTertiary;
-      document.body.style.backgroundColor = C.bgTertiary;
+      document.documentElement.style.backgroundColor = bodyBg;
+      document.body.style.backgroundColor = bodyBg;
     }
-  }, [C.bgTertiary]);
+  }, [bodyBg]);
 
   if (!fontsLoaded) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: bodyBg }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
         {NEW_UI ? <CmdNavigator /> : <AppNavigator />}
