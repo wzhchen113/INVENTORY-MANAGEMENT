@@ -26,6 +26,13 @@ export const LightColors = {
   info: '#185FA5',
   infoBg: '#E6F1FB',
 
+  // Status pills (EOD overview, etc.) — same hue family as semantic above but
+  // tuned for the small inline badges so contrast stays readable on cards.
+  statusGreen: '#3B6D11',  statusGreenBg: '#E5F0D6',
+  statusBlue: '#185FA5',   statusBlueBg: '#DCEAF8',
+  statusOrange: '#854F0B', statusOrangeBg: '#F8E6CC',
+  statusRed: '#791F1F',    statusRedBg: '#F8DCDC',
+
   // Borders
   borderLight: 'rgba(0,0,0,0.08)',
   borderMedium: 'rgba(0,0,0,0.15)',
@@ -68,6 +75,12 @@ export const DarkColors: typeof LightColors = {
   dangerBg: '#2E1414',
   info: '#4A9FE8',
   infoBg: '#12223A',
+
+  // Status pills (EOD overview, etc.)
+  statusGreen: '#7BD24F',  statusGreenBg: '#1F3815',
+  statusBlue: '#5AAAF0',   statusBlueBg: '#152A45',
+  statusOrange: '#E8A53A', statusOrangeBg: '#3A2A12',
+  statusRed: '#E86060',    statusRedBg: '#3A1818',
 
   // Borders
   borderLight: 'rgba(255,255,255,0.08)',

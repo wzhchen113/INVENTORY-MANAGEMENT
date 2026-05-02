@@ -188,6 +188,21 @@ export const useStore = create<FullStore>((set, get) => ({
     import('../lib/webPush').then(({ unsubscribeFromPush }) => unsubscribeFromPush()).catch(() => {});
   },
   setCurrentStore: (store) => {
+    // Legacy "All Stores" mode is gone — the dashboard now shows one focal
+    // store with a fleet-wide EOD overview alongside it. If anything still
+    // tries to set __all__, redirect to the first store the user can see so
+    // we don't end up with a phantom store id and broken loadFromSupabase.
+    if (store.id === '__all__') {
+      const user = get().currentUser;
+      const accessible = user?.role === 'admin' || user?.role === 'master'
+        ? get().stores
+        : get().stores.filter((s) => user?.stores.includes(s.id));
+      const fallback = accessible[0] || get().stores[0];
+      if (!fallback) return;
+      set({ currentStore: fallback });
+      get().loadFromSupabase(fallback.id);
+      return;
+    }
     set({ currentStore: store });
     get().loadFromSupabase(store.id);
   },

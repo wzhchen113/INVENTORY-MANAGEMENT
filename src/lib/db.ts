@@ -293,6 +293,49 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
 // client EODSubmission shape so they can populate useStore.eodSubmissions on
 // login / store switch / refresh. This is the rehydration path that makes the
 // vendor/category checkmarks + myTodaySubmission survive reload.
+/**
+ * Pulls today's EOD submissions across multiple stores in a single query.
+ * Used by the Dashboard's EOD overview table so an admin can see every
+ * accessible store's tonight status without N round-trips.
+ *
+ * Returns rows in the same shape as fetchRecentEODSubmissions — same mapping,
+ * just filtered to a known list of store IDs and a single date.
+ */
+export async function fetchTodaysEODForStores(storeIds: string[], dateISO: string): Promise<any[]> {
+  if (storeIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('eod_submissions')
+    .select(`
+      id, store_id, date, status, item_count, created_at, submitted_by,
+      submitter:profiles!submitted_by(name),
+      eod_entries(id, item_id, remaining_quantity, item:inventory_items(name, unit, cost_per_unit))
+    `)
+    .in('store_id', storeIds)
+    .eq('date', dateISO);
+  if (error) { console.warn('[Supabase] fetchTodaysEODForStores:', error.message); return []; }
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    storeId: row.store_id,
+    date: row.date,
+    status: row.status,
+    itemCount: row.item_count || (row.eod_entries?.length || 0),
+    submittedBy: row.submitter?.name || '',
+    submittedByUserId: row.submitted_by,
+    timestamp: row.created_at
+      ? new Date(row.created_at).toLocaleTimeString('en-US', {
+          hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
+        })
+      : '',
+    entries: (row.eod_entries || []).map((e: any) => ({
+      itemId: e.item_id,
+      itemName: e.item?.name || '',
+      unit: e.item?.unit || '',
+      remainingQty: e.remaining_quantity,
+      costPerUnit: e.item?.cost_per_unit || 0,
+    })),
+  }));
+}
+
 export async function fetchRecentEODSubmissions(storeId: string, days = 14): Promise<any[]> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);

@@ -88,24 +88,9 @@ function StoreSelector() {
         >
           <View style={[styles.storeDropdown, { backgroundColor: C.bgPrimary }]}>
             <Text style={[styles.storeDropdownTitle, { color: C.textTertiary }]}>Switch store</Text>
-            {/* All Stores option */}
-            {isAdmin && userStores.length > 1 && (
-              <TouchableOpacity
-                testID="store-row-all"
-                style={[styles.storeOption, isAllStores && { backgroundColor: C.infoBg }]}
-                onPress={() => {
-                  setCurrentStore({ id: ALL_STORES_ID, name: 'All Stores', address: '', status: 'active' });
-                  setOpen(false);
-                }}
-              >
-                <View style={[styles.storeOptionDot, isAllStores && { backgroundColor: C.info }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.storeOptionName, { color: C.textPrimary }, isAllStores && { fontWeight: '600' }]}>All Stores</Text>
-                  <Text style={[styles.storeOptionAddr, { color: C.textTertiary }]}>Combined view</Text>
-                </View>
-                {isAllStores && <Ionicons name="checkmark" size={16} color={C.info} />}
-              </TouchableOpacity>
-            )}
+            {/* "All Stores" combined-view option was removed — admins now see
+                a fleet-wide EOD overview on the per-store dashboard instead.
+                The "Admin · All stores" pill in the header signals scope. */}
             {userStores.map((store) => {
               const isActive = store.id === currentStore.id;
               return (
