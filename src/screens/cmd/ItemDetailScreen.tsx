@@ -19,6 +19,7 @@ import { PropertiesJson } from '../../components/cmd/PropertiesJson';
 import { ActivityRow } from '../../components/cmd/ActivityRow';
 import { SectionCaption } from '../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
+import { FlagIssueModal } from '../../components/cmd/FlagIssueModal';
 import { useBreakpoint } from '../../theme/breakpoints';
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
@@ -79,6 +80,7 @@ export default function ItemDetailScreen() {
 
   const tabs = role === 'admin' ? ADMIN_TABS : STAFF_TABS;
   const [activeTab, setActiveTab] = React.useState('detail.tsx');
+  const [flagOpen, setFlagOpen] = React.useState(false);
 
   if (!item) {
     return (
@@ -144,9 +146,7 @@ export default function ItemDetailScreen() {
   ];
   const props = role === 'admin' ? adminProps : staffProps;
 
-  const onPressFlagIssue = () => {
-    Toast.show({ type: 'info', text1: 'Flag issue', text2: 'Coming soon — needs the `flags` table to land first.' });
-  };
+  const onPressFlagIssue = () => setFlagOpen(true);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -379,6 +379,12 @@ export default function ItemDetailScreen() {
             inv://{slugify(currentStore?.name || 'store')} — inventory — {slugify(item.name)}
           </Text>
         }
+      />
+      <FlagIssueModal
+        visible={flagOpen}
+        onClose={() => setFlagOpen(false)}
+        itemId={item.id}
+        itemName={item.name}
       />
     </View>
   );
