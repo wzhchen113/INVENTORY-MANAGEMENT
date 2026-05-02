@@ -23,6 +23,7 @@ import { InventoryRow } from '../../components/cmd/InventoryRow';
 import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
+import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -160,9 +161,12 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
             </Text>
           }
           footerRight={
-            <Text style={[Type.statusBar, { color: C.fg3 }]}>
-              EOD {submittedToday}/{stores.length}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <ThemeToggle />
+              <Text style={[Type.statusBar, { color: C.fg3 }]}>
+                EOD {submittedToday}/{stores.length}
+              </Text>
+            </View>
           }
         />
 

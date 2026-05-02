@@ -8,6 +8,7 @@ import { useCommandPaletteIndex } from '../../lib/cmdSelectors';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { Text, View, TouchableOpacity } from 'react-native';
 import { Type, mono, sans } from '../../theme/typography';
+import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 
 // Modal route presented from any screen when the hamburger is tapped.
 // Wraps the MobileNavDrawer organism with navigation handlers — clicking a
@@ -161,9 +162,12 @@ export default function NavDrawerScreen() {
       subtitle={`${currentUser?.email || 'guest'} · v2.4`}
       footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'}</Text>}
       footerRight={
-        <Text style={[Type.statusBar, { color: C.fg3 }]}>
-          EOD {submittedToday}/{totalStores}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <ThemeToggle />
+          <Text style={[Type.statusBar, { color: C.fg3 }]}>
+            EOD {submittedToday}/{totalStores}
+          </Text>
+        </View>
       }
     />
   );
