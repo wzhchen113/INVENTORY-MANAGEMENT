@@ -25,6 +25,7 @@ import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import VendorsSection from './sections/VendorsSection';
+import IngredientsSection from './sections/IngredientsSection';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
@@ -110,6 +111,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       items: [
         { id: 'PurchaseOrders',  label: 'Purchase orders' },
         { id: 'Vendors',         label: 'Vendors' },
+        { id: 'Ingredients',     label: 'Ingredients' },
         { id: 'Recipes',         label: 'Menu items / BOM' },
         { id: 'PrepRecipes',     label: 'Prep recipes' },
         { id: 'Restock',         label: 'Restock' },
@@ -191,6 +193,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <DashboardSection />
         ) : section === 'Vendors' ? (
           <VendorsSection />
+        ) : section === 'Ingredients' ? (
+          <IngredientsSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
         ) : section === 'EODCount' ? (
