@@ -18,6 +18,15 @@ import { InventoryRow } from '../../components/cmd/InventoryRow';
 import { PropertiesJson } from '../../components/cmd/PropertiesJson';
 import { ActivityRow } from '../../components/cmd/ActivityRow';
 import { TreeGroup } from '../../components/cmd/TreeGroup';
+import { StockHistoryChart } from '../../components/cmd/StockHistoryChart';
+import { TabStrip } from '../../components/cmd/TabStrip';
+import { TitleBar } from '../../components/cmd/TitleBar';
+import { CmdStatusBar } from '../../components/cmd/StatusBar';
+import { Sidebar } from '../../components/cmd/Sidebar';
+import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
+import { CommandPalette } from '../../components/cmd/CommandPalette';
+import { StatusDot as DotForBar } from '../../components/cmd/StatusDot';
+import { PaletteEntry } from '../../lib/cmdSelectors';
 
 // Phase 2 dev sandbox. Mounted from App.tsx when EXPO_PUBLIC_NEW_UI=true && __DEV__.
 // Phase 5 will move this into CmdNavigator as a hidden dev route.
@@ -29,6 +38,43 @@ export default function CmdAtomsPreview() {
   const [chipSel, setChipSel] = React.useState('all');
   const [rowSel, setRowSel] = React.useState('i03');
   const [treeSel, setTreeSel] = React.useState('inventory');
+  const [tabId, setTabId] = React.useState('detail.tsx');
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [drawerQuery, setDrawerQuery] = React.useState('');
+
+  // Mock 14-day stock series for Atlantic salmon (matches design's mock).
+  const salmonSeries: Array<number | null> = [11, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4.5, 4.2];
+
+  const sampleTreeGroups = [
+    {
+      label: 'Operations',
+      items: [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'inventory', label: 'Inventory', kbd: '⌘I' },
+        { id: 'eod',       label: 'EOD count' },
+        { id: 'waste',     label: 'Waste log' },
+      ],
+    },
+    {
+      label: 'Planning',
+      items: [
+        { id: 'pos',       label: 'Purchase orders' },
+        { id: 'vendors',   label: 'Vendors' },
+        { id: 'recipes',   label: 'Recipes' },
+      ],
+    },
+  ];
+
+  const samplePaletteIndex: PaletteEntry[] = [
+    { type: 'inventory', label: 'Atlantic salmon',  id: 'i03', route: { name: 'ItemDetail', params: { itemId: 'i03' } }, scope: 'inventory' },
+    { type: 'inventory', label: 'Beef tenderloin',  id: 'i01', route: { name: 'ItemDetail', params: { itemId: 'i01' } }, scope: 'inventory' },
+    { type: 'inventory', label: 'Heirloom tomato',  id: 'i04', route: { name: 'ItemDetail', params: { itemId: 'i04' } }, scope: 'inventory' },
+    { type: 'recipe',    label: 'Crab cake sandwich', id: 'r1', route: { name: 'Recipes', params: { recipeId: 'r1' } }, scope: 'recipes' },
+    { type: 'vendor',    label: 'Samuels',           id: 'v1', route: { name: 'Vendors', params: { vendorId: 'v1' } }, scope: 'vendors' },
+    { type: 'screen',    label: 'EOD count',         id: 'screen:EODCount', route: { name: 'EODCount' }, scope: 'screens' },
+    { type: 'screen',    label: 'Waste log',         id: 'screen:WasteLog', route: { name: 'WasteLog' }, scope: 'screens' },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -235,6 +281,160 @@ export default function CmdAtomsPreview() {
           />
         </Group>
 
+        <Group title="StockHistoryChart">
+          <View style={{ alignItems: 'flex-start', gap: 14 }}>
+            <View>
+              <SectionCaption tone="fg3" size={10.5}>stock_history.dat — 14d</SectionCaption>
+              <View style={{ marginTop: 6 }}>
+                <StockHistoryChart data={salmonSeries} par={12} width={520} height={140} />
+              </View>
+            </View>
+            <View>
+              <SectionCaption tone="fg3" size={10.5}>mobile · 7d</SectionCaption>
+              <View style={{ marginTop: 6 }}>
+                <StockHistoryChart data={salmonSeries.slice(7)} par={12} width={340} height={100} gridLines={3} />
+              </View>
+            </View>
+            <View>
+              <SectionCaption tone="fg3" size={10.5}>sparse data (2 of 14 days)</SectionCaption>
+              <View style={{ marginTop: 6 }}>
+                <StockHistoryChart
+                  data={[null, null, null, null, null, null, null, null, null, null, null, null, 6.5, 4.2]}
+                  par={12}
+                  width={340}
+                  height={100}
+                  gridLines={3}
+                />
+              </View>
+            </View>
+          </View>
+        </Group>
+
+        <Group title="TabStrip">
+          <View style={{ borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+            <TabStrip
+              tabs={[
+                { id: 'detail.tsx',  label: 'detail.tsx' },
+                { id: 'usage.tsx',   label: 'usage.tsx' },
+                { id: 'audit.tsx',   label: 'audit.tsx' },
+                { id: 'recipes.tsx', label: 'recipes.tsx' },
+              ]}
+              activeId={tabId}
+              onChange={setTabId}
+              rightSlot={
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1,
+                      borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+                  </View>
+                  <View
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 10,
+                      backgroundColor: C.accent, borderRadius: CmdRadius.sm,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ COUNT</Text>
+                  </View>
+                </View>
+              }
+            />
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>
+              active tab: {tabId}
+            </Text>
+          </View>
+          <SectionCaption tone="fg3" size={10.5}>fillEvenly (mobile)</SectionCaption>
+          <View style={{ borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+            <TabStrip
+              fillEvenly
+              tabs={[
+                { id: 'detail.tsx',  label: 'detail.tsx' },
+                { id: 'count.tsx',   label: 'count.tsx' },
+                { id: 'recipes.tsx', label: 'recipes.tsx' },
+              ]}
+              activeId={tabId}
+              onChange={setTabId}
+            />
+          </View>
+        </Group>
+
+        <Group title="TitleBar">
+          <View style={{ borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+            <TitleBar storeName="Towson" section="Inventory" itemSlug="Atlantic salmon" />
+            <View style={{ height: 80, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>(window content)</Text>
+            </View>
+          </View>
+        </Group>
+
+        <Group title="StatusBar">
+          <View style={{ borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+            <View style={{ height: 60, backgroundColor: C.bg }} />
+            <CmdStatusBar
+              left={
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <DotForBar status="ok" />
+                    <Text style={[Type.statusBar, { color: C.fg3 }]}>synced</Text>
+                  </View>
+                  <Text style={[Type.statusBar, { color: C.fg3 }]}>row 3 / 142</Text>
+                  <Text style={[Type.statusBar, { color: C.fg3 }]}>cat:seafood</Text>
+                </>
+              }
+              right={
+                <>
+                  <Text style={[Type.statusBar, { color: C.fg3 }]}>UTF-8</Text>
+                  <Text style={[Type.statusBar, { color: C.fg3 }]}>LF</Text>
+                  <Text style={[Type.statusBar, { color: C.accent }]}>⌘K palette</Text>
+                </>
+              }
+            />
+          </View>
+        </Group>
+
+        <Group title="Sidebar (desktop tree-nav)">
+          <View style={{ height: 360, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden', flexDirection: 'row' }}>
+            <Sidebar
+              groups={sampleTreeGroups}
+              selectedId={treeSel}
+              onSelect={setTreeSel}
+              onPaletteOpen={() => setPaletteOpen(true)}
+              footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● admin</Text>}
+              footerRight={<Text style={[Type.statusBar, { color: C.fg3 }]}>EOD 18/24</Text>}
+            />
+            <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+                selected: {treeSel}
+              </Text>
+            </View>
+          </View>
+        </Group>
+
+        <Group title="MobileNavDrawer + CommandPalette (modals)">
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              testID="open-mobile-drawer"
+              onPress={() => setDrawerOpen(true)}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: CmdRadius.sm, backgroundColor: C.accent }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>open drawer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="open-cmd-palette"
+              onPress={() => setPaletteOpen(true)}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.borderStrong, backgroundColor: C.panel2 }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 11, color: C.fg2 }}>open palette (⌘K)</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+            Palette is web-only. ⌘K shortcut works system-wide while preview is mounted.
+          </Text>
+        </Group>
+
         <Group title="Type ramp (sanity)">
           <View style={{ gap: 6 }}>
             <Text style={[Type.display, { color: C.fg }]}>Atlantic salmon</Text>
@@ -250,6 +450,30 @@ export default function CmdAtomsPreview() {
           </View>
         </Group>
       </ScrollView>
+
+      {/* Modals — mounted always; visible flag controls show/hide. */}
+      <MobileNavDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        groups={sampleTreeGroups}
+        selectedId={treeSel}
+        onSelect={setTreeSel}
+        paletteQuery={drawerQuery}
+        onPaletteChange={setDrawerQuery}
+        role="admin"
+        subtitle="admin@local · v2.4"
+        footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● admin@local</Text>}
+        footerRight={<Text style={[Type.statusBar, { color: C.fg3 }]}>EOD 18/24</Text>}
+      />
+      <CommandPalette
+        visible={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNavigate={(route) => {
+          if (typeof console !== 'undefined') console.log('[cmd-preview] navigate:', route);
+        }}
+        index={samplePaletteIndex}
+        scopeHint="items, recipes, vendors, screens"
+      />
     </View>
   );
 }
