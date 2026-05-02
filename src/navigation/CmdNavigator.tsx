@@ -1,10 +1,14 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useCmdColors } from '../theme/colors';
 import { useBreakpoint } from '../theme/breakpoints';
+import { useRole } from '../hooks/useRole';
+import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
+import { CommandPalette } from '../components/cmd/CommandPalette';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import InventoryListScreen from '../screens/cmd/InventoryListScreen';
@@ -13,6 +17,8 @@ import ComingSoonScreen from '../screens/cmd/ComingSoonScreen';
 import NavDrawerScreen from '../screens/cmd/NavDrawerScreen';
 import InventoryDesktopLayout from '../screens/cmd/InventoryDesktopLayout';
 import CmdAtomsPreview from '../screens/dev/CmdAtomsPreview';
+
+const navRef = createNavigationContainerRef();
 
 const RootStack = createStackNavigator();
 const AuthedStack = createStackNavigator();
@@ -82,14 +88,63 @@ function AuthedRoot() {
   }, []);
   useRealtimeSync(storeId, handleSync);
 
-  return breakpoint === 'desktop' ? <DesktopShell /> : <MobileStack />;
+  return (
+    <>
+      {breakpoint === 'desktop' ? <DesktopShell /> : <MobileStack />}
+      <CmdPaletteHost />
+    </>
+  );
+}
+
+// Web-only ⌘K palette. Listens for keydown at the document level and
+// navigates via the container ref so it can fire from any screen.
+function CmdPaletteHost() {
+  const role = useRole();
+  const index = useCommandPaletteIndex(role);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'p' || e.key === 'K' || e.key === 'P')) {
+        e.preventDefault();
+        setVisible((v) => !v);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleNavigate = useCallback((route: PaletteEntry['route']) => {
+    if (!navRef.isReady()) return;
+    const dispatch = (name: string, params?: Record<string, unknown>) =>
+      (navRef as any).navigate(name, params);
+    // Inventory and ItemDetail have direct routes; others land on the
+    // ComingSoon placeholder until subsequent design handoffs ship.
+    if (route.name === 'Inventory' || route.name === 'ItemDetail' || route.name === 'ComingSoon') {
+      dispatch(route.name, route.params);
+      return;
+    }
+    dispatch('ComingSoon', { sectionName: route.name });
+  }, []);
+
+  if (Platform.OS !== 'web') return null;
+  return (
+    <CommandPalette
+      visible={visible}
+      onClose={() => setVisible(false)}
+      onNavigate={handleNavigate}
+      index={index}
+      scopeHint={role === 'staff' ? 'items, recipes' : 'items, recipes, vendors, screens'}
+    />
+  );
 }
 
 export default function CmdNavigator() {
   const currentUser = useStore((s) => s.currentUser);
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navRef}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser ? (
           <RootStack.Screen name="App" component={AuthedRoot} />
