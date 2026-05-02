@@ -24,6 +24,9 @@ import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
+import VendorsSection from './sections/VendorsSection';
+import WasteLogSection from './sections/WasteLogSection';
+import DashboardSection from './sections/DashboardSection';
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -170,8 +173,14 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           }
         />
 
-        {section !== 'Inventory' ? (
-          // Right side collapses to ComingSoon for the 12 non-Inventory tree
+        {section === 'Dashboard' ? (
+          <DashboardSection />
+        ) : section === 'Vendors' ? (
+          <VendorsSection />
+        ) : section === 'WasteLog' ? (
+          <WasteLogSection />
+        ) : section !== 'Inventory' ? (
+          // Right side collapses to ComingSoon for the remaining 9 tree
           // items per G3 — keep the chrome consistent.
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <View style={{ maxWidth: 380, width: '100%' }}>
