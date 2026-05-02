@@ -306,9 +306,10 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
   const { data, error } = await supabase
     .from('eod_submissions')
     .select(`
-      id, store_id, date, status, item_count, created_at, submitted_by,
+      id, store_id, date, status, submitted_at, submitted_by,
       submitter:profiles!submitted_by(name),
-      eod_entries(id, item_id, remaining_quantity, item:inventory_items(name, unit, cost_per_unit))
+      eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+                  item:inventory_items(name, unit))
     `)
     .in('store_id', storeIds)
     .eq('date', dateISO);
@@ -318,20 +319,28 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
     storeId: row.store_id,
     date: row.date,
     status: row.status,
-    itemCount: row.item_count || (row.eod_entries?.length || 0),
+    itemCount: (row.eod_entries || []).length,
     submittedBy: row.submitter?.name || '',
     submittedByUserId: row.submitted_by,
-    timestamp: row.created_at
-      ? new Date(row.created_at).toLocaleTimeString('en-US', {
+    timestamp: row.submitted_at
+      ? new Date(row.submitted_at).toLocaleTimeString('en-US', {
           hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
         })
       : '',
     entries: (row.eod_entries || []).map((e: any) => ({
+      id: e.id,
       itemId: e.item_id,
       itemName: e.item?.name || '',
+      actualRemaining: Number(e.actual_remaining) || 0,
+      actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
+      actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
       unit: e.item?.unit || '',
-      remainingQty: e.remaining_quantity,
-      costPerUnit: e.item?.cost_per_unit || 0,
+      submittedBy: row.submitter?.name || '',
+      submittedByUserId: row.submitted_by,
+      timestamp: e.created_at || row.submitted_at,
+      date: row.date,
+      storeId: row.store_id,
+      notes: e.notes || '',
     })),
   }));
 }
