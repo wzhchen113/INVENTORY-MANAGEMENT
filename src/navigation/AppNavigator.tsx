@@ -513,15 +513,34 @@ function HeaderRight() {
   const notifications = useStore((s) => s.notifications);
   const markNotificationRead = useStore((s) => s.markNotificationRead);
   const clearNotifications = useStore((s) => s.clearNotifications);
+  const loading = useStore((s) => s.storeLoading);
   const C = useColors();
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const handleRefresh = useCallback(async () => {
+    const sid = useStore.getState().currentStore?.id;
+    if (!sid) return;
+    try {
+      await useStore.getState().loadFromSupabase(sid);
+      Toast.show({ type: 'success', text1: 'Refreshed', visibilityTime: 1200 });
+    } catch {
+      Toast.show({ type: 'error', text1: "Couldn't refresh", visibilityTime: 1500 });
+    }
+  }, []);
+
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16, gap: 10 }}>
+        {/* Refresh — pulls fresh data from Supabase without navigating */}
+        <TouchableOpacity onPress={handleRefresh} disabled={loading} activeOpacity={0.7}>
+          {loading
+            ? <ActivityIndicator size="small" color={C.textSecondary} />
+            : <Ionicons name="refresh-outline" size={22} color={C.textSecondary} />
+          }
+        </TouchableOpacity>
         {/* Notification bell — admins only */}
         {isAdmin && (
           <TouchableOpacity onPress={() => setShowNotifs(true)} activeOpacity={0.7}>
