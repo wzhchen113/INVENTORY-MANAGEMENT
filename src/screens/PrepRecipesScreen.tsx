@@ -1,5 +1,5 @@
 // src/screens/PrepRecipesScreen.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Modal, ScrollView,
   TextInput, StyleSheet, Alert, Platform,
@@ -93,6 +93,26 @@ export default function PrepRecipesScreen() {
     }
     return map;
   }, [prepRecipes]);
+
+  // Remap ingredient itemIds (and sub_recipe_ids) to a target store's
+  // own same-name items. Without this, multi-store save would write the
+  // SOURCE store's item UUIDs into other stores' prep_recipe_ingredients,
+  // causing cross-store FK leaks (Towson's Burger Patty referencing
+  // Charles's Ground Beef, etc.). Lookup is by lowercase name match —
+  // same key used by storeValidity below, so any store passing the
+  // validity check is guaranteed to have a match here.
+  const remapIngredientsForStore = useCallback(
+    (ings: PrepRecipeIngredient[], targetStoreId: string): PrepRecipeIngredient[] =>
+      ings.map((ing) => {
+        const isPrep = (ing as any).type === 'prep';
+        const wantedName = ing.itemName.toLowerCase();
+        const target = isPrep
+          ? prepRecipes.find((p) => p.storeId === targetStoreId && p.name.toLowerCase() === wantedName)
+          : inventory.find((i) => i.storeId === targetStoreId && i.name.toLowerCase() === wantedName);
+        return target ? { ...ing, itemId: target.id } : ing;
+      }),
+    [inventory, prepRecipes]
+  );
 
   // For each store, determine if it has ALL current recipe ingredients
   const storeValidity = useMemo(() => {
@@ -230,13 +250,24 @@ export default function PrepRecipesScreen() {
       }
       const existingStoreIds = allCopies.map((r) => r.storeId);
 
-      // Update the current store's copy via local state
-      updatePrepRecipe(editingId, recipeData);
+      // Update the current store's copy via local state. Remap even
+      // here — formIngredients may already carry stale cross-store
+      // itemIds from a previously-leaked load, and we want a save to
+      // produce a consistent end state, not pass leaks through.
+      updatePrepRecipe(editingId, {
+        ...recipeData,
+        ingredients: remapIngredientsForStore(formIngredients, editedRecipe!.storeId),
+      });
 
-      // Update other stores' copies directly in the database
+      // Update other stores' copies. Each store needs its OWN itemIds —
+      // remap from the source-store's formIngredients to the target
+      // store's same-name items, otherwise we leak cross-store FKs.
       for (const copy of allCopies) {
         if (copy.id !== editingId && selectedStoreIds.includes(copy.storeId)) {
-          updatePrepRecipe(copy.id, recipeData);
+          updatePrepRecipe(copy.id, {
+            ...recipeData,
+            ingredients: remapIngredientsForStore(formIngredients, copy.storeId),
+          });
         }
       }
 
@@ -247,19 +278,24 @@ export default function PrepRecipesScreen() {
         }
       }
 
-      // Add to newly selected stores
+      // Add to newly selected stores (also needs per-store remap).
       const newStoreIds = validStores.filter((sid) => !existingStoreIds.includes(sid));
       for (const storeId of newStoreIds) {
         addPrepRecipe({
-          ...recipeData, storeId,
+          ...recipeData,
+          ingredients: remapIngredientsForStore(formIngredients, storeId),
+          storeId,
           createdBy: currentUser?.name || 'Admin',
           createdAt: new Date().toLocaleDateString(),
         });
       }
     } else {
+      // Brand-new recipe across N stores — each store gets its own itemIds.
       for (const storeId of validStores) {
         addPrepRecipe({
-          ...recipeData, storeId,
+          ...recipeData,
+          ingredients: remapIngredientsForStore(formIngredients, storeId),
+          storeId,
           createdBy: currentUser?.name || 'Admin',
           createdAt: new Date().toLocaleDateString(),
         });
