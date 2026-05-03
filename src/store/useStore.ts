@@ -4,7 +4,7 @@ import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
   EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
-  OrderDayVendor, OrderSubmission,
+  OrderDayVendor, OrderSubmission, ReportDefinition,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -108,6 +108,10 @@ interface StoreActions {
   // Audit
   addAuditEvent: (event: Omit<AuditEvent, 'id'>) => void;
 
+  // Saved reports (Phase 12f)
+  addReportDefinition: (rep: Omit<ReportDefinition, 'id' | 'createdAt'>) => void;
+  deleteReportDefinition: (id: string) => void;
+
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
@@ -161,6 +165,7 @@ export const useStore = create<FullStore>((set, get) => ({
   notifications: [],
   storeLoading: false,
   ingredientConversions: [] as any[],
+  savedReports: [],
 
   // Auth
   login: (user) => {
@@ -261,6 +266,7 @@ export const useStore = create<FullStore>((set, get) => ({
         ...(data.ingredientCategories.length > 0 ? { ingredientCategories: data.ingredientCategories } : {}),
         ...(data.ingredientConversions ? { ingredientConversions: data.ingredientConversions } : {}),
         posRecipeAliases: data.posRecipeAliases || [],
+        savedReports: (data as any).savedReports || [],
         // Replace — not merge — so switching from a store with scheduled
         // vendors to one with none doesn't leave the old store's days
         // visible. Baseline = 7 empty days, then spread whatever DB has.
@@ -586,7 +592,7 @@ export const useStore = create<FullStore>((set, get) => ({
       set((s) => ({
         eodSubmissions: s.eodSubmissions.map((sub) =>
           sub.id === existing.id
-            ? { ...sub, entries: mergedEntries, itemCount: mergedEntries.length, timestamp: submission.timestamp }
+            ? { ...sub, entries: mergedEntries, itemCount: mergedEntries.length, timestamp: submission.timestamp, status: submission.status }
             : sub
         ),
       }));
@@ -936,6 +942,30 @@ export const useStore = create<FullStore>((set, get) => ({
   // Audit — write only to Supabase, loaded on next refresh via loadFromSupabase
   addAuditEvent: (event) => {
     db.addAuditEvent(event).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+  },
+
+  // Phase 12f — saved reports
+  addReportDefinition: (rep) => {
+    const tempId = makeId('rep', Date.now());
+    const optimistic: ReportDefinition = {
+      ...rep,
+      id: tempId,
+      createdAt: new Date().toISOString(),
+    };
+    set((s) => ({ savedReports: [optimistic, ...(s.savedReports || [])] }));
+    db.createReportDefinition(rep)
+      .then((saved) => {
+        if (!saved) return;
+        set((s) => ({
+          savedReports: (s.savedReports || []).map((r) => (r.id === tempId ? saved : r)),
+        }));
+      })
+      .catch((e: any) => console.warn('[Supabase] createReportDefinition:', e?.message || e));
+  },
+
+  deleteReportDefinition: (id) => {
+    set((s) => ({ savedReports: (s.savedReports || []).filter((r) => r.id !== id) }));
+    db.deleteReportDefinition(id).catch((e: any) => console.warn('[Supabase] deleteReportDefinition:', e?.message || e));
   },
 
   // Computed

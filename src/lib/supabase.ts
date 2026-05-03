@@ -18,3 +18,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: Platform.OS === 'web',
   },
 });
+
+// Dev-only: expose the client on window so verification scripts can inspect
+// realtime channel state, run REST calls, etc. Stripped in production by
+// Metro's __DEV__ DCE.
+if (__DEV__ && Platform.OS === 'web') {
+  (globalThis as any).__supabase = supabase;
+}

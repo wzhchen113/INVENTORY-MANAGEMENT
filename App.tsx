@@ -7,11 +7,26 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator from './src/navigation/AppNavigator';
-import { useColors } from './src/theme/colors';
+import { useColors, useCmdColors } from './src/theme/colors';
 import { useStore } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
+import { NEW_UI } from './src/lib/featureFlags';
+import CmdNavigator from './src/navigation/CmdNavigator';
+import { useFonts } from 'expo-font';
+import {
+  InterTight_400Regular,
+  InterTight_500Medium,
+  InterTight_600SemiBold,
+  InterTight_700Bold,
+} from '@expo-google-fonts/inter-tight';
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+  JetBrainsMono_600SemiBold,
+  JetBrainsMono_700Bold,
+} from '@expo-google-fonts/jetbrains-mono';
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -95,8 +110,26 @@ if (Platform.OS !== 'web') {
 
 export default function App() {
   const C = useColors();
+  const Cmd = useCmdColors();
+  // Under NEW_UI=true, use the Command palette's `bg` for the html/body
+  // background so overscroll on web matches the new chrome instead of
+  // the legacy bgTertiary tone.
+  const bodyBg = NEW_UI ? Cmd.bg : C.bgTertiary;
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
+
+  // Hold first paint until Inter Tight + JetBrains Mono are registered, so
+  // numeric values don't flash in the system font then snap to mono.
+  const [fontsLoaded] = useFonts({
+    InterTight_400Regular,
+    InterTight_500Medium,
+    InterTight_600SemiBold,
+    InterTight_700Bold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_600SemiBold,
+    JetBrainsMono_700Bold,
+  });
 
   // Synchronous theme restore at first paint (web only). Native falls through
   // to the async restore in the session-restore effect below.
@@ -140,16 +173,18 @@ export default function App() {
   // Set HTML body background for overscroll coverage on web
   useEffect(() => {
     if (Platform.OS === 'web') {
-      document.documentElement.style.backgroundColor = C.bgTertiary;
-      document.body.style.backgroundColor = C.bgTertiary;
+      document.documentElement.style.backgroundColor = bodyBg;
+      document.body.style.backgroundColor = bodyBg;
     }
-  }, [C.bgTertiary]);
+  }, [bodyBg]);
+
+  if (!fontsLoaded) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bgTertiary }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: bodyBg }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <AppNavigator />
+        {NEW_UI ? <CmdNavigator /> : <AppNavigator />}
         <Toast />
       </SafeAreaProvider>
     </GestureHandlerRootView>

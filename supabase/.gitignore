@@ -2,7 +2,7 @@
 .branches
 .temp
 
-# dotenvx
+# dotenvx — Edge Function secrets
 .env.keys
 .env.local
 .env.*.local

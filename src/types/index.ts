@@ -297,6 +297,7 @@ export interface AppState {
   vendors: Vendor[];
   posImports: POSImport[];
   posRecipeAliases: { pos_name: string; recipe_id: string; store_id: string | null }[];
+  savedReports: ReportDefinition[];
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
@@ -312,6 +313,17 @@ export interface AppState {
    * the units (e.g. custom packs).
    */
   ingredientConversions?: IngredientConversion[];
+}
+
+export interface ReportDefinition {
+  id: string;
+  storeId: string;
+  templateId: 'variance' | 'waste' | 'cogs' | 'vendor' | 'velocity' | 'custom';
+  name: string;
+  scope?: 'this_store' | 'all_stores';
+  params?: Record<string, unknown>;
+  createdBy?: string;
+  createdAt: string;
 }
 
 export interface AppNotification {
