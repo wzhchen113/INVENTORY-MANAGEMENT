@@ -10,6 +10,7 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
+import { AddCountModal } from '../../../components/cmd/AddCountModal';
 import { EODEntry } from '../../../types';
 
 type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
@@ -54,6 +55,11 @@ export default function EODCountSection() {
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [tabId, setTabId] = React.useState('count.tsx');
+  const [addCountOpen, setAddCountOpen] = React.useState(false);
+  // Items added via + COUNT — unioned into the worksheet regardless of
+  // current vendor/category filter so the user sees their addition.
+  const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
+  const [pendingFocusItem, setPendingFocusItem] = React.useState<string | null>(null);
 
   // ── Week sidebar data ───────────────────────────────────────
   const week: DayCell[] = React.useMemo(() => {
@@ -118,10 +124,13 @@ export default function EODCountSection() {
     ];
   }, [vendorItems]);
 
-  const filteredItems = React.useMemo(
-    () => (selectedCategory === 'all' ? vendorItems : vendorItems.filter((i) => i.category === selectedCategory)),
-    [vendorItems, selectedCategory],
-  );
+  const filteredItems = React.useMemo(() => {
+    const base = selectedCategory === 'all' ? vendorItems : vendorItems.filter((i) => i.category === selectedCategory);
+    if (additionalItems.size === 0) return base;
+    const baseIds = new Set(base.map((i) => i.id));
+    const extras = storeInventory.filter((i) => additionalItems.has(i.id) && !baseIds.has(i.id));
+    return [...base, ...extras];
+  }, [vendorItems, selectedCategory, additionalItems, storeInventory]);
 
   const grouped = React.useMemo(() => {
     const map = new Map<string, typeof filteredItems>();
@@ -335,6 +344,9 @@ export default function EODCountSection() {
                 {new Date().toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })}
               </Text>
               <View style={{ width: 1, height: 16, backgroundColor: C.border }} />
+              <TouchableOpacity onPress={() => setAddCountOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>+ COUNT</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={onSaveDraft} disabled={submitting} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm, opacity: submitting ? 0.6 : 1 }}>
                 <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
               </TouchableOpacity>
@@ -562,6 +574,20 @@ export default function EODCountSection() {
         </View>
         </>)}
       </View>
+
+      <AddCountModal
+        visible={addCountOpen}
+        onClose={() => setAddCountOpen(false)}
+        excludedItemIds={new Set(filteredItems.map((i) => i.id))}
+        onAdd={(itemId, jump) => {
+          setAdditionalItems((prev) => {
+            const next = new Set(prev);
+            next.add(itemId);
+            return next;
+          });
+          if (jump) setPendingFocusItem(itemId);
+        }}
+      />
     </>
   );
 }
