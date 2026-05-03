@@ -13,6 +13,7 @@ import { FilterInput } from '../../../components/cmd/FilterInput';
 import { FilterChip } from '../../../components/cmd/FilterChip';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../../components/cmd/IngredientFormDrawer';
+import { ExportCsvDrawer } from '../../../components/cmd/ExportCsvDrawer';
 import { relativeTime } from '../../../utils/relativeTime';
 import type { InventoryItem, ItemStatus } from '../../../types';
 
@@ -66,6 +67,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const [showUnfinished, setShowUnfinished] = React.useState(false);
   const [tabId, setTabId]                   = React.useState('ingredient.tsx');
   const [newDrawerOpen, setNewDrawerOpen]   = React.useState(false);
+  const [exportOpen, setExportOpen]         = React.useState(false);
 
   const groups = React.useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
@@ -298,9 +300,9 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
               onChange={setTabId}
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                  <TouchableOpacity onPress={() => setExportOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT CSV</Text>
-                  </View>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => setNewDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW INGREDIENT</Text>
                   </TouchableOpacity>
@@ -435,6 +437,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
         mode="new"
         onClose={() => setNewDrawerOpen(false)}
       />
+      <ExportCsvDrawer visible={exportOpen} onClose={() => setExportOpen(false)} />
     </>
   );
 }
