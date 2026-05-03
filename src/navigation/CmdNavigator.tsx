@@ -8,6 +8,7 @@ import { useCmdColors } from '../theme/colors';
 import { useBreakpoint } from '../theme/breakpoints';
 import { useRole } from '../hooks/useRole';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
+import { usePaletteAction } from '../lib/paletteAction';
 import { CommandPalette } from '../components/cmd/CommandPalette';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -107,6 +108,7 @@ function AuthedRoot() {
 function CmdPaletteHost() {
   const role = useRole();
   const index = useCommandPaletteIndex(role);
+  const breakpoint = useBreakpoint();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -121,18 +123,33 @@ function CmdPaletteHost() {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
+  // Map palette result → desktop section + selection. Desktop is a single
+  // screen with local state, so we go through paletteAction instead of
+  // react-navigation routes (which only register a top-level DesktopLayout).
+  const desktopActionForRoute = useCallback((route: PaletteEntry['route']) => {
+    if (route.name === 'ItemDetail') {
+      const itemId = (route.params as any)?.itemId;
+      const item = itemId ? useStore.getState().inventory.find((i) => i.id === itemId) : undefined;
+      return { section: 'Inventory', selectedName: item ? item.name.toLowerCase() : null };
+    }
+    if (route.name === 'Inventory') return { section: 'Inventory', selectedName: null };
+    return { section: route.name, selectedName: null };
+  }, []);
+
   const handleNavigate = useCallback((route: PaletteEntry['route']) => {
+    if (breakpoint === 'desktop') {
+      usePaletteAction.getState().request(desktopActionForRoute(route));
+      return;
+    }
     if (!navRef.isReady()) return;
     const dispatch = (name: string, params?: Record<string, unknown>) =>
       (navRef as any).navigate(name, params);
-    // Inventory and ItemDetail have direct routes; others land on the
-    // ComingSoon placeholder until subsequent design handoffs ship.
     if (route.name === 'Inventory' || route.name === 'ItemDetail' || route.name === 'ComingSoon') {
       dispatch(route.name, route.params);
       return;
     }
     dispatch('ComingSoon', { sectionName: route.name });
-  }, []);
+  }, [breakpoint, desktopActionForRoute]);
 
   if (Platform.OS !== 'web') return null;
   return (

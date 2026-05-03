@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { TabStrip } from '../../../components/cmd/TabStrip';
@@ -26,9 +26,9 @@ const REPORTS: ReportTile[] = [
   { id: 'r-08', name: 'Reorder forecast',     desc: 'Predicted needs (14d)',      schedule: 'daily',     owner: 'AD', updated: '1h',  sample: '$2,148' },
 ];
 
-// Pattern C — stream/report. 2-column grid of report tiles. Tile click is
-// stubbed (real reports run through a parameter form which is a separate
-// surface). For Phase 10a this just visualizes the catalog.
+// Pattern C — stream/report. 2-column grid of report tiles. Tiles render
+// as static panels for Phase 10a — the real report-runner UI is a separate
+// surface that hasn't been designed yet.
 export default function ReportsSection() {
   const C = useCmdColors();
   const [tabId, setTabId] = React.useState('library.tsx');
@@ -53,15 +53,14 @@ export default function ReportsSection() {
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>Reports</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-            Pre-built dashboards. Click a tile to open; ⌘D to duplicate as a custom report you can edit.
+            Pre-built dashboards. The report-runner UI is awaiting design handoff — tiles preview the catalog.
           </Text>
         </View>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
           {REPORTS.map((r) => (
-            <TouchableOpacity
+            <View
               key={r.id}
-              activeOpacity={0.85}
               style={{
                 flexBasis: '48%',
                 flexGrow: 1,
@@ -120,7 +119,7 @@ export default function ReportsSection() {
                   updated {r.updated} · {r.owner}
                 </Text>
               </View>
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
       </ScrollView>

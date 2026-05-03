@@ -4,6 +4,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { useRole } from '../../hooks/useRole';
+import { usePaletteAction } from '../../lib/paletteAction';
 import { useStockSeries, useRecipesUsingItem } from '../../lib/cmdSelectors';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
@@ -87,6 +88,19 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
     if (selectedName) return;
     setSelectedName(items[0]?.name.toLowerCase() || null);
   }, [items, selectedName, viewMode]);
+
+  // ⌘K palette → desktop selection bridge. Palette writes a pending action
+  // (paletteAction.request); we apply it once and consume.
+  const pendingPaletteAction = usePaletteAction((s) => s.pending);
+  React.useEffect(() => {
+    if (!pendingPaletteAction) return;
+    setSection(pendingPaletteAction.section);
+    if (pendingPaletteAction.section === 'Inventory') {
+      setViewMode('per-store');
+      if (pendingPaletteAction.selectedName) setSelectedName(pendingPaletteAction.selectedName);
+    }
+    usePaletteAction.getState().consume();
+  }, [pendingPaletteAction]);
 
   const item = React.useMemo(
     () => storeInventory.find((i) => i.name.toLowerCase() === selectedName),

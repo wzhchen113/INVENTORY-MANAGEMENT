@@ -8,6 +8,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { EODEntry } from '../../../types';
 
 type DayStatus = 'today' | 'submitted' | 'late' | 'rest';
@@ -51,6 +52,7 @@ export default function EODCountSection() {
   const [counts, setCounts] = React.useState<Record<string, string>>({});
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const [submitting, setSubmitting] = React.useState(false);
+  const [tabId, setTabId] = React.useState('count.tsx');
 
   // ── Week sidebar data ───────────────────────────────────────
   const week: DayCell[] = React.useMemo(() => {
@@ -280,8 +282,8 @@ export default function EODCountSection() {
             { id: 'history.tsx',  label: 'history.tsx' },
             { id: 'variance.log', label: 'variance.log' },
           ]}
-          activeId="count.tsx"
-          onChange={() => {}}
+          activeId={tabId}
+          onChange={setTabId}
           rightSlot={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
@@ -298,6 +300,11 @@ export default function EODCountSection() {
           }
         />
 
+        {tabId !== 'count.tsx' ? (
+          <View style={{ flex: 1, padding: 22 }}>
+            <ComingSoonPanel tabName={tabId.replace('.tsx', '').replace('.log', '')} />
+          </View>
+        ) : (<>
         {/* Sticky filter chrome */}
         <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
           {/* Vendor tabs */}
@@ -508,6 +515,7 @@ export default function EODCountSection() {
             tab moves cell · ⏎ next item
           </Text>
         </View>
+        </>)}
       </View>
     </>
   );
