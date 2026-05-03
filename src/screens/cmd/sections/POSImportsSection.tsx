@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -7,7 +7,10 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { UploadCsvModal } from '../../../components/cmd/UploadCsvModal';
+import { RunImportModal } from '../../../components/cmd/RunImportModal';
 import { relativeTime } from '../../../utils/relativeTime';
+import { ColumnMapping, computeDiff, DiffSummary } from '../../../lib/csvImport';
 
 // Pattern C — stream/report. Table of POS imports with state pill +
 // counts. Reads useStore.posImports for the current store. Empty state
@@ -15,9 +18,14 @@ import { relativeTime } from '../../../utils/relativeTime';
 export default function POSImportsSection() {
   const C = useCmdColors();
   const posImports = useStore((s) => s.posImports);
+  const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
 
   const [tabId, setTabId] = React.useState('imports.tsx');
+  const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [runOpen, setRunOpen] = React.useState(false);
+  const [pendingFilename, setPendingFilename] = React.useState('');
+  const [pendingDiff, setPendingDiff] = React.useState<DiffSummary | null>(null);
 
   const imports = React.useMemo(
     () => posImports.filter((p) => p.storeId === currentStore.id).slice().reverse(),
@@ -45,12 +53,12 @@ export default function POSImportsSection() {
         onChange={setTabId}
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+            <TouchableOpacity onPress={() => setUploadOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
               <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>UPLOAD CSV</Text>
-            </View>
-            <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>RUN IMPORT</Text>
-            </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { if (!pendingDiff) { setUploadOpen(true); return; } setRunOpen(true); }} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: pendingDiff ? C.accent : C.panel2, borderRadius: CmdRadius.sm, opacity: pendingDiff ? 1 : 0.6 }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: pendingDiff ? '#000' : C.fg3 }}>RUN IMPORT</Text>
+            </TouchableOpacity>
           </View>
         }
       />
@@ -145,6 +153,24 @@ export default function POSImportsSection() {
           )}
         </View>
       </ScrollView>
+
+      <UploadCsvModal
+        visible={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onContinue={(file, rows, mapping: ColumnMapping[]) => {
+          const diff = computeDiff(rows, mapping, inventory, currentStore.id);
+          setPendingFilename(file.name);
+          setPendingDiff(diff);
+          setUploadOpen(false);
+          setRunOpen(true);
+        }}
+      />
+      <RunImportModal
+        visible={runOpen}
+        filename={pendingFilename}
+        diff={pendingDiff}
+        onClose={() => { setRunOpen(false); setPendingDiff(null); }}
+      />
     </View>
   );
 }
