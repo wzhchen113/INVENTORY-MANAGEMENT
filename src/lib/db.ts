@@ -1300,8 +1300,8 @@ export async function cleanupOldRecords(): Promise<void> {
     safe('waste_log', supabase.from('waste_log').delete().lt('logged_at', cutoffISO)),
     // Audit log
     safe('audit_log', supabase.from('audit_log').delete().lt('created_at', cutoffISO)),
-    // POS imports (child rows cascade)
-    safe('pos_imports', supabase.from('pos_imports').delete().lt('created_at', cutoffISO)),
+    // POS imports (child rows cascade) — column is imported_at, not created_at
+    safe('pos_imports', supabase.from('pos_imports').delete().lt('imported_at', cutoffISO)),
     // Order submissions
     safe('purchase_orders', supabase.from('purchase_orders').delete().lt('created_at', cutoffISO)),
     // Expired invitations

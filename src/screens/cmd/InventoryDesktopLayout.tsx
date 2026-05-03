@@ -55,6 +55,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const vendors   = useStore((s) => s.vendors);
   const auditLog  = useStore((s) => s.auditLog);
   const currentUser = useStore((s) => s.currentUser);
+  const logout = useStore((s) => s.logout);
   const currentStore = useStore((s) => s.currentStore);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
@@ -169,9 +170,20 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           }}
           onPaletteOpen={onPaletteOpen}
           footerLeft={
-            <Text style={[Type.statusBar, { color: C.fg3 }]}>
-              ● {currentUser?.email || 'guest'}
-            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                  ? window.confirm('Sign out?')
+                  : true;
+                if (ok) logout();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+            >
+              <Text style={[Type.statusBar, { color: C.fg3 }]}>
+                ● {currentUser?.email || 'guest'} · sign out
+              </Text>
+            </TouchableOpacity>
           }
           footerRight={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

@@ -18,6 +18,7 @@ export default function NavDrawerScreen() {
   const currentUser = useStore((s) => s.currentUser);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
+  const logout = useStore((s) => s.logout);
   const [paletteQuery, setPaletteQuery] = React.useState('');
 
   const close = React.useCallback(() => nav.goBack(), [nav]);
@@ -133,7 +134,20 @@ export default function NavDrawerScreen() {
       onPaletteChange={setPaletteQuery}
       paletteResults={paletteResults}
       subtitle={`${currentUser?.email || 'guest'} · v2.4`}
-      footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'}</Text>}
+      footerLeft={
+        <TouchableOpacity
+          onPress={() => {
+            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+              ? window.confirm('Sign out?')
+              : true;
+            if (ok) { close(); logout(); }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+        >
+          <Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'} · sign out</Text>
+        </TouchableOpacity>
+      }
       footerRight={
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <ThemeToggle />
