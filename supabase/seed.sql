@@ -2508,6 +2508,80 @@ on conflict (id) do nothing;
 
 set session_replication_role = origin;
 
+-- ─── small reference lookups from prod ──────────────────
+-- Three small lookup tables pulled read-only from prod so the app
+-- exercises real reference data:
+--   ingredient_categories  (11) — Ingredient screen category filter
+--   ingredient_conversions (16) — purchase_unit → base_unit factors
+--                                 used by recipe-cost math
+--   order_schedule         (26) — per-store/day vendor cutoff table
+--                                 read by eod-reminder-cron to know
+--                                 which vendors close tonight
+-- pos_recipe_aliases is empty in prod so it's omitted; gets populated
+-- as POS imports run.
+
+insert into public.ingredient_categories (id, name) values
+  ('87c7859f-66b3-4c21-adbd-55f6e1520b6e', 'Appetizer'),
+  ('8e174a76-b9f6-4093-988a-0578e5746a20', 'Bread'),
+  ('2761d800-065d-41ee-8628-d99ff8328299', 'Cleaning Supplies'),
+  ('26f24097-8513-406b-b3e4-e1ffcb59ed39', 'Condiments'),
+  ('1fde8129-b3a1-45aa-b5d8-31e5460f81b9', 'Dairy & Sauce'),
+  ('52ebaf8c-0c80-4dcb-9833-e5c4d01208e2', 'Desserts'),
+  ('99292d77-c8e0-4e47-8041-bfff16d2d261', 'Drinks'),
+  ('37d89173-1689-410f-9023-3963fb18a72f', 'Dry goods'),
+  ('f3a26c18-af61-4cd5-bb88-d23c95eb9ece', 'Protein'),
+  ('315376e5-b4c6-4d01-afdd-ca79c0381e7b', 'Seafood'),
+  ('99a35700-7fad-4841-b360-b9a7ca329df5', 'Vegetable & Produce')
+on conflict (id) do nothing;
+
+insert into public.ingredient_conversions (id, inventory_item_id, purchase_unit, base_unit, conversion_factor, net_yield_pct) values
+  ('821746cb-8a97-4b11-89ce-bbf0ee173e95', '0a8ef70a-3602-4630-878f-caa87a13fb94', 'each', 'g', '400.06814399999996', '100'),
+  ('7b2d1292-9ae4-4de8-a5a4-d65f21b31c2e', '159dc701-aa4a-47db-bba3-64e0433b8d32', 'lbs',  'g', '453.592', '100'),
+  ('930851e0-cad7-4dad-8a39-a2490e21d978', '1aedf8c6-b5f2-4486-b9f3-5bb72b5a0992', 'lbs',  'g', '453.592', '100'),
+  ('078cb6e8-d471-4ab8-b795-2672ae40ac4f', '2cee3943-6fdf-427d-b74c-5dc8447a927d', 'lbs',  'g', '453.592', '100'),
+  ('5053afee-76a1-46c6-a4df-9b1d56a6304e', '4bd0bb5c-78c9-4643-82f7-4d080f06d032', 'each', 'g', '400.06814399999996', '100'),
+  ('5844dd20-5046-4ca8-961d-920c3c80de23', '5463777a-a477-481f-a131-33643b8c473e', 'each', 'g', '400.06814399999996', '100'),
+  ('ba2ba077-f90e-48f1-a2f3-0b3994055b8b', '56da6c67-3a59-4e80-b64b-12aea14e8391', 'lbs',  'g', '272.1552', '100'),
+  ('b6250e57-f9a7-4fc2-9ea8-413d704a8458', '610b3d57-1367-44ae-9202-a19cfa0ccdf6', 'lbs',  'g', '272.1552', '100'),
+  ('d223d5bf-244a-474a-85f5-65feb610c343', '6798486f-0ce2-4faf-88bb-6c982bd0a977', 'lbs',  'g', '453.592', '100'),
+  ('48f303e2-4ca6-4831-b805-32894345a23f', '87a1f86d-5e26-4fd9-9f46-917517e1d4fc', 'lbs',  'g', '453.592', '100'),
+  ('2f8291e1-44c9-4cf0-9343-a5927af9c669', '9356b057-01d8-4782-b670-a10f7609a185', 'lbs',  'g', '272.1552', '100'),
+  ('7c6ea5ee-f3b3-4e24-b905-5081feebf5ae', '9424ed77-bd4d-4094-a623-c9e7c9aa210d', 'lbs',  'g', '453.592', '100'),
+  ('56b253ae-b3f4-4240-8f32-e457d988962d', 'a544def6-9fe4-4615-b759-47ad3ef480da', 'lbs',  'g', '453.592', '100'),
+  ('c1b68628-2c66-40ac-abe4-29a455fb3c80', 'b7f64f4e-9bba-4979-9940-44b576f9af7e', 'each', 'g', '400.06814399999996', '100'),
+  ('ba3743f1-994a-4e08-8aa5-e6d4fe34032b', 'ca5a070b-5d4d-465b-a7ba-5fd9c6d9118b', 'lbs',  'g', '272.1552', '100'),
+  ('5cba82c1-04e3-4136-a11c-e902a04c295a', 'ee28dcf7-ec23-422d-88e2-fcbc62786885', 'lbs',  'g', '453.592', '100')
+on conflict (id) do nothing;
+
+insert into public.order_schedule (id, store_id, day_of_week, vendor_id, vendor_name, delivery_day) values
+  ('befc8919-89d5-438d-9e3a-8c8999927d50', '00000000-0000-0000-0000-000000000001', 'Friday',    'b1ee724a-8626-45ab-85d4-14a99e7cbc45', 'BJs',                                  'Friday'),
+  ('137b7f46-3377-424b-a553-7abe975a828b', '00000000-0000-0000-0000-000000000001', 'Friday',    'ffcdf7bd-e6c9-4a32-bf77-ed95f84dee6d', 'COSTCO',                               'Friday'),
+  ('6eacd802-286a-482f-adc9-d4b836110bd7', '00000000-0000-0000-0000-000000000001', 'Friday',    '81b34949-1fde-4237-9411-052cb8daaec9', 'SAMS CLUB',                            'Friday'),
+  ('6477a25d-cf2c-4500-874b-7acbaa9a818f', '00000000-0000-0000-0000-000000000001', 'Monday',    'd26926e6-e8e4-4b2a-8dd8-737571eae415', 'GOLDEN CITY (CHINESE DISTRIBUTOR)',    'Tuesday'),
+  ('6e390af2-9a05-4f92-a7e3-f40ebfbf0733', '00000000-0000-0000-0000-000000000001', 'Monday',    '2ad3b369-d39d-443e-b291-48088cd63d08', 'SYSCO',                                'Tuesday'),
+  ('3461690c-b89c-4b6d-98b0-dde761c541db', '00000000-0000-0000-0000-000000000001', 'Saturday',  '67b0d204-5e27-439a-bc06-3675444b3388', 'RESTAURANT DEPOT',                     'Saturday'),
+  ('dfff0b57-027d-4184-9dbc-ee5dd1037c1d', '00000000-0000-0000-0000-000000000001', 'Saturday',  '023cba00-1b67-4218-a906-cb18a8e62964', 'US FOOD',                              'Monday'),
+  ('7556e36a-c39d-4034-9d17-54c9c238b9b5', '00000000-0000-0000-0000-000000000001', 'Sunday',    'd5e3adcc-61d0-4401-a391-542170496ad3', 'WEBSTAURANT',                          'Wednesday'),
+  ('0ea8f9d2-64c6-4570-a932-9cf5cc06c2f0', '00000000-0000-0000-0000-000000000001', 'Thursday',  'd26926e6-e8e4-4b2a-8dd8-737571eae415', 'GOLDEN CITY (CHINESE DISTRIBUTOR)',    'Friday'),
+  ('45a1bf21-8e17-4f56-81f6-8fb9b9fb06ed', '00000000-0000-0000-0000-000000000001', 'Tuesday',   '137f2d47-45dd-4ed7-bb29-9bfb9a6a00e9', 'LEOPARD (SEAFOOD)',                    'Thursday'),
+  ('99f9a58e-c469-43aa-b35d-ab853184558c', '00000000-0000-0000-0000-000000000001', 'Tuesday',   '02dff3a5-e7b9-42ec-ba6d-0b3bc4bb6f99', 'TAI TRADING COMPANY (TOGO-CONTAINER)', 'Thursday'),
+  ('a69e1763-2bd5-417f-b4d8-662edac67eca', '00000000-0000-0000-0000-000000000001', 'Wednesday', '2ad3b369-d39d-443e-b291-48088cd63d08', 'SYSCO',                                'Friday'),
+  ('f6f8d569-e253-4fb0-965c-8020c21fcc5f', '00000000-0000-0000-0000-000000000001', 'Wednesday', '023cba00-1b67-4218-a906-cb18a8e62964', 'US FOOD',                              'Friday'),
+  ('585f8921-e515-4620-b8bf-6e6935ef42c2', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Friday',    'b1ee724a-8626-45ab-85d4-14a99e7cbc45', 'BJs',                                  'Friday'),
+  ('47f6c612-04e9-4a8a-b167-13f4ef53b334', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Friday',    'ffcdf7bd-e6c9-4a32-bf77-ed95f84dee6d', 'COSTCO',                               'Friday'),
+  ('7d243cd0-70ea-44f8-b93a-5cf8f6eee7ca', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Monday',    'd26926e6-e8e4-4b2a-8dd8-737571eae415', 'GOLDEN CITY (CHINESE DISTRIBUTOR)',    'Tuesday'),
+  ('85e0038a-dcd6-408f-9a87-886bf868e1c5', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Monday',    '2ad3b369-d39d-443e-b291-48088cd63d08', 'SYSCO',                                'Tuesday'),
+  ('87642741-e1f1-4960-8faf-137765d9cb08', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Saturday',  '67b0d204-5e27-439a-bc06-3675444b3388', 'Restaurant Depot',                     'Saturday'),
+  ('7c3f397f-10bb-4d11-a272-ff467a263f2d', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Saturday',  '81b34949-1fde-4237-9411-052cb8daaec9', 'SAMS CLUB',                            'Saturday'),
+  ('89347780-742a-45b7-a46b-50073d04eb30', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Saturday',  '023cba00-1b67-4218-a906-cb18a8e62964', 'US FOOD',                              'Monday'),
+  ('4daeb25e-dc06-469a-82aa-858ffdf12d2e', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Sunday',    'd5e3adcc-61d0-4401-a391-542170496ad3', 'WEBSTAURANT',                          'Wednesday'),
+  ('14c6ef45-b437-4628-bc72-126ced166763', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Thursday',  'd26926e6-e8e4-4b2a-8dd8-737571eae415', 'GOLDEN CITY (CHINESE DISTRIBUTOR)',    'Friday'),
+  ('f61c6dd5-ab8b-45ad-9388-8b9d038b4f35', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Tuesday',   '137f2d47-45dd-4ed7-bb29-9bfb9a6a00e9', 'LEOPARD (SEAFOOD)',                    'Thursday'),
+  ('b4ce7d23-73f2-402f-880f-b9a268c45b44', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Tuesday',   '02dff3a5-e7b9-42ec-ba6d-0b3bc4bb6f99', 'TAI TRADING COMPANY (TOGO-CONTAINER)', 'Wednesday'),
+  ('f377aa6b-3a8a-4d3e-a77e-12a248544d4a', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Wednesday', '2ad3b369-d39d-443e-b291-48088cd63d08', 'SYSCO',                                'Friday'),
+  ('e9045a0d-e494-4238-9bd9-ff10db391062', '1ea549bb-8b50-4078-9301-479311d9fdec', 'Wednesday', '023cba00-1b67-4218-a906-cb18a8e62964', 'US FOOD',                              'Friday')
+on conflict (id) do nothing;
+
 -- ─── audit log (recent activity for the dashboard card) ──
 -- Synthetic. References Towson's id (still valid) and item
 -- names as text (no FK). Keeps the dashboard activity card
