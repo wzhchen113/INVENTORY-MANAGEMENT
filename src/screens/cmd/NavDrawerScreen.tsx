@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
-import { useCmdColors } from '../../theme/colors';
+import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { useStore } from '../../store/useStore';
 import { useCommandPaletteIndex } from '../../lib/cmdSelectors';
 import { TreeItem } from '../../components/cmd/TreeGroup';
@@ -135,18 +135,28 @@ export default function NavDrawerScreen() {
       paletteResults={paletteResults}
       subtitle={`${currentUser?.email || 'guest'} · v2.4`}
       footerLeft={
-        <TouchableOpacity
-          onPress={() => {
-            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-              ? window.confirm('Sign out?')
-              : true;
-            if (ok) { close(); logout(); }
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-        >
-          <Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'} · sign out</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                ? window.confirm('Sign out?')
+                : true;
+              if (ok) { close(); logout(); }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            style={{
+              paddingHorizontal: 6,
+              paddingVertical: 1,
+              borderRadius: CmdRadius.xs,
+              borderWidth: 1,
+              borderColor: C.border,
+            }}
+          >
+            <Text style={[Type.statusBar, { color: C.fg3 }]}>sign out</Text>
+          </TouchableOpacity>
+        </View>
       }
       footerRight={
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

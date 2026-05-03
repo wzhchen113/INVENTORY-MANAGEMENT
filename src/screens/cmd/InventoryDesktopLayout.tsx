@@ -170,20 +170,30 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           }}
           onPaletteOpen={onPaletteOpen}
           footerLeft={
-            <TouchableOpacity
-              onPress={() => {
-                const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                  ? window.confirm('Sign out?')
-                  : true;
-                if (ok) logout();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
-            >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[Type.statusBar, { color: C.fg3 }]}>
-                ● {currentUser?.email || 'guest'} · sign out
+                ● {currentUser?.email || 'guest'}
               </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                    ? window.confirm('Sign out?')
+                    : true;
+                  if (ok) logout();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Sign out"
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  borderRadius: CmdRadius.xs,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                }}
+              >
+                <Text style={[Type.statusBar, { color: C.fg3 }]}>sign out</Text>
+              </TouchableOpacity>
+            </View>
           }
           footerRight={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
