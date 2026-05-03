@@ -12,7 +12,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { EODEntry } from '../../../types';
 
-type DayStatus = 'today' | 'submitted' | 'late' | 'rest';
+type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
 
 interface DayCell {
   day: string;       // "Saturday"
@@ -71,8 +71,11 @@ export default function EODCountSection() {
       const counted = sub?.entries?.length ?? 0;
       const total = inventory.filter((it) => it.storeId === currentStore.id).length;
       let status: DayStatus = 'rest';
-      if (iso === todayIso) status = 'today';
-      else if (sub) status = counted >= total ? 'submitted' : 'late';
+      if (iso === todayIso) {
+        status = sub?.status === 'draft' ? 'draft' : 'today';
+      } else if (sub) {
+        status = sub.status === 'draft' ? 'draft' : (counted >= total ? 'submitted' : 'late');
+      }
       out.push({ day: dayName, date: monthDay, iso, status, counted, total, vendors: 'all vendors' });
     }
     return out;
@@ -144,13 +147,11 @@ export default function EODCountSection() {
     return s + (v - i.currentStock);
   }, 0);
 
-  const onSubmit = async () => {
+  // Build the submission payload from current entered items. Returns null if
+  // no qty was entered (avoids empty-submit DB writes).
+  const buildSubmission = (status: 'draft' | 'submitted') => {
     const enteredItems = filteredItems.filter((i) => (counts[i.id] ?? '').trim() !== '');
-    if (enteredItems.length === 0) {
-      Toast.show({ type: 'error', text1: 'Enter at least one count' });
-      return;
-    }
-    setSubmitting(true);
+    if (enteredItems.length === 0) return null;
     const now = new Date().toISOString();
     const entries: Omit<EODEntry, 'id'>[] = enteredItems.map((i) => ({
       itemId: i.id,
@@ -164,7 +165,7 @@ export default function EODCountSection() {
       storeId: currentStore.id,
       notes: notes[i.id] || '',
     }));
-    const submission = {
+    return {
       date: selectedIso,
       storeId: currentStore.id,
       storeName: currentStore.name,
@@ -172,23 +173,49 @@ export default function EODCountSection() {
       submittedByUserId: currentUser?.id || '',
       timestamp: now,
       itemCount: entries.length,
-      status: 'submitted' as const,
+      status,
       entries: entries as EODEntry[],
     };
+  };
 
-    // Local first — updates zustand, audit log, per-item stock.
+  const onSaveDraft = async () => {
+    const submission = buildSubmission('draft');
+    if (!submission) {
+      Toast.show({ type: 'error', text1: 'Enter at least one count' });
+      return;
+    }
+    setSubmitting(true);
+    submitEOD(submission);
+    try {
+      await submitEODCount(submission);
+      const submitterShort = (currentUser?.name || 'me').toLowerCase().split(' ')[0];
+      const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      Toast.show({
+        type: 'info',
+        text1: 'DRAFT SAVED',
+        text2: `${submission.itemCount} of ${filteredItems.length} items · ${time} · ${submitterShort}`,
+      });
+    } catch (e: any) {
+      console.warn('[EOD] draft save failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: 'Saved locally only', text2: 'Cloud save failed — check connection' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onSubmit = async () => {
+    const submission = buildSubmission('submitted');
+    if (!submission) {
+      Toast.show({ type: 'error', text1: 'Enter at least one count' });
+      return;
+    }
+    setSubmitting(true);
     submitEOD(submission);
     setCounts({});
     setNotes({});
-
-    // Persist parent submission + child entries to Supabase. The store's
-    // submitEOD action only writes per-item stock, so without this the
-    // eod_submissions / eod_entries tables stay empty (and the EOD counter
-    // never increments, devices don't sync). Mirrors the legacy
-    // EODCountScreen.persistToCloud flow.
     try {
       await submitEODCount(submission);
-      Toast.show({ type: 'success', text1: 'Count submitted', text2: `${entries.length} items · ${selectedIso}` });
+      Toast.show({ type: 'success', text1: 'Count submitted', text2: `${submission.itemCount} items · ${selectedIso}` });
     } catch (e: any) {
       console.warn('[EOD] cloud save failed:', e?.message || e);
       Toast.show({ type: 'error', text1: 'Saved locally only', text2: 'Cloud save failed — check connection' });
@@ -206,6 +233,7 @@ export default function EODCountSection() {
   const dayPillFor = (status: DayStatus): { fg: string; bg: string; label: string } => {
     if (status === 'today')     return { fg: C.accent, bg: C.accentBg, label: 'today' };
     if (status === 'submitted') return { fg: C.ok,     bg: C.okBg,     label: 'submitted' };
+    if (status === 'draft')     return { fg: C.info,   bg: C.infoBg,   label: 'draft' };
     if (status === 'late')      return { fg: C.warn,   bg: C.warnBg,   label: 'late' };
     return { fg: C.fg3, bg: C.panel2, label: 'rest' };
   };
@@ -307,9 +335,9 @@ export default function EODCountSection() {
                 {new Date().toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })}
               </Text>
               <View style={{ width: 1, height: 16, backgroundColor: C.border }} />
-              <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+              <TouchableOpacity onPress={onSaveDraft} disabled={submitting} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm, opacity: submitting ? 0.6 : 1 }}>
                 <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
-              </View>
+              </TouchableOpacity>
               <TouchableOpacity onPress={onSubmit} disabled={submitting} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm, opacity: submitting ? 0.6 : 1 }}>
                 <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>SUBMIT COUNT</Text>
               </TouchableOpacity>

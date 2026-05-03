@@ -586,7 +586,7 @@ export const useStore = create<FullStore>((set, get) => ({
       set((s) => ({
         eodSubmissions: s.eodSubmissions.map((sub) =>
           sub.id === existing.id
-            ? { ...sub, entries: mergedEntries, itemCount: mergedEntries.length, timestamp: submission.timestamp }
+            ? { ...sub, entries: mergedEntries, itemCount: mergedEntries.length, timestamp: submission.timestamp, status: submission.status }
             : sub
         ),
       }));

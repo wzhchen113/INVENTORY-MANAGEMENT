@@ -237,7 +237,7 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
         store_id: submission.storeId,
         date: new Date(submission.date).toISOString().split('T')[0],
         submitted_by: submission.submittedByUserId,
-        status: 'submitted',
+        status: submission.status || 'submitted',
         submitted_at: new Date().toISOString(),
       },
       { onConflict: 'store_id,date' }
