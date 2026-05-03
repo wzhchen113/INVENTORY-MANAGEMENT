@@ -1146,12 +1146,65 @@ export async function applyAliasToPastImports(
   return count || 0;
 }
 
+// ─── REPORT DEFINITIONS ──────────────────────────────────────────────────
+// Saved reports created from the + NEW REPORT modal in the cmd theme.
+// Templates are hardcoded in client code; this just persists the user's
+// instances (name + template + scope + params).
+
+import type { ReportDefinition } from '../types';
+
+const mapReportRow = (r: any): ReportDefinition => ({
+  id: r.id,
+  storeId: r.store_id,
+  templateId: r.template_id,
+  name: r.name,
+  scope: r.scope || undefined,
+  params: r.params || {},
+  createdBy: r.created_by || undefined,
+  createdAt: r.created_at,
+});
+
+export async function fetchSavedReports(storeId: string): Promise<ReportDefinition[]> {
+  const { data, error } = await supabase
+    .from('report_definitions')
+    .select('id, store_id, template_id, name, scope, params, created_by, created_at')
+    .eq('store_id', storeId)
+    .order('created_at', { ascending: false });
+  if (error) { console.warn('[Supabase] fetchSavedReports:', error.message); return []; }
+  return (data || []).map(mapReportRow);
+}
+
+export async function createReportDefinition(
+  rep: Omit<ReportDefinition, 'id' | 'createdAt'>,
+): Promise<ReportDefinition | null> {
+  const { data, error } = await supabase
+    .from('report_definitions')
+    .insert({
+      store_id: rep.storeId,
+      template_id: rep.templateId,
+      name: rep.name,
+      scope: rep.scope || null,
+      params: rep.params || {},
+      created_by: rep.createdBy || null,
+    })
+    .select()
+    .single();
+  if (error) { console.warn('[Supabase] createReportDefinition:', error.message); return null; }
+  return mapReportRow(data);
+}
+
+export async function deleteReportDefinition(id: string): Promise<void> {
+  if (!id || id.length < 10) return;
+  const { error } = await supabase.from('report_definitions').delete().eq('id', id);
+  if (error) console.warn('[Supabase] deleteReportDefinition:', error.message);
+}
+
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
 export async function fetchAllForStore(storeId: string) {
   const [
     inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
     categories, ingCategories, conversions, orderSched,
-    eodSubmissions, orderSubmissions, posRecipeAliases,
+    eodSubmissions, orderSubmissions, posRecipeAliases, savedReports,
   ] = await Promise.all([
     fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
     fetchRecipes(storeId).catch(() => []),
@@ -1166,12 +1219,13 @@ export async function fetchAllForStore(storeId: string) {
     fetchRecentEODSubmissions(storeId).catch(() => []),
     fetchRecentPurchaseOrders(storeId).catch(() => []),
     fetchPosRecipeAliases(storeId).catch(() => [] as PosRecipeAlias[]),
+    fetchSavedReports(storeId).catch(() => [] as ReportDefinition[]),
   ]);
   return {
     inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
     recipeCategories: categories, ingredientCategories: ingCategories,
     ingredientConversions: conversions, orderSchedule: orderSched,
-    eodSubmissions, orderSubmissions, posRecipeAliases,
+    eodSubmissions, orderSubmissions, posRecipeAliases, savedReports,
   };
 }
 

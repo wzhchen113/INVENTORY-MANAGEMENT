@@ -1,8 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { TabStrip } from '../../../components/cmd/TabStrip';
+import { NewReportModal } from '../../../components/cmd/NewReportModal';
+import { useStore } from '../../../store/useStore';
+import { relativeTime } from '../../../utils/relativeTime';
 
 interface ReportTile {
   id: string;
@@ -32,6 +35,14 @@ const REPORTS: ReportTile[] = [
 export default function ReportsSection() {
   const C = useCmdColors();
   const [tabId, setTabId] = React.useState('library.tsx');
+  const [newOpen, setNewOpen] = React.useState(false);
+  const savedReports = useStore((s) => s.savedReports || []);
+  const currentStore = useStore((s) => s.currentStore);
+  const deleteReportDefinition = useStore((s) => s.deleteReportDefinition);
+  const myReports = React.useMemo(
+    () => savedReports.filter((r) => r.storeId === currentStore.id),
+    [savedReports, currentStore.id],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
@@ -44,9 +55,9 @@ export default function ReportsSection() {
         activeId={tabId}
         onChange={setTabId}
         rightSlot={
-          <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+          <TouchableOpacity onPress={() => setNewOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
             <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW REPORT</Text>
-          </View>
+          </TouchableOpacity>
         }
       />
       <ScrollView contentContainerStyle={{ padding: 22, gap: 18 }}>
@@ -57,6 +68,46 @@ export default function ReportsSection() {
           </Text>
         </View>
 
+        {myReports.length > 0 ? (
+          <View>
+            <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+              your reports · {myReports.length}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
+              {myReports.map((r) => (
+                <View
+                  key={r.id}
+                  style={{
+                    flexBasis: '48%', flexGrow: 1, minWidth: 320,
+                    backgroundColor: C.panel, borderRadius: CmdRadius.lg,
+                    borderWidth: 1, borderColor: C.accent,
+                    padding: 14, gap: 6,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                    <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{r.id.slice(0, 8)}</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accentBg }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accent, letterSpacing: 0.4 }}>{r.templateId.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontFamily: sans(700), fontSize: 15, color: C.fg, letterSpacing: -0.2 }}>{r.name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.border, borderStyle: 'dashed', paddingTop: 10, marginTop: 4 }}>
+                    <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>saved {relativeTime(r.createdAt) || 'just now'} ago · scope: {r.scope || 'this_store'}</Text>
+                    <View style={{ flex: 1 }} />
+                    <TouchableOpacity onPress={() => deleteReportDefinition(r.id)} style={{ paddingHorizontal: 7, paddingVertical: 2 }}>
+                      <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.danger }}>⌫ delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: myReports.length > 0 ? 4 : 0 }}>
+          template catalog
+        </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
           {REPORTS.map((r) => (
             <View
@@ -123,6 +174,8 @@ export default function ReportsSection() {
           ))}
         </View>
       </ScrollView>
+
+      <NewReportModal visible={newOpen} onClose={() => setNewOpen(false)} />
     </View>
   );
 }
