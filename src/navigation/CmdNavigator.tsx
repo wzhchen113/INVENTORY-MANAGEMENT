@@ -6,7 +6,6 @@ import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useCmdColors } from '../theme/colors';
 import { useBreakpoint } from '../theme/breakpoints';
-import { useRole } from '../hooks/useRole';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
 import { usePaletteAction } from '../lib/paletteAction';
 import { CommandPalette } from '../components/cmd/CommandPalette';
@@ -106,8 +105,7 @@ function AuthedRoot() {
 // Web-only ⌘K palette. Listens for keydown at the document level and
 // navigates via the container ref so it can fire from any screen.
 function CmdPaletteHost() {
-  const role = useRole();
-  const index = useCommandPaletteIndex(role);
+  const index = useCommandPaletteIndex();
   const breakpoint = useBreakpoint();
   const [visible, setVisible] = useState(false);
 
@@ -158,7 +156,7 @@ function CmdPaletteHost() {
       onClose={() => setVisible(false)}
       onNavigate={handleNavigate}
       index={index}
-      scopeHint={role === 'staff' ? 'items, recipes' : 'items, recipes, vendors, screens'}
+      scopeHint="items, recipes, vendors, screens"
     />
   );
 }

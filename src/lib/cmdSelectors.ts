@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useStore } from '../store/useStore';
-import { CmdRole } from '../hooks/useRole';
 import {
   EODSubmission, Recipe, PrepRecipe, InventoryItem, Vendor, AuditEvent, POSImport,
 } from '../types';
@@ -139,7 +138,6 @@ export type PaletteEntry = {
   scope: 'inventory' | 'recipes' | 'preps' | 'vendors' | 'audit' | 'screens';
 };
 
-const STAFF_SCOPES: PaletteEntry['scope'][] = ['inventory', 'recipes', 'screens'];
 
 const SCREEN_ENTRIES: Array<{ name: string; label: string }> = [
   { name: 'Dashboard',       label: 'Dashboard' },
@@ -163,9 +161,8 @@ export function getCommandPaletteIndex(args: {
   prepRecipes: PrepRecipe[];
   vendors: Vendor[];
   auditLog: AuditEvent[];
-  role: CmdRole;
 }): PaletteEntry[] {
-  const { inventory, recipes, prepRecipes, vendors, auditLog, role } = args;
+  const { inventory, recipes, prepRecipes, vendors, auditLog } = args;
   const out: PaletteEntry[] = [];
 
   for (const item of inventory) {
@@ -225,20 +222,17 @@ export function getCommandPaletteIndex(args: {
     });
   }
 
-  if (role === 'staff') {
-    return out.filter((e) => STAFF_SCOPES.includes(e.scope));
-  }
   return out;
 }
 
-export function useCommandPaletteIndex(role: CmdRole): PaletteEntry[] {
+export function useCommandPaletteIndex(): PaletteEntry[] {
   const inventory   = useStore((s) => s.inventory);
   const recipes     = useStore((s) => s.recipes);
   const prepRecipes = useStore((s) => s.prepRecipes);
   const vendors     = useStore((s) => s.vendors);
   const auditLog    = useStore((s) => s.auditLog);
   return useMemo(
-    () => getCommandPaletteIndex({ inventory, recipes, prepRecipes, vendors, auditLog, role }),
-    [inventory, recipes, prepRecipes, vendors, auditLog, role],
+    () => getCommandPaletteIndex({ inventory, recipes, prepRecipes, vendors, auditLog }),
+    [inventory, recipes, prepRecipes, vendors, auditLog],
   );
 }

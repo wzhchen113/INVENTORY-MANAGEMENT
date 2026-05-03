@@ -3,7 +3,6 @@ import { View, Text, ScrollView } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
-import { useRole } from '../../../hooks/useRole';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { StockHistoryChart } from '../../../components/cmd/StockHistoryChart';
@@ -15,10 +14,9 @@ import { relativeTime } from '../../../utils/relativeTime';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
 
 // Pattern C — stream/report. KPI grid + chart + alerts + activity.
-// Staff variant: KPI cards hidden (per handoff §"Permissions per screen").
+// Admin-only app — store users use a separate app via API.
 export default function DashboardSection() {
   const C = useCmdColors();
-  const role = useRole();
   const inventory = useStore((s) => s.inventory);
   const wasteLog = useStore((s) => s.wasteLog);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
@@ -105,30 +103,27 @@ export default function DashboardSection() {
         {/* Hero */}
         <View style={{ gap: 4 }}>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-            // {greeting}, {role === 'admin' ? 'admin' : 'team'} · {today.toDateString().toLowerCase()}
+            // {greeting}, admin · {today.toDateString().toLowerCase()}
           </Text>
           <Text style={[Type.h1, { color: C.fg }]}>
             {currentStore.name || 'Store'} · day in progress
           </Text>
         </View>
 
-        {/* KPIs — admin only per handoff */}
-        {role === 'admin' ? (
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <StatCard
-              label="Inventory value"
-              value={`$${inventoryValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-              sub={`${storeInventory.length} items`}
-            />
-            <StatCard label="Food cost %" value="—" sub="no POS imports yet" />
-            <StatCard label="Waste / wk" value={`$${wasteWeek.toFixed(0)}`} sub="last 7 days" />
-            <StatCard
-              label="Stock alerts"
-              value={String(lowOut.length)}
-              sub={`${lowOut.filter((i) => getItemStatus(i) === 'out').length} out · ${lowOut.filter((i) => getItemStatus(i) === 'low').length} low`}
-            />
-          </View>
-        ) : null}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <StatCard
+            label="Inventory value"
+            value={`$${inventoryValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+            sub={`${storeInventory.length} items`}
+          />
+          <StatCard label="Food cost %" value="—" sub="no POS imports yet" />
+          <StatCard label="Waste / wk" value={`$${wasteWeek.toFixed(0)}`} sub="last 7 days" />
+          <StatCard
+            label="Stock alerts"
+            value={String(lowOut.length)}
+            sub={`${lowOut.filter((i) => getItemStatus(i) === 'out').length} out · ${lowOut.filter((i) => getItemStatus(i) === 'low').length} low`}
+          />
+        </View>
 
         {/* Chart + Stock alerts side-by-side */}
         <View style={{ flexDirection: 'row', gap: 14 }}>
@@ -144,9 +139,7 @@ export default function DashboardSection() {
             }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <SectionCaption tone="fg3" size={10.5}>
-                {role === 'admin' ? 'food_cost_trend.dat' : 'eod_coverage.dat'}
-              </SectionCaption>
+              <SectionCaption tone="fg3" size={10.5}>food_cost_trend.dat</SectionCaption>
               <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>14d</Text>
             </View>
             <StockHistoryChart data={foodCostTrend} par={32} width={520} height={140} gridLines={4} />

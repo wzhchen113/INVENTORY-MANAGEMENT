@@ -143,8 +143,7 @@ export default function CmdAtomsPreview() {
 
         <Group title="RoleBadge">
           <Row>
-            <RoleBadge role="admin" />
-            <RoleBadge role="staff" />
+            <RoleBadge />
           </Row>
         </Group>
 
@@ -460,7 +459,6 @@ export default function CmdAtomsPreview() {
         onSelect={setTreeSel}
         paletteQuery={drawerQuery}
         onPaletteChange={setDrawerQuery}
-        role="admin"
         subtitle="admin@local · v2.4"
         footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● admin@local</Text>}
         footerRight={<Text style={[Type.statusBar, { color: C.fg3 }]}>EOD 18/24</Text>}

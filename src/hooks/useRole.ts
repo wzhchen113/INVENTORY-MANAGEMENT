@@ -1,13 +1,9 @@
-import { useStore } from '../store/useStore';
+// Per the architectural decision: this app is admin-only. Store users (staff)
+// have a separate app that talks to Supabase via API. Keeping the hook as a
+// constant rather than removing it so existing imports keep working — when
+// the staff cleanup is done in every consumer, this file goes away.
+export type CmdRole = 'admin';
 
-export type CmdRole = 'admin' | 'staff';
-
-// Maps the existing 3-tier `master | admin | user` to the design's 2-tier
-// `admin | staff`. Master and admin both surface the full UI; user is staff.
-// Reads currentUser.role from the Zustand store so subscribers re-render on
-// role change (e.g. after admin demotes themselves via Studio).
 export function useRole(): CmdRole {
-  const role = useStore((s) => s.currentUser?.role);
-  if (role === 'admin' || role === 'master') return 'admin';
-  return 'staff';
+  return 'admin';
 }

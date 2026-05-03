@@ -48,7 +48,6 @@ export const ExportCsvDrawer: React.FC<Props> = ({ visible, onClose }) => {
   const [enabled, setEnabled] = React.useState<Set<string>>(new Set(DEFAULT_ON));
   const [range, setRange] = React.useState('30d');
   const [includeHeader, setIncludeHeader] = React.useState(true);
-  const [maskCosts, setMaskCosts] = React.useState(false);
 
   const rows = React.useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -65,9 +64,7 @@ export const ExportCsvDrawer: React.FC<Props> = ({ visible, onClose }) => {
     const data = rows.map((r) => {
       const obj: Record<string, any> = {};
       for (const col of enabledCols) {
-        let v = col.pick(r);
-        if (maskCosts && (col.key === 'last_cost' || col.key === 'value')) v = '—';
-        obj[col.key] = v;
+        obj[col.key] = col.pick(r);
       }
       return obj;
     });
@@ -88,7 +85,7 @@ export const ExportCsvDrawer: React.FC<Props> = ({ visible, onClose }) => {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, enabled, includeHeader, maskCosts]);
+  }, [visible, enabled, includeHeader]);
 
   if (!visible) return null;
 
@@ -166,8 +163,7 @@ export const ExportCsvDrawer: React.FC<Props> = ({ visible, onClose }) => {
             <SectionCaption tone="fg3" size={9.5}>OPTIONS</SectionCaption>
             <View style={{ marginTop: 4, gap: 6 }}>
               {[
-                { k: 'include_header',       v: includeHeader, set: setIncludeHeader, label: 'include_header' },
-                { k: 'mask_costs_for_staff', v: maskCosts,     set: setMaskCosts,     label: 'mask_costs_for_staff' },
+                { k: 'include_header', v: includeHeader, set: setIncludeHeader, label: 'include_header' },
               ].map((f) => (
                 <TouchableOpacity key={f.k} activeOpacity={0.85} onPress={() => f.set(!f.v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 }}>
                   <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1, borderColor: f.v ? C.accent : C.borderStrong, backgroundColor: f.v ? C.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>

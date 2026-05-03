@@ -3,7 +3,6 @@ import { useNavigation } from '@react-navigation/native';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { useCmdColors } from '../../theme/colors';
 import { useStore } from '../../store/useStore';
-import { useRole } from '../../hooks/useRole';
 import { useCommandPaletteIndex } from '../../lib/cmdSelectors';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { Text, View, TouchableOpacity } from 'react-native';
@@ -16,7 +15,6 @@ import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 export default function NavDrawerScreen() {
   const nav = useNavigation<any>();
   const C = useCmdColors();
-  const role = useRole();
   const currentUser = useStore((s) => s.currentUser);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
@@ -33,10 +31,9 @@ export default function NavDrawerScreen() {
     [close, nav],
   );
 
-  // Tree IA — admin sees Operations + Planning + Insights. Staff sees Tasks +
-  // Reference + a locked Admin-only group (handoff README §"Tree IA — admin").
-  // For Phase 5 we use placeholder stubs for restricted items per G3.
-  const groups: { label: string; items: TreeItem[] }[] = role === 'admin' ? [
+  // Admin-only app — store users have a separate app + API. Tree IA is the
+  // full Operations / Planning / Insights set.
+  const groups: { label: string; items: TreeItem[] }[] = [
     {
       label: 'Operations',
       items: [
@@ -66,31 +63,6 @@ export default function NavDrawerScreen() {
         { id: 'Reports',         label: 'Reports',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Reports' }) },
       ],
     },
-  ] : [
-    {
-      label: 'Tasks',
-      items: [
-        { id: 'Inventory',       label: 'Count queue',      kbd: '⌘I', onPress: () => goAndClose('Inventory') },
-        { id: 'EODCount',        label: 'EOD count',        onPress: () => goAndClose('ComingSoon', { sectionName: 'EOD count' }) },
-        { id: 'WasteLog',        label: 'Waste log',        onPress: () => goAndClose('ComingSoon', { sectionName: 'Waste log' }) },
-      ],
-    },
-    {
-      label: 'Reference',
-      items: [
-        { id: 'Recipes',     label: 'Menu items / BOM', onPress: () => goAndClose('ComingSoon', { sectionName: 'Menu items / BOM' }) },
-        { id: 'PrepRecipes', label: 'Prep recipes',     onPress: () => goAndClose('ComingSoon', { sectionName: 'Prep recipes' }) },
-      ],
-    },
-    {
-      label: 'Admin-only',
-      items: [
-        { id: 'Vendors',         label: 'Vendors',          restricted: true },
-        { id: 'Reports',         label: 'Reports',          restricted: true },
-        { id: 'AuditLog',        label: 'Audit log',        restricted: true },
-        { id: 'Reconciliation',  label: 'Reconciliation',   restricted: true },
-      ],
-    },
   ];
 
   // EOD progress for footer: count distinct stores that submitted today.
@@ -103,7 +75,7 @@ export default function NavDrawerScreen() {
   // Palette index — for Phase 5 we just feed the matches list back as DOM.
   // Phase 7 will wire ⌘K globally; for now the drawer's own field is the
   // palette entry on mobile.
-  const index = useCommandPaletteIndex(role);
+  const index = useCommandPaletteIndex();
   const matches = React.useMemo(() => {
     if (!paletteQuery.trim()) return [];
     const q = paletteQuery.toLowerCase();
@@ -160,7 +132,6 @@ export default function NavDrawerScreen() {
       paletteQuery={paletteQuery}
       onPaletteChange={setPaletteQuery}
       paletteResults={paletteResults}
-      role={role}
       subtitle={`${currentUser?.email || 'guest'} · v2.4`}
       footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'}</Text>}
       footerRight={

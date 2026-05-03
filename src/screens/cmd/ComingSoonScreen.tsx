@@ -4,7 +4,6 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { useRole } from '../../hooks/useRole';
 import { TitleBar } from '../../components/cmd/TitleBar';
 import { CmdStatusBar } from '../../components/cmd/StatusBar';
 import { RoleBadge } from '../../components/cmd/RoleBadge';
@@ -28,7 +27,6 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 // flip NEW_UI=false in .env.local.
 export default function ComingSoonScreen() {
   const C = useCmdColors();
-  const role = useRole();
   const currentStore = useStore((s) => s.currentStore);
   const nav = useNavigation<any>();
   const route = useRoute<any>();
@@ -66,7 +64,7 @@ export default function ComingSoonScreen() {
             >
               inv://{slugify(currentStore?.name || 'store')} — {slug}
             </Text>
-            <RoleBadge role={role} />
+            <RoleBadge />
           </View>
           <Text style={{ fontFamily: sans(700), fontSize: 24, color: C.fg, letterSpacing: -0.4 }}>
             {sectionName}

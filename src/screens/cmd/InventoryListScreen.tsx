@@ -4,7 +4,6 @@ import { useNavigation } from '@react-navigation/native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { useRole } from '../../hooks/useRole';
 import { useBreakpoint } from '../../theme/breakpoints';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { InventoryRow } from '../../components/cmd/InventoryRow';
@@ -24,10 +23,8 @@ interface ChipDef {
   match?: (status: ItemStatus, category: string) => boolean;
 }
 
-// Per design + role variant table:
-//   Admin chips: all · ok · low · out · protein · produce
-//   Staff chips: to count · low · out · my zone
-const ADMIN_CHIPS: ChipDef[] = [
+// Admin-only app — single chip set.
+const CHIPS: ChipDef[] = [
   { id: 'all',     label: 'all' },
   { id: 'ok',      label: 'ok',      match: (s) => s === 'ok' },
   { id: 'low',     label: 'low',     match: (s) => s === 'low' },
@@ -35,16 +32,9 @@ const ADMIN_CHIPS: ChipDef[] = [
   { id: 'protein', label: 'protein', match: (_, c) => c?.toLowerCase() === 'protein' },
   { id: 'produce', label: 'produce', match: (_, c) => c?.toLowerCase() === 'produce' },
 ];
-const STAFF_CHIPS: ChipDef[] = [
-  { id: 'tocount', label: 'to count', match: (s) => s !== 'ok' }, // anything that needs eyes
-  { id: 'low',     label: 'low',      match: (s) => s === 'low' },
-  { id: 'out',     label: 'out',      match: (s) => s === 'out' },
-  { id: 'myzone',  label: 'my zone' }, // placeholder — needs zone assignment
-];
 
 export default function InventoryListScreen() {
   const C = useCmdColors();
-  const role = useRole();
   const breakpoint = useBreakpoint();
   const nav = useNavigation<any>();
   const inventory  = useStore((s) => s.inventory);
@@ -53,15 +43,9 @@ export default function InventoryListScreen() {
   const getItemStatus = useStore((s) => s.getItemStatus);
 
   const [filterText, setFilterText] = React.useState('');
-  const [chipSel, setChipSel] = React.useState(role === 'admin' ? 'all' : 'tocount');
+  const [chipSel, setChipSel] = React.useState('all');
 
-  // Reset chip if role flips while screen is mounted (rare but possible if
-  // admin demotes themselves via Studio).
-  React.useEffect(() => {
-    setChipSel(role === 'admin' ? 'all' : 'tocount');
-  }, [role]);
-
-  const chips = role === 'admin' ? ADMIN_CHIPS : STAFF_CHIPS;
+  const chips = CHIPS;
   const parsed = React.useMemo(() => parseFilter(filterText), [filterText]);
 
   const storeInventory = React.useMemo(
@@ -91,10 +75,8 @@ export default function InventoryListScreen() {
     return out;
   }, [chips, storeInventory, getItemStatus]);
 
-  const title = role === 'admin' ? 'Inventory' : 'Count queue';
-  const totalLabel = role === 'admin'
-    ? `${storeInventory.length} items`
-    : `${chipCounts.tocount ?? 0} to do`;
+  const title = 'Inventory';
+  const totalLabel = `${storeInventory.length} items`;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -127,7 +109,7 @@ export default function InventoryListScreen() {
           >
             inv://{slugify(currentStore?.name || 'store')} — inventory
           </Text>
-          <RoleBadge role={role} />
+          <RoleBadge />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <Text style={{ fontFamily: sans(700), fontSize: 24, color: C.fg, letterSpacing: -0.4 }}>

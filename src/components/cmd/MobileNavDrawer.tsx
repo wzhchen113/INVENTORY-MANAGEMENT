@@ -3,7 +3,7 @@ import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput } from 'reac
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { AccentTile } from './AccentTile';
-import { RoleBadge, Role } from './RoleBadge';
+import { RoleBadge } from './RoleBadge';
 import { TreeGroup, TreeItem } from './TreeGroup';
 import { SidebarGroup } from './Sidebar';
 import { KbdHint } from './KbdHint';
@@ -18,7 +18,6 @@ interface Props {
   paletteQuery: string;
   onPaletteChange: (q: string) => void;
   paletteResults?: React.ReactNode;
-  role: Role;
   /** "admin@towson · v2.4" style sub-line. */
   subtitle?: string;
   footerLeft?: React.ReactNode;
@@ -37,7 +36,6 @@ export const MobileNavDrawer: React.FC<Props> = ({
   paletteQuery,
   onPaletteChange,
   paletteResults,
-  role,
   subtitle,
   footerLeft,
   footerRight,
@@ -73,7 +71,7 @@ export const MobileNavDrawer: React.FC<Props> = ({
                 <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{subtitle}</Text>
               ) : null}
             </View>
-            <RoleBadge role={role} />
+            <RoleBadge />
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 18, color: C.fg2 }}>✕</Text>
             </TouchableOpacity>

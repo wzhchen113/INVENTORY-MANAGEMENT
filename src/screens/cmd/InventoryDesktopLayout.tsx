@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, ScrollView, FlatList } from 'react-native
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { useRole } from '../../hooks/useRole';
 import { usePaletteAction } from '../../lib/paletteAction';
 import { useStockSeries, useRecipesUsingItem } from '../../lib/cmdSelectors';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
@@ -51,7 +50,6 @@ interface Props {
 
 export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const C = useCmdColors();
-  const role = useRole();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
@@ -118,7 +116,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
     eodSubmissions.filter((s) => s.date === todayStr).map((s) => s.storeId),
   ).size;
 
-  const adminGroups: { label: string; items: TreeItem[] }[] = [
+  // Admin-only app — store users have a separate app + API.
+  const groups: { label: string; items: TreeItem[] }[] = [
     {
       label: 'Operations',
       items: [
@@ -149,35 +148,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       ],
     },
   ];
-  const staffGroups: { label: string; items: TreeItem[] }[] = [
-    {
-      label: 'Tasks',
-      items: [
-        { id: 'Inventory', label: 'Count queue', kbd: '⌘I' },
-        { id: 'EODCount',  label: 'EOD count' },
-        { id: 'WasteLog',  label: 'Waste log' },
-      ],
-    },
-    {
-      label: 'Reference',
-      items: [
-        { id: 'Recipes',     label: 'Menu items / BOM' },
-        { id: 'PrepRecipes', label: 'Prep recipes' },
-      ],
-    },
-    {
-      label: 'Admin-only',
-      items: [
-        { id: 'Vendors',         label: 'Vendors',          restricted: true },
-        { id: 'Reports',         label: 'Reports',          restricted: true },
-        { id: 'AuditLog',        label: 'Audit log',        restricted: true },
-        { id: 'Reconciliation',  label: 'Reconciliation',   restricted: true },
-      ],
-    },
-  ];
-  const groups = role === 'admin' ? adminGroups : staffGroups;
 
-  const inventoryTitle = role === 'admin' ? 'Inventory' : 'Count queue';
+  const inventoryTitle = 'Inventory';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
@@ -245,7 +217,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
               <ComingSoonPanel tabName={slugify(section)} />
             </View>
           </View>
-        ) : viewMode === 'catalog' && role === 'admin' ? (
+        ) : viewMode === 'catalog' ? (
           <InventoryCatalogMode
             selectedName={selectedName}
             onSelectName={setSelectedName}
@@ -272,16 +244,14 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                 minHeight: 0,
               }}
             >
-              {role === 'admin' ? (
-                <TabStrip
-                  tabs={[
-                    { id: 'per-store', label: 'items.tsv' },
-                    { id: 'catalog',   label: 'catalog.tsv' },
-                  ]}
-                  activeId={viewMode}
-                  onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
-                />
-              ) : null}
+              <TabStrip
+                tabs={[
+                  { id: 'per-store', label: 'items.tsv' },
+                  { id: 'catalog',   label: 'catalog.tsv' },
+                ]}
+                activeId={viewMode}
+                onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
+              />
               <View
                 style={{
                   paddingHorizontal: 16,
@@ -339,7 +309,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                   recipesUsing={recipesUsing}
                   auditLog={auditLog}
                   currentUserId={currentUser?.id}
-                  role={role}
                   tabId={tabId}
                   onTabChange={setTabId}
                   onEditPress={() => setEditDrawerOpen(true)}
@@ -397,11 +366,6 @@ const ADMIN_TABS = [
   { id: 'audit.tsx',   label: 'audit.tsx' },
   { id: 'recipes.tsx', label: 'recipes.tsx' },
 ];
-const STAFF_TABS = [
-  { id: 'detail.tsx',  label: 'detail.tsx' },
-  { id: 'count.tsx',   label: 'count.tsx' },
-  { id: 'recipes.tsx', label: 'recipes.tsx' },
-];
 
 interface DetailProps {
   item: any;
@@ -411,51 +375,38 @@ interface DetailProps {
   recipesUsing: any[];
   auditLog: any[];
   currentUserId?: string;
-  role: 'admin' | 'staff';
   tabId: string;
   onTabChange: (id: string) => void;
   onEditPress?: () => void;
 }
 
 function DetailPane({
-  item, vendor, status, series, recipesUsing, auditLog, currentUserId, role, tabId, onTabChange, onEditPress,
+  item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress,
 }: DetailProps) {
   const C = useCmdColors();
 
-  const tabs = role === 'admin' ? ADMIN_TABS : STAFF_TABS;
   const itemActivity = React.useMemo(() => {
-    const filtered = auditLog.filter((e: any) => {
-      const ref = (e.itemRef || '').toLowerCase();
-      return ref === item.name.toLowerCase() || ref === item.id;
-    });
-    if (role === 'staff' && currentUserId) {
-      return filtered.filter((e: any) => e.userId === currentUserId).slice(-3);
-    }
-    return filtered.slice(-3);
-  }, [auditLog, item, role, currentUserId]);
+    return auditLog
+      .filter((e: any) => {
+        const ref = (e.itemRef || '').toLowerCase();
+        return ref === item.name.toLowerCase() || ref === item.id;
+      })
+      .slice(-3);
+  }, [auditLog, item]);
 
   const inventoryValue = item.currentStock * (item.costPerUnit || 0);
   const daysOfCover = item.averageDailyUsage > 0
     ? `${(item.currentStock / item.averageDailyUsage).toFixed(1)}d`
     : '—';
 
-  const adminStats = [
+  const stats = [
     { label: 'On hand',       value: `${item.currentStock} ${item.unit}`,                                sub: `par ${item.parLevel}` },
     { label: 'Cost / unit',   value: item.costPerUnit ? `$${item.costPerUnit.toFixed(2)}` : '—',        sub: 'avg' },
     { label: 'Stock value',   value: `$${inventoryValue.toFixed(0)}`,                                    sub: 'at current cost' },
     { label: 'Days of cover', value: daysOfCover,                                                        sub: 'at avg usage' },
   ];
-  const staffStats = [
-    { label: 'On hand',       value: `${item.currentStock} ${item.unit}`,           sub: `par ${item.parLevel}` },
-    { label: 'Last count',    value: `${item.eodRemaining ?? item.currentStock} ${item.unit}`, sub: relativeTime(item.lastUpdatedAt) || '—' },
-    { label: 'Variance',      value: item.eodRemaining != null
-        ? `${(item.currentStock - item.eodRemaining > 0 ? '+' : '')}${(item.currentStock - item.eodRemaining).toFixed(1)} ${item.unit}`
-        : '—', sub: 'vs expected' },
-    { label: 'Days of cover', value: daysOfCover, sub: 'at avg usage' },
-  ];
-  const stats = role === 'admin' ? adminStats : staffStats;
 
-  const adminProps = [
+  const props = [
     { key: 'category',         value: `"${item.category}"` },
     { key: 'unit',             value: `"${item.unit}"` },
     { key: 'vendor',           value: `"${vendor?.name || 'unset'}"` },
@@ -466,37 +417,23 @@ function DetailPane({
     { key: 'lead_time_days',   value: String(vendor?.leadTimeDays ?? '—') },
     { key: 'last_counted',     value: `"${relativeTime(item.lastUpdatedAt) || 'never'}"` },
   ];
-  const staffProps = [
-    { key: 'category',     value: `"${item.category}"` },
-    { key: 'unit',         value: `"${item.unit}"` },
-    { key: 'par_level',    value: String(item.parLevel) },
-    { key: 'storage',      value: '—' },
-    { key: 'count_freq',   value: '—' },
-    { key: 'allergens',    value: '—' },
-    { key: 'cost_per_unit', value: '— admin only' },
-  ];
-  const props = role === 'admin' ? adminProps : staffProps;
 
-  const meta = role === 'admin'
-    ? `${item.category} · ${vendor?.name || 'no vendor'} · last counted ${relativeTime(item.lastUpdatedAt) || 'never'} ago`
-    : `${item.category} · walk-in · ${relativeTime(item.lastUpdatedAt) || 'never'} ago`;
+  const meta = `${item.category} · ${vendor?.name || 'no vendor'} · last counted ${relativeTime(item.lastUpdatedAt) || 'never'} ago`;
 
   return (
     <>
       <TabStrip
-        tabs={tabs}
+        tabs={ADMIN_TABS}
         activeId={tabId}
         onChange={onTabChange}
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {role === 'admin' ? (
-              <TouchableOpacity
-                onPress={onEditPress}
-                style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
-              >
-                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity
+              onPress={onEditPress}
+              style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+            </TouchableOpacity>
             <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
               <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ COUNT</Text>
             </View>
@@ -538,9 +475,6 @@ function DetailPane({
             <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <SectionCaption tone="fg3" size={10.5}>properties.json</SectionCaption>
-                {role === 'staff' ? (
-                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>2 fields hidden</Text>
-                ) : null}
               </View>
               <PropertiesJson entries={props} />
             </View>
@@ -548,30 +482,26 @@ function DetailPane({
 
           {/* Recipes + Activity row */}
           <View style={{ flexDirection: 'row', gap: 14 }}>
-            {role === 'admin' ? (
-              <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
-                <SectionCaption tone="fg3" size={10.5}>used in {recipesUsing.length} recipes</SectionCaption>
-                {recipesUsing.length === 0 ? (
-                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
-                    not in any recipe
-                  </Text>
-                ) : (
-                  recipesUsing.map((r) => (
-                    <View key={`${r.kind}:${r.id}`} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
-                      <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.name}</Text>
-                      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, marginRight: 8 }}>{r.portion}</Text>
-                      {r.soldPerWeek != null ? (
-                        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg, width: 60, textAlign: 'right' }}>{r.soldPerWeek}/wk</Text>
-                      ) : null}
-                    </View>
-                  ))
-                )}
-              </View>
-            ) : null}
             <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
-              <SectionCaption tone="fg3" size={10.5}>
-                {role === 'admin' ? 'activity_log' : 'your_activity'}
-              </SectionCaption>
+              <SectionCaption tone="fg3" size={10.5}>used in {recipesUsing.length} recipes</SectionCaption>
+              {recipesUsing.length === 0 ? (
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
+                  not in any recipe
+                </Text>
+              ) : (
+                recipesUsing.map((r) => (
+                  <View key={`${r.kind}:${r.id}`} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                    <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.name}</Text>
+                    <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, marginRight: 8 }}>{r.portion}</Text>
+                    {r.soldPerWeek != null ? (
+                      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg, width: 60, textAlign: 'right' }}>{r.soldPerWeek}/wk</Text>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </View>
+            <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
+              <SectionCaption tone="fg3" size={10.5}>activity_log</SectionCaption>
               {itemActivity.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
                   no activity recorded
