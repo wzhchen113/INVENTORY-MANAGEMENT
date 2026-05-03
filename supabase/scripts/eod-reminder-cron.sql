@@ -1,5 +1,11 @@
 -- ============================================================
 -- Schedule the EOD-reminder edge function to fire every 5 min
+--
+-- NOTE: This file lives in supabase/scripts/ (NOT supabase/migrations/)
+-- because it contains placeholders that must be filled in per environment
+-- and is intended to be applied manually to PROD only — `supabase db reset`
+-- does not pick up files in supabase/scripts/.
+--
 -- Run in: Supabase Dashboard → SQL Editor → New query
 --
 -- ⚠ Before running:
