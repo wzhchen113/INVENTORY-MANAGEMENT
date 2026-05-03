@@ -4,6 +4,7 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
+import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
@@ -143,7 +144,7 @@ export default function EODCountSection() {
     return s + (v - i.currentStock);
   }, 0);
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     const enteredItems = filteredItems.filter((i) => (counts[i.id] ?? '').trim() !== '');
     if (enteredItems.length === 0) {
       Toast.show({ type: 'error', text1: 'Enter at least one count' });
@@ -163,7 +164,7 @@ export default function EODCountSection() {
       storeId: currentStore.id,
       notes: notes[i.id] || '',
     }));
-    submitEOD({
+    const submission = {
       date: selectedIso,
       storeId: currentStore.id,
       storeName: currentStore.name,
@@ -171,13 +172,29 @@ export default function EODCountSection() {
       submittedByUserId: currentUser?.id || '',
       timestamp: now,
       itemCount: entries.length,
-      status: 'submitted',
+      status: 'submitted' as const,
       entries: entries as EODEntry[],
-    });
-    Toast.show({ type: 'success', text1: 'Count submitted', text2: `${entries.length} items · ${selectedIso}` });
+    };
+
+    // Local first — updates zustand, audit log, per-item stock.
+    submitEOD(submission);
     setCounts({});
     setNotes({});
-    setSubmitting(false);
+
+    // Persist parent submission + child entries to Supabase. The store's
+    // submitEOD action only writes per-item stock, so without this the
+    // eod_submissions / eod_entries tables stay empty (and the EOD counter
+    // never increments, devices don't sync). Mirrors the legacy
+    // EODCountScreen.persistToCloud flow.
+    try {
+      await submitEODCount(submission);
+      Toast.show({ type: 'success', text1: 'Count submitted', text2: `${entries.length} items · ${selectedIso}` });
+    } catch (e: any) {
+      console.warn('[EOD] cloud save failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: 'Saved locally only', text2: 'Cloud save failed — check connection' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const wkNum = (() => {
