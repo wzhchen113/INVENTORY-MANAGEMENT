@@ -25,6 +25,7 @@ import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
+import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import VendorsSection from './sections/VendorsSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
@@ -63,6 +64,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
 
   const [section, setSection]         = React.useState('Inventory');
   const [filterText, setFilterText]   = React.useState('');
+  const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
   // Selection is keyed on lowercase name so it survives the items.tsv ↔
   // catalog.tsv mode switch (and store switching, where ids differ but
   // names line up across rows).
@@ -340,6 +342,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                   role={role}
                   tabId={tabId}
                   onTabChange={setTabId}
+                  onEditPress={() => setEditDrawerOpen(true)}
                 />
               )}
             </View>
@@ -375,6 +378,14 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           </>
         }
       />
+
+      {/* EDIT drawer — mounted at layout root so it overlays the chrome */}
+      <IngredientFormDrawer
+        visible={editDrawerOpen}
+        mode="edit"
+        item={item}
+        onClose={() => setEditDrawerOpen(false)}
+      />
     </View>
   );
 }
@@ -403,10 +414,11 @@ interface DetailProps {
   role: 'admin' | 'staff';
   tabId: string;
   onTabChange: (id: string) => void;
+  onEditPress?: () => void;
 }
 
 function DetailPane({
-  item, vendor, status, series, recipesUsing, auditLog, currentUserId, role, tabId, onTabChange,
+  item, vendor, status, series, recipesUsing, auditLog, currentUserId, role, tabId, onTabChange, onEditPress,
 }: DetailProps) {
   const C = useCmdColors();
 
@@ -478,11 +490,12 @@ function DetailPane({
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {role === 'admin' ? (
-              <View
+              <TouchableOpacity
+                onPress={onEditPress}
                 style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
               >
                 <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
-              </View>
+              </TouchableOpacity>
             ) : null}
             <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
               <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ COUNT</Text>

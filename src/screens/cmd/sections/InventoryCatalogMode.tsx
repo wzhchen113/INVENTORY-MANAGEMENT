@@ -12,6 +12,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import { FilterChip } from '../../../components/cmd/FilterChip';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
+import { IngredientFormDrawer } from '../../../components/cmd/IngredientFormDrawer';
 import { relativeTime } from '../../../utils/relativeTime';
 import type { InventoryItem, ItemStatus } from '../../../types';
 
@@ -64,6 +65,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
   const [showUnfinished, setShowUnfinished] = React.useState(false);
   const [tabId, setTabId]                   = React.useState('ingredient.tsx');
+  const [newDrawerOpen, setNewDrawerOpen]   = React.useState(false);
 
   const groups = React.useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
@@ -299,9 +301,9 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT CSV</Text>
                   </View>
-                  <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+                  <TouchableOpacity onPress={() => setNewDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW INGREDIENT</Text>
-                  </View>
+                  </TouchableOpacity>
                 </View>
               }
             />
@@ -427,6 +429,12 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
           </>
         )}
       </View>
+
+      <IngredientFormDrawer
+        visible={newDrawerOpen}
+        mode="new"
+        onClose={() => setNewDrawerOpen(false)}
+      />
     </>
   );
 }
