@@ -38,10 +38,21 @@ interface Group {
   primary: InventoryItem;  // first row — used for ID + base properties
 }
 
-// Pattern B — list+detail. Admin-only catalog management surface, distinct
-// from the per-store operational Inventory view. Groups inventory rows by
-// lowercase name (legacy convention) to give admin a cross-store lens.
-export default function IngredientsSection() {
+interface Props {
+  /** Currently selected item, keyed by lowercase name. Survives mode switches. */
+  selectedName: string | null;
+  /** Called when user clicks a catalog row. Always lowercase. */
+  onSelectName: (name: string | null) => void;
+  /** Rendered at the top of the list pane — used for the items.tsv ↔ catalog.tsv toggle. */
+  topSlot?: React.ReactNode;
+}
+
+// Catalog lens on the same inventory_items table as the per-store view.
+// Groups inventory rows by lowercase name (legacy convention) so admin
+// can curate ingredients across stores. Selection is controlled by the
+// parent (InventoryDesktopLayout) so flipping items.tsv ↔ catalog.tsv
+// keeps focus on the same logical ingredient.
+export default function InventoryCatalogMode({ selectedName, onSelectName, topSlot }: Props) {
   const C = useCmdColors();
   const inventory      = useStore((s) => s.inventory);
   const stores         = useStore((s) => s.stores);
@@ -52,7 +63,6 @@ export default function IngredientsSection() {
   const [filterText, setFilterText]         = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
   const [showUnfinished, setShowUnfinished] = React.useState(false);
-  const [selectedKey, setSelectedKey]       = React.useState<string | null>(null);
   const [tabId, setTabId]                   = React.useState('ingredient.tsx');
 
   const groups = React.useMemo<Group[]>(() => {
@@ -96,12 +106,14 @@ export default function IngredientsSection() {
     });
   }, [groups, filterText, categoryFilter, showUnfinished]);
 
+  // Auto-select on first render only — once the user (or items.tsv mode)
+  // has a selection, keep it even when filters narrow it out of view.
   React.useEffect(() => {
-    if (selectedKey && filtered.find((g) => g.key === selectedKey)) return;
-    setSelectedKey(filtered[0]?.key || null);
-  }, [filtered, selectedKey]);
+    if (selectedName) return;
+    if (filtered[0]) onSelectName(filtered[0].key);
+  }, [filtered, selectedName, onSelectName]);
 
-  const sel = groups.find((g) => g.key === selectedKey);
+  const sel = groups.find((g) => g.key === selectedName);
 
   const catCounts = React.useMemo(() => {
     const m: Record<string, number> = {};
@@ -145,6 +157,7 @@ export default function IngredientsSection() {
           minHeight: 0,
         }}
       >
+        {topSlot}
         <View
           style={{
             paddingHorizontal: 16,
@@ -156,9 +169,9 @@ export default function IngredientsSection() {
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={[Type.h2, { color: C.fg }]}>Ingredients</Text>
+            <Text style={[Type.h2, { color: C.fg }]}>Inventory</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {groups.length} catalog
+              {groups.length} unique
             </Text>
           </View>
           <FilterInput
@@ -215,14 +228,14 @@ export default function IngredientsSection() {
             </Text>
           }
           renderItem={({ item: g }) => {
-            const isSel = g.key === selectedKey;
+            const isSel = g.key === selectedName;
             const groupStatus = aggStatus(getItemStatus, g.rows);
             const avgCost = g.totalStock > 0
               ? g.weightedCost / g.totalStock
               : g.rows.reduce((s, r) => s + (r.costPerUnit || 0), 0) / Math.max(1, g.rows.length);
             return (
               <TouchableOpacity
-                onPress={() => setSelectedKey(g.key)}
+                onPress={() => onSelectName(g.key)}
                 activeOpacity={0.85}
                 style={{
                   paddingHorizontal: 16 - (isSel ? 2 : 0),

@@ -25,7 +25,7 @@ import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import VendorsSection from './sections/VendorsSection';
-import IngredientsSection from './sections/IngredientsSection';
+import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
@@ -60,10 +60,14 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const stores = useStore((s) => s.stores);
   const getItemStatus = useStore((s) => s.getItemStatus);
 
-  const [section, setSection]       = React.useState('Inventory');
-  const [filterText, setFilterText] = React.useState('');
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [tabId, setTabId]           = React.useState('detail.tsx');
+  const [section, setSection]         = React.useState('Inventory');
+  const [filterText, setFilterText]   = React.useState('');
+  // Selection is keyed on lowercase name so it survives the items.tsv ↔
+  // catalog.tsv mode switch (and store switching, where ids differ but
+  // names line up across rows).
+  const [selectedName, setSelectedName] = React.useState<string | null>(null);
+  const [tabId, setTabId]             = React.useState('detail.tsx');
+  const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog'>('per-store');
 
   const storeInventory = React.useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -75,15 +79,18 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
     [storeInventory, parsed, getItemStatus],
   );
 
-  // Auto-select first item on first render or after filter narrows the list.
+  // Auto-select on first render only. After that the user owns the selection
+  // — filter narrows and store switches no longer kick them off, which keeps
+  // the items.tsv ↔ catalog.tsv toggle non-destructive.
   React.useEffect(() => {
-    if (selectedId && items.find((i) => i.id === selectedId)) return;
-    setSelectedId(items[0]?.id || null);
-  }, [items, selectedId]);
+    if (viewMode !== 'per-store') return;
+    if (selectedName) return;
+    setSelectedName(items[0]?.name.toLowerCase() || null);
+  }, [items, selectedName, viewMode]);
 
   const item = React.useMemo(
-    () => storeInventory.find((i) => i.id === selectedId),
-    [storeInventory, selectedId],
+    () => storeInventory.find((i) => i.name.toLowerCase() === selectedName),
+    [storeInventory, selectedName],
   );
   const status = item ? getItemStatus(item) : 'ok';
   const vendor = item ? vendors.find((v) => v.id === item.vendorId) : undefined;
@@ -111,7 +118,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       items: [
         { id: 'PurchaseOrders',  label: 'Purchase orders' },
         { id: 'Vendors',         label: 'Vendors' },
-        { id: 'Ingredients',     label: 'Ingredients' },
         { id: 'Recipes',         label: 'Menu items / BOM' },
         { id: 'PrepRecipes',     label: 'Prep recipes' },
         { id: 'Restock',         label: 'Restock' },
@@ -171,7 +177,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           onSelect={(id) => {
             setSection(id);
             // Reset selection when leaving Inventory
-            if (id !== 'Inventory') setSelectedId(null);
+            if (id !== 'Inventory') setSelectedName(null);
           }}
           onPaletteOpen={onPaletteOpen}
           footerLeft={
@@ -193,8 +199,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <DashboardSection />
         ) : section === 'Vendors' ? (
           <VendorsSection />
-        ) : section === 'Ingredients' ? (
-          <IngredientsSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
         ) : section === 'EODCount' ? (
@@ -225,6 +229,21 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
               <ComingSoonPanel tabName={slugify(section)} />
             </View>
           </View>
+        ) : viewMode === 'catalog' && role === 'admin' ? (
+          <InventoryCatalogMode
+            selectedName={selectedName}
+            onSelectName={setSelectedName}
+            topSlot={
+              <TabStrip
+                tabs={[
+                  { id: 'per-store', label: 'items.tsv' },
+                  { id: 'catalog',   label: 'catalog.tsv' },
+                ]}
+                activeId={viewMode}
+                onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
+              />
+            }
+          />
         ) : (
           <>
             {/* List pane */}
@@ -237,6 +256,16 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                 minHeight: 0,
               }}
             >
+              {role === 'admin' ? (
+                <TabStrip
+                  tabs={[
+                    { id: 'per-store', label: 'items.tsv' },
+                    { id: 'catalog',   label: 'catalog.tsv' },
+                  ]}
+                  activeId={viewMode}
+                  onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
+                />
+              ) : null}
               <View
                 style={{
                   paddingHorizontal: 16,
@@ -269,9 +298,9 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                       unit: it.unit,
                       category: it.category,
                     }}
-                    selected={selectedId === it.id}
+                    selected={selectedName === it.name.toLowerCase()}
                     selectedBorderWidth={2}
-                    onPress={() => setSelectedId(it.id)}
+                    onPress={() => setSelectedName(it.name.toLowerCase())}
                   />
                 )}
               />
@@ -282,7 +311,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
               {!item ? (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                    select an item
+                    {selectedName ? `not at ${currentStore?.name || 'this store'}` : 'select an item'}
                   </Text>
                 </View>
               ) : (
