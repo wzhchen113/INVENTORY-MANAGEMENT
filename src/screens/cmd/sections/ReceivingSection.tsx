@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -25,19 +26,31 @@ export default function ReceivingSection() {
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
+  const currentUser = useStore((s) => s.currentUser);
+  const adjustStock = useStore((s) => s.adjustStock);
+  const addAuditEvent = useStore((s) => s.addAuditEvent);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('lines.tsx');
-  const [received, setReceived] = React.useState<Set<string>>(new Set());
+  // Lines committed to the DB this session — one-way (no undo, since
+  // there's no po_items row to flip back). Used for both visual ✓ and
+  // click-lock so the user can't double-receive.
+  const [committed, setCommitted] = React.useState<Set<string>>(new Set());
 
   // Filter to current store. Treat anything in orderSubmissions that's not
   // older than 14 days as "in flight" — close enough for the receiving
   // surface until purchase_orders + status field land.
+  // NB: o.submittedAt comes back as a pre-formatted time-only string
+  // ("1:27 AM") from fetchRecentPurchaseOrders, so it's not Date-parseable.
+  // Use o.date (YYYY-MM-DD reference_date) for the cutoff check instead.
   const incoming = React.useMemo<OrderSubmission[]>(() => {
     const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
     return orderSubmissions
       .filter((o) => o.storeId === currentStore.id)
-      .filter((o) => new Date(o.submittedAt).getTime() >= cutoff)
+      .filter((o) => {
+        const t = o.date ? new Date(o.date).getTime() : NaN;
+        return Number.isFinite(t) && t >= cutoff;
+      })
       .slice(0, 10);
   }, [orderSubmissions, currentStore.id]);
 
@@ -73,25 +86,55 @@ export default function ReceivingSection() {
     });
   }, [sel, inventory, vendors, currentStore.id]);
 
-  const toggleReceived = (lid: string) => {
-    setReceived((prev) => {
+  // Single-click commit: bump stock by the received qty and add an audit
+  // event. No undo — once committed, the line is locked. The synthetic
+  // line-items table can't track a real "received" flag (no po_items
+  // table yet), so the audit log is the durable trail.
+  const commitReceive = (lid: string) => {
+    if (committed.has(lid) || !sel) return;
+    const li = lineItems.find((x) => x.id === lid);
+    if (!li) return;
+    const item = inventory.find((i) => i.id === li.id);
+    if (!item) return;
+    const qtyToReceive = li.received > 0 ? li.received : li.ordered;
+    if (qtyToReceive <= 0) return;
+    const newStock = item.currentStock + qtyToReceive;
+    adjustStock(item.id, newStock, currentUser?.name || 'unknown');
+    addAuditEvent({
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || '',
+      userName: currentUser?.name || 'unknown',
+      userRole: 'user',
+      storeId: currentStore.id,
+      storeName: currentStore.name,
+      action: 'Stock adjusted',
+      detail: `Received from ${sel.vendorName}`,
+      itemRef: item.name,
+      value: `+${qtyToReceive} ${item.unit}`,
+    });
+    setCommitted((prev) => {
       const next = new Set(prev);
-      if (next.has(lid)) next.delete(lid); else next.add(lid);
+      next.add(lid);
       return next;
+    });
+    Toast.show({
+      type: 'success',
+      text1: 'Received',
+      text2: `${item.name} +${qtyToReceive} ${item.unit}`,
     });
   };
 
   const matched = React.useMemo(() => {
     let m = 0;
     for (const li of lineItems) {
-      if (received.has(li.id) || li.state === 'ok') m++;
+      if (committed.has(li.id) || li.state === 'ok') m++;
     }
     return m;
-  }, [lineItems, received]);
+  }, [lineItems, committed]);
   const shorts = lineItems.filter((li) => li.state === 'short').length;
   const invoiceTotal = lineItems.reduce((s, li) => s + li.cost, 0);
   const actualTotal = lineItems
-    .filter((li) => li.state === 'ok' || received.has(li.id))
+    .filter((li) => li.state === 'ok' || committed.has(li.id))
     .reduce((s, li) => s + (li.received / Math.max(1, li.ordered)) * li.cost, 0);
 
   return (
@@ -222,7 +265,7 @@ export default function ReceivingSection() {
               <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
                   <SectionCaption tone="fg3" size={10.5}>line_items.tsv</SectionCaption>
-                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>tap to mark received</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>tap to commit · stock + audit only (no undo)</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
                   <View style={{ width: 18 }} />
@@ -239,13 +282,15 @@ export default function ReceivingSection() {
                   </Text>
                 ) : (
                   lineItems.map((li, i) => {
-                    const isReceived = received.has(li.id) || li.state === 'ok';
+                    const isCommitted = committed.has(li.id);
+                    const isReceived = isCommitted || li.state === 'ok';
                     const stateForPill: 'ok' | 'low' | 'out' | 'info' =
                       li.state === 'ok' ? 'ok' : li.state === 'short' ? 'low' : 'info';
                     return (
                       <TouchableOpacity
                         key={li.id}
-                        onPress={() => toggleReceived(li.id)}
+                        onPress={() => commitReceive(li.id)}
+                        disabled={isCommitted}
                         activeOpacity={0.85}
                         style={{
                           flexDirection: 'row',
