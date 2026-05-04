@@ -575,8 +575,11 @@ function UsageTab({ item }: { item: any }) {
   const weekly = React.useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const all = calculateWeeklyUsageTrend(posImports, recipes, inventory, currentStore.id, today, NUM_WEEKS);
-    return all.find((u) => u.itemId === item.id);
-  }, [posImports, recipes, inventory, currentStore.id, item.id]);
+    // calculateWeeklyUsageTrend keys by catalog id (brand-stable). Match
+    // primarily by item.catalogId; fall back to item.id for any rows that
+    // pre-date the catalog refactor and might still be id-keyed.
+    return all.find((u) => u.itemId === item.catalogId) || all.find((u) => u.itemId === item.id);
+  }, [posImports, recipes, inventory, currentStore.id, item.catalogId, item.id]);
 
   const series: Array<number | null> = weekly?.weeklyAmounts ?? [];
   const lastWk = series.length > 0 ? series[series.length - 1] : 0;

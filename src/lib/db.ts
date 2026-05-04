@@ -76,12 +76,16 @@ async function ensureCatalogIngredient(brandId: string, fields: {
   defaultCasePrice?: number;
 }): Promise<string> {
   if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
-  // Case-insensitive lookup first
+  // Case-insensitive exact-match lookup. Escape PostgreSQL LIKE wildcards
+  // (`_`, `%`, `\`) in the user-supplied name so an ingredient called
+  // "Cleaner_Concentrate" can't accidentally match "CleanerXConcentrate".
+  // Aligns with the unique index on (brand_id, lower(name)).
+  const safeName = fields.name.replace(/([\\_%])/g, '\\$1');
   const { data: existing } = await supabase
     .from('catalog_ingredients')
     .select('id')
     .eq('brand_id', brandId)
-    .ilike('name', fields.name)
+    .ilike('name', safeName)
     .maybeSingle();
   if (existing?.id) return existing.id;
   const { data, error } = await supabase
