@@ -384,6 +384,19 @@ deno_version = 2
 [functions.pwa-catalog]
 verify_jwt = false
 
+# staff-* functions all sign with STAFF_SERVICE_TOKEN (same non-JWT pattern).
+# These were working in prod via dashboard config that wasn't checked into the
+# repo — pinning here so a CLI redeploy can't silently re-enable JWT and break
+# them, and so they're testable under `supabase functions serve` locally.
+[functions.staff-catalog]
+verify_jwt = false
+
+[functions.staff-eod-submit]
+verify_jwt = false
+
+[functions.staff-waste-log]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
