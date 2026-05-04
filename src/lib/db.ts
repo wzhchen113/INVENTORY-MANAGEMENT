@@ -59,110 +59,62 @@ export async function fetchInventory(storeId?: string): Promise<InventoryItem[]>
 }
 
 /**
- * Find or create a catalog_ingredients row for the given brand by
- * case-insensitive name match. Returns the catalog id. Used by the
- * createInventoryItem path so the legacy "create new ingredient" UX
- * (IngredientFormDrawer) keeps working without first having to
- * manually create the catalog row.
- */
-async function ensureCatalogIngredient(brandId: string, fields: {
-  name: string;
-  unit?: string;
-  category?: string;
-  caseQty?: number;
-  subUnitSize?: number;
-  subUnitUnit?: string;
-  defaultCost?: number;
-  defaultCasePrice?: number;
-}): Promise<string> {
-  if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
-  // Case-insensitive exact-match lookup. Escape PostgreSQL LIKE wildcards
-  // (`_`, `%`, `\`) in the user-supplied name so an ingredient called
-  // "Cleaner_Concentrate" can't accidentally match "CleanerXConcentrate".
-  // Aligns with the unique index on (brand_id, lower(name)).
-  const safeName = fields.name.replace(/([\\_%])/g, '\\$1');
-  const { data: existing } = await supabase
-    .from('catalog_ingredients')
-    .select('id')
-    .eq('brand_id', brandId)
-    .ilike('name', safeName)
-    .maybeSingle();
-  if (existing?.id) return existing.id;
-  const { data, error } = await supabase
-    .from('catalog_ingredients')
-    .insert({
-      brand_id: brandId,
-      name: fields.name,
-      unit: fields.unit || '',
-      category: fields.category || null,
-      case_qty: fields.caseQty ?? 1,
-      sub_unit_size: fields.subUnitSize ?? 1,
-      sub_unit_unit: fields.subUnitUnit || '',
-      default_cost: fields.defaultCost ?? 0,
-      default_case_price: fields.defaultCasePrice ?? 0,
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  return data.id;
-}
-
-/**
- * Resolve the brand for a given store id — small lookup used by
- * createInventoryItem when the catalog needs to be ensured but the
- * caller didn't pass a brandId explicitly.
+ * Resolve the brand for a given store id — used by createInventoryItem
+ * when the caller didn't pass a brandId explicitly.
  */
 async function brandIdForStore(storeId: string): Promise<string> {
   const { data } = await supabase.from('stores').select('brand_id').eq('id', storeId).single();
   return data?.brand_id || '';
 }
 
+/**
+ * Create a per-store inventory item, find-or-creating the brand-level
+ * catalog_ingredients row in one atomic transaction via the
+ * `create_inventory_item_with_catalog` Postgres function.
+ *
+ * Idempotent on the (store_id, catalog_id) unique — calling twice with
+ * the same name+store returns the same row instead of throwing 23505.
+ * If the inventory insert fails partway through, the catalog row is
+ * not leaked because both writes share the function's transaction.
+ *
+ * The legacy code path (separate ensureCatalogIngredient + INSERT) was
+ * non-atomic and threw on duplicates; this RPC closes both gaps —
+ * issue #5 from the PR #3 review.
+ */
 export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
   const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
   if (!storeId) throw new Error('Invalid store ID');
 
-  // Resolve catalog id. After Phase 3 the catalog fields (name/unit/category/
-  // case_qty/sub_unit_*) live on catalog_ingredients only, so we must have a
-  // catalog row before inserting the per-store inventory_items row.
-  let catalogId = item.catalogId;
-  if (!catalogId) {
-    const brandId = await brandIdForStore(storeId);
-    catalogId = await ensureCatalogIngredient(brandId, {
-      name: item.name,
-      unit: item.unit,
-      category: item.category,
-      caseQty: item.caseQty,
-      subUnitSize: item.subUnitSize,
-      subUnitUnit: item.subUnitUnit,
-      defaultCost: item.costPerUnit,
-      defaultCasePrice: item.casePrice,
-    });
-  }
+  const brandId = await brandIdForStore(storeId);
+  if (!brandId) throw new Error(`Store ${storeId} has no brand_id — run brand catalog migrations`);
 
-  const { data, error } = await supabase
-    .from('inventory_items')
-    .insert({
-      store_id: storeId,
-      catalog_id: catalogId,
-      cost_per_unit: item.costPerUnit,
-      current_stock: item.currentStock,
-      par_level: item.parLevel,
-      average_daily_usage: item.averageDailyUsage || 0,
-      safety_stock: item.safetyStock || 0,
-      vendor_id: vendorId,
-      usage_per_portion: item.usagePerPortion || 0,
-      expiry_date: item.expiryDate || null,
-      last_updated_by: null,
-      eod_remaining: item.currentStock || 0,
-      case_price: item.casePrice || 0,
-    })
-    .select(`*,
-      vendor:vendors(name),
-      updater:profiles!last_updated_by(name),
-      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
-    .single();
+  const { data, error } = await supabase.rpc('create_inventory_item_with_catalog', {
+    p_brand_id:           brandId,
+    p_store_id:           storeId,
+    p_name:               item.name,
+    p_unit:               item.unit || '',
+    p_category:           item.category || null,
+    p_case_qty:           item.caseQty ?? 1,
+    p_sub_unit_size:      item.subUnitSize ?? 1,
+    p_sub_unit_unit:      item.subUnitUnit || '',
+    p_default_cost:       item.costPerUnit ?? 0,
+    p_default_case_price: item.casePrice ?? 0,
+    p_per_store: {
+      vendor_id:           vendorId,
+      cost_per_unit:       item.costPerUnit ?? 0,
+      case_price:          item.casePrice ?? 0,
+      par_level:           item.parLevel ?? 0,
+      current_stock:       item.currentStock ?? 0,
+      average_daily_usage: item.averageDailyUsage ?? 0,
+      safety_stock:        item.safetyStock ?? 0,
+      usage_per_portion:   item.usagePerPortion ?? 0,
+      expiry_date:         item.expiryDate || null,
+    },
+  });
   if (error) throw error;
+  // The RPC returns a jsonb shaped exactly like a PostgREST embed
+  // response, so mapItem can consume it directly.
   return mapItem(data);
 }
 
