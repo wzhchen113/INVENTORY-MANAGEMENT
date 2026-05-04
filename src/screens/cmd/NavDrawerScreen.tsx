@@ -136,7 +136,7 @@ export default function NavDrawerScreen() {
       subtitle={`${currentUser?.email || 'guest'} · v2.4`}
       footerLeft={
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.email || 'guest'}</Text>
+          <Text style={[Type.statusBar, { color: C.fg3 }]}>● {currentUser?.name || 'guest'}</Text>
           <TouchableOpacity
             onPress={() => {
               const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'

@@ -172,7 +172,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           footerLeft={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[Type.statusBar, { color: C.fg3 }]}>
-                ● {currentUser?.email || 'guest'}
+                ● {currentUser?.name || 'guest'}
               </Text>
               <TouchableOpacity
                 onPress={() => {
