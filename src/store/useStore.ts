@@ -139,7 +139,9 @@ const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
 export const useStore = create<FullStore>((set, get) => ({
   // Initial state — start logged out, all data loaded from Supabase after login
   currentUser: null,
-  currentStore: { id: '', name: '', address: '', status: 'active' as const },
+  currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' as const },
+  brand: null,
+  catalogIngredients: [],
   stores: [],
   users: USERS,
   inventory: INVENTORY,
@@ -223,17 +225,22 @@ export const useStore = create<FullStore>((set, get) => ({
         set({ stores: cloudStores });
       }
 
-      // "All Stores" view — fetch from every store and merge
+      // "All Stores" view — fetch from every store and merge per-store
+      // data. Brand-level data (catalog/recipes/preps/vendors) is the
+      // SAME across all stores so we just take the first store's copy.
       if (sid === '__all__') {
         const allStores = get().stores;
         const allData = await Promise.all(
           allStores.map((s) => db.fetchAllForStore(s.id).catch(() => null))
         );
+        const firstWithBrand = allData.find((d) => d?.brand);
         set({
+          brand: firstWithBrand?.brand || null,
+          catalogIngredients: firstWithBrand?.catalogIngredients || [],
+          recipes: firstWithBrand?.recipes || [],
+          prepRecipes: firstWithBrand?.prepRecipes || [],
+          vendors: firstWithBrand?.vendors || [],
           inventory: allData.flatMap((d) => d?.inventory || []),
-          recipes: allData.flatMap((d) => d?.recipes || []),
-          prepRecipes: allData.flatMap((d) => d?.prepRecipes || []),
-          vendors: allData.flatMap((d) => d?.vendors || []),
           wasteLog: allData.flatMap((d) => d?.wasteLog || []),
           auditLog: allData.flatMap((d) => d?.auditLog || []),
           ...(allData[0]?.recipeCategories?.length ? { recipeCategories: allData[0].recipeCategories } : {}),
@@ -247,6 +254,8 @@ export const useStore = create<FullStore>((set, get) => ({
       const data = await db.fetchAllForStore(sid);
       // Cloud is the source of truth — always replace, even if empty
       set({
+        brand: data.brand,
+        catalogIngredients: data.catalogIngredients || [],
         inventory: data.inventory,
         recipes: data.recipes,
         prepRecipes: data.prepRecipes,
@@ -422,11 +431,14 @@ export const useStore = create<FullStore>((set, get) => ({
     db.deleteIngredientCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
-  // Recipes
+  // Recipes — brand-level after the catalog refactor. brandId resolved
+  // from the store's current brand if not explicitly set on the input.
   addRecipe: (recipe) => {
+    const brandId = recipe.brandId || get().brand?.id || get().currentStore.brandId || '';
+    const recipeWithBrand = { ...recipe, brandId, storeId: brandId };
     const tempId = makeId('r', ++recipeCounter);
-    set((s) => ({ recipes: [...s.recipes, { ...recipe, id: tempId }] }));
-    db.createRecipe(recipe)
+    set((s) => ({ recipes: [...s.recipes, { ...recipeWithBrand, id: tempId }] }));
+    db.createRecipe(recipeWithBrand)
       .then((saved) => set((s) => ({
         recipes: s.recipes.map((r) => (r.id === tempId ? saved : r)),
       })))
@@ -482,11 +494,13 @@ export const useStore = create<FullStore>((set, get) => ({
     });
   },
 
-  // Prep Recipes
+  // Prep Recipes — brand-level after the catalog refactor.
   addPrepRecipe: (recipe) => {
+    const brandId = recipe.brandId || get().brand?.id || get().currentStore.brandId || '';
+    const recipeWithBrand = { ...recipe, brandId, storeId: brandId };
     const tempId = makeId('pr', ++prepRecipeCounter);
-    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipe, id: tempId }] }));
-    db.createPrepRecipe(recipe)
+    set((s) => ({ prepRecipes: [...s.prepRecipes, { ...recipeWithBrand, id: tempId }] }));
+    db.createPrepRecipe(recipeWithBrand)
       .then((newId) => set((s) => ({
         prepRecipes: s.prepRecipes.map((r) => (r.id === tempId ? { ...r, id: newId } : r)),
       })))
@@ -506,13 +520,14 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updatePrepRecipe: (id, updates) => {
-    // Capture storeId BEFORE mutating state (prevents race condition in multi-store loops)
-    const storeId = get().prepRecipes.find((r) => r.id === id)?.storeId;
+    // Capture brandId BEFORE mutating state (prevents race condition in multi-store loops)
+    const existing = get().prepRecipes.find((r) => r.id === id);
+    const brandId = updates.brandId || existing?.brandId || get().brand?.id || get().currentStore.brandId || '';
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
     // Use versioned update to preserve historical records
-    db.updatePrepRecipeVersioned(id, { ...updates, storeId })
+    db.updatePrepRecipeVersioned(id, { ...updates, brandId, storeId: brandId })
       .then((newId) => {
         // Replace old ID with new versioned ID in local state
         set((s) => ({ prepRecipes: s.prepRecipes.map((r) => r.id === id ? { ...r, id: newId } : r) }));
@@ -662,11 +677,13 @@ export const useStore = create<FullStore>((set, get) => ({
     ).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
   },
 
-  // Vendors
+  // Vendors — brand-level after the catalog refactor.
   addVendor: (vendor) => {
+    const brandId = vendor.brandId || get().brand?.id || get().currentStore.brandId || '';
+    const vendorWithBrand = { ...vendor, brandId };
     const tempId = makeId('v', ++vendorCounter);
-    set((s) => ({ vendors: [...s.vendors, { ...vendor, id: tempId }] }));
-    db.createVendor(vendor)
+    set((s) => ({ vendors: [...s.vendors, { ...vendorWithBrand, id: tempId }] }));
+    db.createVendor(vendorWithBrand)
       .then((saved) => set((s) => ({
         vendors: s.vendors.map((v) => (v.id === tempId ? saved : v)),
       })))
@@ -685,22 +702,27 @@ export const useStore = create<FullStore>((set, get) => ({
     db.deleteVendor(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
   },
 
-  // POS Import
+  // POS Import — adjusts the CURRENT store's stock based on sales × BOM.
+  // Recipe ingredients reference catalog ids (brand-level); we resolve
+  // each to the per-store inventory_items row before adjusting stock.
   importPOS: (posImport) => {
     const id = makeId('pos', Date.now());
     set((s) => ({ posImports: [{ ...posImport, id }, ...s.posImports] }));
+    const storeId = get().currentStore?.id;
     posImport.items.forEach((saleItem) => {
       if (saleItem.recipeId) {
         const recipe = get().recipes.find((r) => r.id === saleItem.recipeId);
         if (recipe) {
           recipe.ingredients.forEach((ing) => {
-            const item = get().inventory.find((i) => i.id === ing.itemId);
+            const item =
+              get().inventory.find((i) => i.catalogId === ing.itemId && i.storeId === storeId) ||
+              get().inventory.find((i) => i.id === ing.itemId); // legacy fallback
             if (item) {
               const { getConversionFactor } = require('../utils/unitConversion');
               const factor = getConversionFactor(ing.unit, item.unit);
               const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
               get().adjustStock(
-                ing.itemId,
+                item.id,
                 Math.max(0, item.currentStock - convertedQty * saleItem.qtySold),
                 'POS import'
               );
@@ -1052,8 +1074,14 @@ export const useStore = create<FullStore>((set, get) => ({
   // getConversionFactor) → counted unit (via subUnitSize).
   getIngredientLineCost: (ing) => {
     const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
-    const item = get().inventory.find((i) => i.id === ing.itemId) ||
-      get().inventory.find((i) => i.name.toLowerCase() === (ing.itemName || '').toLowerCase());
+    // After the catalog refactor `ing.itemId` is a catalog id. Resolve to
+    // the CURRENT STORE's per-store inventory_items row to get
+    // cost_per_unit / vendor / case packing.
+    const storeId = get().currentStore?.id;
+    const item =
+      get().inventory.find((i) => i.catalogId === ing.itemId && i.storeId === storeId) ||
+      get().inventory.find((i) => i.id === ing.itemId) || // legacy item_id callers
+      get().inventory.find((i) => i.name.toLowerCase() === (ing.itemName || '').toLowerCase() && i.storeId === storeId);
     if (!item) return 0;
     // Short-circuit: recipe uses the counted unit directly (e.g. 1 each, 2 bags)
     if (ing.unit === item.unit) return item.costPerUnit * ing.quantity;
@@ -1066,9 +1094,11 @@ export const useStore = create<FullStore>((set, get) => ({
       const qtyInCountedUnit = subUnitSize > 0 ? qtyInSubUnit / subUnitSize : qtyInSubUnit;
       return item.costPerUnit * qtyInCountedUnit;
     }
-    // Fallback: ingredient_conversions for abstract units (e.g. 1 each = 400g)
+    // Fallback: ingredient_conversions for abstract units (e.g. 1 each = 400g).
+    // Conversions live at brand level now (keyed by catalog id).
     const allConversions = get().ingredientConversions || [];
-    const conv = allConversions.find((c: any) => c.inventoryItemId === item.id);
+    const conv = allConversions.find((c: any) =>
+      c.inventoryItemId === item.catalogId || c.inventoryItemId === item.id);
     if (conv && conv.conversionFactor > 0) {
       const costPerBase = item.costPerUnit / conv.conversionFactor;
       const base = smartToBase(ing.quantity, ing.unit);

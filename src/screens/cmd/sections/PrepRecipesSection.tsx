@@ -32,9 +32,11 @@ export default function PrepRecipesSection() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('prep.tsx');
 
+  // Prep recipes are brand-level after the catalog refactor — every
+  // store sees the same set. Just filter to the current version.
   const storePrepRecipes = React.useMemo(
-    () => prepRecipes.filter((p) => p.storeId === currentStore.id && p.isCurrent !== false),
-    [prepRecipes, currentStore.id],
+    () => prepRecipes.filter((p) => p.isCurrent !== false),
+    [prepRecipes],
   );
 
   React.useEffect(() => {
@@ -51,7 +53,12 @@ export default function PrepRecipesSection() {
     return (sel.ingredients || []).map((ing) => {
       const isPrep = (ing.type ?? 'raw') === 'prep';
       const subRecipe = isPrep ? prepRecipes.find((p) => p.id === ing.itemId) : undefined;
-      const item = !isPrep ? inventory.find((i) => i.id === ing.itemId) : undefined;
+      // Raw ingredient: ing.itemId is a catalog id (brand-level). Resolve
+      // to current store's inventory row for cost / par display.
+      const item = !isPrep
+        ? (inventory.find((i) => i.catalogId === ing.itemId && i.storeId === currentStore.id) ||
+           inventory.find((i) => i.id === ing.itemId))
+        : undefined;
       // For raw ingredients we delegate to getIngredientLineCost; for sub-recipes
       // we estimate via cost-per-unit × converted quantity.
       let lineCost = 0;

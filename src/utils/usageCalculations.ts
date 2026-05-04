@@ -29,9 +29,12 @@ export function calculateIngredientUsage(
   conversions?: IngredientConversion[],
 ): Map<string, UsageAccum> {
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
-  const itemMap = new Map(
-    inventory.filter((i) => i.storeId === storeId).map((i) => [i.id, i]),
-  );
+  // After the catalog refactor, recipe ingredients reference catalog ids.
+  // Look up the per-store inventory row by catalogId; legacy id-keyed
+  // refs fall through to itemById.
+  const storeItems = inventory.filter((i) => i.storeId === storeId);
+  const itemByCatalog = new Map(storeItems.filter((i) => i.catalogId).map((i) => [i.catalogId, i]));
+  const itemById = new Map(storeItems.map((i) => [i.id, i]));
   const usage = new Map<string, UsageAccum>();
 
   const imports = posImports.filter(
@@ -44,20 +47,23 @@ export function calculateIngredientUsage(
       const recipe = recipeMap.get(sale.recipeId);
       if (!recipe) continue;
       for (const ing of recipe.ingredients) {
-        const item = itemMap.get(ing.itemId);
+        const item = itemByCatalog.get(ing.itemId) || itemById.get(ing.itemId);
         const rawQty = ing.quantity * sale.qtySold;
         const converted = convertToItemUnit(rawQty, ing.unit, item, conversions);
         const isMismatch = converted === null;
         const qty = converted ?? 0;
 
-        const existing = usage.get(ing.itemId);
+        // Aggregate by catalog id (brand-stable) so usage rolls up the
+        // same key regardless of which store's row we landed on.
+        const aggKey = item?.catalogId || ing.itemId;
+        const existing = usage.get(aggKey);
         if (existing) {
           existing.totalUsed += qty;
           if (isMismatch) existing.unitMismatch = true;
         } else {
-          usage.set(ing.itemId, {
-            itemId: ing.itemId,
-            itemName: ing.itemName,
+          usage.set(aggKey, {
+            itemId: aggKey,
+            itemName: ing.itemName || item?.name || '',
             unit: item?.unit ?? ing.unit,
             totalUsed: qty,
             unitMismatch: isMismatch,
@@ -181,6 +187,8 @@ export function buildReconciliationLines(
   const usage = calculateIngredientUsage(posImports, recipes, inventory, storeId, startDate, endDate, conversions);
 
   // Build a map of POS qty sold per ingredient for display, summed across the range.
+  // ingredient.itemId is now a catalog id; we key the maps the same way and
+  // resolve to per-store inventory row at lookup time.
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   const posQtyPerItem = new Map<string, number>();
   const rangeImports = posImports.filter(
@@ -215,9 +223,14 @@ export function buildReconciliationLines(
   }
 
   return eodSub.entries.map((entry) => {
+    // Resolve catalog id from the per-store inventory row so we look up
+    // usage / pos-qty / recipe descriptions by the same key the recipes use.
+    const invRow = inventory.find((i) => i.id === entry.itemId);
+    const catalogId = invRow?.catalogId;
+    const lookupKey = catalogId || entry.itemId;
     // Opening stock is EOD-end-of-day before the range began.
     const openingStock = getOpeningStock(entry.itemId, startDate, storeId, eodSubmissions, inventory);
-    const usageData = usage.get(entry.itemId);
+    const usageData = usage.get(lookupKey);
     const expectedDeduction = usageData ? Math.round(usageData.totalUsed * 100) / 100 : 0;
     const expectedRemaining = Math.round((openingStock - expectedDeduction) * 100) / 100;
     const variance = Math.round((entry.actualRemaining - expectedRemaining) * 100) / 100;
@@ -248,8 +261,8 @@ export function buildReconciliationLines(
     return {
       itemId: entry.itemId,
       itemName: entry.itemName,
-      posQtySold: posQtyPerItem.get(entry.itemId) || 0,
-      recipeUsed: recipeUsagePerItem.get(entry.itemId) || 'No POS data',
+      posQtySold: posQtyPerItem.get(lookupKey) || 0,
+      recipeUsed: recipeUsagePerItem.get(lookupKey) || 'No POS data',
       expectedDeduction,
       openingStock,
       eodRemaining: entry.actualRemaining,

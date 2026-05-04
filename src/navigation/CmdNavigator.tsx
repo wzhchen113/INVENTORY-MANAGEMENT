@@ -77,6 +77,7 @@ function DesktopShell() {
 
 function AuthedRoot() {
   const storeId = useStore((s) => s.currentStore?.id);
+  const brandId = useStore((s) => s.brand?.id);
   const breakpoint = useBreakpoint();
 
   // Shared realtime debounce (mobile + desktop both consume).
@@ -92,7 +93,7 @@ function AuthedRoot() {
   useEffect(() => () => {
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
   }, []);
-  useRealtimeSync(storeId, handleSync);
+  useRealtimeSync(storeId, handleSync, brandId);
 
   return (
     <>

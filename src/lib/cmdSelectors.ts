@@ -68,12 +68,21 @@ export type RecipeUsage = {
   soldPerWeek?: number;
 };
 
+/**
+ * After the catalog refactor, recipe ingredients reference catalog ids
+ * (brand-level), not per-store inventory_items.id. Callers that pass an
+ * inventory_items.id are auto-resolved to its catalog_id via the
+ * inventory[] lookup, so old call sites keep working.
+ */
 export function getRecipesUsingItem(
-  itemId: string,
+  itemIdOrCatalogId: string,
   recipes: Recipe[],
   prepRecipes: PrepRecipe[],
   posImports: POSImport[],
+  inventory?: InventoryItem[],
 ): RecipeUsage[] {
+  const resolvedCatalogId =
+    inventory?.find((i) => i.id === itemIdOrCatalogId)?.catalogId || itemIdOrCatalogId;
   const out: RecipeUsage[] = [];
   // last-7-days POS sales by recipeId
   const sevenDaysAgoISO = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -86,7 +95,9 @@ export function getRecipesUsingItem(
     }
   }
   for (const r of recipes) {
-    const ing = (r.ingredients || []).find((i) => i.itemId === itemId);
+    const ing = (r.ingredients || []).find(
+      (i) => i.itemId === resolvedCatalogId || i.itemId === itemIdOrCatalogId,
+    );
     if (!ing) continue;
     out.push({
       kind: 'recipe',
@@ -98,7 +109,9 @@ export function getRecipesUsingItem(
   }
   for (const p of prepRecipes) {
     const ing = (p.ingredients || []).find(
-      (i) => i.itemId === itemId && (i.type ?? 'raw') === 'raw',
+      (i) =>
+        (i.itemId === resolvedCatalogId || i.itemId === itemIdOrCatalogId) &&
+        (i.type ?? 'raw') === 'raw',
     );
     if (!ing) continue;
     out.push({
@@ -115,9 +128,10 @@ export function useRecipesUsingItem(itemId: string): RecipeUsage[] {
   const recipes = useStore((s) => s.recipes);
   const prepRecipes = useStore((s) => s.prepRecipes);
   const posImports = useStore((s) => s.posImports);
+  const inventory = useStore((s) => s.inventory);
   return useMemo(
-    () => getRecipesUsingItem(itemId, recipes, prepRecipes, posImports),
-    [itemId, recipes, prepRecipes, posImports],
+    () => getRecipesUsingItem(itemId, recipes, prepRecipes, posImports, inventory),
+    [itemId, recipes, prepRecipes, posImports, inventory],
   );
 }
 

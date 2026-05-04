@@ -6,6 +6,7 @@ import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
 import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
+import { usePaletteAction } from '../../../lib/paletteAction';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
@@ -51,7 +52,8 @@ export default function EODCountSection() {
   const [selectedIso, setSelectedIso] = React.useState<string>(() => new Date().toISOString().slice(0, 10));
   const [selectedVendorId, setSelectedVendorId] = React.useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
-  const [counts, setCounts] = React.useState<Record<string, string>>({});
+  const [caseCounts, setCaseCounts] = React.useState<Record<string, string>>({});
+  const [unitCounts, setUnitCounts] = React.useState<Record<string, string>>({});
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [tabId, setTabId] = React.useState('count.tsx');
@@ -60,6 +62,44 @@ export default function EODCountSection() {
   // current vendor/category filter so the user sees their addition.
   const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
   const [pendingFocusItem, setPendingFocusItem] = React.useState<string | null>(null);
+  // Refs to per-row case-count inputs, keyed by itemId. Used by both the
+  // AddCountModal jump and the inventory-detail "+ COUNT" button to focus
+  // the right cell after the row mounts.
+  const caseInputRefs = React.useRef<Record<string, TextInput | null>>({});
+
+  // Consume cross-section "+ COUNT" navigation from item-detail. The layout
+  // sets section to 'EODCount' but leaves the action in place specifically so
+  // we can read eodFocusItemId here and act on it after mount.
+  const pendingPaletteAction = usePaletteAction((s) => s.pending);
+  React.useEffect(() => {
+    const id = pendingPaletteAction?.eodFocusItemId;
+    if (!id) return;
+    setAdditionalItems((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    setPendingFocusItem(id);
+    usePaletteAction.getState().consume();
+  }, [pendingPaletteAction]);
+
+  // After the focused row mounts, focus its input + clear the pending flag.
+  React.useEffect(() => {
+    if (!pendingFocusItem) return;
+    // Two RAFs so the row's TextInput has actually mounted and registered its
+    // ref before we try to focus.
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const ref = caseInputRefs.current[pendingFocusItem];
+        if (ref && typeof ref.focus === 'function') {
+          ref.focus();
+        }
+        setPendingFocusItem(null);
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pendingFocusItem]);
 
   // ── Week sidebar data ───────────────────────────────────────
   const week: DayCell[] = React.useMemo(() => {
@@ -143,37 +183,55 @@ export default function EODCountSection() {
   }, [filteredItems]);
 
   // ── Counts/totals ───────────────────────────────────────────
-  const countedNum = filteredItems.filter((i) => (counts[i.id] ?? '').trim() !== '').length;
+  // total per item = cases × caseQty + loose units. caseQty defaults to 1
+  // for items sold individually (BOX/CASE input is hidden/disabled there).
+  const itemTotal = (i: typeof filteredItems[0]) => {
+    const c = parseFloat(caseCounts[i.id] || '');
+    const u = parseFloat(unitCounts[i.id] || '');
+    const cases = isNaN(c) ? 0 : c;
+    const units = isNaN(u) ? 0 : u;
+    return cases * (i.caseQty || 1) + units;
+  };
+  const hasEntry = (id: string) =>
+    (caseCounts[id] ?? '').trim() !== '' || (unitCounts[id] ?? '').trim() !== '';
+  const countedNum = filteredItems.filter((i) => hasEntry(i.id)).length;
   const total = filteredItems.length;
   const estValue = filteredItems.reduce((s, i) => {
-    const v = parseFloat(counts[i.id] || '');
-    if (isNaN(v)) return s;
-    return s + v * i.costPerUnit;
+    if (!hasEntry(i.id)) return s;
+    return s + itemTotal(i) * i.costPerUnit;
   }, 0);
   const variance = filteredItems.reduce((s, i) => {
-    const v = parseFloat(counts[i.id] || '');
-    if (isNaN(v)) return s;
-    return s + (v - i.currentStock);
+    if (!hasEntry(i.id)) return s;
+    return s + (itemTotal(i) - i.currentStock);
   }, 0);
 
   // Build the submission payload from current entered items. Returns null if
   // no qty was entered (avoids empty-submit DB writes).
   const buildSubmission = (status: 'draft' | 'submitted') => {
-    const enteredItems = filteredItems.filter((i) => (counts[i.id] ?? '').trim() !== '');
+    const enteredItems = filteredItems.filter((i) => hasEntry(i.id));
     if (enteredItems.length === 0) return null;
     const now = new Date().toISOString();
-    const entries: Omit<EODEntry, 'id'>[] = enteredItems.map((i) => ({
-      itemId: i.id,
-      itemName: i.name,
-      actualRemaining: parseFloat(counts[i.id]) || 0,
-      unit: i.unit,
-      submittedBy: currentUser?.name || 'unknown',
-      submittedByUserId: currentUser?.id || '',
-      timestamp: now,
-      date: selectedIso,
-      storeId: currentStore.id,
-      notes: notes[i.id] || '',
-    }));
+    const entries: Omit<EODEntry, 'id'>[] = enteredItems.map((i) => {
+      const cRaw = parseFloat(caseCounts[i.id] || '');
+      const uRaw = parseFloat(unitCounts[i.id] || '');
+      const cases = isNaN(cRaw) ? undefined : cRaw;
+      const units = isNaN(uRaw) ? undefined : uRaw;
+      const total = (cases ?? 0) * (i.caseQty || 1) + (units ?? 0);
+      return {
+        itemId: i.id,
+        itemName: i.name,
+        actualRemaining: total,
+        actualRemainingCases: cases,
+        actualRemainingEach: units,
+        unit: i.unit,
+        submittedBy: currentUser?.name || 'unknown',
+        submittedByUserId: currentUser?.id || '',
+        timestamp: now,
+        date: selectedIso,
+        storeId: currentStore.id,
+        notes: notes[i.id] || '',
+      };
+    });
     return {
       date: selectedIso,
       storeId: currentStore.id,
@@ -220,7 +278,8 @@ export default function EODCountSection() {
     }
     setSubmitting(true);
     submitEOD(submission);
-    setCounts({});
+    setCaseCounts({});
+    setUnitCounts({});
     setNotes({});
     try {
       await submitEODCount(submission);
@@ -401,6 +460,8 @@ export default function EODCountSection() {
               </Text>
             ) : null}
           </View>
+          {/* Divider between vendor pills and category chips */}
+          <View style={{ height: 1, backgroundColor: C.border, borderStyle: 'dashed', borderTopWidth: 1, borderTopColor: C.border, opacity: 0.7 }} />
           {/* Category chips */}
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
             {categories.map((c) => {
@@ -447,8 +508,9 @@ export default function EODCountSection() {
           {/* Column header */}
           <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: 14 }}>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>item · pack</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 90, textAlign: 'center' }]}>count</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 220 }]}>note</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'center' }]}>box/case</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'center' }]}>count</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 180 }]}>note</Text>
           </View>
           {grouped.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
@@ -467,8 +529,12 @@ export default function EODCountSection() {
                   </Text>
                 </View>
                 {items.map((it, i) => {
-                  const v = counts[it.id] || '';
-                  const focused = (counts[it.id] ?? '').trim() !== '';
+                  const cVal = caseCounts[it.id] || '';
+                  const uVal = unitCounts[it.id] || '';
+                  const cFocused = cVal.trim() !== '';
+                  const uFocused = uVal.trim() !== '';
+                  const hasCase = (it.caseQty || 0) > 1;
+                  const total = itemTotal(it);
                   return (
                     <View
                       key={it.id}
@@ -487,14 +553,53 @@ export default function EODCountSection() {
                           {it.name}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
-                          {it.unit}{it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
-                          {it.currentStock > 0 ? ` · expected ${it.currentStock} ${it.unit}` : ''}
+                          {it.unit}{hasCase ? ` · case ${it.caseQty}` : ''}{it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
+                          {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
                         </Text>
                       </View>
-                      <View style={{ width: 90, alignItems: 'center' }}>
+                      {/* BOX/CASE input — disabled when item has no case info */}
+                      <View style={{ width: 80, alignItems: 'center' }}>
                         <TextInput
-                          value={v}
-                          onChangeText={(text) => setCounts((p) => ({ ...p, [it.id]: text }))}
+                          ref={(r) => {
+                            // Capture the case-input ref only when this item
+                            // actually has cases; otherwise the unit input below
+                            // gets the focus ref (see ref={...} on the unit input).
+                            if (hasCase) caseInputRefs.current[it.id] = r;
+                          }}
+                          value={hasCase ? cVal : ''}
+                          editable={hasCase}
+                          onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
+                          placeholder={hasCase ? '0' : '—'}
+                          placeholderTextColor={C.fg3}
+                          keyboardType="numeric"
+                          style={{
+                            width: 70,
+                            height: 30,
+                            textAlign: 'center',
+                            fontFamily: mono(600),
+                            fontSize: 13,
+                            color: hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
+                            backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
+                            borderWidth: 1,
+                            borderColor: cFocused ? C.accent : C.border,
+                            borderRadius: CmdRadius.sm,
+                            opacity: hasCase ? 1 : 0.5,
+                            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                          }}
+                        />
+                        <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
+                          {hasCase ? `× ${it.caseQty}` : '—'}
+                        </Text>
+                      </View>
+                      {/* Loose units input */}
+                      <View style={{ width: 80, alignItems: 'center' }}>
+                        <TextInput
+                          ref={(r) => {
+                            // Items without case info — focus the unit input.
+                            if (!hasCase) caseInputRefs.current[it.id] = r;
+                          }}
+                          value={uVal}
+                          onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
                           placeholder="0"
                           placeholderTextColor={C.fg3}
                           keyboardType="numeric"
@@ -504,10 +609,10 @@ export default function EODCountSection() {
                             textAlign: 'center',
                             fontFamily: mono(600),
                             fontSize: 13,
-                            color: focused ? C.fg : C.fg2,
-                            backgroundColor: focused ? C.panel2 : C.panel,
+                            color: uFocused ? C.fg : C.fg2,
+                            backgroundColor: uFocused ? C.panel2 : C.panel,
                             borderWidth: 1,
-                            borderColor: focused ? C.accent : C.border,
+                            borderColor: uFocused ? C.accent : C.border,
                             borderRadius: CmdRadius.sm,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                           }}
@@ -522,7 +627,7 @@ export default function EODCountSection() {
                         placeholder="Note…"
                         placeholderTextColor={C.fg3}
                         style={{
-                          width: 220,
+                          width: 180,
                           height: 30,
                           paddingHorizontal: 10,
                           fontFamily: mono(400),

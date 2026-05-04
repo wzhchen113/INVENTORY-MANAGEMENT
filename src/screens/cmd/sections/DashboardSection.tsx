@@ -73,6 +73,46 @@ export default function DashboardSection() {
     return days.some((d) => d != null) ? days : [29.8, 30.2, 31.4, 32.1, 30.6, 30.9, 31.8, 32.4, 31.2, 30.4, 31.0, 31.6, 32.0, 31.4];
   }, [eodSubmissions, currentStore.id]);
 
+  // Period stats (current/avg/min/max/days_above) + axis label data for the
+  // FOOD_COST_TREND chart. Derived from foodCostTrend so the chart card and
+  // the stats row always agree.
+  const TARGET = 32;
+  const trendStats = React.useMemo(() => {
+    const nonNull = foodCostTrend.filter((v): v is number => v != null);
+    if (nonNull.length === 0) {
+      return { current: null, avg: null, min: null, max: null, daysAbove: 0, total: 14 };
+    }
+    const last = [...foodCostTrend].reverse().find((v) => v != null) as number;
+    const sum = nonNull.reduce((s, v) => s + v, 0);
+    return {
+      current: last,
+      avg: sum / nonNull.length,
+      min: Math.min(...nonNull),
+      max: Math.max(...nonNull),
+      daysAbove: nonNull.filter((v) => v > TARGET).length,
+      total: nonNull.length,
+    };
+  }, [foodCostTrend]);
+
+  const trendAxisLabels = React.useMemo(() => {
+    const fmt = (date: Date) => date.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+    const today = new Date();
+    const fourteenDaysAgo = new Date(today);
+    fourteenDaysAgo.setDate(today.getDate() - 13);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
+    return {
+      // Y axis: 5 ticks from a generous yMax (chart uses par * 1.1 as a floor)
+      // down to 0. Match StockHistoryChart's yMax = max(par*1.1, ...points).
+      yAxis: ['40%', '30%', '20%', '10%', '0%'],
+      xAxis: [
+        { atIndex: 0, label: fmt(fourteenDaysAgo) },
+        { atIndex: 7, label: fmt(sevenDaysAgo) },
+        { atIndex: 13, label: fmt(today) },
+      ],
+    };
+  }, []);
+
   // Recent activity — last 6 events for the current store
   const recentActivity = React.useMemo(
     () => auditLog.filter((e) => e.storeId === currentStore.id).slice(-6).reverse(),
@@ -140,12 +180,61 @@ export default function DashboardSection() {
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <SectionCaption tone="fg3" size={10.5}>food_cost_trend.dat</SectionCaption>
-              <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>14d</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+                14d · target {TARGET}%
+              </Text>
             </View>
-            <StockHistoryChart data={foodCostTrend} par={32} width={520} height={140} gridLines={4} />
+            <StockHistoryChart
+              data={foodCostTrend}
+              par={TARGET}
+              width={520}
+              height={160}
+              gridLines={4}
+              yAxisLabels={trendAxisLabels.yAxis}
+              xAxisLabels={trendAxisLabels.xAxis}
+              interactive
+              formatTooltip={(v) => `${v.toFixed(1)}%`}
+            />
+            {/* Period stats row */}
+            {trendStats.current != null ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 2 }}>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                  current{' '}
+                  <Text style={{ color: trendStats.current > TARGET ? C.warn : C.ok, fontFamily: mono(700) }}>
+                    {trendStats.current.toFixed(1)}%
+                  </Text>
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                  avg{' '}
+                  <Text style={{ color: (trendStats.avg ?? 0) > TARGET ? C.warn : C.ok, fontFamily: mono(700) }}>
+                    {trendStats.avg!.toFixed(1)}%
+                  </Text>
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                  min <Text style={{ color: C.fg2, fontFamily: mono(700) }}>{trendStats.min!.toFixed(1)}%</Text>
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                  max <Text style={{ color: C.fg2, fontFamily: mono(700) }}>{trendStats.max!.toFixed(1)}%</Text>
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                  days_above{' '}
+                  <Text style={{ color: trendStats.daysAbove > 0 ? C.warn : C.ok, fontFamily: mono(700) }}>
+                    {trendStats.daysAbove}/{trendStats.total}
+                  </Text>
+                </Text>
+              </View>
+            ) : (
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                no data — needs POS imports
+              </Text>
+            )}
             <View style={{ flexDirection: 'row', gap: 14 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                ■ daily %   — target 32%
+                ■ daily %   — target {TARGET}%
               </Text>
             </View>
           </View>

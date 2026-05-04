@@ -6,6 +6,18 @@
 // on first run and on a timer; passing `since` returns only rows whose
 // updated_at > since (delta sync).
 //
+// Schema model (post brand-catalog refactor):
+//   - ingredients are per-store inventory_items rows JOINed to their
+//     brand-level catalog_ingredients row for name/unit/category/case
+//     packing. Each row exposes both `id` (per-store) and `catalog_id`
+//     (brand-stable, for recipe joins).
+//   - vendors and recipes are brand-scoped; the function resolves the
+//     store's brand_id and queries by it.
+//
+// ⚠️ API CHANGE (post-refactor): consumers that previously joined
+//   recipe.ingredients[].item_id to inventory.id must switch to
+//   recipe.ingredients[].catalog_id matching inventory.catalog_id.
+//
 // Auth: Bearer STAFF_SERVICE_TOKEN. The staff app's *backend* signs each
 // call; admin trusts the backend's identity assertion (in this endpoint
 // the assertion is just "give me catalog for store X" — no per-user
@@ -71,10 +83,11 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // Resolve store
+  // Resolve store + its brand. Brand-level data (recipes, vendors) is keyed
+  // by brand_id; per-store data (inventory_items) by store_id.
   const { data: store, error: storeErr } = await admin
     .from("stores")
-    .select("id, name")
+    .select("id, name, brand_id")
     .eq("id", storeId)
     .maybeSingle();
   if (storeErr) {
@@ -89,36 +102,45 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  const brandId = store.brand_id as string | null;
+  if (!brandId) {
+    return new Response(JSON.stringify({ error: "store has no brand_id — run brand catalog migrations" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
-  // Build queries with optional `since` filter
+  // inventory_items is per-store state only; name/unit/category/case packing
+  // come from catalog_ingredients via JOIN.
   let ingQuery = admin
     .from("inventory_items")
     .select(
-      "id, store_id, name, category, unit, par_level, current_stock, cost_per_unit, vendor_id, case_qty, case_price, sub_unit_size, sub_unit_unit, updated_at",
+      "id, store_id, catalog_id, vendor_id, par_level, current_stock, cost_per_unit, case_price, updated_at, " +
+        "catalog:catalog_ingredients(name, unit, category, case_qty, sub_unit_size, sub_unit_unit)",
     )
     .eq("store_id", storeId);
   if (since) ingQuery = ingQuery.gt("updated_at", since);
 
-  // Vendors aren't store-scoped in this schema, so ship the lot. Filter by
-  // updated_at if since is set so deltas stay small.
-  let vendorQuery = admin.from("vendors").select("id, name, lead_time_days, order_cutoff_time, delivery_days");
-  // vendors table doesn't have updated_at in this schema — skip since for vendors
+  // Vendors are brand-scoped after the catalog refactor.
+  const vendorQuery = admin
+    .from("vendors")
+    .select("id, name, lead_time_days, order_cutoff_time, delivery_days")
+    .eq("brand_id", brandId);
 
+  // Recipes are brand-level. recipe_ingredients carry catalog_id (the
+  // brand-stable join key) — consumers join inventory.catalog_id.
   const [ingRes, venRes, catRes, recRes] = await Promise.all([
-    ingQuery.order("name"),
+    ingQuery,    // can't .order('name') anymore — name is on the joined catalog
     vendorQuery.order("name"),
     admin.from("ingredient_categories").select("name").order("name"),
-    // Menu recipes (for portion lookups when staff counts a recipe). Embed
-    // recipe_ingredients (with normalized base_quantity/base_unit) and
-    // recipe_prep_items so portion math has everything it needs in one call.
     admin
       .from("recipes")
       .select(
-        "id, store_id, menu_item, category, sell_price, " +
-          "recipe_ingredients(item_id, quantity, unit, base_quantity, base_unit), " +
+        "id, brand_id, menu_item, category, sell_price, " +
+          "recipe_ingredients(catalog_id, quantity, unit, base_quantity, base_unit), " +
           "recipe_prep_items(prep_recipe_id, quantity, unit)",
       )
-      .eq("store_id", storeId),
+      .eq("brand_id", brandId),
   ]);
 
   if (ingRes.error || venRes.error || catRes.error || recRes.error) {
@@ -141,39 +163,44 @@ Deno.serve(async (req: Request) => {
     if (ts && (!etag || ts > etag)) etag = ts;
   }
 
+  const catalogOf = (row: any) => (Array.isArray(row.catalog) ? row.catalog[0] : row.catalog) || {};
   const body = {
     etag,
-    store: { id: store.id, name: store.name },
-    ingredients: (ingRes.data || []).map((r) => ({
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      unit: r.unit,
-      par_level: r.par_level,
-      current_stock: r.current_stock,
-      cost_per_unit: r.cost_per_unit,
-      vendor_id: r.vendor_id,
-      case_qty: r.case_qty,
-      case_price: r.case_price,
-      sub_unit_size: r.sub_unit_size,
-      sub_unit_unit: r.sub_unit_unit,
-      updated_at: r.updated_at,
-    })),
-    vendors: (venRes.data || []).map((v) => ({
+    store: { id: store.id, name: store.name, brand_id: brandId },
+    ingredients: (ingRes.data || []).map((r: any) => {
+      const cat = catalogOf(r);
+      return {
+        id: r.id,                     // per-store inventory_items.id
+        catalog_id: r.catalog_id,     // brand-stable join key for recipes
+        name: cat.name,
+        category: cat.category,
+        unit: cat.unit,
+        par_level: r.par_level,
+        current_stock: r.current_stock,
+        cost_per_unit: r.cost_per_unit,
+        vendor_id: r.vendor_id,
+        case_qty: cat.case_qty,
+        case_price: r.case_price,
+        sub_unit_size: cat.sub_unit_size,
+        sub_unit_unit: cat.sub_unit_unit,
+        updated_at: r.updated_at,
+      };
+    }),
+    vendors: (venRes.data || []).map((v: any) => ({
       id: v.id,
       name: v.name,
       lead_time_days: v.lead_time_days,
       order_cutoff_time: v.order_cutoff_time,
       delivery_days: v.delivery_days,
     })),
-    categories: (catRes.data || []).map((c) => c.name),
+    categories: (catRes.data || []).map((c: any) => c.name),
     recipes: (recRes.data || []).map((r: any) => ({
       id: r.id,
       menu_item: r.menu_item,
       category: r.category,
       sell_price: r.sell_price,
       ingredients: (r.recipe_ingredients || []).map((ing: any) => ({
-        item_id: ing.item_id,
+        catalog_id: ing.catalog_id,
         quantity: ing.quantity,
         unit: ing.unit,
         base_quantity: ing.base_quantity,

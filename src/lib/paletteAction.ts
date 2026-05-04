@@ -10,6 +10,10 @@ import { create } from 'zustand';
 interface PendingAction {
   section: string;
   selectedName: string | null; // lowercase — matches InventoryDesktopLayout's keying
+  // When set together with section='EODCount', EODCountSection adds the item
+  // to its worksheet and focuses the count input. Used by the inventory-detail
+  // "+ COUNT" button to take the user to a pre-loaded worksheet.
+  eodFocusItemId?: string;
 }
 
 interface State {

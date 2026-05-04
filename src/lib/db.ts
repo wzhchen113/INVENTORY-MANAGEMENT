@@ -11,8 +11,9 @@ export async function fetchStores(): Promise<Store[]> {
   const { data, error } = await supabase.from('stores').select('*').eq('status', 'active');
   if (error) throw error;
   return (data || []).map((s: any) => ({
-    id: s.id, name: s.name, address: s.address, status: s.status,
-    // Column may not exist yet if the EOD-deadline migration hasn't been run; fall back to undefined.
+    id: s.id,
+    brandId: s.brand_id || '',
+    name: s.name, address: s.address, status: s.status,
     eodDeadlineTime: s.eod_deadline_time || undefined,
   }));
 }
@@ -40,29 +41,110 @@ export async function deleteStore(id: string): Promise<void> {
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
 export async function fetchInventory(storeId?: string): Promise<InventoryItem[]> {
+  // name/unit/category/case_qty/sub_unit_* are hydrated from
+  // catalog_ingredients via the JOIN aliased as `catalog`. The category
+  // column is gone from inventory_items so we can no longer order by
+  // it server-side; UI consumers sort client-side anyway.
   let query = supabase
     .from('inventory_items')
-    .select(`*, vendor:vendors(name), updater:profiles!last_updated_by(name)`)
-    .order('category', { ascending: true });
+    .select(`*,
+      vendor:vendors(name),
+      updater:profiles!last_updated_by(name),
+      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
+    .order('id', { ascending: true });
   if (storeId) query = query.eq('store_id', storeId);
   const { data, error } = await query;
   if (error) throw error;
   return (data || []).map(mapItem);
 }
 
+/**
+ * Find or create a catalog_ingredients row for the given brand by
+ * case-insensitive name match. Returns the catalog id. Used by the
+ * createInventoryItem path so the legacy "create new ingredient" UX
+ * (IngredientFormDrawer) keeps working without first having to
+ * manually create the catalog row.
+ */
+async function ensureCatalogIngredient(brandId: string, fields: {
+  name: string;
+  unit?: string;
+  category?: string;
+  caseQty?: number;
+  subUnitSize?: number;
+  subUnitUnit?: string;
+  defaultCost?: number;
+  defaultCasePrice?: number;
+}): Promise<string> {
+  if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
+  // Case-insensitive exact-match lookup. Escape PostgreSQL LIKE wildcards
+  // (`_`, `%`, `\`) in the user-supplied name so an ingredient called
+  // "Cleaner_Concentrate" can't accidentally match "CleanerXConcentrate".
+  // Aligns with the unique index on (brand_id, lower(name)).
+  const safeName = fields.name.replace(/([\\_%])/g, '\\$1');
+  const { data: existing } = await supabase
+    .from('catalog_ingredients')
+    .select('id')
+    .eq('brand_id', brandId)
+    .ilike('name', safeName)
+    .maybeSingle();
+  if (existing?.id) return existing.id;
+  const { data, error } = await supabase
+    .from('catalog_ingredients')
+    .insert({
+      brand_id: brandId,
+      name: fields.name,
+      unit: fields.unit || '',
+      category: fields.category || null,
+      case_qty: fields.caseQty ?? 1,
+      sub_unit_size: fields.subUnitSize ?? 1,
+      sub_unit_unit: fields.subUnitUnit || '',
+      default_cost: fields.defaultCost ?? 0,
+      default_case_price: fields.defaultCasePrice ?? 0,
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/**
+ * Resolve the brand for a given store id — small lookup used by
+ * createInventoryItem when the catalog needs to be ensured but the
+ * caller didn't pass a brandId explicitly.
+ */
+async function brandIdForStore(storeId: string): Promise<string> {
+  const { data } = await supabase.from('stores').select('brand_id').eq('id', storeId).single();
+  return data?.brand_id || '';
+}
+
 export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
-  // Sanitize FK fields — empty strings break UUID foreign keys
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
   const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
   if (!storeId) throw new Error('Invalid store ID');
+
+  // Resolve catalog id. After Phase 3 the catalog fields (name/unit/category/
+  // case_qty/sub_unit_*) live on catalog_ingredients only, so we must have a
+  // catalog row before inserting the per-store inventory_items row.
+  let catalogId = item.catalogId;
+  if (!catalogId) {
+    const brandId = await brandIdForStore(storeId);
+    catalogId = await ensureCatalogIngredient(brandId, {
+      name: item.name,
+      unit: item.unit,
+      category: item.category,
+      caseQty: item.caseQty,
+      subUnitSize: item.subUnitSize,
+      subUnitUnit: item.subUnitUnit,
+      defaultCost: item.costPerUnit,
+      defaultCasePrice: item.casePrice,
+    });
+  }
 
   const { data, error } = await supabase
     .from('inventory_items')
     .insert({
       store_id: storeId,
-      name: item.name,
-      category: item.category,
-      unit: item.unit,
+      catalog_id: catalogId,
       cost_per_unit: item.costPerUnit,
       current_stock: item.currentStock,
       par_level: item.parLevel,
@@ -74,39 +156,50 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
       last_updated_by: null,
       eod_remaining: item.currentStock || 0,
       case_price: item.casePrice || 0,
-      case_qty: item.caseQty || 1,
-      sub_unit_size: item.subUnitSize || 1,
-      sub_unit_unit: item.subUnitUnit || '',
     })
-    .select()
+    .select(`*,
+      vendor:vendors(name),
+      updater:profiles!last_updated_by(name),
+      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
     .single();
   if (error) throw error;
   return mapItem(data);
 }
 
 export async function updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<void> {
-  // Skip if id is a local temp ID (not a UUID)
   if (!id || id.length < 10) return;
 
+  // Catalog-level fields (name/unit/category/case_qty/sub_unit_*) propagate
+  // to ALL stores via catalog_ingredients. Per-store fields (cost, vendor,
+  // par, stock) stay on inventory_items.
+  const catalogUpdates: any = {};
+  if (updates.name !== undefined) catalogUpdates.name = updates.name;
+  if (updates.unit !== undefined) catalogUpdates.unit = updates.unit;
+  if (updates.category !== undefined) catalogUpdates.category = updates.category;
+  if (updates.caseQty !== undefined) catalogUpdates.case_qty = updates.caseQty;
+  if (updates.subUnitSize !== undefined) catalogUpdates.sub_unit_size = updates.subUnitSize;
+  if (updates.subUnitUnit !== undefined) catalogUpdates.sub_unit_unit = updates.subUnitUnit;
+  if (Object.keys(catalogUpdates).length > 0) {
+    catalogUpdates.updated_at = new Date().toISOString();
+    // Resolve the catalog_id for this row before updating
+    const { data: row } = await supabase.from('inventory_items').select('catalog_id').eq('id', id).single();
+    const catalogId = row?.catalog_id;
+    if (catalogId) {
+      await supabase.from('catalog_ingredients').update(catalogUpdates).eq('id', catalogId);
+    }
+  }
+
   const vendorId = updates.vendorId && updates.vendorId.length > 10 ? updates.vendorId : null;
-  const { error } = await supabase
-    .from('inventory_items')
-    .update({
-      name: updates.name,
-      category: updates.category,
-      unit: updates.unit,
-      cost_per_unit: updates.costPerUnit,
-      current_stock: updates.currentStock,
-      par_level: updates.parLevel,
-      vendor_id: vendorId,
-      usage_per_portion: updates.usagePerPortion,
-      expiry_date: updates.expiryDate || null,
-      case_price: updates.casePrice,
-      case_qty: updates.caseQty,
-      sub_unit_size: updates.subUnitSize,
-      sub_unit_unit: updates.subUnitUnit,
-    })
-    .eq('id', id);
+  const perStore: any = {};
+  if (updates.costPerUnit !== undefined) perStore.cost_per_unit = updates.costPerUnit;
+  if (updates.currentStock !== undefined) perStore.current_stock = updates.currentStock;
+  if (updates.parLevel !== undefined) perStore.par_level = updates.parLevel;
+  if (updates.vendorId !== undefined) perStore.vendor_id = vendorId;
+  if (updates.usagePerPortion !== undefined) perStore.usage_per_portion = updates.usagePerPortion;
+  if (updates.expiryDate !== undefined) perStore.expiry_date = updates.expiryDate || null;
+  if (updates.casePrice !== undefined) perStore.case_price = updates.casePrice;
+  if (Object.keys(perStore).length === 0) return;
+  const { error } = await supabase.from('inventory_items').update(perStore).eq('id', id);
   if (error) throw error;
 }
 
@@ -119,23 +212,34 @@ export async function adjustItemStock(id: string, newStock: number, updatedById:
 }
 
 // ─── RECIPES ─────────────────────────────────────────────────────────────
-export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
+/**
+ * Recipes are brand-level after the catalog refactor. Fetched once per
+ * brand and shown at every store. Ingredient names come from
+ * catalog_ingredients (brand-shared).
+ */
+export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
   const { data, error } = await supabase
     .from('recipes')
-    .select(`*, recipe_ingredients(*, item:inventory_items(name, unit)), recipe_prep_items(*, prep:prep_recipes(name, yield_unit))`)
-    .eq('store_id', storeId);
+    .select(`*,
+      recipe_ingredients(*, catalog:catalog_ingredients(id, name, unit)),
+      recipe_prep_items(*, prep:prep_recipes(name, yield_unit))`)
+    .eq('brand_id', brandId);
   if (error) throw error;
   return (data || []).map((r: any) => ({
     id: r.id,
     menuItem: r.menu_item,
     category: r.category,
     sellPrice: r.sell_price,
-    storeId: r.store_id,
+    brandId: r.brand_id,
+    // Mirror brand_id into storeId so legacy callers that compare against
+    // a UUID don't see undefined. Cmd code drops the comparison.
+    storeId: r.brand_id,
     ingredients: (r.recipe_ingredients || []).map((ing: any) => ({
-      itemId: ing.item_id,
-      itemName: ing.item?.name || '',
+      // itemId now means "catalog ingredient id" — name kept for compat.
+      itemId: ing.catalog_id || '',
+      itemName: ing.catalog?.name || '',
       quantity: ing.quantity,
-      unit: ing.unit || ing.item?.unit || '',
+      unit: ing.unit || ing.catalog?.unit || '',
     })),
     prepItems: (r.recipe_prep_items || []).map((p: any) => ({
       prepRecipeId: p.prep_recipe_id,
@@ -147,24 +251,38 @@ export async function fetchRecipes(storeId: string): Promise<Recipe[]> {
 }
 
 export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> {
-  if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
-  // Upsert: if menu_item+store_id already exists, update it instead of duplicating
+  const brandId = recipe.brandId || recipe.storeId;
+  if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
+  // Upsert by (brand_id, menu_item) — brand-level uniqueness. Phase 3
+  // adds the corresponding constraint; until then we still satisfy the
+  // legacy (menu_item, store_id) one because store_id is kept populated
+  // as well.
   const { data, error } = await supabase
     .from('recipes')
     .upsert(
-      { store_id: recipe.storeId, menu_item: recipe.menuItem, category: recipe.category, sell_price: recipe.sellPrice },
+      {
+        brand_id: brandId,
+        store_id: brandId, // back-compat for the legacy NOT NULL store_id column
+        menu_item: recipe.menuItem,
+        category: recipe.category,
+        sell_price: recipe.sellPrice,
+      },
       { onConflict: 'menu_item,store_id' }
     )
     .select()
     .single();
   if (error) throw error;
 
-  // Replace ingredients (delete old + insert new)
+  // Replace ingredients — recipe_ingredients carries catalog_id only
+  // (the legacy item_id column was dropped in Phase 3).
   await supabase.from('recipe_ingredients').delete().eq('recipe_id', data.id);
   if (recipe.ingredients.length > 0) {
     await supabase.from('recipe_ingredients').insert(
       recipe.ingredients.map((ing) => ({
-        recipe_id: data.id, item_id: ing.itemId, quantity: ing.quantity, unit: ing.unit,
+        recipe_id: data.id,
+        catalog_id: ing.itemId,
+        quantity: ing.quantity,
+        unit: ing.unit,
       }))
     );
   }
@@ -177,23 +295,28 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
       }))
     );
   }
-  return { ...recipe, id: data.id };
+  return { ...recipe, id: data.id, brandId, storeId: brandId };
 }
 
 // ─── WASTE LOG ───────────────────────────────────────────────────────────
 export async function fetchWasteLog(storeId: string): Promise<WasteEntry[]> {
+  // Item name/unit come from catalog_ingredients now (inventory_items
+  // only has the catalog_id link). Two-hop JOIN: waste_log.item_id →
+  // inventory_items → catalog_ingredients.
   const { data, error } = await supabase
     .from('waste_log')
-    .select(`*, logger:profiles!logged_by(name), item:inventory_items(name, unit)`)
+    .select(`*,
+      logger:profiles!logged_by(name),
+      item:inventory_items(catalog:catalog_ingredients(name, unit))`)
     .eq('store_id', storeId)
     .order('logged_at', { ascending: false });
   if (error) throw error;
   return (data || []).map((w: any) => ({
     id: w.id,
     itemId: w.item_id,
-    itemName: w.item?.name || '',
+    itemName: w.item?.catalog?.name || '',
     quantity: w.quantity,
-    unit: w.item?.unit || w.unit || '',
+    unit: w.item?.catalog?.unit || w.unit || '',
     costPerUnit: w.cost_per_unit,
     reason: w.reason,
     loggedBy: w.logger?.name || '',
@@ -309,7 +432,7 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
       id, store_id, date, status, submitted_at, submitted_by,
       submitter:profiles!submitted_by(name),
       eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
-                  item:inventory_items(name, unit))
+                  item:inventory_items(catalog:catalog_ingredients(name, unit)))
     `)
     .in('store_id', storeIds)
     .eq('date', dateISO);
@@ -330,11 +453,11 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
     entries: (row.eod_entries || []).map((e: any) => ({
       id: e.id,
       itemId: e.item_id,
-      itemName: e.item?.name || '',
+      itemName: e.item?.catalog?.name || '',
       actualRemaining: Number(e.actual_remaining) || 0,
       actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
       actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
-      unit: e.item?.unit || '',
+      unit: e.item?.catalog?.unit || '',
       submittedBy: row.submitter?.name || '',
       submittedByUserId: row.submitted_by,
       timestamp: e.created_at || row.submitted_at,
@@ -355,7 +478,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
     .select(`id, store_id, date, submitted_by, submitted_at, status,
              submitter:profiles!submitted_by(name),
              eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
-                         item:inventory_items(name, unit))`)
+                         item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
     .eq('store_id', storeId)
     .gte('date', cutoffISO)
     .order('submitted_at', { ascending: false });
@@ -374,11 +497,11 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
     entries: (row.eod_entries || []).map((e: any) => ({
       id: e.id,
       itemId: e.item_id,
-      itemName: e.item?.name || '',
+      itemName: e.item?.catalog?.name || '',
       actualRemaining: Number(e.actual_remaining) || 0,
       actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
       actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
-      unit: e.item?.unit || '',
+      unit: e.item?.catalog?.unit || '',
       submittedBy: row.submitter?.name || '',
       submittedByUserId: row.submitted_by,
       timestamp: e.created_at || row.submitted_at,
@@ -392,7 +515,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
 export async function fetchEODSubmissions(storeId: string, date?: string): Promise<any[]> {
   let query = supabase
     .from('eod_submissions')
-    .select(`*, submitter:profiles!submitted_by(name), eod_entries(*, item:inventory_items(name, unit))`)
+    .select(`*, submitter:profiles!submitted_by(name), eod_entries(*, item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
     .eq('store_id', storeId)
     .order('submitted_at', { ascending: false });
 
@@ -496,11 +619,15 @@ export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Pro
 }
 
 // ─── VENDORS ─────────────────────────────────────────────────────────────
-export async function fetchVendors(): Promise<Vendor[]> {
-  const { data, error } = await supabase.from('vendors').select('*').order('name');
+export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
+  let query = supabase.from('vendors').select('*').order('name');
+  if (brandId) query = query.eq('brand_id', brandId);
+  const { data, error } = await query;
   if (error) throw error;
   return (data || []).map((v: any) => ({
-    id: v.id, name: v.name, contactName: v.contact_name, phone: v.phone,
+    id: v.id,
+    brandId: v.brand_id,
+    name: v.name, contactName: v.contact_name, phone: v.phone,
     email: v.email, accountNumber: v.account_number, leadTimeDays: v.lead_time_days,
     deliveryDays: v.delivery_days || [], categories: v.categories || [], lastOrderDate: v.last_order_date,
     orderCutoffTime: v.order_cutoff_time || undefined,
@@ -509,7 +636,9 @@ export async function fetchVendors(): Promise<Vendor[]> {
 }
 
 export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> {
+  if (!vendor.brandId || vendor.brandId.length < 10) throw new Error('Invalid brand ID');
   const { data, error } = await supabase.from('vendors').insert({
+    brand_id: vendor.brandId,
     name: vendor.name, contact_name: vendor.contactName, phone: vendor.phone,
     email: vendor.email, account_number: vendor.accountNumber,
     lead_time_days: vendor.leadTimeDays, delivery_days: vendor.deliveryDays, categories: vendor.categories,
@@ -801,15 +930,26 @@ export async function updateProfileNotifications(
 }
 
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
-export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
+/**
+ * Brand-level prep recipes after the catalog refactor. brandId param is
+ * required for current versions (`is_current=true`); old non-current
+ * versions still carry brandId set during Phase 2 backfill.
+ *
+ * For raw ingredients (type='raw'), itemId in the returned model is the
+ * catalog_ingredients.id (brand-shared). For sub-recipe references
+ * (type='prep'), itemId is the prep_recipes.id.
+ */
+export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
   let query = supabase
     .from('prep_recipes')
-    .select('*, prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*, item:inventory_items(name, unit))')
+    .select(`*,
+      prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*,
+        catalog:catalog_ingredients(id, name, unit)
+      )`)
     .eq('is_current', true);
-  if (storeId) query = query.eq('store_id', storeId);
+  if (brandId) query = query.eq('brand_id', brandId);
   const { data, error } = await query;
   if (error) throw error;
-  // Build a quick lookup for sub-recipe names (resolved after all recipes loaded)
   const recipes = (data || []).map((pr: any) => ({
     id: pr.id,
     name: pr.name,
@@ -817,7 +957,8 @@ export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
     yieldQuantity: pr.yield_quantity || 0,
     yieldUnit: pr.yield_unit || '',
     notes: pr.notes || '',
-    storeId: pr.store_id,
+    brandId: pr.brand_id,
+    storeId: pr.brand_id, // back-compat
     createdBy: '',
     createdAt: pr.created_at ? new Date(pr.created_at).toLocaleDateString() : '',
     version: pr.version || 1,
@@ -826,10 +967,16 @@ export async function fetchPrepRecipes(storeId?: string): Promise<any[]> {
     ingredients: (pr.prep_recipe_ingredients || []).map((i: any) => {
       const isPrep = (i.type || 'raw') === 'prep';
       return {
-        itemId: isPrep ? i.sub_recipe_id : i.item_id,
-        itemName: isPrep ? (i.sub_recipe_id || '') : (i.item?.name || ''),
-        quantity: i.quantity, unit: i.unit || '',
-        baseQuantity: i.base_quantity || 0, baseUnit: i.base_unit || 'g',
+        // For 'prep': sub_recipe_id (a prep_recipes.id).
+        // For 'raw': catalog_id (catalog_ingredients.id).
+        itemId: isPrep ? i.sub_recipe_id : i.catalog_id,
+        itemName: isPrep
+          ? (i.sub_recipe_id || '')
+          : (i.catalog?.name || ''),
+        quantity: i.quantity,
+        unit: i.unit || i.catalog?.unit || '',
+        baseQuantity: i.base_quantity || 0,
+        baseUnit: i.base_unit || 'g',
         type: i.type || 'raw',
       };
     }),
@@ -857,18 +1004,25 @@ export async function fetchPrepRecipesByName(name: string): Promise<{ id: string
 }
 
 export async function createPrepRecipe(recipe: any): Promise<string> {
-  if (!recipe.storeId || recipe.storeId.length < 10) throw new Error('Invalid store ID');
+  const brandId = recipe.brandId || recipe.storeId;
+  if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
   const { data, error } = await supabase
     .from('prep_recipes')
     .insert({
-      name: recipe.name, category: recipe.category,
-      yield_quantity: recipe.yieldQuantity, yield_unit: recipe.yieldUnit,
-      notes: recipe.notes, store_id: recipe.storeId,
-      version: 1, is_current: true,
+      name: recipe.name,
+      category: recipe.category,
+      yield_quantity: recipe.yieldQuantity,
+      yield_unit: recipe.yieldUnit,
+      notes: recipe.notes,
+      brand_id: brandId,
+      store_id: brandId, // legacy NOT NULL column, dropped in Phase 3
+      version: 1,
+      is_current: true,
     })
     .select().single();
   if (error) throw error;
-  // Only insert ingredients with valid UUIDs
+  // raw ingredients carry catalog_id (brand-level); prep ingredients
+  // carry sub_recipe_id. The legacy item_id column was dropped in Phase 3.
   const validIngs = (recipe.ingredients || []).filter((i: any) => i.itemId && i.itemId.length > 10);
   if (validIngs.length > 0) {
     await supabase.from('prep_recipe_ingredients').insert(
@@ -876,7 +1030,7 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
         const isPrep = (i.type || 'raw') === 'prep';
         return {
           prep_recipe_id: data.id,
-          item_id: isPrep ? null : i.itemId,
+          catalog_id: isPrep ? null : i.itemId,
           sub_recipe_id: isPrep ? i.itemId : null,
           type: i.type || 'raw',
           quantity: i.quantity, unit: i.unit,
@@ -906,7 +1060,7 @@ export async function updatePrepRecipe(id: string, updates: any): Promise<void> 
           const isPrep = (i.type || 'raw') === 'prep';
           return {
             prep_recipe_id: id,
-            item_id: isPrep ? null : i.itemId,
+            catalog_id: isPrep ? null : i.itemId,
             sub_recipe_id: isPrep ? i.itemId : null,
             type: i.type || 'raw',
             quantity: i.quantity, unit: i.unit,
@@ -960,14 +1114,17 @@ export async function deleteRecipeCategory(name: string): Promise<void> {
 }
 
 // ─── INGREDIENT CONVERSIONS ─────────────────────────────────────────────
-export async function fetchIngredientConversions(itemId?: string): Promise<IngredientConversion[]> {
+// Conversions are brand-level — one row per catalog ingredient + purchase
+// unit. The TS field name stays `inventoryItemId` for back-compat;
+// semantically it's a catalog id.
+export async function fetchIngredientConversions(catalogId?: string): Promise<IngredientConversion[]> {
   let query = supabase.from('ingredient_conversions').select('*');
-  if (itemId) query = query.eq('inventory_item_id', itemId);
+  if (catalogId) query = query.eq('catalog_id', catalogId);
   const { data, error } = await query;
   if (error) throw error;
   return (data || []).map((c: any) => ({
     id: c.id,
-    inventoryItemId: c.inventory_item_id,
+    inventoryItemId: c.catalog_id,
     purchaseUnit: c.purchase_unit,
     baseUnit: c.base_unit,
     conversionFactor: c.conversion_factor,
@@ -976,13 +1133,16 @@ export async function fetchIngredientConversions(itemId?: string): Promise<Ingre
 }
 
 export async function upsertIngredientConversion(conv: Omit<IngredientConversion, 'id'>): Promise<void> {
+  // Conversions are brand-level after Phase 3: keyed by (catalog_id,
+  // purchase_unit). The TS field name `inventoryItemId` is kept for
+  // back-compat but the value passed is a catalog_ingredients.id.
   await supabase.from('ingredient_conversions').upsert({
-    inventory_item_id: conv.inventoryItemId,
+    catalog_id: conv.inventoryItemId,
     purchase_unit: conv.purchaseUnit,
     base_unit: conv.baseUnit,
     conversion_factor: conv.conversionFactor,
     net_yield_pct: conv.netYieldPct,
-  }, { onConflict: 'inventory_item_id,purchase_unit' });
+  }, { onConflict: 'catalog_id,purchase_unit' });
 }
 
 // ─── VERSIONED PREP RECIPE UPDATE ───────────────────────────────────────
@@ -1004,6 +1164,7 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
   const nextVersion = (versions?.[0]?.version || 1) + 1;
 
   // 4. Create new version
+  const brandId = updates.brandId || updates.storeId;
   const { data: newRecipe, error } = await supabase
     .from('prep_recipes')
     .insert({
@@ -1012,7 +1173,8 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
       yield_quantity: updates.yieldQuantity,
       yield_unit: updates.yieldUnit,
       notes: updates.notes,
-      store_id: updates.storeId,
+      brand_id: brandId,
+      store_id: brandId, // legacy NOT NULL, dropped Phase 3
       version: nextVersion,
       is_current: true,
       parent_id: parentId,
@@ -1021,7 +1183,8 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
     .single();
   if (error) throw error;
 
-  // 5. Insert ingredients with base units
+  // 5. Insert ingredients with base units (catalog_id only — Phase 3
+  // dropped the legacy item_id column).
   if (updates.ingredients?.length > 0) {
     const validIngs = updates.ingredients.filter((i: any) => i.itemId && i.itemId.length > 10);
     if (validIngs.length > 0) {
@@ -1030,7 +1193,7 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
           const isPrep = (i.type || 'raw') === 'prep';
           return {
             prep_recipe_id: newRecipe.id,
-            item_id: isPrep ? null : i.itemId,
+            catalog_id: isPrep ? null : i.itemId,
             sub_recipe_id: isPrep ? i.itemId : null,
             type: i.type || 'raw',
             quantity: i.quantity,
@@ -1208,17 +1371,68 @@ export async function deleteReportDefinition(id: string): Promise<void> {
   if (error) console.warn('[Supabase] deleteReportDefinition:', error.message);
 }
 
+// ─── BRAND + CATALOG ────────────────────────────────────────────────────
+/**
+ * Resolve the brand a store belongs to. Single-tenant for now (one
+ * brand). When this returns null, the caller should fall back to the
+ * first row of `brands` (defensive — a store should always have a
+ * brand_id post-migration).
+ */
+export async function fetchBrandForStore(storeId: string): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await supabase
+    .from('stores')
+    .select('brand:brands(id, name)')
+    .eq('id', storeId)
+    .single();
+  if (error || !data?.brand) return null;
+  // PostgREST 1:1 join shape (single object) — but supabase-js typings
+  // sometimes infer it as an array; coerce defensively.
+  const b: any = Array.isArray(data.brand) ? data.brand[0] : data.brand;
+  return b ? { id: b.id, name: b.name } : null;
+}
+
+export async function fetchCatalogIngredients(brandId: string) {
+  const { data, error } = await supabase
+    .from('catalog_ingredients')
+    .select('*')
+    .eq('brand_id', brandId)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((c: any) => ({
+    id: c.id,
+    brandId: c.brand_id,
+    name: c.name,
+    unit: c.unit,
+    category: c.category || '',
+    caseQty: parseFloat(c.case_qty) || 1,
+    subUnitSize: parseFloat(c.sub_unit_size) || 1,
+    subUnitUnit: c.sub_unit_unit || '',
+    defaultCost: parseFloat(c.default_cost) || 0,
+    defaultCasePrice: parseFloat(c.default_case_price) || 0,
+  }));
+}
+
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────
+/**
+ * Bulk load for a single store. Resolves the store's brand up front and
+ * fetches brand-level data (catalog, recipes, preps, vendors, etc.)
+ * brand-scoped, then per-store data (inventory, EOD, waste, audit, etc.)
+ * scoped to the store. Both halves run in parallel.
+ */
 export async function fetchAllForStore(storeId: string) {
+  const brand = await fetchBrandForStore(storeId);
+  const brandId = brand?.id || '';
+
   const [
-    inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
+    inventory, catalog, recipes, prepRecipes, vendors, wasteLog, auditLog,
     categories, ingCategories, conversions, orderSched,
     eodSubmissions, orderSubmissions, posRecipeAliases, savedReports,
   ] = await Promise.all([
-    fetchInventory().catch(() => []), // fetch ALL stores so cross-store name matching works
-    fetchRecipes(storeId).catch(() => []),
-    fetchPrepRecipes().catch(() => []), // fetch ALL stores so sub-recipe store validation works
-    fetchVendors().catch(() => []),
+    fetchInventory().catch(() => []), // all stores; needed for cross-store name lookups in some legacy paths
+    brandId ? fetchCatalogIngredients(brandId).catch(() => []) : Promise.resolve([]),
+    brandId ? fetchRecipes(brandId).catch(() => []) : Promise.resolve([]),
+    brandId ? fetchPrepRecipes(brandId).catch(() => []) : Promise.resolve([]),
+    fetchVendors(brandId).catch(() => []),
     fetchWasteLog(storeId).catch(() => []),
     fetchAuditLog(storeId).catch(() => []),
     fetchRecipeCategories().catch(() => []),
@@ -1231,6 +1445,8 @@ export async function fetchAllForStore(storeId: string) {
     fetchSavedReports(storeId).catch(() => [] as ReportDefinition[]),
   ]);
   return {
+    brand,
+    catalogIngredients: catalog,
     inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
     recipeCategories: categories, ingredientCategories: ingCategories,
     ingredientConversions: conversions, orderSchedule: orderSched,
@@ -1311,19 +1527,24 @@ export async function cleanupOldRecords(): Promise<void> {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────
 function mapItem(row: any): InventoryItem {
+  // Catalog fields (name/unit/category/case_qty/sub_unit_*) live on
+  // catalog_ingredients; hydrated via the JOIN aliased as `catalog`.
+  // Per-store fields (cost_per_unit, case_price, current_stock, par_level,
+  // vendor_id, eod_remaining, etc.) stay on inventory_items.
+  const cat = row.catalog || {};
+  const caseQty = parseFloat(cat.case_qty) || 1;
+  const subUnitSize = parseFloat(cat.sub_unit_size) || 1;
   return {
     id: row.id,
-    name: row.name,
-    category: row.category || '',
-    unit: row.unit || '',
+    catalogId: row.catalog_id || cat.id || '',
+    name: cat.name || '',
+    category: cat.category || '',
+    unit: cat.unit || '',
     costPerUnit: (() => {
       const stored = parseFloat(row.cost_per_unit) || 0;
       if (stored > 0) return stored;
-      // Recalculate from case pricing if stored value is 0
       const cp = parseFloat(row.case_price) || 0;
-      const qty = parseFloat(row.case_qty) || 1;
-      const size = parseFloat(row.sub_unit_size) || 1;
-      const total = qty * size;
+      const total = caseQty * subUnitSize;
       return total > 0 && cp > 0 ? cp / total : 0;
     })(),
     currentStock: row.current_stock || 0,
@@ -1339,8 +1560,8 @@ function mapItem(row: any): InventoryItem {
     eodRemaining: row.eod_remaining || 0,
     storeId: row.store_id,
     casePrice: row.case_price || 0,
-    caseQty: row.case_qty || 1,
-    subUnitSize: row.sub_unit_size || 1,
-    subUnitUnit: row.sub_unit_unit || '',
+    caseQty,
+    subUnitSize,
+    subUnitUnit: cat.sub_unit_unit || '',
   };
 }
