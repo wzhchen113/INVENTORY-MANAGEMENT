@@ -378,6 +378,12 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# pwa-catalog uses a service-token bearer (PWA_SERVICE_TOKEN), not a Supabase
+# JWT, so the gateway's JWT check would reject every call. The function does
+# its own auth check on the bearer.
+[functions.pwa-catalog]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
