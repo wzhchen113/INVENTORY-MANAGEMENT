@@ -108,10 +108,16 @@ Deno.serve(async (req: Request) => {
     ingQuery.order("name"),
     vendorQuery.order("name"),
     admin.from("ingredient_categories").select("name").order("name"),
-    // Menu recipes (for portion lookups when staff counts a recipe)
+    // Menu recipes (for portion lookups when staff counts a recipe). Embed
+    // recipe_ingredients (with normalized base_quantity/base_unit) and
+    // recipe_prep_items so portion math has everything it needs in one call.
     admin
       .from("recipes")
-      .select("id, store_id, menu_item, category, sell_price, ingredients")
+      .select(
+        "id, store_id, menu_item, category, sell_price, " +
+          "recipe_ingredients(item_id, quantity, unit, base_quantity, base_unit), " +
+          "recipe_prep_items(prep_recipe_id, quantity, unit)",
+      )
       .eq("store_id", storeId),
   ]);
 
@@ -161,12 +167,23 @@ Deno.serve(async (req: Request) => {
       delivery_days: v.delivery_days,
     })),
     categories: (catRes.data || []).map((c) => c.name),
-    recipes: (recRes.data || []).map((r) => ({
+    recipes: (recRes.data || []).map((r: any) => ({
       id: r.id,
       menu_item: r.menu_item,
       category: r.category,
       sell_price: r.sell_price,
-      ingredients: r.ingredients,
+      ingredients: (r.recipe_ingredients || []).map((ing: any) => ({
+        item_id: ing.item_id,
+        quantity: ing.quantity,
+        unit: ing.unit,
+        base_quantity: ing.base_quantity,
+        base_unit: ing.base_unit,
+      })),
+      prep_items: (r.recipe_prep_items || []).map((p: any) => ({
+        prep_recipe_id: p.prep_recipe_id,
+        quantity: p.quantity,
+        unit: p.unit,
+      })),
     })),
     // Hint: when the staff app sees this, they should pass it back as
     // `since` next call. If null, no ingredients matched (delta was empty)
