@@ -41,36 +41,106 @@ export async function deleteStore(id: string): Promise<void> {
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
 export async function fetchInventory(storeId?: string): Promise<InventoryItem[]> {
-  // Hydrate name/unit/category/case_qty/sub_unit_* from catalog_ingredients
-  // via the JOIN aliased as `catalog`. After Phase 3 those columns will be
-  // gone from inventory_items; mapItem already prefers `catalog` over the
-  // legacy columns so this works in both states.
+  // name/unit/category/case_qty/sub_unit_* are hydrated from
+  // catalog_ingredients via the JOIN aliased as `catalog`. The category
+  // column is gone from inventory_items so we can no longer order by
+  // it server-side; UI consumers sort client-side anyway.
   let query = supabase
     .from('inventory_items')
     .select(`*,
       vendor:vendors(name),
       updater:profiles!last_updated_by(name),
       catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
-    .order('category', { ascending: true });
+    .order('id', { ascending: true });
   if (storeId) query = query.eq('store_id', storeId);
   const { data, error } = await query;
   if (error) throw error;
   return (data || []).map(mapItem);
 }
 
+/**
+ * Find or create a catalog_ingredients row for the given brand by
+ * case-insensitive name match. Returns the catalog id. Used by the
+ * createInventoryItem path so the legacy "create new ingredient" UX
+ * (IngredientFormDrawer) keeps working without first having to
+ * manually create the catalog row.
+ */
+async function ensureCatalogIngredient(brandId: string, fields: {
+  name: string;
+  unit?: string;
+  category?: string;
+  caseQty?: number;
+  subUnitSize?: number;
+  subUnitUnit?: string;
+  defaultCost?: number;
+  defaultCasePrice?: number;
+}): Promise<string> {
+  if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
+  // Case-insensitive lookup first
+  const { data: existing } = await supabase
+    .from('catalog_ingredients')
+    .select('id')
+    .eq('brand_id', brandId)
+    .ilike('name', fields.name)
+    .maybeSingle();
+  if (existing?.id) return existing.id;
+  const { data, error } = await supabase
+    .from('catalog_ingredients')
+    .insert({
+      brand_id: brandId,
+      name: fields.name,
+      unit: fields.unit || '',
+      category: fields.category || null,
+      case_qty: fields.caseQty ?? 1,
+      sub_unit_size: fields.subUnitSize ?? 1,
+      sub_unit_unit: fields.subUnitUnit || '',
+      default_cost: fields.defaultCost ?? 0,
+      default_case_price: fields.defaultCasePrice ?? 0,
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/**
+ * Resolve the brand for a given store id — small lookup used by
+ * createInventoryItem when the catalog needs to be ensured but the
+ * caller didn't pass a brandId explicitly.
+ */
+async function brandIdForStore(storeId: string): Promise<string> {
+  const { data } = await supabase.from('stores').select('brand_id').eq('id', storeId).single();
+  return data?.brand_id || '';
+}
+
 export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
-  // Sanitize FK fields — empty strings break UUID foreign keys
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
   const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
   if (!storeId) throw new Error('Invalid store ID');
+
+  // Resolve catalog id. After Phase 3 the catalog fields (name/unit/category/
+  // case_qty/sub_unit_*) live on catalog_ingredients only, so we must have a
+  // catalog row before inserting the per-store inventory_items row.
+  let catalogId = item.catalogId;
+  if (!catalogId) {
+    const brandId = await brandIdForStore(storeId);
+    catalogId = await ensureCatalogIngredient(brandId, {
+      name: item.name,
+      unit: item.unit,
+      category: item.category,
+      caseQty: item.caseQty,
+      subUnitSize: item.subUnitSize,
+      subUnitUnit: item.subUnitUnit,
+      defaultCost: item.costPerUnit,
+      defaultCasePrice: item.casePrice,
+    });
+  }
 
   const { data, error } = await supabase
     .from('inventory_items')
     .insert({
       store_id: storeId,
-      name: item.name,
-      category: item.category,
-      unit: item.unit,
+      catalog_id: catalogId,
       cost_per_unit: item.costPerUnit,
       current_stock: item.currentStock,
       par_level: item.parLevel,
@@ -82,39 +152,50 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
       last_updated_by: null,
       eod_remaining: item.currentStock || 0,
       case_price: item.casePrice || 0,
-      case_qty: item.caseQty || 1,
-      sub_unit_size: item.subUnitSize || 1,
-      sub_unit_unit: item.subUnitUnit || '',
     })
-    .select()
+    .select(`*,
+      vendor:vendors(name),
+      updater:profiles!last_updated_by(name),
+      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
     .single();
   if (error) throw error;
   return mapItem(data);
 }
 
 export async function updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<void> {
-  // Skip if id is a local temp ID (not a UUID)
   if (!id || id.length < 10) return;
 
+  // Catalog-level fields (name/unit/category/case_qty/sub_unit_*) propagate
+  // to ALL stores via catalog_ingredients. Per-store fields (cost, vendor,
+  // par, stock) stay on inventory_items.
+  const catalogUpdates: any = {};
+  if (updates.name !== undefined) catalogUpdates.name = updates.name;
+  if (updates.unit !== undefined) catalogUpdates.unit = updates.unit;
+  if (updates.category !== undefined) catalogUpdates.category = updates.category;
+  if (updates.caseQty !== undefined) catalogUpdates.case_qty = updates.caseQty;
+  if (updates.subUnitSize !== undefined) catalogUpdates.sub_unit_size = updates.subUnitSize;
+  if (updates.subUnitUnit !== undefined) catalogUpdates.sub_unit_unit = updates.subUnitUnit;
+  if (Object.keys(catalogUpdates).length > 0) {
+    catalogUpdates.updated_at = new Date().toISOString();
+    // Resolve the catalog_id for this row before updating
+    const { data: row } = await supabase.from('inventory_items').select('catalog_id').eq('id', id).single();
+    const catalogId = row?.catalog_id;
+    if (catalogId) {
+      await supabase.from('catalog_ingredients').update(catalogUpdates).eq('id', catalogId);
+    }
+  }
+
   const vendorId = updates.vendorId && updates.vendorId.length > 10 ? updates.vendorId : null;
-  const { error } = await supabase
-    .from('inventory_items')
-    .update({
-      name: updates.name,
-      category: updates.category,
-      unit: updates.unit,
-      cost_per_unit: updates.costPerUnit,
-      current_stock: updates.currentStock,
-      par_level: updates.parLevel,
-      vendor_id: vendorId,
-      usage_per_portion: updates.usagePerPortion,
-      expiry_date: updates.expiryDate || null,
-      case_price: updates.casePrice,
-      case_qty: updates.caseQty,
-      sub_unit_size: updates.subUnitSize,
-      sub_unit_unit: updates.subUnitUnit,
-    })
-    .eq('id', id);
+  const perStore: any = {};
+  if (updates.costPerUnit !== undefined) perStore.cost_per_unit = updates.costPerUnit;
+  if (updates.currentStock !== undefined) perStore.current_stock = updates.currentStock;
+  if (updates.parLevel !== undefined) perStore.par_level = updates.parLevel;
+  if (updates.vendorId !== undefined) perStore.vendor_id = vendorId;
+  if (updates.usagePerPortion !== undefined) perStore.usage_per_portion = updates.usagePerPortion;
+  if (updates.expiryDate !== undefined) perStore.expiry_date = updates.expiryDate || null;
+  if (updates.casePrice !== undefined) perStore.case_price = updates.casePrice;
+  if (Object.keys(perStore).length === 0) return;
+  const { error } = await supabase.from('inventory_items').update(perStore).eq('id', id);
   if (error) throw error;
 }
 
@@ -130,20 +211,13 @@ export async function adjustItemStock(id: string, newStock: number, updatedById:
 /**
  * Recipes are brand-level after the catalog refactor. Fetched once per
  * brand and shown at every store. Ingredient names come from
- * catalog_ingredients (brand-shared). The legacy `item` JOIN through
- * inventory_items is kept temporarily as a fallback so cross-store
- * references that lingered from old data still resolve to a name; that
- * fallback goes away in Phase 3 when item_id is dropped from the
- * recipe_ingredients table.
+ * catalog_ingredients (brand-shared).
  */
 export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
   const { data, error } = await supabase
     .from('recipes')
     .select(`*,
-      recipe_ingredients(*,
-        catalog:catalog_ingredients(id, name, unit),
-        item:inventory_items(name, unit)
-      ),
+      recipe_ingredients(*, catalog:catalog_ingredients(id, name, unit)),
       recipe_prep_items(*, prep:prep_recipes(name, yield_unit))`)
     .eq('brand_id', brandId);
   if (error) throw error;
@@ -154,15 +228,14 @@ export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
     sellPrice: r.sell_price,
     brandId: r.brand_id,
     // Mirror brand_id into storeId so legacy callers that compare against
-    // a UUID don't see undefined. Cmd code drops the comparison; legacy
-    // screens still build, just won't filter recipes meaningfully.
+    // a UUID don't see undefined. Cmd code drops the comparison.
     storeId: r.brand_id,
     ingredients: (r.recipe_ingredients || []).map((ing: any) => ({
       // itemId now means "catalog ingredient id" — name kept for compat.
-      itemId: ing.catalog_id || ing.item_id || '',
-      itemName: ing.catalog?.name || ing.item?.name || '',
+      itemId: ing.catalog_id || '',
+      itemName: ing.catalog?.name || '',
       quantity: ing.quantity,
-      unit: ing.unit || ing.catalog?.unit || ing.item?.unit || '',
+      unit: ing.unit || ing.catalog?.unit || '',
     })),
     prepItems: (r.recipe_prep_items || []).map((p: any) => ({
       prepRecipeId: p.prep_recipe_id,
@@ -196,16 +269,14 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
     .single();
   if (error) throw error;
 
-  // Replace ingredients — recipe_ingredients now carries catalog_id (the
-  // brand-level ingredient id). item_id is also written for the legacy
-  // CASCADE FK until Phase 3 drops it.
+  // Replace ingredients — recipe_ingredients carries catalog_id only
+  // (the legacy item_id column was dropped in Phase 3).
   await supabase.from('recipe_ingredients').delete().eq('recipe_id', data.id);
   if (recipe.ingredients.length > 0) {
     await supabase.from('recipe_ingredients').insert(
       recipe.ingredients.map((ing) => ({
         recipe_id: data.id,
         catalog_id: ing.itemId,
-        item_id: ing.itemId, // legacy column, dropped in Phase 3
         quantity: ing.quantity,
         unit: ing.unit,
       }))
@@ -225,18 +296,23 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
 
 // ─── WASTE LOG ───────────────────────────────────────────────────────────
 export async function fetchWasteLog(storeId: string): Promise<WasteEntry[]> {
+  // Item name/unit come from catalog_ingredients now (inventory_items
+  // only has the catalog_id link). Two-hop JOIN: waste_log.item_id →
+  // inventory_items → catalog_ingredients.
   const { data, error } = await supabase
     .from('waste_log')
-    .select(`*, logger:profiles!logged_by(name), item:inventory_items(name, unit)`)
+    .select(`*,
+      logger:profiles!logged_by(name),
+      item:inventory_items(catalog:catalog_ingredients(name, unit))`)
     .eq('store_id', storeId)
     .order('logged_at', { ascending: false });
   if (error) throw error;
   return (data || []).map((w: any) => ({
     id: w.id,
     itemId: w.item_id,
-    itemName: w.item?.name || '',
+    itemName: w.item?.catalog?.name || '',
     quantity: w.quantity,
-    unit: w.item?.unit || w.unit || '',
+    unit: w.item?.catalog?.unit || w.unit || '',
     costPerUnit: w.cost_per_unit,
     reason: w.reason,
     loggedBy: w.logger?.name || '',
@@ -352,7 +428,7 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
       id, store_id, date, status, submitted_at, submitted_by,
       submitter:profiles!submitted_by(name),
       eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
-                  item:inventory_items(name, unit))
+                  item:inventory_items(catalog:catalog_ingredients(name, unit)))
     `)
     .in('store_id', storeIds)
     .eq('date', dateISO);
@@ -373,11 +449,11 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
     entries: (row.eod_entries || []).map((e: any) => ({
       id: e.id,
       itemId: e.item_id,
-      itemName: e.item?.name || '',
+      itemName: e.item?.catalog?.name || '',
       actualRemaining: Number(e.actual_remaining) || 0,
       actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
       actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
-      unit: e.item?.unit || '',
+      unit: e.item?.catalog?.unit || '',
       submittedBy: row.submitter?.name || '',
       submittedByUserId: row.submitted_by,
       timestamp: e.created_at || row.submitted_at,
@@ -398,7 +474,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
     .select(`id, store_id, date, submitted_by, submitted_at, status,
              submitter:profiles!submitted_by(name),
              eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
-                         item:inventory_items(name, unit))`)
+                         item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
     .eq('store_id', storeId)
     .gte('date', cutoffISO)
     .order('submitted_at', { ascending: false });
@@ -417,11 +493,11 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
     entries: (row.eod_entries || []).map((e: any) => ({
       id: e.id,
       itemId: e.item_id,
-      itemName: e.item?.name || '',
+      itemName: e.item?.catalog?.name || '',
       actualRemaining: Number(e.actual_remaining) || 0,
       actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
       actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
-      unit: e.item?.unit || '',
+      unit: e.item?.catalog?.unit || '',
       submittedBy: row.submitter?.name || '',
       submittedByUserId: row.submitted_by,
       timestamp: e.created_at || row.submitted_at,
@@ -435,7 +511,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
 export async function fetchEODSubmissions(storeId: string, date?: string): Promise<any[]> {
   let query = supabase
     .from('eod_submissions')
-    .select(`*, submitter:profiles!submitted_by(name), eod_entries(*, item:inventory_items(name, unit))`)
+    .select(`*, submitter:profiles!submitted_by(name), eod_entries(*, item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
     .eq('store_id', storeId)
     .order('submitted_at', { ascending: false });
 
@@ -864,8 +940,7 @@ export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
     .from('prep_recipes')
     .select(`*,
       prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*,
-        catalog:catalog_ingredients(id, name, unit),
-        item:inventory_items(name, unit)
+        catalog:catalog_ingredients(id, name, unit)
       )`)
     .eq('is_current', true);
   if (brandId) query = query.eq('brand_id', brandId);
@@ -889,13 +964,13 @@ export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
       const isPrep = (i.type || 'raw') === 'prep';
       return {
         // For 'prep': sub_recipe_id (a prep_recipes.id).
-        // For 'raw': catalog_id (preferred) or legacy item_id (fallback).
-        itemId: isPrep ? i.sub_recipe_id : (i.catalog_id || i.item_id),
+        // For 'raw': catalog_id (catalog_ingredients.id).
+        itemId: isPrep ? i.sub_recipe_id : i.catalog_id,
         itemName: isPrep
           ? (i.sub_recipe_id || '')
-          : (i.catalog?.name || i.item?.name || ''),
+          : (i.catalog?.name || ''),
         quantity: i.quantity,
-        unit: i.unit || i.catalog?.unit || i.item?.unit || '',
+        unit: i.unit || i.catalog?.unit || '',
         baseQuantity: i.base_quantity || 0,
         baseUnit: i.base_unit || 'g',
         type: i.type || 'raw',
@@ -942,9 +1017,8 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
     })
     .select().single();
   if (error) throw error;
-  // raw ingredients: write catalog_id (and legacy item_id for the
-  // CASCADE FK that's still in place pre-Phase-3). prep ingredients:
-  // write sub_recipe_id.
+  // raw ingredients carry catalog_id (brand-level); prep ingredients
+  // carry sub_recipe_id. The legacy item_id column was dropped in Phase 3.
   const validIngs = (recipe.ingredients || []).filter((i: any) => i.itemId && i.itemId.length > 10);
   if (validIngs.length > 0) {
     await supabase.from('prep_recipe_ingredients').insert(
@@ -953,7 +1027,6 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
         return {
           prep_recipe_id: data.id,
           catalog_id: isPrep ? null : i.itemId,
-          item_id: isPrep ? null : i.itemId, // legacy, dropped Phase 3
           sub_recipe_id: isPrep ? i.itemId : null,
           type: i.type || 'raw',
           quantity: i.quantity, unit: i.unit,
@@ -984,7 +1057,6 @@ export async function updatePrepRecipe(id: string, updates: any): Promise<void> 
           return {
             prep_recipe_id: id,
             catalog_id: isPrep ? null : i.itemId,
-            item_id: isPrep ? null : i.itemId, // legacy, dropped Phase 3
             sub_recipe_id: isPrep ? i.itemId : null,
             type: i.type || 'raw',
             quantity: i.quantity, unit: i.unit,
@@ -1038,9 +1110,9 @@ export async function deleteRecipeCategory(name: string): Promise<void> {
 }
 
 // ─── INGREDIENT CONVERSIONS ─────────────────────────────────────────────
-// After the catalog refactor, conversions are brand-level (one row per
-// catalog ingredient + purchase unit). The TS field name stays
-// `inventoryItemId` for back-compat; semantically it's a catalog id now.
+// Conversions are brand-level — one row per catalog ingredient + purchase
+// unit. The TS field name stays `inventoryItemId` for back-compat;
+// semantically it's a catalog id.
 export async function fetchIngredientConversions(catalogId?: string): Promise<IngredientConversion[]> {
   let query = supabase.from('ingredient_conversions').select('*');
   if (catalogId) query = query.eq('catalog_id', catalogId);
@@ -1048,7 +1120,7 @@ export async function fetchIngredientConversions(catalogId?: string): Promise<In
   if (error) throw error;
   return (data || []).map((c: any) => ({
     id: c.id,
-    inventoryItemId: c.catalog_id || c.inventory_item_id, // prefer catalog_id; legacy fallback
+    inventoryItemId: c.catalog_id,
     purchaseUnit: c.purchase_unit,
     baseUnit: c.base_unit,
     conversionFactor: c.conversion_factor,
@@ -1057,17 +1129,16 @@ export async function fetchIngredientConversions(catalogId?: string): Promise<In
 }
 
 export async function upsertIngredientConversion(conv: Omit<IngredientConversion, 'id'>): Promise<void> {
-  // Until Phase 3 drops inventory_item_id, the legacy unique constraint
-  // (inventory_item_id, purchase_unit) is the only one in place. Write
-  // catalog_id alongside; the dedupe migration ensured no duplicates.
+  // Conversions are brand-level after Phase 3: keyed by (catalog_id,
+  // purchase_unit). The TS field name `inventoryItemId` is kept for
+  // back-compat but the value passed is a catalog_ingredients.id.
   await supabase.from('ingredient_conversions').upsert({
     catalog_id: conv.inventoryItemId,
-    inventory_item_id: conv.inventoryItemId, // legacy, dropped Phase 3
     purchase_unit: conv.purchaseUnit,
     base_unit: conv.baseUnit,
     conversion_factor: conv.conversionFactor,
     net_yield_pct: conv.netYieldPct,
-  }, { onConflict: 'inventory_item_id,purchase_unit' });
+  }, { onConflict: 'catalog_id,purchase_unit' });
 }
 
 // ─── VERSIONED PREP RECIPE UPDATE ───────────────────────────────────────
@@ -1108,7 +1179,8 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
     .single();
   if (error) throw error;
 
-  // 5. Insert ingredients with base units
+  // 5. Insert ingredients with base units (catalog_id only — Phase 3
+  // dropped the legacy item_id column).
   if (updates.ingredients?.length > 0) {
     const validIngs = updates.ingredients.filter((i: any) => i.itemId && i.itemId.length > 10);
     if (validIngs.length > 0) {
@@ -1118,7 +1190,6 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
           return {
             prep_recipe_id: newRecipe.id,
             catalog_id: isPrep ? null : i.itemId,
-            item_id: isPrep ? null : i.itemId, // legacy, dropped Phase 3
             sub_recipe_id: isPrep ? i.itemId : null,
             type: i.type || 'raw',
             quantity: i.quantity,
@@ -1452,19 +1523,19 @@ export async function cleanupOldRecords(): Promise<void> {
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────
 function mapItem(row: any): InventoryItem {
-  // After Phase 3 the catalog fields (name/unit/category/case_qty/sub_unit_*)
-  // live on catalog_ingredients; we hydrate them here via the JOIN aliased
-  // as `catalog`. Pre-Phase-3 the inventory_items columns still exist as a
-  // fallback so this mapper stays safe across both states.
+  // Catalog fields (name/unit/category/case_qty/sub_unit_*) live on
+  // catalog_ingredients; hydrated via the JOIN aliased as `catalog`.
+  // Per-store fields (cost_per_unit, case_price, current_stock, par_level,
+  // vendor_id, eod_remaining, etc.) stay on inventory_items.
   const cat = row.catalog || {};
-  const caseQty = parseFloat(cat.case_qty ?? row.case_qty) || 1;
-  const subUnitSize = parseFloat(cat.sub_unit_size ?? row.sub_unit_size) || 1;
+  const caseQty = parseFloat(cat.case_qty) || 1;
+  const subUnitSize = parseFloat(cat.sub_unit_size) || 1;
   return {
     id: row.id,
     catalogId: row.catalog_id || cat.id || '',
-    name: cat.name ?? row.name ?? '',
-    category: cat.category ?? row.category ?? '',
-    unit: cat.unit ?? row.unit ?? '',
+    name: cat.name || '',
+    category: cat.category || '',
+    unit: cat.unit || '',
     costPerUnit: (() => {
       const stored = parseFloat(row.cost_per_unit) || 0;
       if (stored > 0) return stored;
@@ -1487,6 +1558,6 @@ function mapItem(row: any): InventoryItem {
     casePrice: row.case_price || 0,
     caseQty,
     subUnitSize,
-    subUnitUnit: cat.sub_unit_unit ?? row.sub_unit_unit ?? '',
+    subUnitUnit: cat.sub_unit_unit || '',
   };
 }
