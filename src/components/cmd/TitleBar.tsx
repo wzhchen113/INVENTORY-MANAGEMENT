@@ -85,10 +85,20 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug }) => {
             onPress={() => setStoreMenuOpen((o) => !o)}
             accessibilityRole="button"
             accessibilityLabel="Switch store"
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: CmdRadius.sm,
+              borderWidth: 1,
+              borderColor: C.borderStrong,
+              backgroundColor: storeMenuOpen ? C.panel2 : 'transparent',
+            }}
           >
             <Text
-              style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}
+              style={{ fontFamily: mono(500), fontSize: 11, color: C.fg2 }}
               numberOfLines={1}
             >
               inv://{slugify(storeName)}
