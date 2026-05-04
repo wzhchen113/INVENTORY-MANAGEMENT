@@ -5,6 +5,7 @@ import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { usePaletteAction } from '../../lib/paletteAction';
 import { useStockSeries, useRecipesUsingItem } from '../../lib/cmdSelectors';
+import { calculateWeeklyUsageTrend } from '../../utils/usageCalculations';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
@@ -92,6 +93,10 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
 
   // ⌘K palette → desktop selection bridge. Palette writes a pending action
   // (paletteAction.request); we apply it once and consume.
+  //
+  // Special case: when `eodFocusItemId` is set, the layout switches the
+  // section but does NOT consume — EODCountSection consumes after it picks
+  // the item up. Otherwise the action would be cleared before EOD mounts.
   const pendingPaletteAction = usePaletteAction((s) => s.pending);
   React.useEffect(() => {
     if (!pendingPaletteAction) return;
@@ -100,7 +105,9 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       setViewMode('per-store');
       if (pendingPaletteAction.selectedName) setSelectedName(pendingPaletteAction.selectedName);
     }
-    usePaletteAction.getState().consume();
+    if (!pendingPaletteAction.eodFocusItemId) {
+      usePaletteAction.getState().consume();
+    }
   }, [pendingPaletteAction]);
 
   const item = React.useMemo(
@@ -334,6 +341,13 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                   tabId={tabId}
                   onTabChange={setTabId}
                   onEditPress={() => setEditDrawerOpen(true)}
+                  onCountPress={() => {
+                    usePaletteAction.getState().request({
+                      section: 'EODCount',
+                      selectedName: null,
+                      eodFocusItemId: item.id,
+                    });
+                  }}
                 />
               )}
             </View>
@@ -400,10 +414,11 @@ interface DetailProps {
   tabId: string;
   onTabChange: (id: string) => void;
   onEditPress?: () => void;
+  onCountPress?: () => void;
 }
 
 function DetailPane({
-  item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress,
+  item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress, onCountPress,
 }: DetailProps) {
   const C = useCmdColors();
 
@@ -456,9 +471,14 @@ function DetailPane({
             >
               <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
             </TouchableOpacity>
-            <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+            <TouchableOpacity
+              onPress={onCountPress}
+              accessibilityRole="button"
+              accessibilityLabel="Add count for this item"
+              style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+            >
               <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ COUNT</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         }
       />
@@ -502,51 +522,214 @@ function DetailPane({
             </View>
           </View>
 
-          {/* Recipes + Activity row */}
-          <View style={{ flexDirection: 'row', gap: 14 }}>
-            <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
-              <SectionCaption tone="fg3" size={10.5}>used in {recipesUsing.length} recipes</SectionCaption>
-              {recipesUsing.length === 0 ? (
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
-                  not in any recipe
-                </Text>
-              ) : (
-                recipesUsing.map((r) => (
-                  <View key={`${r.kind}:${r.id}`} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
-                    <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.name}</Text>
-                    <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, marginRight: 8 }}>{r.portion}</Text>
-                    {r.soldPerWeek != null ? (
-                      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg, width: 60, textAlign: 'right' }}>{r.soldPerWeek}/wk</Text>
-                    ) : null}
-                  </View>
-                ))
-              )}
-            </View>
-            <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
+          {/* Activity log — last 3 events on detail. Full audit lives in audit.tsx tab. */}
+          <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <SectionCaption tone="fg3" size={10.5}>activity_log</SectionCaption>
-              {itemActivity.length === 0 ? (
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
-                  no activity recorded
-                </Text>
-              ) : (
-                itemActivity.map((e: any) => (
-                  <ActivityRow
-                    key={e.id}
-                    ago={relativeTime(e.timestamp)}
-                    userName={e.userName}
-                    action={formatAuditAction(e)}
-                    target={e.value}
-                  />
-                ))
-              )}
+              <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+                last {itemActivity.length} · full history in audit.tsx
+              </Text>
             </View>
+            {itemActivity.length === 0 ? (
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
+                no activity recorded
+              </Text>
+            ) : (
+              itemActivity.map((e: any) => (
+                <ActivityRow
+                  key={e.id}
+                  ago={relativeTime(e.timestamp)}
+                  userName={e.userName}
+                  action={formatAuditAction(e)}
+                  target={e.value}
+                />
+              ))
+            )}
           </View>
         </ScrollView>
+      ) : tabId === 'usage.tsx' ? (
+        <UsageTab item={item} />
+      ) : tabId === 'audit.tsx' ? (
+        <AuditTab itemName={item.name} />
+      ) : tabId === 'recipes.tsx' ? (
+        <RecipesTab recipesUsing={recipesUsing} />
       ) : (
         <View style={{ padding: 22 }}>
           <ComingSoonPanel tabName={tabId.replace('.tsx', '')} />
         </View>
       )}
     </>
+  );
+}
+
+// ── Tab body components ─────────────────────────────────────────────
+
+function UsageTab({ item }: { item: any }) {
+  const C = useCmdColors();
+  const posImports = useStore((s) => s.posImports);
+  const recipes    = useStore((s) => s.recipes);
+  const inventory  = useStore((s) => s.inventory);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const NUM_WEEKS = 8;
+  const weekly = React.useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const all = calculateWeeklyUsageTrend(posImports, recipes, inventory, currentStore.id, today, NUM_WEEKS);
+    return all.find((u) => u.itemId === item.id);
+  }, [posImports, recipes, inventory, currentStore.id, item.id]);
+
+  const series: Array<number | null> = weekly?.weeklyAmounts ?? [];
+  const lastWk = series.length > 0 ? series[series.length - 1] : 0;
+  const peakWk = series.length > 0 ? Math.max(...series) : 0;
+  const sum28d = series.slice(-4).reduce((s, v) => s + (v ?? 0), 0);
+
+  // Build x-axis week labels (W-7 ... W0)
+  const xAxis = React.useMemo(
+    () => Array.from({ length: NUM_WEEKS }, (_, i) => ({
+      atIndex: i,
+      label: i === NUM_WEEKS - 1 ? 'this wk' : `-${NUM_WEEKS - 1 - i}w`,
+    })).filter((_, i) => i === 0 || i === Math.floor(NUM_WEEKS / 2) || i === NUM_WEEKS - 1),
+    [],
+  );
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 8 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <SectionCaption tone="fg3" size={10.5}>weekly_usage.dat — last {NUM_WEEKS} weeks</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            unit={item.unit}
+          </Text>
+        </View>
+        {series.length === 0 || series.every((v) => v === 0) ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 18, textAlign: 'center' }}>
+            no recipe usage recorded — link this item to a recipe to see usage trends
+          </Text>
+        ) : (
+          <>
+            <StockHistoryChart
+              data={series}
+              par={(weekly?.average ?? 0) * 1.0}
+              width={520}
+              height={160}
+              gridLines={3}
+              xAxisLabels={xAxis}
+              interactive
+              formatTooltip={(v) => `${v} ${item.unit}`}
+            />
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+              ■ usage / wk   — avg
+            </Text>
+          </>
+        )}
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Avg / wk"   value={`${(weekly?.average ?? 0).toFixed(1)}`} sub={item.unit} />
+        <StatCard label="Last week"  value={`${(lastWk ?? 0).toFixed(1)}`}          sub={item.unit} />
+        <StatCard label="Peak week"  value={`${peakWk.toFixed(1)}`}                  sub={item.unit} />
+        <StatCard label="Last 28d"   value={`${sum28d.toFixed(1)}`}                  sub={item.unit} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function AuditTab({ itemName }: { itemName: string }) {
+  const C = useCmdColors();
+  const auditLog = useStore((s) => s.auditLog);
+
+  const events = React.useMemo(() => {
+    const needle = itemName.toLowerCase();
+    return auditLog
+      .filter((e: any) => (e.itemRef || '').toLowerCase() === needle)
+      .slice()
+      .reverse();
+  }, [auditLog, itemName]);
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <SectionCaption tone="fg3" size={10.5}>audit_history.log</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{events.length} events</Text>
+        </View>
+        {events.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 18, textAlign: 'center' }}>
+            no audit events for this item
+          </Text>
+        ) : (
+          events.map((e: any) => (
+            <ActivityRow
+              key={e.id}
+              ago={relativeTime(e.timestamp)}
+              userName={e.userName}
+              action={formatAuditAction(e)}
+              target={e.value}
+            />
+          ))
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+function RecipesTab({ recipesUsing }: { recipesUsing: any[] }) {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 6 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <SectionCaption tone="fg3" size={10.5}>recipes.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            {recipesUsing.length} {recipesUsing.length === 1 ? 'recipe' : 'recipes'}
+          </Text>
+        </View>
+        {recipesUsing.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 18, textAlign: 'center' }}>
+            not in any recipe — add this item as an ingredient in Menu items / BOM or Prep recipes
+          </Text>
+        ) : (
+          recipesUsing.map((r: any, i: number) => (
+            <View
+              key={`${r.kind}:${r.id}`}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 8,
+                gap: 12,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: C.border,
+                borderStyle: 'dashed',
+              }}
+            >
+              <View style={{ width: 44 }}>
+                <Text style={{
+                  fontFamily: mono(700),
+                  fontSize: 9,
+                  color: r.kind === 'prep' ? C.info : C.accent,
+                  letterSpacing: 0.5,
+                  textTransform: 'uppercase',
+                }}>
+                  {r.kind}
+                </Text>
+              </View>
+              <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
+                {r.name}
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, width: 130, textAlign: 'right' }}>
+                {r.portion}
+              </Text>
+              {r.soldPerWeek != null ? (
+                <Text style={{ fontFamily: mono(500), fontSize: 11, color: C.fg, width: 70, textAlign: 'right' }}>
+                  {r.soldPerWeek}/wk
+                </Text>
+              ) : (
+                <View style={{ width: 70 }} />
+              )}
+            </View>
+          ))
+        )}
+      </View>
+    </ScrollView>
   );
 }
