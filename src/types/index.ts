@@ -22,8 +22,38 @@ export interface User {
   notificationsEnabled?: boolean;
 }
 
+export interface Brand {
+  id: string;
+  name: string;
+}
+
+/**
+ * Brand-level master record for an ingredient. The shared "what we use"
+ * across all stores in the chain. Per-store cost / vendor / par / stock
+ * lives on InventoryItem, which FKs back via catalogId.
+ */
+export interface CatalogIngredient {
+  id: string;
+  brandId: string;
+  name: string;
+  unit: string;
+  category: string;
+  caseQty: number;
+  subUnitSize: number;
+  subUnitUnit: string;
+  defaultCost: number;
+  defaultCasePrice: number;
+}
+
 export interface InventoryItem {
   id: string;
+  /**
+   * FK to catalog_ingredients(id). Source of truth for name/unit/category/
+   * case_qty/sub_unit_size/sub_unit_unit after Phase 3 drops those columns
+   * from inventory_items. The fields below are populated from the catalog
+   * via JOIN at fetch time so existing UI code keeps working.
+   */
+  catalogId: string;
   name: string;
   category: string;
   unit: string;
@@ -40,7 +70,7 @@ export interface InventoryItem {
   lastUpdatedAt: string;
   eodRemaining: number;
   storeId: string;
-  // Packaging / case info
+  // Packaging / case info — hydrated from CatalogIngredient
   casePrice: number;
   caseQty: number;
   subUnitSize: number;
@@ -56,10 +86,25 @@ export interface Recipe {
   sellPrice: number;
   ingredients: RecipeIngredient[];
   prepItems: RecipePrepItem[];
+  /**
+   * Recipes are brand-level after the catalog refactor. brandId is the
+   * authoritative scope. `storeId` is kept populated with the brand id
+   * for back-compat with legacy non-Cmd screens until they're removed,
+   * but Cmd UI should not filter by it (every store sees every recipe).
+   */
+  brandId: string;
   storeId: string;
 }
 
 export interface RecipeIngredient {
+  /**
+   * After the brand catalog refactor, this is a `catalog_ingredients.id`
+   * (brand-level), not a per-store `inventory_items.id`. Cost lookups
+   * resolve it to the current store's inventory_items row by matching
+   * `inventory_items.catalog_id === itemId AND inventory_items.store_id
+   * === currentStore.id`. Field name kept as `itemId` to avoid touching
+   * every consumer; semantically it's a catalog id now.
+   */
   itemId: string;
   itemName: string;
   quantity: number;
@@ -81,6 +126,8 @@ export interface PrepRecipe {
   yieldUnit: string;
   notes: string;
   ingredients: PrepRecipeIngredient[];
+  /** Brand-level after catalog refactor. storeId carries brand id for back-compat. */
+  brandId: string;
   storeId: string;
   createdBy: string;
   createdAt: string;
@@ -91,6 +138,11 @@ export interface PrepRecipe {
 }
 
 export interface PrepRecipeIngredient {
+  /**
+   * For type='raw': a `catalog_ingredients.id` (brand-level).
+   * For type='prep': a `prep_recipes.id` (sub-recipe reference).
+   * Field name kept as `itemId` to avoid touching every consumer.
+   */
   itemId: string;
   itemName: string;
   quantity: number;
@@ -104,6 +156,11 @@ export interface PrepRecipeIngredient {
 
 export interface IngredientConversion {
   id: string;
+  /**
+   * After the catalog refactor this is a catalog_ingredients.id.
+   * Field name kept for back-compat; semantics shifted from per-store
+   * inventory row to brand-level catalog row.
+   */
   inventoryItemId: string;
   purchaseUnit: string;
   baseUnit: string;
@@ -166,6 +223,8 @@ export interface EODSubmission {
 
 export interface Vendor {
   id: string;
+  /** Brand-scoped after catalog refactor. */
+  brandId: string;
   name: string;
   contactName: string;
   phone: string;
@@ -255,6 +314,8 @@ export type AuditAction =
 
 export interface Store {
   id: string;
+  /** Brand the store belongs to. Single-tenant for now (always "2AM PROJECT"). */
+  brandId: string;
   name: string;
   address: string;
   status: 'active' | 'inactive';
@@ -285,6 +346,10 @@ export interface OrderSubmission {
 export interface AppState {
   currentUser: User | null;
   currentStore: Store;
+  /** The brand the current user is operating in. Single-tenant for now. */
+  brand: Brand | null;
+  /** Brand-level master ingredient list. */
+  catalogIngredients: CatalogIngredient[];
   stores: Store[];
   users: User[];
   inventory: InventoryItem[];

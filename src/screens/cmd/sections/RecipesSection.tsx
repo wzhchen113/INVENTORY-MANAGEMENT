@@ -28,10 +28,10 @@ export default function RecipesSection() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('recipe.tsx');
 
-  const storeRecipes = React.useMemo(
-    () => recipes.filter((r) => r.storeId === currentStore.id),
-    [recipes, currentStore.id],
-  );
+  // Recipes are brand-level after the catalog refactor — every store sees
+  // the same set. (Previously this filtered by storeId; that's now the
+  // brand id, and the comparison always failed for non-Towson stores.)
+  const storeRecipes = recipes;
 
   React.useEffect(() => {
     if (selectedId && storeRecipes.find((r) => r.id === selectedId)) return;
@@ -46,7 +46,11 @@ export default function RecipesSection() {
   const ingredientRows = React.useMemo(() => {
     if (!sel) return [];
     return (sel.ingredients || []).map((ing) => {
-      const item = inventory.find((i) => i.id === ing.itemId);
+      // ing.itemId is now a catalog id; resolve to the current store's
+      // inventory_items row for cost/par. Fall back to legacy id match.
+      const item =
+        inventory.find((i) => i.catalogId === ing.itemId && i.storeId === currentStore.id) ||
+        inventory.find((i) => i.id === ing.itemId);
       const lineCost = getIngredientLineCost(ing);
       const pct = selCost > 0 ? Math.round((lineCost / selCost) * 100) : 0;
       return {
