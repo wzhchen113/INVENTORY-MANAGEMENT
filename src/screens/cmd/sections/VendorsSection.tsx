@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -8,6 +9,8 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { VendorFormDrawer } from '../../../components/cmd/VendorFormDrawer';
+import { confirmAction } from '../../../utils/confirmAction';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -18,9 +21,12 @@ export default function VendorsSection() {
   const vendors = useStore((s) => s.vendors);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
+  const deleteVendor = useStore((s) => s.deleteVendor);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('profile.tsx');
+  const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
+  const [newDrawerOpen, setNewDrawerOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (selectedId && vendors.find((v) => v.id === selectedId)) return;
@@ -58,9 +64,19 @@ export default function VendorsSection() {
           }}
         >
           <Text style={[Type.h2, { color: C.fg }]}>Vendors</Text>
-          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {vendors.length} active
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+              {vendors.length} active
+            </Text>
+            <TouchableOpacity
+              onPress={() => setNewDrawerOpen(true)}
+              style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+              accessibilityRole="button"
+              accessibilityLabel="New vendor"
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <FlatList
           style={{ flex: 1, minHeight: 0 }}
@@ -117,12 +133,28 @@ export default function VendorsSection() {
               onChange={setTabId}
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setEditDrawerOpen(true)}
+                    style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+                  >
                     <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
-                  </View>
-                  <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW PO</Text>
-                  </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      confirmAction(
+                        `Delete vendor "${sel.name}"?`,
+                        'Items still pointing at this vendor will keep the foreign-key value but show as "no vendor" until reassigned.',
+                        () => {
+                          deleteVendor(sel.id);
+                          setSelectedId(null);
+                          Toast.show({ type: 'success', text1: 'Deleted', text2: sel.name });
+                        },
+                      );
+                    }}
+                    style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                  </TouchableOpacity>
                 </View>
               }
             />
@@ -250,6 +282,18 @@ export default function VendorsSection() {
           </>
         )}
       </View>
+
+      <VendorFormDrawer
+        visible={newDrawerOpen}
+        mode="new"
+        onClose={() => setNewDrawerOpen(false)}
+      />
+      <VendorFormDrawer
+        visible={editDrawerOpen}
+        mode="edit"
+        vendor={sel}
+        onClose={() => setEditDrawerOpen(false)}
+      />
     </>
   );
 }
