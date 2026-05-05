@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, Alert, Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
@@ -26,6 +27,7 @@ import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
+import { confirmAction } from '../../utils/confirmAction';
 import VendorsSection from './sections/VendorsSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
@@ -61,6 +63,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
   const getItemStatus = useStore((s) => s.getItemStatus);
+  const deleteItem = useStore((s) => s.deleteItem);
 
   const [section, setSection]         = React.useState('Inventory');
   const [filterText, setFilterText]   = React.useState('');
@@ -341,6 +344,17 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
                   tabId={tabId}
                   onTabChange={setTabId}
                   onEditPress={() => setEditDrawerOpen(true)}
+                  onDeletePress={() => {
+                    confirmAction(
+                      `Delete "${item.name}" from ${currentStore?.name || 'this store'}?`,
+                      'This removes the per-store inventory row. The brand catalog entry stays — recreate by counting at this store again.',
+                      () => {
+                        deleteItem(item.id);
+                        setSelectedName(null);
+                        Toast.show({ type: 'success', text1: 'Deleted', text2: item.name });
+                      },
+                    );
+                  }}
                   onCountPress={() => {
                     usePaletteAction.getState().request({
                       section: 'EODCount',
@@ -414,11 +428,12 @@ interface DetailProps {
   tabId: string;
   onTabChange: (id: string) => void;
   onEditPress?: () => void;
+  onDeletePress?: () => void;
   onCountPress?: () => void;
 }
 
 function DetailPane({
-  item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress, onCountPress,
+  item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress, onDeletePress, onCountPress,
 }: DetailProps) {
   const C = useCmdColors();
 
@@ -470,6 +485,14 @@ function DetailPane({
               style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
             >
               <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onDeletePress}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this item"
+              style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={onCountPress}

@@ -15,6 +15,8 @@ import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../../components/cmd/IngredientFormDrawer';
 import { ExportCsvDrawer } from '../../../components/cmd/ExportCsvDrawer';
 import { relativeTime } from '../../../utils/relativeTime';
+import { confirmAction } from '../../../utils/confirmAction';
+import Toast from 'react-native-toast-message';
 import type { InventoryItem, ItemStatus } from '../../../types';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -61,12 +63,14 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const vendors        = useStore((s) => s.vendors);
   const ingredientCats = useStore((s) => s.ingredientCategories);
   const getItemStatus  = useStore((s) => s.getItemStatus);
+  const deleteItem     = useStore((s) => s.deleteItem);
 
   const [filterText, setFilterText]         = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
   const [showUnfinished, setShowUnfinished] = React.useState(false);
   const [tabId, setTabId]                   = React.useState('ingredient.tsx');
   const [newDrawerOpen, setNewDrawerOpen]   = React.useState(false);
+  const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
   const [exportOpen, setExportOpen]         = React.useState(false);
 
   const groups = React.useMemo<Group[]>(() => {
@@ -303,6 +307,25 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                   <TouchableOpacity onPress={() => setExportOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT CSV</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      confirmAction(
+                        `Delete "${sel.name}" everywhere?`,
+                        `Removes ${sel.rows.length} per-store inventory ${sel.rows.length === 1 ? 'row' : 'rows'} across all stores. The brand catalog ingredient is left in place — re-link by counting at any store again.`,
+                        () => {
+                          sel.rows.forEach((r) => deleteItem(r.id));
+                          onSelectName(null);
+                          Toast.show({ type: 'success', text1: 'Deleted', text2: `${sel.name} (${sel.rows.length} stores)` });
+                        },
+                      );
+                    }}
+                    style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => setNewDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW INGREDIENT</Text>
                   </TouchableOpacity>
@@ -436,6 +459,12 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
         visible={newDrawerOpen}
         mode="new"
         onClose={() => setNewDrawerOpen(false)}
+      />
+      <IngredientFormDrawer
+        visible={editDrawerOpen}
+        mode="edit"
+        item={sel?.primary}
+        onClose={() => setEditDrawerOpen(false)}
       />
       <ExportCsvDrawer visible={exportOpen} onClose={() => setExportOpen(false)} />
     </>
