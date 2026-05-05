@@ -17,6 +17,7 @@ import ComingSoonScreen from '../screens/cmd/ComingSoonScreen';
 import NavDrawerScreen from '../screens/cmd/NavDrawerScreen';
 import InventoryDesktopLayout from '../screens/cmd/InventoryDesktopLayout';
 import CmdAtomsPreview from '../screens/dev/CmdAtomsPreview';
+import DBInspectorScreen from '../screens/DBInspectorScreen';
 
 const navRef = createNavigationContainerRef();
 
@@ -47,6 +48,7 @@ function MobileStack() {
         component={NavDrawerScreen}
         options={{ presentation: 'transparentModal', cardStyle: { backgroundColor: 'transparent' } }}
       />
+      <AuthedStack.Screen name="DBInspector" component={DBInspectorScreen} />
       {__DEV__ ? (
         <AuthedStack.Screen name="CmdAtomsPreview" component={CmdAtomsPreview} />
       ) : null}
@@ -55,9 +57,9 @@ function MobileStack() {
 }
 
 // Single-screen stack so InventoryDesktopLayout sits inside a NavigationContainer
-// child and can use any nav APIs in the future. Today it doesn't need them
-// (sidebar tree clicks update local state), but keeping the wrapper avoids
-// re-plumbing later.
+// child and can use any nav APIs in the future. Today the layout uses
+// nav.navigate('DBInspector') from the sidebar's "DB Inspector" item — that
+// screen needs to live as a sibling here so the navigation works.
 function DesktopShell() {
   const C = useCmdColors();
   return (
@@ -71,6 +73,7 @@ function DesktopShell() {
       }}
     >
       <AuthedStack.Screen name="DesktopLayout" component={InventoryDesktopLayout} />
+      <AuthedStack.Screen name="DBInspector" component={DBInspectorScreen} />
     </AuthedStack.Navigator>
   );
 }

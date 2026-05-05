@@ -62,6 +62,7 @@ export default function NavDrawerScreen() {
         { id: 'POSImports',      label: 'POS imports',      onPress: () => goAndClose('ComingSoon', { sectionName: 'POS imports' }) },
         { id: 'AuditLog',        label: 'Audit log',        onPress: () => goAndClose('ComingSoon', { sectionName: 'Audit log' }) },
         { id: 'Reports',         label: 'Reports',          onPress: () => goAndClose('ComingSoon', { sectionName: 'Reports' }) },
+        { id: 'DBInspector',     label: 'DB inspector',     onPress: () => goAndClose('DBInspector') },
       ],
     },
   ];

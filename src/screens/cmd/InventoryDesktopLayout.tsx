@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigation } from '@react-navigation/native';
 import { View, Text, TouchableOpacity, ScrollView, FlatList } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
@@ -51,6 +52,7 @@ interface Props {
 
 export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const C = useCmdColors();
+  const nav = useNavigation<any>();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
@@ -153,6 +155,9 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
         { id: 'POSImports',      label: 'POS imports' },
         { id: 'AuditLog',        label: 'Audit log' },
         { id: 'Reports',         label: 'Reports' },
+        // DBInspector is rendered by the legacy color palette, so we route
+        // it as a separate stack screen rather than a section pane.
+        { id: 'DBInspector',     label: 'DB inspector', onPress: () => nav.navigate('DBInspector') },
       ],
     },
   ];
