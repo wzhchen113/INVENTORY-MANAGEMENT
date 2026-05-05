@@ -266,7 +266,7 @@ export default function RestockSection() {
         </Text>
         <View style={{ flex: 1 }} />
         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-          tap row to toggle · multi-vendor splits into draft POs
+          tap row to toggle · create POs coming soon
         </Text>
       </View>
     </View>
