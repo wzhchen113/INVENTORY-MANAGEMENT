@@ -253,21 +253,19 @@ export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
 export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> {
   const brandId = recipe.brandId || recipe.storeId;
   if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
-  // Upsert by (brand_id, menu_item) — brand-level uniqueness. Phase 3
-  // adds the corresponding constraint; until then we still satisfy the
-  // legacy (menu_item, store_id) one because store_id is kept populated
-  // as well.
+  // Upsert by (brand_id, menu_item). P3 dropped the legacy
+  // (menu_item, store_id) index AND the store_id column on recipes,
+  // so the conflict target is the new recipes_brand_menu_item_unique.
   const { data, error } = await supabase
     .from('recipes')
     .upsert(
       {
         brand_id: brandId,
-        store_id: brandId, // back-compat for the legacy NOT NULL store_id column
         menu_item: recipe.menuItem,
         category: recipe.category,
         sell_price: recipe.sellPrice,
       },
-      { onConflict: 'menu_item,store_id' }
+      { onConflict: 'brand_id,menu_item' }
     )
     .select()
     .single();
@@ -993,19 +991,37 @@ export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
   return recipes;
 }
 
-export async function fetchPrepRecipesByName(name: string): Promise<{ id: string; storeId: string }[]> {
-  const { data, error } = await supabase
+export async function fetchPrepRecipesByName(
+  name: string,
+  brandId?: string,
+): Promise<{ id: string; brandId: string }[]> {
+  let query = supabase
     .from('prep_recipes')
-    .select('id, store_id')
-    .ilike('name', name)
+    .select('id, brand_id')
+    .ilike('name', name.replace(/[%_]/g, '\\$&'))
     .eq('is_current', true);
+  if (brandId) query = query.eq('brand_id', brandId);
+  const { data, error } = await query;
   if (error) throw error;
-  return (data || []).map((r: any) => ({ id: r.id, storeId: r.store_id }));
+  return (data || []).map((r: any) => ({ id: r.id, brandId: r.brand_id }));
 }
 
 export async function createPrepRecipe(recipe: any): Promise<string> {
   const brandId = recipe.brandId || recipe.storeId;
   if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
+
+  // SELECT-then-INSERT-OR-UPDATE pattern. PostgREST .upsert() with
+  // onConflict can't target a partial functional index
+  // (prep_recipes_brand_name_current_unique uses lower(name) WHERE
+  // is_current=true), so we look up an existing current row by name
+  // first and route to updatePrepRecipeVersioned when found. This
+  // makes "save same name twice" idempotent at the app layer too,
+  // not just at the DB.
+  const existing = await fetchPrepRecipesByName(recipe.name, brandId).catch(() => []);
+  if (existing.length > 0) {
+    return updatePrepRecipeVersioned(existing[0].id, recipe);
+  }
+
   const { data, error } = await supabase
     .from('prep_recipes')
     .insert({
@@ -1015,7 +1031,6 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
       yield_unit: recipe.yieldUnit,
       notes: recipe.notes,
       brand_id: brandId,
-      store_id: brandId, // legacy NOT NULL column, dropped in Phase 3
       version: 1,
       is_current: true,
     })
@@ -1174,7 +1189,6 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
       yield_unit: updates.yieldUnit,
       notes: updates.notes,
       brand_id: brandId,
-      store_id: brandId, // legacy NOT NULL, dropped Phase 3
       version: nextVersion,
       is_current: true,
       parent_id: parentId,
