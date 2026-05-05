@@ -33,6 +33,7 @@ import IngredientsScreen from '../screens/IngredientsScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import EODHistoryScreen from '../screens/EODHistoryScreen';
 import OrderReportScreen from '../screens/OrderReportScreen';
+import DBInspectorScreen from '../screens/DBInspectorScreen';
 import { useJsonServerSync } from '../store/useJsonServerSync';
 import {
   RecipesScreen, VendorsScreen,
@@ -618,6 +619,7 @@ function MoreScreen({ navigation }: any) {
       { label: 'Reports & Analytics', screen: 'Reports', icon: 'bar-chart-outline' as const },
       { label: 'Audit Log', screen: 'AuditLog', icon: 'time-outline' as const },
       { label: 'Users & Access', screen: 'Users', icon: 'people-outline' as const },
+      { label: 'DB Inspector', screen: 'DBInspector', icon: 'flask-outline' as const },
     ] : []),
   ];
 
@@ -755,6 +757,7 @@ function AppStackNavigator() {
         <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports & analytics', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="AuditLog" component={AuditLogScreen} options={{ title: 'Audit log', headerLeft: () => <StackHeaderLeft /> }} />
         <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'Users & access' }} />
+        <AppStack.Screen name="DBInspector" component={DBInspectorScreen} options={{ title: 'DB Inspector', headerLeft: () => <StackHeaderLeft /> }} />
       </AppStack.Navigator>
       <StoreLoadingOverlay />
     </>
