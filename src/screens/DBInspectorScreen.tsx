@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../store/useStore';
 import { useColors, Spacing, Radius, FontSize } from '../theme/colors';
@@ -114,6 +115,7 @@ function describeSchema(s: Probe['schema']): { label: string; tone: 'ok' | 'warn
 
 export default function DBInspectorScreen() {
   const C = useColors();
+  const nav = useNavigation<any>();
   const { recipes: cachedRecipes, prepRecipes: cachedPreps } = useStore();
   const [probe, setProbe] = useState<Probe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,6 +149,13 @@ export default function DBInspectorScreen() {
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
       <TimezoneBar />
       <ScrollView contentContainerStyle={{ padding: Spacing.lg, paddingBottom: Spacing.xxl }}>
+        <TouchableOpacity
+          onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('DesktopLayout'))}
+          style={[styles.backBtn, { borderColor: C.borderLight, backgroundColor: C.bgPrimary }]}
+        >
+          <Ionicons name="chevron-back" size={16} color={C.textSecondary} />
+          <Text style={[styles.refreshText, { color: C.textSecondary }]}>Back</Text>
+        </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md }}>
           <Text style={[styles.h1, { color: C.textPrimary }]}>DB Inspector</Text>
           <TouchableOpacity
@@ -494,6 +503,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: FontSize.sm, marginBottom: Spacing.md },
   refreshBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1 },
   refreshText: { fontSize: FontSize.sm, fontWeight: '500' },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 6, paddingRight: Spacing.md, paddingVertical: 6, borderRadius: Radius.md, borderWidth: 1, alignSelf: 'flex-start', marginBottom: Spacing.sm },
   cardTitle: { fontSize: FontSize.base, fontWeight: '600', marginBottom: Spacing.sm },
   bodyText: { fontSize: FontSize.sm, lineHeight: 20 },
   smallText: { fontSize: FontSize.xs, lineHeight: 16 },
