@@ -131,14 +131,18 @@ Deno.serve(async (req: Request) => {
 
   // Prep recipes are brand-scoped. Raw-ingredient rows carry catalog_id;
   // sub-recipe rows carry sub_recipe_id (mutually exclusive, enforced by
-  // CHECK constraint).
+  // CHECK constraint). Filter to is_current=true so external clients only
+  // see one row per recipe — version history (is_current=false rows
+  // produced by updatePrepRecipeVersioned) is internal bookkeeping and
+  // would otherwise read like duplicates from the outside.
   const prepRecipesQuery = admin
     .from("prep_recipes")
     .select(
       "id, brand_id, name, category, yield_quantity, yield_unit, version, is_current, parent_id, notes, " +
         "prep_recipe_ingredients!prep_recipe_id(catalog_id, sub_recipe_id, type, quantity, unit, base_quantity, base_unit)",
     )
-    .eq("brand_id", brandId);
+    .eq("brand_id", brandId)
+    .eq("is_current", true);
 
   // Conversions are brand-level (one row per catalog ingredient + purchase
   // unit). Filter through the catalog_ingredients FK to scope to this brand.
