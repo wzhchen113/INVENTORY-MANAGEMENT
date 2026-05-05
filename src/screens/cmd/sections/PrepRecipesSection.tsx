@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -9,6 +10,8 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { PrepRecipeFormDrawer } from '../../../components/cmd/PrepRecipeFormDrawer';
+import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -28,9 +31,11 @@ export default function PrepRecipesSection() {
   const getPrepRecipeCost = useStore((s) => s.getPrepRecipeCost);
   const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const getIngredientLineCost = useStore((s) => s.getIngredientLineCost);
+  const deletePrepRecipe = useStore((s) => s.deletePrepRecipe);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('prep.tsx');
+  const [drawerMode, setDrawerMode] = React.useState<null | 'new' | 'edit' | 'duplicate'>(null);
 
   // Prep recipes are brand-level after the catalog refactor — every
   // store sees the same set. Just filter to the current version.
@@ -105,9 +110,21 @@ export default function PrepRecipesSection() {
           }}
         >
           <Text style={[Type.h2, { color: C.fg }]}>Prep recipes</Text>
-          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {storePrepRecipes.length} active
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+              {storePrepRecipes.length} active
+            </Text>
+            {role === 'admin' ? (
+              <TouchableOpacity
+                onPress={() => setDrawerMode('new')}
+                style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+                accessibilityRole="button"
+                accessibilityLabel="New prep recipe"
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
         <FlatList
           data={storePrepRecipes}
@@ -188,12 +205,34 @@ export default function PrepRecipesSection() {
               rightSlot={
                 role === 'admin' ? (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                    <TouchableOpacity
+                      onPress={() => setDrawerMode('duplicate')}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+                    >
                       <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>DUPLICATE</Text>
-                    </View>
-                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        confirmAction(
+                          `Delete "${sel.name}"?`,
+                          'Removes the prep recipe and its ingredient list. Any menu recipe referencing it will lose the prep link.',
+                          () => {
+                            deletePrepRecipe(sel.id);
+                            setSelectedId(null);
+                            Toast.show({ type: 'success', text1: 'Deleted', text2: sel.name });
+                          },
+                        );
+                      }}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setDrawerMode('edit')}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+                    >
                       <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>EDIT</Text>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 ) : null
               }
@@ -341,6 +380,13 @@ export default function PrepRecipesSection() {
           </>
         )}
       </View>
+
+      <PrepRecipeFormDrawer
+        visible={drawerMode !== null}
+        mode={drawerMode || 'new'}
+        prep={drawerMode === 'edit' || drawerMode === 'duplicate' ? sel : undefined}
+        onClose={() => setDrawerMode(null)}
+      />
     </>
   );
 }
