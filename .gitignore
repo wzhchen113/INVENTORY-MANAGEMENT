@@ -8,10 +8,18 @@ web-build/
 *.key
 *.mobileprovision
 *.orig.*
-web-build/
-.env
-.env.local
 .env.production
 android/
 ios/
 .vercel
+
+# Claude Code — local only
+.claude/settings.local.json
+.claude/cache/
+.claude/logs/
+.claude/.session*
+
+# Standard secrets
+.env
+.env.local
+.env.*.local
