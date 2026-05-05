@@ -1,0 +1,83 @@
+name: db-migrations-applied
+
+# Operational deploy-gate. Runs on every push to main and verifies that
+# every migration in `supabase/migrations/` has been applied to the prod
+# Supabase project. If the check fails, somebody merged a migration-bearing
+# PR but didn't run `supabase db push --linked` against prod — the deployed
+# JS bundle then expects schema that isn't there, which surfaces as silently
+# empty UI sections (the bug that prompted this gate to exist; see incident
+# on 2026-05-05 where items.tsv / catalog.tsv went blank in prod after
+# PR #3 merged).
+#
+# This job does NOT auto-apply migrations. Applying schema to prod requires
+# a human to verify the migration is safe in context. The job's role is to
+# turn red as soon as main and prod drift, so the on-call notices and runs
+# the push.
+#
+# Setup (one-time):
+#   1. In the Supabase dashboard → Account → Access Tokens, create a PAT.
+#   2. In GitHub → repo Settings → Secrets and variables → Actions, add:
+#        SUPABASE_ACCESS_TOKEN = <the PAT>
+#   3. Confirm the project ref below matches your prod project.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: prod migrations parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase link --project-ref ebwnovzzkwhsdxkpyjka
+
+      - name: List migrations
+        id: list
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          out=$(supabase migration list --linked 2>&1)
+          echo "$out"
+          # Persist for the next step.
+          {
+            echo 'output<<__EOF__'
+            echo "$out"
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fail if any local migration is unapplied on prod
+        env:
+          OUT: ${{ steps.list.outputs.output }}
+        run: |
+          set -euo pipefail
+          # `supabase migration list --linked` output looks like:
+          #     Local          | Remote         | Time (UTC)
+          #    ----------------|----------------|---------------
+          #     20260504000002 | 20260504000002 | 2026-05-04 00:00:02
+          #     20260504060452 |                | 2026-05-04 06:04:52   <- pending
+          # A pending row has a non-empty Local column and an empty Remote column.
+          pending=$(printf '%s\n' "$OUT" | awk -F'|' '
+            NR>2 {
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+              if ($1 ~ /^[0-9]{14}$/ && $2 == "") print $1
+            }
+          ')
+          if [ -n "$pending" ]; then
+            echo "::error::Prod is missing migrations. Run \`supabase db push --linked\` from a checkout of main to apply them."
+            echo "Pending migrations on prod:"
+            printf '  %s\n' $pending
+            exit 1
+          fi
+          echo "All local migrations are applied to prod."

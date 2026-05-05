@@ -219,19 +219,19 @@ User onboarding:
 
 ---
 
-## CI deploy-gate
+## CI deploy-gate (planned)
 
-[`.github/workflows/db-migrations-applied.yml`](.github/workflows/db-migrations-applied.yml) runs on every push to `main`. It calls `supabase migration list --linked` against the prod project and fails if any local migration in `supabase/migrations/` is unapplied on prod.
+[`.github/workflows/db-migrations-applied.yml`](.github/workflows/db-migrations-applied.yml) is written but **not yet active on `main`** — it needs a push from a token with the `workflow` OAuth scope (or via the GitHub UI).
 
-The gate **does not auto-apply migrations**. Schema changes need a human in the loop. When the gate goes red, the on-call runs:
+Once live, it will run on every push to `main`, calling `supabase migration list --linked` against the prod project and failing if any local migration is unapplied on prod.
+
+The gate **will not auto-apply migrations**. Schema changes need a human in the loop. When the gate goes red, the on-call will run:
 
 ```bash
 supabase db push --linked
 ```
 
 from a clean checkout of `main`. Requires `SUPABASE_ACCESS_TOKEN` set in repo secrets.
-
-> If the workflow file is missing on a fresh clone, it's because the OAuth scope used to push it lacked the `workflow` permission. Push it manually with a token that has it, or via the GitHub UI.
 
 ---
 
@@ -268,4 +268,5 @@ Topics, not PR numbers (PR numbers rot fast):
 - **CRUD revert+toast sweep.** Every Zustand action now reverts local state on `db.*` rejection and surfaces a `react-native-toast-message` instead of silently `console.warn`-ing.
 - **EOD count dual case+unit input.** Counters can enter cases, individual units, or both; `actualRemainingCases` and `actualRemainingEach` are persisted alongside the unit total.
 - **Local Supabase dev stack with prod-mirrored schema.** `npm run dev:db` boots the full stack; seed regenerated against the post-P3 brand-catalog schema.
-- **CI deploy-gate workflow.** Catches drift between `main` and prod's applied migration list before the next deploy renders blank UIs.
+- **Cmd section tabs (PR #19).** 21 of 32 design-handoff tabs are fully wired; 11 Tier-2 tabs (recipe methods, allergens, vendor contacts, receiving docs, etc.) ship as named placeholders. See open issues for roadmap.
+- **CI deploy-gate workflow (planned).** Workflow file written; needs a `workflow`-scoped token push to go live on `main`.
