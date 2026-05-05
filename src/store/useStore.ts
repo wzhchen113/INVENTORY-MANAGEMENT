@@ -335,7 +335,10 @@ export const useStore = create<FullStore>((set, get) => ({
       .then((saved) => set((s) => ({
         inventory: s.inventory.map((i) => (i.id === tempId ? saved : i)),
       })))
-      .catch((e) => console.warn('[Supabase] createItem failed:', e?.message || e));
+      .catch((e: any) => {
+        set((s) => ({ inventory: s.inventory.filter((i) => i.id !== tempId) }));
+        notifyBackendError('Add item', e);
+      });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -351,12 +354,18 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updateItem: (id, updates) => {
+    const prev = get().inventory.find((i) => i.id === id);
     set((s) => ({
       inventory: s.inventory.map((item) =>
         item.id === id ? { ...item, ...updates } : item
       ),
     }));
-    db.updateInventoryItem(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.updateInventoryItem(id, updates).catch((e: any) => {
+      if (prev) {
+        set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? prev : i)) }));
+      }
+      notifyBackendError('Update item', e);
+    });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -376,7 +385,12 @@ export const useStore = create<FullStore>((set, get) => ({
     set((s) => ({
       inventory: s.inventory.filter((i) => i.id !== id),
     }));
-    db.deleteInventoryItem(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deleteInventoryItem(id).catch((e: any) => {
+      if (item) {
+        set((s) => ({ inventory: [...s.inventory, item] }));
+      }
+      notifyBackendError('Delete item', e);
+    });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -392,6 +406,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   adjustStock: (id, newStock, by) => {
+    const prev = get().inventory.find((i) => i.id === id);
     set((s) => ({
       inventory: s.inventory.map((item) =>
         item.id === id
@@ -399,7 +414,12 @@ export const useStore = create<FullStore>((set, get) => ({
           : item
       ),
     }));
-    db.adjustItemStock(id, newStock, get().currentUser?.id || '').catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.adjustItemStock(id, newStock, get().currentUser?.id || '').catch((e: any) => {
+      if (prev) {
+        set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? prev : i)) }));
+      }
+      notifyBackendError('Adjust stock', e);
+    });
   },
 
   getItemStatus: (item) => {
@@ -411,39 +431,63 @@ export const useStore = create<FullStore>((set, get) => ({
   // Recipe Categories
   addRecipeCategory: (name) => {
     set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
-    db.addRecipeCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.addRecipeCategory(name).catch((e: any) => {
+      set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
+      notifyBackendError('Add recipe category', e);
+    });
   },
 
   updateRecipeCategory: (oldName, newName) => {
+    const prevCats = get().recipeCategories;
+    const prevRecipes = get().recipes;
     set((s) => ({
       recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
       recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
     }));
-    db.updateRecipeCategory(oldName, newName).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.updateRecipeCategory(oldName, newName).catch((e: any) => {
+      set({ recipeCategories: prevCats, recipes: prevRecipes });
+      notifyBackendError('Rename recipe category', e);
+    });
   },
 
   deleteRecipeCategory: (name) => {
+    const prevCats = get().recipeCategories;
     set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
-    db.deleteRecipeCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deleteRecipeCategory(name).catch((e: any) => {
+      set({ recipeCategories: prevCats });
+      notifyBackendError('Delete recipe category', e);
+    });
   },
 
   // Ingredient Categories
   addIngredientCategory: (name) => {
     set((s) => ({ ingredientCategories: [...s.ingredientCategories, name] }));
-    db.addIngredientCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.addIngredientCategory(name).catch((e: any) => {
+      set((s) => ({ ingredientCategories: s.ingredientCategories.filter((c) => c !== name) }));
+      notifyBackendError('Add ingredient category', e);
+    });
   },
 
   updateIngredientCategory: (oldName, newName) => {
+    const prevCats = get().ingredientCategories;
+    const prevInv = get().inventory;
     set((s) => ({
       ingredientCategories: s.ingredientCategories.map((c) => (c === oldName ? newName : c)),
       inventory: s.inventory.map((i) => (i.category === oldName ? { ...i, category: newName } : i)),
     }));
-    db.updateIngredientCategory(oldName, newName).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.updateIngredientCategory(oldName, newName).catch((e: any) => {
+      set({ ingredientCategories: prevCats, inventory: prevInv });
+      notifyBackendError('Rename ingredient category', e);
+    });
   },
 
   deleteIngredientCategory: (name) => {
+    const prevCats = get().ingredientCategories;
     set((s) => ({ ingredientCategories: s.ingredientCategories.filter((c) => c !== name) }));
-    db.deleteIngredientCategory(name).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deleteIngredientCategory(name).catch((e: any) => {
+      set({ ingredientCategories: prevCats });
+      notifyBackendError('Delete ingredient category', e);
+    });
   },
 
   // Recipes — brand-level after the catalog refactor. brandId resolved
@@ -616,7 +660,10 @@ export const useStore = create<FullStore>((set, get) => ({
   logWaste: (entry) => {
     const id = makeId('w', ++wasteCounter);
     set((s) => ({ wasteLog: [{ ...entry, id }, ...s.wasteLog] }));
-    db.logWasteEntry(entry).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.logWasteEntry(entry).catch((e: any) => {
+      set((s) => ({ wasteLog: s.wasteLog.filter((w) => w.id !== id) }));
+      notifyBackendError('Log waste', e);
+    });
     const item = get().inventory.find((i) => i.id === entry.itemId);
     if (item) {
       get().adjustStock(
@@ -741,19 +788,30 @@ export const useStore = create<FullStore>((set, get) => ({
       .then((saved) => set((s) => ({
         vendors: s.vendors.map((v) => (v.id === tempId ? saved : v)),
       })))
-      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
+      .catch((e: any) => {
+        set((s) => ({ vendors: s.vendors.filter((v) => v.id !== tempId) }));
+        notifyBackendError('Add vendor', e);
+      });
   },
 
   updateVendor: (id, updates) => {
+    const prev = get().vendors.find((v) => v.id === id);
     set((s) => ({
       vendors: s.vendors.map((v) => (v.id === id ? { ...v, ...updates } : v)),
     }));
-    db.updateVendor(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.updateVendor(id, updates).catch((e: any) => {
+      if (prev) set((s) => ({ vendors: s.vendors.map((v) => (v.id === id ? prev : v)) }));
+      notifyBackendError('Update vendor', e);
+    });
   },
 
   deleteVendor: (id) => {
+    const vendor = get().vendors.find((v) => v.id === id);
     set((s) => ({ vendors: s.vendors.filter((v) => v.id !== id) }));
-    db.deleteVendor(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deleteVendor(id).catch((e: any) => {
+      if (vendor) set((s) => ({ vendors: [...s.vendors, vendor] }));
+      notifyBackendError('Delete vendor', e);
+    });
   },
 
   // POS Import — adjusts the CURRENT store's stock based on sales × BOM.
@@ -905,13 +963,17 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Orders
   setOrderSchedule: (day, vendors) => {
+    const prev = get().orderSchedule;
     set((s) => ({
       orderSchedule: { ...s.orderSchedule, [day]: vendors },
     }));
     // Persist to Supabase
     const storeId = get().currentStore?.id;
     if (storeId && storeId !== '__all__') {
-      db.saveOrderSchedule(storeId, day, vendors).catch((e: any) => console.warn('[Supabase] saveOrderSchedule:', e?.message || e));
+      db.saveOrderSchedule(storeId, day, vendors).catch((e: any) => {
+        set({ orderSchedule: prev });
+        notifyBackendError('Save order schedule', e);
+      });
     }
   },
 
@@ -938,7 +1000,10 @@ export const useStore = create<FullStore>((set, get) => ({
       set((s) => ({
         orderSubmissions: s.orderSubmissions.map((o) => o.id === tempId ? { ...o, id: serverId } : o),
       }));
-    }).catch((e: any) => console.warn('[Supabase] submitOrder:', e?.message || e));
+    }).catch((e: any) => {
+      set((s) => ({ orderSubmissions: s.orderSubmissions.filter((o) => o.id !== tempId) }));
+      notifyBackendError('Submit order', e);
+    });
 
     // Broadcast a bell-icon notification to admins + linked users.
     const submitterName = get().currentUser?.name || 'someone';
@@ -1036,12 +1101,19 @@ export const useStore = create<FullStore>((set, get) => ({
           savedReports: (s.savedReports || []).map((r) => (r.id === tempId ? saved : r)),
         }));
       })
-      .catch((e: any) => console.warn('[Supabase] createReportDefinition:', e?.message || e));
+      .catch((e: any) => {
+        set((s) => ({ savedReports: (s.savedReports || []).filter((r) => r.id !== tempId) }));
+        notifyBackendError('Save report', e);
+      });
   },
 
   deleteReportDefinition: (id) => {
+    const prev = (get().savedReports || []).find((r) => r.id === id);
     set((s) => ({ savedReports: (s.savedReports || []).filter((r) => r.id !== id) }));
-    db.deleteReportDefinition(id).catch((e: any) => console.warn('[Supabase] deleteReportDefinition:', e?.message || e));
+    db.deleteReportDefinition(id).catch((e: any) => {
+      if (prev) set((s) => ({ savedReports: [...(s.savedReports || []), prev] }));
+      notifyBackendError('Delete report', e);
+    });
   },
 
   // Computed
