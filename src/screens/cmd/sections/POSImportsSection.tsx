@@ -62,6 +62,11 @@ export default function POSImportsSection() {
           </View>
         }
       />
+      {tabId === 'mapping.tsx' ? (
+        <MappingTab />
+      ) : tabId === 'sources.tsx' ? (
+        <SourcesTab />
+      ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>POS imports</Text>
@@ -153,6 +158,7 @@ export default function POSImportsSection() {
           )}
         </View>
       </ScrollView>
+      )}
 
       <UploadCsvModal
         visible={uploadOpen}
@@ -171,6 +177,144 @@ export default function POSImportsSection() {
         diff={pendingDiff}
         onClose={() => { setRunOpen(false); setPendingDiff(null); }}
       />
+    </View>
+  );
+}
+
+// ─── mapping.tsx — POS pos_name ↔ recipe map ────────────────────────────
+// Reads useStore.posRecipeAliases (= pos_recipe_aliases table) for
+// confirmed mappings, plus posImports.items where recipeMapped=false for
+// unmapped pos_names that need attention. Without this map, sales →
+// depletion is broken.
+function MappingTab() {
+  const C = useCmdColors();
+  const aliases = useStore((s) => s.posRecipeAliases);
+  const recipes = useStore((s) => s.recipes);
+  const posImports = useStore((s) => s.posImports);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const storeAliases = React.useMemo(
+    () => aliases.filter((a) => a.store_id === currentStore.id),
+    [aliases, currentStore.id],
+  );
+
+  // Confirmed mappings, joined to recipe.
+  const confirmed = React.useMemo(
+    () =>
+      storeAliases
+        .map((a) => ({
+          pos_name: a.pos_name,
+          recipe_id: a.recipe_id,
+          recipe: recipes.find((r) => r.id === a.recipe_id),
+        }))
+        .sort((a, b) => a.pos_name.localeCompare(b.pos_name)),
+    [storeAliases, recipes],
+  );
+
+  // Unmapped pos_names (with sales count for triage).
+  const unmapped = React.useMemo(() => {
+    const map = new Map<string, { pos_name: string; rows: number; lastSeen: string }>();
+    for (const im of posImports.filter((p) => p.storeId === currentStore.id)) {
+      for (const it of im.items || []) {
+        if (it.recipeMapped) continue;
+        const key = it.menuItem?.trim() || '—';
+        const cur = map.get(key) || { pos_name: key, rows: 0, lastSeen: im.importedAt };
+        cur.rows += 1;
+        if (new Date(im.importedAt) > new Date(cur.lastSeen)) cur.lastSeen = im.importedAt;
+        map.set(key, cur);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.rows - a.rows);
+  }, [posImports, currentStore.id]);
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>POS mapping</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          POS SKU ↔ recipe map. Unmapped rows are ghost sales — depletion drifts until they're matched.
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Confirmed" value={String(confirmed.length)} sub="active aliases" />
+        <StatCard label="Unmapped" value={String(unmapped.length)} sub={unmapped.length === 0 ? 'all clean' : 'needs match'} />
+        <StatCard label="Ghost rows" value={String(unmapped.reduce((s, u) => s + u.rows, 0))} sub="across imports" />
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 14 }}>
+        <SectionPanel title="UNMAPPED.LOG" right={`${unmapped.length}`} style={{ flex: 1 }}>
+          {unmapped.length === 0 ? (
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>no unmapped pos_names</Text>
+          ) : (
+            unmapped.slice(0, 20).map((u, i) => (
+              <View key={u.pos_name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, gap: 8, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>{u.pos_name}</Text>
+                <View style={{ borderWidth: 1, borderColor: C.warn, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: C.warnBg }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.4 }}>UNMAPPED</Text>
+                </View>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg2, width: 50, textAlign: 'right' }}>{u.rows}×</Text>
+              </View>
+            ))
+          )}
+        </SectionPanel>
+        <SectionPanel title="ACTIVE_ALIASES.TSV" right={`${confirmed.length}`} style={{ flex: 1.4 }}>
+          {confirmed.length === 0 ? (
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>
+              no aliases yet — confirm an unmapped row in imports.tsx review and it will land here
+            </Text>
+          ) : (
+            confirmed.map((c, i) => (
+              <View key={c.pos_name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, gap: 8, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>{c.pos_name}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+                <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>
+                  {c.recipe ? c.recipe.menuItem : <Text style={{ color: C.danger }}>recipe missing ({c.recipe_id.slice(0, 6)})</Text>}
+                </Text>
+                <View style={{ borderWidth: 1, borderColor: C.ok, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: C.okBg }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.4 }}>OK</Text>
+                </View>
+              </View>
+            ))
+          )}
+        </SectionPanel>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── sources.tsx — POS connector status (Tier 2 placeholder) ────────────
+function SourcesTab() {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>POS sources</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Connected POS providers (Toast / Square / Clover / CSV). Sources are upstream of imports.tsx.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Today the only source is the manual CSV upload exposed on imports.tsx.
+          Adding Toast/Square/Clover connectors needs a `pos_sources` table + OAuth flow + scheduled cron — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── Local Panel helper ────────────────────────────────────────────────
+function SectionPanel({ title, right, style, children }: { title: string; right?: string; style?: any; children: React.ReactNode }) {
+  const C = useCmdColors();
+  return (
+    <View style={[{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border }, style]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed' }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{title}</Text>
+        {right ? <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{right}</Text> : null}
+      </View>
+      <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>{children}</View>
     </View>
   );
 }

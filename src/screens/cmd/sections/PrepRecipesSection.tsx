@@ -237,6 +237,13 @@ export default function PrepRecipesSection() {
                 ) : null
               }
             />
+            {tabId === 'sub_recipes.tsx' ? (
+              <PrepSubRecipesTab prep={sel} />
+            ) : tabId === 'usage.tsx' ? (
+              <PrepUsageTab prep={sel} />
+            ) : tabId === 'method.tsx' ? (
+              <PrepMethodPlaceholder prepName={sel.name} />
+            ) : (
             <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -377,6 +384,7 @@ export default function PrepRecipesSection() {
                 </View>
               </View>
             </ScrollView>
+            )}
           </>
         )}
       </View>
@@ -388,5 +396,199 @@ export default function PrepRecipesSection() {
         onClose={() => setDrawerMode(null)}
       />
     </>
+  );
+}
+
+// ─── sub_recipes.tsx — children + parents graph ───────────────────────
+function PrepSubRecipesTab({ prep }: { prep: any }) {
+  const C = useCmdColors();
+  const prepRecipes = useStore((s) => s.prepRecipes);
+
+  // Children: this prep's ingredients with type === 'prep' point at other preps.
+  const children = React.useMemo(() => {
+    const ings = (prep.ingredients || []).filter((i: any) => (i.type || 'raw') === 'prep' && i.itemId);
+    return ings.map((i: any) => {
+      const child = prepRecipes.find((p) => p.id === i.itemId);
+      return {
+        id: i.itemId,
+        name: child?.name || `(missing ${String(i.itemId).slice(0, 6)})`,
+        quantity: i.quantity,
+        unit: i.unit,
+        broken: !child,
+      };
+    });
+  }, [prep, prepRecipes]);
+
+  // Parents: any prep whose ingredients reference THIS prep id.
+  const parents = React.useMemo(() => {
+    return prepRecipes.filter((p) =>
+      (p.ingredients || []).some((i: any) => (i.type || 'raw') === 'prep' && i.itemId === prep.id),
+    );
+  }, [prepRecipes, prep.id]);
+
+  // Detect circular reference: BFS from children, stop at prep.id.
+  const circular = React.useMemo(() => {
+    const visited = new Set<string>();
+    const queue: string[] = children.map((c: any) => c.id);
+    while (queue.length) {
+      const cur = queue.shift()!;
+      if (cur === prep.id) return true;
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      const node = prepRecipes.find((p) => p.id === cur);
+      if (!node) continue;
+      for (const ing of (node.ingredients || []) as any[]) {
+        if ((ing.type || 'raw') === 'prep' && ing.itemId) queue.push(ing.itemId);
+      }
+    }
+    return false;
+  }, [children, prepRecipes, prep.id]);
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{prep.name} · sub-recipes</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Dependency graph: children (preps this one references) and parents (preps that reference this one).
+        </Text>
+      </View>
+      {circular ? (
+        <View style={{ borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.lg, backgroundColor: C.dangerBg, padding: 14 }}>
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger, letterSpacing: 0.4 }}>CIRCULAR REFERENCE DETECTED</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, marginTop: 4 }}>
+            One of this prep's children eventually references back to itself. Cost cascades will fail until resolved.
+          </Text>
+        </View>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: 14 }}>
+        <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <SectionCaption tone="fg3" size={10.5}>children.tsv</SectionCaption>
+            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{children.length}</Text>
+          </View>
+          {children.length === 0 ? (
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>no sub-recipe references — only raw ingredients</Text>
+          ) : (
+            children.map((c: any, i: number) => (
+              <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: sans(500), fontSize: 12, color: c.broken ? C.danger : C.fg, flex: 1 }} numberOfLines={1}>{c.name}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>{c.quantity} {c.unit}</Text>
+              </View>
+            ))
+          )}
+        </View>
+        <View style={{ flex: 1, backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <SectionCaption tone="fg3" size={10.5}>parents.tsv</SectionCaption>
+            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{parents.length}</Text>
+          </View>
+          {parents.length === 0 ? (
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>no preps reference this</Text>
+          ) : (
+            parents.map((p, i) => (
+              <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>{p.name}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>v{p.version ?? 1}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── usage.tsx — where this prep is consumed ──────────────────────────
+function PrepUsageTab({ prep }: { prep: any }) {
+  const C = useCmdColors();
+  const recipes = useStore((s) => s.recipes);
+  const posImports = useStore((s) => s.posImports);
+  const currentStore = useStore((s) => s.currentStore);
+
+  // Recipes that reference this prep via recipe_prep_items (= recipe.prepItems on the model).
+  const consumers = React.useMemo(() => {
+    return recipes
+      .filter((r) => (r.prepItems || []).some((p: any) => p.prepRecipeId === prep.id))
+      .map((r) => {
+        const item = (r.prepItems || []).find((p: any) => p.prepRecipeId === prep.id);
+        return { recipe: r, qtyPerSale: item?.quantity || 0, unit: item?.unit || prep.yieldUnit };
+      });
+  }, [recipes, prep.id, prep.yieldUnit]);
+
+  // Sales-driven weekly consumption.
+  const weeklyDepletion = React.useMemo(() => {
+    let totalQty = 0;
+    let weekCount = 1;
+    const oneWeekAgo = Date.now() - 7 * 86400000;
+    for (const im of posImports.filter((p) => p.storeId === currentStore.id)) {
+      if (new Date(im.importedAt).getTime() < oneWeekAgo) continue;
+      for (const it of im.items || []) {
+        const c = consumers.find((cn) => cn.recipe.id === it.recipeId);
+        if (c && it.qtySold) totalQty += c.qtyPerSale * it.qtySold;
+      }
+    }
+    return { totalQty, weekCount };
+  }, [posImports, consumers, currentStore.id]);
+
+  const yieldQty = (prep.yieldQuantity || 0);
+  const daysCover = weeklyDepletion.totalQty > 0 ? (yieldQty / (weeklyDepletion.totalQty / 7)).toFixed(1) : '—';
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{prep.name} · usage</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Where this prep is consumed and how much per week.
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Used by" value={String(consumers.length)} sub="recipes" />
+        <StatCard label="Per week" value={`${weeklyDepletion.totalQty.toFixed(1)} ${prep.yieldUnit}`} sub="sales-driven" />
+        <StatCard label="Yield" value={`${yieldQty} ${prep.yieldUnit}`} sub="per batch" />
+        <StatCard label="Days cover" value={daysCover === '—' ? '—' : `${daysCover}d`} sub="at current rate" />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>consumers.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{consumers.length}</Text>
+        </View>
+        {consumers.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no recipes reference this prep yet
+          </Text>
+        ) : (
+          consumers.map(({ recipe, qtyPerSale, unit }, i) => (
+            <View key={recipe.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+              <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{recipe.menuItem}</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>{recipe.category}</Text>
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                {qtyPerSale} {unit} / sale
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── method.tsx (Tier 2 — needs prep_recipe_methods table) ──────────────
+function PrepMethodPlaceholder({ prepName }: { prepName: string }) {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{prepName} · method</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Cook steps, yield check, HACCP cooling log.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs a `prep_recipe_methods` table — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

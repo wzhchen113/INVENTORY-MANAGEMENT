@@ -209,6 +209,11 @@ export default function POsSection() {
                 </View>
               }
             />
+            {tabId === 'history.tsx' ? (
+              <POHistoryTab />
+            ) : tabId === 'docs.tsx' ? (
+              <PODocsPlaceholder />
+            ) : (
             <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -305,9 +310,113 @@ export default function POsSection() {
                 )}
               </View>
             </ScrollView>
+            )}
           </>
         )}
       </View>
     </>
+  );
+}
+
+// ─── history.tsx — vendor PO lifecycle log ────────────────────────────
+export function POHistoryTab({ vendorIdFilter }: { vendorIdFilter?: string } = {}) {
+  const C = useCmdColors();
+  const orderSubmissions = useStore((s) => s.orderSubmissions);
+  const vendors = useStore((s) => s.vendors);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const orders = React.useMemo(() => {
+    return orderSubmissions
+      .filter((o) => o.storeId === currentStore.id)
+      .filter((o) => !vendorIdFilter || (o as any).vendorId === vendorIdFilter)
+      .slice()
+      .sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
+  }, [orderSubmissions, currentStore.id, vendorIdFilter]);
+
+  const totalSent = orders.length;
+  const received = orders.filter((o) => (o as any).status === 'received').length;
+  const fillPct = totalSent === 0 ? 0 : Math.round((received * 100) / totalSent);
+  const totalSpend = orders.reduce((s, o) => s + ((o as any).totalCost || 0), 0);
+  const vendorName = vendorIdFilter ? vendors.find((v) => v.id === vendorIdFilter)?.name : null;
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{vendorName ? `${vendorName} · orders` : 'PO history'}</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          PO lifecycle log · draft → sent → received → credit
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Orders" value={String(totalSent)} sub={vendorName ? 'this vendor' : 'all vendors'} />
+        <StatCard label="Received" value={String(received)} sub={`${fillPct}% fill`} />
+        <StatCard label="Spend" value={`$${totalSpend.toFixed(0)}`} sub="across orders" />
+        <StatCard label="Last sent" value={orders[0]?.submittedAt?.slice(5, 10) || '—'} sub={orders[0]?.day || '—'} />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>history.log</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{orders.length}</Text>
+        </View>
+        {orders.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no orders yet{vendorName ? ` for ${vendorName}` : ''}
+          </Text>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110 }}>sent</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>vendor</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90 }}>day</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>total</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>state</Text>
+            </View>
+            {orders.map((o, i) => {
+              const status = ((o as any).status || 'sent') as string;
+              const tone = status === 'received' ? C.ok : status === 'credit' ? C.warn : C.info;
+              const bg   = status === 'received' ? C.okBg : status === 'credit' ? C.warnBg : C.infoBg;
+              return (
+                <View key={o.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border }}>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 110 }}>
+                    {o.submittedAt?.slice(0, 10)}
+                  </Text>
+                  <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>{o.vendorName}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, width: 90 }}>{o.day}</Text>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                    ${((o as any).totalCost || 0).toFixed(0)}
+                  </Text>
+                  <View style={{ width: 90, alignItems: 'flex-end' }}>
+                    <View style={{ borderWidth: 1, borderColor: tone, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: bg }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone, letterSpacing: 0.4 }}>{status.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── docs.tsx — Tier 2 placeholder ────────────────────────────────────
+function PODocsPlaceholder() {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>PO docs</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Per-stage attachments (draft / sent / confirmed / received / credit).
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs a `purchase_order_docs` table + Supabase Storage bucket — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

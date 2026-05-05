@@ -9,6 +9,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { usePaletteAction } from '../../../lib/paletteAction';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
+import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { AddCountModal } from '../../../components/cmd/AddCountModal';
@@ -416,10 +417,10 @@ export default function EODCountSection() {
           }
         />
 
-        {tabId !== 'count.tsx' ? (
-          <View style={{ flex: 1, padding: 22 }}>
-            <ComingSoonPanel tabName={tabId.replace('.tsx', '').replace('.log', '')} />
-          </View>
+        {tabId === 'history.tsx' ? (
+          <EODHistoryTab />
+        ) : tabId === 'variance.log' ? (
+          <VarianceLogTab />
         ) : (<>
         {/* Sticky filter chrome */}
         <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
@@ -694,5 +695,194 @@ export default function EODCountSection() {
         }}
       />
     </>
+  );
+}
+
+// ─── history.tsx — submitted counts (90d) ──────────────────────────────
+function EODHistoryTab() {
+  const C = useCmdColors();
+  const eodSubmissions = useStore((s) => s.eodSubmissions);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const ninetyDaysAgo = React.useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const submissions = React.useMemo(
+    () =>
+      eodSubmissions
+        .filter((s) => s.storeId === currentStore.id && s.date >= ninetyDaysAgo)
+        .slice()
+        .sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [eodSubmissions, currentStore.id, ninetyDaysAgo],
+  );
+
+  const onTimeCount = submissions.filter((s) => s.status === 'submitted').length;
+  const onTimePct = submissions.length === 0 ? 100 : Math.round((onTimeCount * 100) / submissions.length);
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>EOD count · history</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          90-day rolling history. Click a row to view the frozen snapshot read-only.
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Submissions" value={String(submissions.length)} sub="last 90 days" />
+        <StatCard label="On-time %" value={`${onTimePct}%`} sub="vs deadline" />
+        <StatCard label="Items / count" value={submissions.length === 0 ? '—' : String(Math.round(submissions.reduce((s, c) => s + (c.itemCount || c.entries?.length || 0), 0) / submissions.length))} sub="avg" />
+        <StatCard label="Last submitted" value={submissions[0] ? submissions[0].date.slice(5) : '—'} sub={submissions[0] ? new Date(submissions[0].timestamp).toTimeString().slice(0, 5) : '—'} />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>history.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{submissions.length} {submissions.length === 1 ? 'count' : 'counts'}</Text>
+        </View>
+        {submissions.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no submitted counts in the last 90 days
+          </Text>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 100 }}>date</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>time</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>submitted by</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>items</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>status</Text>
+            </View>
+            {submissions.map((sub, i) => {
+              const tone = sub.status === 'draft' ? 'warn' : 'ok';
+              return (
+                <View key={sub.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border }}>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 100 }}>{sub.date}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 70 }}>
+                    {new Date(sub.timestamp).toTimeString().slice(0, 5)}
+                  </Text>
+                  <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, flex: 1 }} numberOfLines={1}>{sub.submittedBy || '—'}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{sub.itemCount || sub.entries?.length || 0}</Text>
+                  <View style={{ width: 90, alignItems: 'flex-end' }}>
+                    <View style={{ borderWidth: 1, borderColor: tone === 'warn' ? C.warn : C.ok, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: tone === 'warn' ? C.warnBg : C.okBg }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone === 'warn' ? C.warn : C.ok, letterSpacing: 0.4 }}>
+                        {sub.status === 'draft' ? 'DRAFT' : 'SUBMITTED'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── variance.log — counted vs expected diff per item ──────────────────
+function VarianceLogTab() {
+  const C = useCmdColors();
+  const eodSubmissions = useStore((s) => s.eodSubmissions);
+  const inventory = useStore((s) => s.inventory);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaySub = React.useMemo(
+    () => eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === todayStr),
+    [eodSubmissions, currentStore.id, todayStr],
+  );
+
+  const variances = React.useMemo(() => {
+    if (!todaySub?.entries) return [];
+    return todaySub.entries
+      .map((entry) => {
+        const item = inventory.find((i) => i.id === entry.itemId);
+        if (!item) return null;
+        const expected = item.parLevel || 0; // par as proxy when no expected stock signal
+        const counted = entry.actualRemaining;
+        const delta = counted - expected;
+        const cost = item.costPerUnit || 0;
+        const deltaCost = delta * cost;
+        let tag: 'SHRINK' | 'MINOR' | 'OK' | 'FAVORABLE';
+        if (deltaCost <= -25) tag = 'SHRINK';
+        else if (Math.abs(delta) >= expected * 0.05 && expected > 0) tag = 'MINOR';
+        else if (delta > 0) tag = 'FAVORABLE';
+        else tag = 'OK';
+        return { itemName: item.name, unit: item.unit, expected, counted, delta, deltaCost, tag };
+      })
+      .filter(Boolean) as Array<{ itemName: string; unit: string; expected: number; counted: number; delta: number; deltaCost: number; tag: 'SHRINK' | 'MINOR' | 'OK' | 'FAVORABLE' }>;
+  }, [todaySub, inventory]);
+
+  const sorted = React.useMemo(
+    () => variances.slice().sort((a, b) => Math.abs(b.deltaCost) - Math.abs(a.deltaCost)),
+    [variances],
+  );
+
+  const sumDelta = sorted.reduce((s, v) => s + v.deltaCost, 0);
+  const shrinkCount = sorted.filter((v) => v.tag === 'SHRINK').length;
+  const minorCount = sorted.filter((v) => v.tag === 'MINOR').length;
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>variance · live</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Counted vs expected per item. Posts to reconciliation at day-close.
+          Rules: SHRINK ≥ $25 · MINOR ≥ 5% · FAVORABLE +Δ · OK.
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Items counted" value={String(sorted.length)} sub={todaySub ? `today's count` : 'no count submitted'} />
+        <StatCard label="Net Δ$" value={`${sumDelta >= 0 ? '+' : '−'}$${Math.abs(sumDelta).toFixed(0)}`} sub="vs par × cost" />
+        <StatCard label="SHRINK" value={String(shrinkCount)} sub="≥ $25 loss" />
+        <StatCard label="MINOR" value={String(minorCount)} sub="≥ 5% off" />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>variance.log</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>sorted by |Δ$|</Text>
+        </View>
+        {sorted.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no count submitted today — submit a count to see variance
+          </Text>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>item</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>expected</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>counted</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>Δ</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>Δ$</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>tag</Text>
+            </View>
+            {sorted.map((v, i) => {
+              const tone = v.tag === 'SHRINK' ? C.danger : v.tag === 'MINOR' ? C.warn : v.tag === 'FAVORABLE' ? C.ok : C.fg3;
+              const bg   = v.tag === 'SHRINK' ? C.dangerBg : v.tag === 'MINOR' ? C.warnBg : v.tag === 'FAVORABLE' ? C.okBg : 'transparent';
+              return (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                  <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1.4 }} numberOfLines={1}>{v.itemName}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right' }}>{v.expected} {v.unit}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{v.counted} {v.unit}</Text>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: tone, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                    {v.delta >= 0 ? '+' : ''}{v.delta.toFixed(1)}
+                  </Text>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: tone, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                    {v.deltaCost >= 0 ? '+' : '−'}${Math.abs(v.deltaCost).toFixed(0)}
+                  </Text>
+                  <View style={{ width: 80, alignItems: 'flex-end' }}>
+                    <View style={{ borderWidth: 1, borderColor: tone, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: bg }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone, letterSpacing: 0.4 }}>{v.tag}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+      </View>
+    </ScrollView>
   );
 }
