@@ -60,6 +60,11 @@ export default function ReportsSection() {
           </TouchableOpacity>
         }
       />
+      {tabId === 'scheduled.tsx' ? (
+        <ReportsScheduledPlaceholder />
+      ) : tabId === 'custom.tsx' ? (
+        <ReportsCustomPlaceholder />
+      ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 18 }}>
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>Reports</Text>
@@ -174,8 +179,50 @@ export default function ReportsSection() {
           ))}
         </View>
       </ScrollView>
+      )}
 
       <NewReportModal visible={newOpen} onClose={() => setNewOpen(false)} />
     </View>
+  );
+}
+
+// ─── scheduled.tsx + custom.tsx (Tier 2 — needs scheduling infra) ─────
+function ReportsScheduledPlaceholder() {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>reports · scheduled</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Recurring jobs against library.tsx templates · cadence · recipients · run log.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs `report_schedules` + `report_runs` tables + a Supabase cron job — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+function ReportsCustomPlaceholder() {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>reports · custom</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Query builder against the underlying .tsv tables · save-as-template (→ library) or schedule.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs a query-builder UI + a serverside SQL exec/sandbox — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

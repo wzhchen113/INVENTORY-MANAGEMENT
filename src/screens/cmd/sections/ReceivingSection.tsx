@@ -239,6 +239,9 @@ export default function ReceivingSection() {
                 </View>
               }
             />
+            {tabId === 'docs.tsx' || tabId === 'flag.tsx' ? (
+              <ReceivingPlaceholder kind={tabId === 'docs.tsx' ? 'docs' : 'flag'} />
+            ) : (
             <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -335,9 +338,35 @@ export default function ReceivingSection() {
                 )}
               </View>
             </ScrollView>
+            )}
           </>
         )}
       </View>
     </>
+  );
+}
+
+// ─── docs.tsx + flag.tsx (Tier 2 — needs new tables + storage) ────────
+function ReceivingPlaceholder({ kind }: { kind: 'docs' | 'flag' }) {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>receiving · {kind}</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          {kind === 'docs'
+            ? 'Invoice + photo + signature attachments. OCR-parsed JSON drives short/pending flags.'
+            : 'Short/damaged lines queued for vendor credit. Submit emails vendor + opens contact thread.'}
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          {kind === 'docs'
+            ? 'Needs `receiving_docs` table + Supabase Storage bucket + OCR pipeline — coming in a follow-up migration.'
+            : 'Needs `receiving_flags` table + vendor email integration + thread linkage — coming in a follow-up migration.'}
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

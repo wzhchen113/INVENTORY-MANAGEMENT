@@ -230,6 +230,13 @@ export default function RecipesSection() {
                 ) : null
               }
             />
+            {tabId === 'sales.tsx' ? (
+              <RecipeSalesTab recipeId={sel.id} recipeName={sel.menuItem} />
+            ) : tabId === 'method.tsx' ? (
+              <RecipeMethodPlaceholder recipeName={sel.menuItem} />
+            ) : tabId === 'allergens.tsx' ? (
+              <RecipeAllergensPlaceholder recipeName={sel.menuItem} />
+            ) : (
             <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -359,6 +366,7 @@ export default function RecipesSection() {
                 </View>
               </View>
             </ScrollView>
+            )}
           </>
         )}
       </View>
@@ -370,5 +378,130 @@ export default function RecipesSection() {
         onClose={() => setDrawerMode(null)}
       />
     </>
+  );
+}
+
+// ─── sales.tsx — POS-driven units / revenue / margin ─────────────────
+function RecipeSalesTab({ recipeId, recipeName }: { recipeId: string; recipeName: string }) {
+  const C = useCmdColors();
+  const posImports = useStore((s) => s.posImports);
+  const recipes = useStore((s) => s.recipes);
+  const inventory = useStore((s) => s.inventory);
+  const currentStore = useStore((s) => s.currentStore);
+  const recipe = recipes.find((r) => r.id === recipeId);
+
+  // Aggregate sales for this recipe across pos_imports.
+  const salesRows = React.useMemo(() => {
+    const rows: { date: string; importId: string; qty: number; revenue: number }[] = [];
+    for (const im of posImports.filter((p) => p.storeId === currentStore.id)) {
+      let qty = 0, rev = 0;
+      for (const it of im.items || []) {
+        if (it.recipeId === recipeId) {
+          qty += it.qtySold || 0;
+          rev += it.revenue || 0;
+        }
+      }
+      if (qty > 0) rows.push({ date: im.importedAt.slice(0, 10), importId: im.id, qty, revenue: rev });
+    }
+    return rows.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  }, [posImports, recipeId, currentStore.id]);
+
+  const totalUnits = salesRows.reduce((s, r) => s + r.qty, 0);
+  const totalRevenue = salesRows.reduce((s, r) => s + r.revenue, 0);
+
+  // Recipe cost from BOM × current cost_per_unit.
+  const recipeCost = React.useMemo(() => {
+    if (!recipe) return 0;
+    let c = 0;
+    for (const ing of recipe.ingredients || []) {
+      const item = inventory.find((i) => (i as any).catalogId === ing.itemId || i.id === ing.itemId);
+      if (item?.costPerUnit) c += (ing.quantity || 0) * item.costPerUnit;
+    }
+    return c;
+  }, [recipe, inventory]);
+  const sellPrice = recipe?.sellPrice || 0;
+  const margin = sellPrice - recipeCost;
+  const fcPct = sellPrice === 0 ? 0 : Math.round((recipeCost * 100) / sellPrice);
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · sales</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          POS-driven units sold / revenue / food cost % / margin · joined via POS mapping
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Units · YTD" value={String(totalUnits)} sub="across imports" />
+        <StatCard label="Revenue · YTD" value={`$${totalRevenue.toFixed(0)}`} sub="" />
+        <StatCard label="Food cost %" value={fcPct ? `${fcPct}%` : '—'} sub={`vs sell $${sellPrice.toFixed(2)}`} />
+        <StatCard label="Margin / unit" value={margin ? `$${margin.toFixed(2)}` : '—'} sub={`cost $${recipeCost.toFixed(2)}`} />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>recent_sales.log</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{salesRows.length} import{salesRows.length === 1 ? '' : 's'}</Text>
+        </View>
+        {salesRows.length === 0 ? (
+          <View style={{ padding: 22, alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>NO SALES DATA</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+              Either no POS imports include this recipe, or the POS pos_name isn't mapped — check posimports/mapping.tsx.
+            </Text>
+          </View>
+        ) : (
+          salesRows.slice(0, 30).map((r, i) => (
+            <View key={r.importId} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 100 }}>{r.date}</Text>
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>import {r.importId.slice(-6)}</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{r.qty} units</Text>
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>${r.revenue.toFixed(0)}</Text>
+            </View>
+          ))
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── method.tsx (Tier 2 — needs recipe_methods table) ─────────────────
+function RecipeMethodPlaceholder({ recipeName }: { recipeName: string }) {
+  const C = useCmdColors();
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · method</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Ordered cook steps with time + ingredient-tag references.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Cook procedures need a `recipe_methods` table (step_no, instruction, duration_min, ingredient_tags) — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── allergens.tsx (Tier 2 — needs allergen flags on catalog_ingredients) ─
+function RecipeAllergensPlaceholder({ recipeName }: { recipeName: string }) {
+  const C = useCmdColors();
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · allergens</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          9-col allergen matrix computed from ingredient flags.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs allergen flags on `catalog_ingredients` (gluten, dairy, egg, soy, peanut, tree_nut, fish, shellfish, sesame) — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

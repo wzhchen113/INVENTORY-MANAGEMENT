@@ -126,6 +126,9 @@ export default function RestockSection() {
         }
       />
 
+      {tabId === 'history.tsx' ? (
+        <RestockHistoryPlaceholder />
+      ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 80 }}>
         {/* Hero */}
         <View>
@@ -235,6 +238,7 @@ export default function RestockSection() {
           )}
         </View>
       </ScrollView>
+      )}
 
       {/* Sticky footer summary */}
       <View
@@ -266,5 +270,26 @@ export default function RestockSection() {
         </Text>
       </View>
     </View>
+  );
+}
+
+// ─── history.tsx (Tier 2 — needs restock_history snapshots) ────────────
+function RestockHistoryPlaceholder() {
+  const C = useCmdColors();
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>restock · history</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Past suggestion × actual PO × actual depletion · per-row outcome (good / over / stockout / tight) feeds reorder forecasting.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
+          Needs a `restock_history` snapshot table that captures (suggestion, qty_ordered, qty_used, days_to_stockout) per item per cycle — coming in a follow-up migration.
+        </Text>
+      </View>
+    </ScrollView>
   );
 }

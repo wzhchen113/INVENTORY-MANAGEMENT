@@ -123,6 +123,11 @@ export default function ReconciliationSection() {
           </View>
         }
       />
+      {tabId === 'byCategory.tsx' ? (
+        <ReconByCategoryTab />
+      ) : tabId === 'timeline.tsx' ? (
+        <ReconTimelineTab />
+      ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>
@@ -245,6 +250,174 @@ export default function ReconciliationSection() {
           )}
         </View>
       </ScrollView>
+      )}
     </View>
+  );
+}
+
+// ─── byCategory.tsx — net Δ$ rolled up by ingredient_categories ───────
+function ReconByCategoryTab() {
+  const C = useCmdColors();
+  const eodSubmissions = useStore((s) => s.eodSubmissions);
+  const inventory = useStore((s) => s.inventory);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaySub = eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === todayStr);
+
+  const rows = React.useMemo(() => {
+    const map = new Map<string, { delta: number; deltaCost: number; n: number }>();
+    if (!todaySub?.entries) return [];
+    for (const entry of todaySub.entries) {
+      const item = inventory.find((i) => i.id === entry.itemId);
+      if (!item) continue;
+      const expected = item.parLevel || 0;
+      const counted = entry.actualRemaining;
+      const delta = counted - expected;
+      const deltaCost = delta * (item.costPerUnit || 0);
+      const cat = item.category || 'uncategorized';
+      const cur = map.get(cat) || { delta: 0, deltaCost: 0, n: 0 };
+      cur.delta += delta;
+      cur.deltaCost += deltaCost;
+      cur.n += 1;
+      map.set(cat, cur);
+    }
+    return Array.from(map.entries())
+      .map(([cat, v]) => ({ cat, ...v }))
+      .sort((a, b) => a.deltaCost - b.deltaCost);
+  }, [todaySub, inventory]);
+
+  const drivers = rows.slice(0, 3);
+  const totalDelta = rows.reduce((s, r) => s + r.deltaCost, 0);
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>reconciliation · by category</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Net Δ$ rolled up by ingredient category. Top shrink drivers surface first.
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Net Δ$" value={`${totalDelta >= 0 ? '+' : '−'}$${Math.abs(totalDelta).toFixed(0)}`} sub="all categories" />
+        <StatCard label="Categories" value={String(rows.length)} sub="affected" />
+        <StatCard label="Top driver" value={drivers[0]?.cat || '—'} sub={drivers[0] ? `$${drivers[0].deltaCost.toFixed(0)}` : '—'} />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>by_category.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{rows.length}</Text>
+        </View>
+        {rows.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no count submitted today — variance rolls up after submit
+          </Text>
+        ) : (
+          rows.map((r, i) => {
+            const tone = r.deltaCost <= -25 ? C.danger : r.deltaCost > 0 ? C.ok : C.fg2;
+            return (
+              <View key={r.cat} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.cat}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 80, textAlign: 'right' }}>{r.n} {r.n === 1 ? 'item' : 'items'}</Text>
+                <Text style={{ fontFamily: mono(500), fontSize: 12, color: tone, width: 100, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                  {r.deltaCost >= 0 ? '+' : '−'}${Math.abs(r.deltaCost).toFixed(0)}
+                </Text>
+              </View>
+            );
+          })
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── timeline.tsx — 90d calendar of net variance ──────────────────────
+function ReconTimelineTab() {
+  const C = useCmdColors();
+  const eodSubmissions = useStore((s) => s.eodSubmissions);
+  const inventory = useStore((s) => s.inventory);
+  const currentStore = useStore((s) => s.currentStore);
+
+  const days = React.useMemo(() => {
+    const out: Array<{ date: string; delta: number; status: 'submitted' | 'missing' }> = [];
+    const today = new Date();
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const sub = eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === iso);
+      if (!sub) {
+        out.push({ date: iso, delta: 0, status: 'missing' });
+        continue;
+      }
+      let delta = 0;
+      for (const entry of sub.entries || []) {
+        const item = inventory.find((it) => it.id === entry.itemId);
+        if (item) delta += (entry.actualRemaining - (item.parLevel || 0)) * (item.costPerUnit || 0);
+      }
+      out.push({ date: iso, delta, status: 'submitted' });
+    }
+    return out;
+  }, [eodSubmissions, inventory, currentStore.id]);
+
+  const submittedDays = days.filter((d) => d.status === 'submitted');
+  const missing = days.filter((d) => d.status === 'missing').length;
+
+  // Streak detection: consecutive submitted days from today backward.
+  let streak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (days[i].status === 'submitted') streak++;
+    else break;
+  }
+
+  const max = Math.max(1, ...submittedDays.map((d) => Math.abs(d.delta)));
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>reconciliation · 90d timeline</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Daily net Δ$ variance — streak detection, missed-posting alerts.
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Submitted · 90d" value={String(submittedDays.length)} sub={`of ${days.length}`} />
+        <StatCard label="Missing" value={String(missing)} sub="days w/ no count" />
+        <StatCard label="Streak" value={`${streak}d`} sub="consecutive" />
+        <StatCard label="Net Δ$ · 90d" value={`${submittedDays.reduce((s, d) => s + d.delta, 0) >= 0 ? '+' : '−'}$${Math.abs(submittedDays.reduce((s, d) => s + d.delta, 0)).toFixed(0)}`} sub="" />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>timeline.dat</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>green=favorable · red=shrink · grey=missing</Text>
+        </View>
+        <View style={{ paddingHorizontal: 14, paddingVertical: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 3 }}>
+          {days.map((d) => {
+            const intensity = Math.min(1, Math.abs(d.delta) / max);
+            const baseColor =
+              d.status === 'missing' ? C.fg3
+              : d.delta < -25 ? C.danger
+              : d.delta > 0 ? C.ok
+              : C.warn;
+            const op = d.status === 'missing' ? 0.25 : 0.4 + intensity * 0.55;
+            return (
+              <View
+                key={d.date}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 2,
+                  backgroundColor: baseColor,
+                  opacity: op,
+                  borderWidth: d.status === 'missing' ? 1 : 0,
+                  borderColor: C.border,
+                  borderStyle: 'dashed',
+                }}
+              />
+            );
+          })}
+        </View>
+      </View>
+    </ScrollView>
   );
 }

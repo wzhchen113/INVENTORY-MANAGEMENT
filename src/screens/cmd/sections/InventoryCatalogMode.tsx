@@ -446,6 +446,12 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                   </View>
                 </View>
               </ScrollView>
+            ) : tabId === 'stores.tsx' ? (
+              <CatalogStoresTab sel={sel} />
+            ) : tabId === 'conversions.tsx' ? (
+              <CatalogConversionsTab sel={sel} />
+            ) : tabId === 'audit.tsx' ? (
+              <CatalogAuditTab sel={sel} />
             ) : (
               <View style={{ padding: 22 }}>
                 <ComingSoonPanel tabName={tabId.replace('.tsx', '')} />
@@ -468,5 +474,184 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
       />
       <ExportCsvDrawer visible={exportOpen} onClose={() => setExportOpen(false)} />
     </>
+  );
+}
+
+// ─── stores.tsx — per-store overrides on the shared catalog row ────────
+function CatalogStoresTab({ sel }: { sel: Group }) {
+  const C = useCmdColors();
+  const stores = useStore((s) => s.stores);
+  const vendors = useStore((s) => s.vendors);
+  const currentStore = useStore((s) => s.currentStore);
+  const getItemStatus = useStore((s) => s.getItemStatus);
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{sel.name} · per-store</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Same catalog row, different per-store overrides (par, vendor, price, current stock).
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <StatCard label="Stores carrying" value={`${sel.storeCount} / ${stores.length}`} sub="this catalog row" />
+        <StatCard label="On hand · sum" value={`${sel.totalStock.toFixed(1)} ${sel.unit}`} sub="all stores combined" />
+        <StatCard label="Par · range" value={`${Math.min(...sel.rows.map((r) => r.parLevel))}–${Math.max(...sel.rows.map((r) => r.parLevel))}`} sub={sel.unit} />
+        <StatCard label="Cost · range" value={(() => {
+          const costs = sel.rows.map((r) => r.costPerUnit || 0).filter((c) => c > 0);
+          if (costs.length === 0) return '—';
+          const lo = Math.min(...costs), hi = Math.max(...costs);
+          return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–${hi.toFixed(2)}`;
+        })()} sub="per store" />
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>stores.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{sel.rows.length} rows</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>store</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.2 }}>vendor</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>on hand</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>par</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cost / u</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>status</Text>
+        </View>
+        {sel.rows.map((row, i) => {
+          const store = stores.find((s) => s.id === row.storeId);
+          const vendor = vendors.find((v) => v.id === row.vendorId);
+          const isCurrent = row.storeId === currentStore.id;
+          return (
+            <View key={row.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, backgroundColor: isCurrent ? C.accentBg : 'transparent' }}>
+              <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1.4 }} numberOfLines={1}>
+                {store?.name || row.storeId.slice(0, 6)}{isCurrent ? ' ← current' : ''}
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1.2 }} numberOfLines={1}>
+                {vendor?.name || '—'}
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                {row.currentStock} {row.unit}
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 60, textAlign: 'right' }}>{row.parLevel}</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right' }}>
+                {row.costPerUnit ? `$${row.costPerUnit.toFixed(2)}` : '—'}
+              </Text>
+              <View style={{ width: 60, alignItems: 'flex-end' }}>
+                <StatusPill status={getItemStatus(row)} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── conversions.tsx — unit translation table ─────────────────────────
+function CatalogConversionsTab({ sel }: { sel: Group }) {
+  const C = useCmdColors();
+  const allConversions = useStore((s) => s.ingredientConversions || []);
+  // Conversions are brand-level keyed on catalog_id. The InventoryItem
+  // rows here may have inventoryItemId (legacy) or catalogId — try both.
+  const conversions = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of sel.rows) {
+      if ((r as any).catalogId) ids.add((r as any).catalogId);
+      ids.add(r.id); // legacy inventory_item_id link some seeds may have
+    }
+    return allConversions.filter((c: any) => ids.has(c.catalogId) || ids.has(c.inventoryItemId));
+  }, [allConversions, sel.rows]);
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{sel.name} · conversions</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Unit translation table. Without these rows, recipes that use a different unit than the base can't compute cost or depletion.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>conversions.tsv</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{conversions.length} {conversions.length === 1 ? 'row' : 'rows'} · base unit "{sel.unit}"</Text>
+        </View>
+        {conversions.length === 0 ? (
+          <View style={{ padding: 18, gap: 6 }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>FIX — NO CONVERSIONS</Text>
+            <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg2 }}>
+              Recipes that consume {sel.name} in a unit other than {sel.unit} can't compute cost. Add a conversion row from any recipe edit screen.
+            </Text>
+          </View>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>purchase u</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'center' }}>→</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>base u</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>factor</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>net yield</Text>
+            </View>
+            {conversions.map((conv: any, i: number) => (
+              <View key={conv.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.purchaseUnit || conv.purchase_unit}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'center' }}>→</Text>
+                <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.baseUnit || conv.base_unit}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg2, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                  ×{(conv.conversionFactor || conv.conversion_factor || 0).toFixed(4)}
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right' }}>
+                  {(conv.netYieldPct ?? conv.net_yield_pct ?? 100)}%
+                </Text>
+              </View>
+            ))}
+          </>
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── audit.tsx — audit log filtered to this catalog ingredient ─────────
+function CatalogAuditTab({ sel }: { sel: Group }) {
+  const C = useCmdColors();
+  const auditLog = useStore((s) => s.auditLog);
+  const events = React.useMemo(() => {
+    const lname = sel.name.toLowerCase();
+    return auditLog
+      .filter((e) => (e.itemRef || '').toLowerCase() === lname)
+      .slice()
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 60);
+  }, [auditLog, sel.name]);
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>{sel.name} · audit</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Audit log filtered to this catalog ingredient — every edit, count, waste, or stock adjust touches this list.
+        </Text>
+      </View>
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <SectionCaption tone="fg3" size={10.5}>audit.log</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{events.length} event{events.length === 1 ? '' : 's'}</Text>
+        </View>
+        {events.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no audit events recorded for {sel.name} yet
+          </Text>
+        ) : (
+          events.map((e, i) => (
+            <View key={e.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 110 }}>{new Date(e.timestamp).toISOString().slice(5, 16).replace('T', ' ')}</Text>
+              <Text style={{ fontFamily: sans(600), fontSize: 12, color: C.fg, width: 130 }} numberOfLines={1}>{e.userName || '—'}</Text>
+              <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, width: 150 }} numberOfLines={1}>{e.action}</Text>
+              <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>{e.value || e.detail || ''}</Text>
+            </View>
+          ))
+        )}
+      </View>
+    </ScrollView>
   );
 }
