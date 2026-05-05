@@ -15,6 +15,21 @@ import * as db from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
+
+// Surface a backend failure to the user instead of swallowing it in
+// console.warn. Used by the recipe + prep recipe CRUD paths to revert
+// optimistic local-state mutations and tell the admin what happened.
+function notifyBackendError(action: string, e: any) {
+  const message = e?.message || String(e);
+  console.warn(`[Supabase] ${action} failed:`, message);
+  Toast.show({
+    type: 'error',
+    text1: `${action} failed`,
+    text2: message,
+    visibilityTime: 5000,
+  });
+}
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -442,7 +457,11 @@ export const useStore = create<FullStore>((set, get) => ({
       .then((saved) => set((s) => ({
         recipes: s.recipes.map((r) => (r.id === tempId ? saved : r)),
       })))
-      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
+      .catch((e: any) => {
+        // Revert: drop the temp row so the UI matches the DB.
+        set((s) => ({ recipes: s.recipes.filter((r) => r.id !== tempId) }));
+        notifyBackendError('Save recipe', e);
+      });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -458,10 +477,16 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updateRecipe: (id, updates) => {
+    const prev = get().recipes.find((r) => r.id === id);
     set((s) => ({
       recipes: s.recipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
-    db.updateRecipe(id, updates).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.updateRecipe(id, updates).catch((e: any) => {
+      if (prev) {
+        set((s) => ({ recipes: s.recipes.map((r) => (r.id === id ? prev : r)) }));
+      }
+      notifyBackendError('Update recipe', e);
+    });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -479,7 +504,12 @@ export const useStore = create<FullStore>((set, get) => ({
   deleteRecipe: (id) => {
     const recipe = get().recipes.find((r) => r.id === id);
     set((s) => ({ recipes: s.recipes.filter((r) => r.id !== id) }));
-    db.deleteRecipe(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deleteRecipe(id).catch((e: any) => {
+      if (recipe) {
+        set((s) => ({ recipes: [...s.recipes, recipe] }));
+      }
+      notifyBackendError('Delete recipe', e);
+    });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -504,7 +534,10 @@ export const useStore = create<FullStore>((set, get) => ({
       .then((newId) => set((s) => ({
         prepRecipes: s.prepRecipes.map((r) => (r.id === tempId ? { ...r, id: newId } : r)),
       })))
-      .catch((e: any) => console.warn('[Supabase]', e?.message || e));
+      .catch((e: any) => {
+        set((s) => ({ prepRecipes: s.prepRecipes.filter((r) => r.id !== tempId) }));
+        notifyBackendError('Save prep recipe', e);
+      });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
       userId: get().currentUser?.id || '',
@@ -520,22 +553,25 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updatePrepRecipe: (id, updates) => {
-    // Capture brandId BEFORE mutating state (prevents race condition in multi-store loops)
-    const existing = get().prepRecipes.find((r) => r.id === id);
-    const brandId = updates.brandId || existing?.brandId || get().brand?.id || get().currentStore.brandId || '';
+    // Capture brandId AND prev-state BEFORE mutating (prevents race in multi-store
+    // loops, and gives us something to revert to on backend failure).
+    const prev = get().prepRecipes.find((r) => r.id === id);
+    const brandId = updates.brandId || prev?.brandId || get().brand?.id || get().currentStore.brandId || '';
     set((s) => ({
       prepRecipes: s.prepRecipes.map((r) => (r.id === id ? { ...r, ...updates } : r)),
     }));
-    // Use versioned update to preserve historical records
+    // Use versioned update to preserve historical records. On error, revert
+    // local state and surface the toast so the admin sees the failure.
     db.updatePrepRecipeVersioned(id, { ...updates, brandId, storeId: brandId })
       .then((newId) => {
         // Replace old ID with new versioned ID in local state
         set((s) => ({ prepRecipes: s.prepRecipes.map((r) => r.id === id ? { ...r, id: newId } : r) }));
       })
       .catch((e: any) => {
-        // Fallback to non-versioned update
-        db.updatePrepRecipe(id, updates).catch(() => {});
-        console.warn('[Supabase] versioned update failed, fell back:', e?.message);
+        if (prev) {
+          set((s) => ({ prepRecipes: s.prepRecipes.map((r) => (r.id === id ? prev : r)) }));
+        }
+        notifyBackendError('Update prep recipe', e);
       });
     get().addAuditEvent({
       timestamp: new Date().toLocaleString(),
@@ -552,10 +588,28 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   deletePrepRecipe: (id) => {
+    const recipe = get().prepRecipes.find((r) => r.id === id);
     set((s) => ({
       prepRecipes: s.prepRecipes.filter((r) => r.id !== id),
     }));
-    db.deletePrepRecipe(id).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    db.deletePrepRecipe(id).catch((e: any) => {
+      if (recipe) {
+        set((s) => ({ prepRecipes: [...s.prepRecipes, recipe] }));
+      }
+      notifyBackendError('Delete prep recipe', e);
+    });
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Prep recipe deleted',
+      detail: 'Prep recipe removed',
+      itemRef: recipe?.name || id,
+      value: '',
+    });
   },
 
   // Waste

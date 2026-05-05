@@ -309,7 +309,9 @@ export type AuditAction =
   | 'Waste log'
   | 'User invite'
   | 'Recipe saved'
+  | 'Recipe deleted'
   | 'Prep recipe saved'
+  | 'Prep recipe deleted'
   | 'Stock adjusted';
 
 export interface Store {
