@@ -15,7 +15,7 @@
 
 -- ─── BRANDS ─────────────────────────────────────────────
 create table if not exists public.brands (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   name        text not null unique,
   created_at  timestamptz default now()
 );
@@ -32,7 +32,7 @@ on conflict (id) do nothing;
 -- thing the brand uses (name, unit, packaging). Per-store rows in
 -- inventory_items will FK to this in Phase 2.
 create table if not exists public.catalog_ingredients (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   brand_id            uuid not null references public.brands(id) on delete cascade,
   name                text not null,
   unit                text not null,
