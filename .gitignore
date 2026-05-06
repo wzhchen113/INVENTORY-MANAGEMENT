@@ -27,3 +27,7 @@ ios/
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/
+
+# macOS Finder droppings
+.DS_Store
+**/.DS_Store
