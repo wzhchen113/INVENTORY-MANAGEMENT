@@ -25,7 +25,8 @@ A previous migration (`supabase/migrations/20260504062318_brand_catalog_p2_backf
   - If the orphan count is exactly **0**, exit successfully as a no-op (idempotent re-run path).
   - If the orphan count is exactly **4**, repoint those 4 rows to the canonical UUID, then verify exactly 4 rows were updated. If the affected row count differs from 4, `RAISE EXCEPTION` and roll back.
   - If the orphan count is anything other than 0 or 4 (e.g., 1, 2, 3, 5+), `RAISE EXCEPTION` and roll back. Do not partially repair an unexpected state.
-- [ ] After the migration is applied, re-running the orphan-count probe SQL returns 0 rows.
+- [ ] After the migration is applied **via `supabase db push` against a populated environment** (remote prod or a local DB that already has `seed.sql` loaded), re-running the orphan-count probe SQL returns 0 rows.
+- [ ] When applied via `supabase db reset --local` (which runs migrations against an EMPTY DB before loading `seed.sql`), the migration completes without error as a no-op. End-state orphans persisting after `seed.sql` loads is expected and is not a defect of this migration — see "Backend design" section 5b "Apply-path semantics and verification limits".
 - [ ] After the migration is applied, hitting the local `pwa-catalog` edge function returns a payload where every `recipes[].prep_items[].prep_recipe_id` for the "2AM Cheeseburger" recipe appears in the top-level `prep_recipes[]` array.
 - [ ] The migration has been reviewed by the security-auditor for RLS implications (writes touching `recipe_prep_items` under per-store RLS hardening — see `supabase/migrations/20260504173035_per_store_rls_hardening.sql`).
 - [ ] The migration has been reviewed by the backend-architect for migration convention adherence (filename format, helper function usage such as `auth_can_see_store()` / `auth_is_admin()` if relevant, `SECURITY DEFINER` semantics if used, transaction style, comment style).
@@ -259,13 +260,15 @@ Concretely:
 #### Ordering rationale (post-design probe finding, 2026-05-05)
 A subsequent probe surfaced that `supabase/migrations/20260505000000_dedupe_repointed_ingredient_lines.sql` is on disk but unapplied to the local DB, and creates a new `recipe_prep_items_logical_unique` UNIQUE index on `(recipe_id, prep_recipe_id, unit) NULLS NOT DISTINCT`. If this Spec 001 migration ran **after** the dedup migration, the `UPDATE` would collapse all 4 cheeseburger orphans onto a single `(2AM Cheeseburger, 500ef28d-..., oz)` tuple and **violate the new unique index**, aborting the transaction. (No pre-existing canonical-pointing row exists for this recipe — confirmed by probe — so the collision count is 4 identical tuples post-update, not 5.)
 
-By sorting **before** the dedup migration:
-1. This migration runs first against any apply path (`supabase db push` or `supabase db reset`).
+By sorting **before** the dedup migration, the populated-DB apply path (`supabase db push` against prod or against a local DB with `seed.sql` already loaded — see section 5b) goes:
+1. This migration runs first. The count branch evaluates to 4, the repair branch fires.
 2. The 4 orphans are repointed to canonical, producing 4 byte-identical rows differing only by `id`. The unique index does not yet exist, so no violation.
 3. The dedup migration then runs and collapses those 4 to 1 via its `ROW_NUMBER() OVER (PARTITION BY recipe_id, prep_recipe_id, unit) ... WHERE rn > 1` DELETE.
 4. The unique index is created against a now-clean state and succeeds.
 
-End state: exactly one `recipe_prep_items` row for `(2AM Cheeseburger, 500ef28d-..., oz, 6)`. The dedup migration is left unmodified — no coordination required between the two migrations beyond filename order.
+End state on the populated-DB path: exactly one `recipe_prep_items` row for `(2AM Cheeseburger, 500ef28d-..., oz, 6)`. The dedup migration is left unmodified — no coordination required between the two migrations beyond filename order.
+
+The same filename ordering is also correct under `db reset --local`: both this migration and the dedup migration run as no-ops against the empty DB, the unique index is created against an empty `recipe_prep_items` (no rows to violate it), and `seed.sql` then loads. The seed's 4 orphan rows point at 4 *distinct* non-current `prep_recipe_id` UUIDs, so they form 4 distinct `(recipe_id, prep_recipe_id, unit)` tuples and do not violate the unique index — the seed loads cleanly even though the orphans persist. The "end state has 4 orphans" condition described in section 5b is unrelated to and not blocked by the unique index.
 
 Developer must NOT bump the timestamp at apply time. The `20260504235959` slot is load-bearing for correctness.
 
@@ -279,12 +282,30 @@ Developer must NOT bump the timestamp at apply time. The `20260504235959` slot i
 - No new policies are introduced. No helper-function changes (`auth_can_see_store()` / `auth_is_admin()` untouched).
 
 ### 5. Concrete migration sketch (developer refines, this is the contract)
+
+**Control flow (Option B — count-first, canonical lookup gated behind the repair branch):**
+
+The control flow was reordered after a `db reset --local` verification run surfaced that performing the canonical-row lookup *before* the orphan count caused the migration to abort with `expected exactly 1 current "Burger Patty" prep in brand ..., found 0` when run against an empty DB (migrations apply before `seed.sql` loads under `db reset`). See section 5b for the apply-path semantics that make Option B necessary.
+
+The contract:
+1. **Apply-context sanity check (FIRST).** If `prep_recipes` has any visible rows, assert the canonical Burger Patty UUID is visible. Closes the silent-no-op-under-RLS hole the count-first design otherwise opens. If `prep_recipes` is empty (the `db reset --local` pre-seed case), skip the check and proceed — there's no canonical to assert against yet, by design.
+2. **Count orphans**, before any canonical *currency* lookup. The JOIN naturally returns 0 against an empty DB — no exception.
+3. **If count = 0:** `RAISE NOTICE` no-op and exit success. Do **not** perform the canonical *currency* lookup or drift check in this branch — there's nothing to repair, and the visibility check from step 1 has already validated we can see the canonical UUID (when applicable).
+4. **If count = 4:** look up the canonical CURRENT "Burger Patty" UUID, assert exactly one row, drift-check against `500ef28d-...`, perform the `UPDATE`, then `GET DIAGNOSTICS` assert exactly 4 rows changed.
+5. **If count is anything else (1, 2, 3, 5+):** `RAISE EXCEPTION` and roll back. No partial repair.
+
+Note on the separation: step 1 checks **visibility** of the canonical UUID (catches RLS / wrong-context apply); step 4 checks **currency** of the canonical row (catches `is_current = false` drift). The two are different failure modes and are checked in different branches.
+
 ```sql
 -- supabase/migrations/20260504235959_repoint_burger_patty_orphans.sql
 --
 -- Spec 001: repoint 4 orphaned recipe_prep_items.prep_recipe_id values
 -- (in brand 2a000000-...) from non-current "Burger Patty" prep_recipes
 -- to the single canonical current one. See specs/001-repoint-burger-patty-prep-refs.md.
+--
+-- Control flow: count orphans first; only look up canonical when count = 4.
+-- This avoids spurious failures during `db reset --local` (migrations run
+-- against empty DB before seed loads). See spec section 5b.
 --
 -- Idempotent: 0 orphans = no-op success. 4 orphans = repair.
 -- Anything else = abort + rollback (do not silently repair an unexpected state).
@@ -301,33 +322,25 @@ DECLARE
   v_orphan_count    int;
   v_updated_count   int;
 BEGIN
-  -- 1. Look up the canonical current "Burger Patty" prep within the brand.
-  --    Must be exactly one. Q1: general-within-brand targeting.
-  SELECT array_agg(id) INTO v_canonical_ids
-    FROM public.prep_recipes
-   WHERE name = 'Burger Patty'
-     AND brand_id = v_brand_id
-     AND is_current = true;
-
-  IF v_canonical_ids IS NULL OR array_length(v_canonical_ids, 1) <> 1 THEN
-    RAISE EXCEPTION
-      'Spec 001: expected exactly 1 current "Burger Patty" prep in brand %, found %',
-      v_brand_id, COALESCE(array_length(v_canonical_ids, 1), 0);
+  -- 1. Apply-context sanity check. If prep_recipes has any visible rows, the
+  --    apply context is "real" (not pre-seed db reset). Confirm the canonical
+  --    UUID is visible — if not, we're under an RLS-restricted context that
+  --    would let the count = 0 branch silently mark a broken environment as
+  --    "fixed". Empty prep_recipes (db reset --local before seed) skips this
+  --    check by design.
+  IF (SELECT COUNT(*) FROM public.prep_recipes) > 0 THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.prep_recipes WHERE id = v_expected_canon
+    ) THEN
+      RAISE EXCEPTION
+        'Spec 001: canonical Burger Patty (%) not visible despite populated prep_recipes — restricted apply context?',
+        v_expected_canon;
+    END IF;
   END IF;
 
-  v_canonical_id := v_canonical_ids[1];
-
-  -- 2. Drift check against the spec's recorded canonical UUID. Lookup above is
-  --    the source of truth; this just catches "wait, the canonical changed".
-  IF v_canonical_id <> v_expected_canon THEN
-    RAISE EXCEPTION
-      'Spec 001: canonical "Burger Patty" UUID drift — expected %, got %',
-      v_expected_canon, v_canonical_id;
-  END IF;
-
-  -- 3. Count orphans BEFORE mutating. In-scope orphans = recipe_prep_items rows
-  --    whose prep_recipe_id resolves to a "Burger Patty" prep in brand
-  --    2a000000-... with is_current = false.
+  -- 2. Count orphans. In-scope orphans = recipe_prep_items rows whose
+  --    prep_recipe_id resolves to a "Burger Patty" prep in brand 2a000000-...
+  --    with is_current = false. Against an empty DB this naturally returns 0.
   SELECT COUNT(*) INTO v_orphan_count
     FROM public.recipe_prep_items rpi
     JOIN public.prep_recipes pr ON pr.id = rpi.prep_recipe_id
@@ -335,10 +348,40 @@ BEGIN
      AND pr.brand_id = v_brand_id
      AND pr.is_current = false;
 
-  -- 4. Branch on count.
+  -- 3. Branch on count. Canonical CURRENCY lookup and drift check live ONLY in
+  --    the count = 4 branch; running them against an empty DB would fail
+  --    spuriously. (Visibility was already validated in step 1.)
   IF v_orphan_count = 0 THEN
-    RAISE NOTICE 'Spec 001: no-op, recipe_prep_items already repointed';
+    RAISE NOTICE 'Spec 001: no-op (no orphans found — pre-seed apply OR already repaired)';
+
   ELSIF v_orphan_count = 4 THEN
+    -- 4a. Look up the canonical CURRENT "Burger Patty" prep within the brand.
+    --     Must be exactly one. Q1: general-within-brand targeting.
+    SELECT array_agg(id) INTO v_canonical_ids
+      FROM public.prep_recipes
+     WHERE name = 'Burger Patty'
+       AND brand_id = v_brand_id
+       AND is_current = true;
+
+    IF v_canonical_ids IS NULL OR array_length(v_canonical_ids, 1) <> 1 THEN
+      RAISE EXCEPTION
+        'Spec 001: expected exactly 1 current "Burger Patty" prep in brand %, found %',
+        v_brand_id, COALESCE(array_length(v_canonical_ids, 1), 0);
+    END IF;
+
+    v_canonical_id := v_canonical_ids[1];
+
+    -- 4b. Drift check against the spec's recorded canonical UUID. Lookup above
+    --     is the source of truth; this just catches "wait, the canonical changed".
+    IF v_canonical_id <> v_expected_canon THEN
+      RAISE EXCEPTION
+        'Spec 001: canonical "Burger Patty" UUID drift — expected %, got %',
+        v_expected_canon, v_canonical_id;
+    END IF;
+
+    -- 4c. Repoint the 4 orphans to the canonical UUID. Re-assert the same
+    --     WHERE clause used in the count so a race (none expected) cannot
+    --     widen the blast radius.
     UPDATE public.recipe_prep_items rpi
        SET prep_recipe_id = v_canonical_id
       FROM public.prep_recipes pr
@@ -357,6 +400,7 @@ BEGIN
 
     RAISE NOTICE 'Spec 001: repointed % recipe_prep_items rows to canonical %',
       v_updated_count, v_canonical_id;
+
   ELSE
     RAISE EXCEPTION
       'Spec 001: unexpected orphan count % (expected 0 or 4) — aborting',
@@ -370,16 +414,26 @@ COMMIT;
 
 Notes on the sketch:
 - The `BEGIN; ... COMMIT;` wrapping is explicit per acceptance criterion line 22 ("wrapped in an atomic transaction"). Supabase's `db push` already wraps each migration in a transaction, but the explicit pair is required by the spec and matches the precedent migration's intent.
-- The `UPDATE` re-asserts the same `WHERE` clause used in the count, so any race between count and update (none expected — single-statement migration) cannot widen the blast radius.
+- Step 1 performs a **visibility** sanity check on the canonical UUID (skipped when `prep_recipes` is empty). The canonical **currency** lookup, drift check, `UPDATE`, and `GET DIAGNOSTICS` assertion all live inside the `count = 4` branch. Against an empty DB, step 1 is skipped, the `count = 0` branch fires, and the migration exits cleanly — this is the fix for the `db reset --local` failure mode. Against a populated DB with hidden canonical (RLS misuse), step 1 fails loudly.
 - All `RAISE EXCEPTION` paths roll back the transaction automatically; no manual `ROLLBACK` needed.
 - No `SET LOCAL role` or `SECURITY DEFINER` — runs as the migration role (postgres).
+
+### 5b. Apply-path semantics and verification limits
+
+This migration is a one-shot repair of existing prod data. The apply path determines what state the DB is in when the migration runs, which in turn determines whether the repair branch fires. The two paths in active use behave differently and the difference is structural, not a defect of this migration:
+
+- **`supabase db push` against a populated environment** (remote prod, or a local DB whose `seed.sql` has already been loaded). The 4 orphan rows exist when the migration runs. The count branch evaluates to 4, the repair branch fires, the `UPDATE` repoints all 4 rows to the canonical UUID, and the post-update assertion confirms exactly 4 rows changed. **End state: 0 orphans. The fix is verifiable on this path.**
+
+- **`supabase db reset --local`**. Supabase resets the local DB to empty, then runs every migration in `supabase/migrations/` in timestamp order against the empty DB, then loads `supabase/seed.sql`. Because the seed pulled from prod on 2026-05-02 contains the 4 orphan `recipe_prep_items` rows AND the canonical "Burger Patty" `prep_recipes` row, the orphans are re-inserted *after* this migration has already executed as a no-op. The sibling dedup migration `20260505000000_dedupe_repointed_ingredient_lines.sql` likewise ran against empty tables and cannot help. **End state: 4 orphans persist in the local DB and there is no migration left to fix them.** This is a structural limitation of Postgres migrations + Supabase seed ordering — the migration cannot fix data that does not exist when it runs. Verification of the *fix's effect* is therefore only possible via `db push` to a populated environment.
+
+For local development convenience: after `db reset --local` completes, a developer can manually re-execute the body of this migration via `psql` against the now-seeded local DB to demonstrate the fix locally — for example, `docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres < supabase/migrations/20260504235959_repoint_burger_patty_orphans.sql`. This is a sanity check, not a formal verification path. The acceptance-criteria contract is satisfied by `db push` against a populated environment (see acceptance-criteria split above).
 
 ### 6. Realtime impact — fires on `brand-2a000000-...`, no publication change
 - The `recipe_prep_items` `UPDATE` will trigger Realtime events **only if `recipe_prep_items` is in the `supabase_realtime` publication**. Per `src/hooks/useRealtimeSync.ts` lines 35–38, the `brand-{brandId}` channel subscribes to `recipes`, `prep_recipes`, `catalog_ingredients`, and `vendors` — **not `recipe_prep_items`**. So even if the row event is published, no admin client is currently listening for it. Connected clients will not auto-reload from this migration. This is fine: the bug being fixed is a stale-data issue visible to the customer PWA via `pwa-catalog`, which fetches fresh on each call and does not use Realtime.
 - **No publication change required.** The migration does not `ALTER PUBLICATION supabase_realtime ADD TABLE ...`. The publication-membership gotcha (`docker restart supabase_realtime_imr-inventory` after `npm run dev:db` per the project memory note) **does not apply** to this migration. Flagged for the developer/auditor: do not add the table to the publication as part of this fix — that's an unrelated change.
 
 ### 7. Risks and tradeoffs
-- **Apply-context fragility (highest risk).** The migration assumes superuser apply (RLS bypass). If ever applied through a non-superuser path (a hypothetical PostgREST RPC, a service-role client, etc.), the count step could under-report due to RLS visibility, and the `0` branch would silently mark a broken environment as "fixed". Mitigation: this is a `supabase/migrations/` file, applied only via `supabase db push` / `supabase db reset`. The "Project-specific notes" section (line 199) already pins this. Auditor should confirm no apply path other than superuser exists.
+- **Apply-context fragility under Option B (residual after the visibility sanity check).** The migration assumes superuser apply (RLS bypass). Under the count-first Option B control flow, the `count = 0` no-op branch is wider than just "already repaired" — it also covers "pre-seed apply against an empty DB" (legitimate `db reset --local`). To prevent the obvious misuse path (RLS hides the orphans → `count = 0` → silent no-op of a broken environment), step 1 of the sketch performs a visibility sanity check: if `prep_recipes` has any visible rows but the canonical UUID is not visible, the migration aborts loudly. This catches partial-RLS-hiding (the realistic restricted-context scenario) and the "canonical was deleted in prod" failure mode. **Residual hole:** total RLS hiding (where the caller can see *no* `prep_recipes` rows at all) bypasses the visibility check because it triggers the same "looks like an empty DB" branch as `db reset --local`, and would silently no-op a broken environment. A second residual hole — an RLS policy filtering only on `is_current` would pass the canonical row through the visibility check while still hiding the non-current orphans from the count, producing the same silent-no-op outcome. Both are unreachable from any apply path actually in use (`supabase db push` / `db reset` / migrations role all run as superuser and bypass RLS), but the safety margin against future misuse is narrower than the original strict-canonical-first design — that one failed loudly on canonical assertion regardless of RLS state. Mitigation unchanged: only superuser apply is supported (per "Project-specific notes" section, line 199). Auditor must confirm no non-superuser apply path exists, both today and as a forward-looking constraint.
 - **Concurrent writes during apply.** Standard migration risk. The `BEGIN/COMMIT` wrapper plus the implicit `UPDATE` row locks make the count-then-update pair safe against another writer racing in the same brand (the orphan rows would be locked when the `UPDATE` runs). Not a concern in practice — migrations apply during low-traffic windows and the affected rows aren't user-mutable from the Cmd UI.
 - **Migration ordering.** Filename `20260505000000_*` sorts strictly after the 2026-05-04 Phase 5 migrations and before any future 2026-05-05 work. Safe.
 - **Performance.** `recipe_prep_items` is small (low thousands of rows in the 286 KB seed dataset). Count + 4-row update is sub-millisecond. No index changes warranted.
