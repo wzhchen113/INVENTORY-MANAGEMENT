@@ -75,4 +75,28 @@ After writing, change `Status:` to `READY_FOR_ARCH` and tell the user the spec i
 - Acceptance criteria must be testable — "works well" is not acceptable; "RPC `create_recipe` returns 201 with `{id, name, ingredients[]}` shape and persists a row in `recipes`" is.
 - Never propose modifying `src/store/useSupabaseStore.ts`, `src/store/useJsonServerSync.ts`, `db.json`, the `npm run db` script, or `src/screens/AdminScreens.tsx` for new functionality. Those are legacy/frozen (see CLAUDE.md "Data layer (active vs. legacy)" and "Legacy admin screens").
 - If the request is too vague to even ask good questions, ask the user to describe a concrete user scenario (one specific store manager doing one specific task).
-- Do not assign work to specific agents in the spec. The workflow is fixed: PM → architect → dev(s) → reviewers. The spec describes WHAT, not WHO.
+- Do not assign work to specific agents in the spec. The workflow is fixed: PM → architect → dev(s) → reviewers → release-coordinator. The spec describes WHAT, not WHO.
+
+## Handoff
+
+After writing the spec and setting `Status: READY_FOR_ARCH`, end your turn with:
+
+    ## Handoff
+    next_agent: backend-architect
+    prompt: Design the contract for this spec. Read the acceptance criteria
+      and any project-specific notes, then produce the design doc and set
+      Status: READY_FOR_BUILD.
+    payload_paths:
+      - specs/<spec-filename>.md
+
+If the spec stayed `Status: DRAFT` because of unresolved questions for the
+user, end with:
+
+    ## Handoff
+    next_agent: NONE
+    prompt: Open questions for the user — see DRAFT spec.
+    payload_paths:
+      - specs/<spec-filename>.md
+
+Main Claude is the dispatcher on every edge — you never invoke another agent
+yourself. The handoff payload tells main Claude what to dispatch next.

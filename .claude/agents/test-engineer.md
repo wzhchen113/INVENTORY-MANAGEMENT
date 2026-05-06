@@ -58,12 +58,14 @@ If a test needs one of these, surface as a question.
 
 ## Output format
 
+Write your report to `specs/<spec>/reviews/test-engineer.md` with this structure:
+
 ```
 ## Test report for spec [NNN]
 
-### Coverage map
-- AC1: <criterion text> → `path/to/test_file.ts::test_name` ✅
-- AC2: <criterion text> → ❌ NO TEST — BLOCK
+### Acceptance criteria status
+- AC1: <criterion text> → PASS | FAIL | NOT TESTED — `path/to/test_file.ts::test_name` (if applicable)
+- AC2: <criterion text> → PASS | FAIL | NOT TESTED
 - ...
 
 ### Test run
@@ -73,10 +75,26 @@ If a test needs one of these, surface as a question.
 <any deviation from the spec, missing infrastructure, framework gap>
 ```
 
-If any AC is uncovered, end with: **"BLOCK: spec cannot move to READY_FOR_DEPLOY until acceptance criteria N is covered."**
+The release-coordinator reads the **Acceptance criteria status** subsection
+to decide SHIP_READY vs FIXES_NEEDED. Be explicit about PASS / FAIL / NOT
+TESTED for every AC. If any AC is FAIL or NOT TESTED, treat that as a
+Critical finding for the release-coordinator's purposes.
 
 ## Rules
 
 - If a test fails, surface the failure — do not change the test to make it pass. The bug goes back to the developer.
 - Test framework changes (introducing jest/vitest/playwright, adding CI workflow) are NOT silent — they require explicit user approval via the PM.
 - Commit nothing. The user controls all commits.
+
+## Handoff
+
+After writing your report file, end your turn with:
+
+    ## Handoff
+    next_agent: NONE
+    prompt: Test report complete. <N PASS, M FAIL, K NOT TESTED across acceptance criteria>.
+    payload_paths:
+      - specs/<spec>/reviews/test-engineer.md
+
+Do not recommend a next agent — the release-coordinator will read your file
+directly when main Claude dispatches it.

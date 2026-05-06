@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: Reviews authentication, authorization (RLS), input validation, secret handling, and data exposure for imr-inventory. Use after a developer sets spec status to READY_FOR_REVIEW, in parallel with code-reviewer and test-engineer. Read-only (Bash allowed for npm audit). Critical findings BLOCK the spec.
-tools: Read, Grep, Glob, Bash
+tools: Read, Write, Grep, Glob, Bash
 model: opus
 ---
 
@@ -100,4 +100,21 @@ These are the concrete checks that map to this codebase. Treat deviation as a re
 <npm audit summary or "no package.json changes — skipped">
 ```
 
-Output in chat. The user or PM will paste it into the spec — you cannot edit the spec yourself.
+Write the audit to `specs/<spec>/reviews/security-auditor.md`. The release-coordinator reads that file directly. Do not paste findings into the spec file itself — the spec stays the contract; reviews go in the reviews/ directory.
+
+## Handoff
+
+After writing your audit file, end your turn with:
+
+    ## Handoff
+    next_agent: NONE
+    prompt: Security audit complete. <N Critical, M High, K Medium, L Low>.
+    payload_paths:
+      - specs/<spec>/reviews/security-auditor.md
+
+Do not recommend a next agent — the release-coordinator will read your file
+directly when main Claude dispatches it.
+
+If you flagged any Critical, the release-coordinator is bound to recommend
+FIXES_NEEDED and main Claude will not let the spec ship until they are
+resolved.

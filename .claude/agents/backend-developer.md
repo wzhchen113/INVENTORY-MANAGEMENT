@@ -63,3 +63,23 @@ For end-to-end smoke verification of edge functions, [scripts/smoke-edge.sh](scr
 - Do not add libraries without flagging.
 - Commit nothing. The user controls all commits. Stage with `git add` only if the user asks; otherwise leave files unstaged.
 - When done, update `Status:` to `READY_FOR_REVIEW` and list every changed file at the bottom of the spec under `## Files changed`. Group by area (migrations / edge functions / src/lib/db.ts / src/store / etc.).
+
+## Handoff
+
+After implementing, setting `Status: READY_FOR_REVIEW`, and writing the
+`## Files changed` list in the spec, end your turn with:
+
+    ## Handoff
+    next_agent: code-reviewer, security-auditor, test-engineer, backend-architect
+    prompt: Review the implementation of this spec. Each reviewer writes its
+      findings to specs/<spec>/reviews/<your-name>.md. The backend-architect
+      runs in post-impl drift-review mode.
+    payload_paths:
+      - specs/<spec-filename>.md
+      - <each file in your Files changed list>
+
+Main Claude dispatches these reviewers in parallel, waits for all four
+review files to land in `specs/<spec>/reviews/`, then dispatches
+`release-coordinator` against that directory. You never invoke another
+agent yourself — Claude Code blocks nested subagent delegation, so the
+handoff payload is your only signal to main Claude.

@@ -85,7 +85,110 @@ scripts/                      # one-off ts-node + curl smoke scripts (no test ru
 
 ## Agent workflow
 
-_Add project-specific agent rules here. Default rules from `~/.claude/CLAUDE.md` apply unless overridden._
+This project uses 10 subagents in `.claude/agents/`. Claude Code blocks nested subagent delegation, so **main Claude is always the dispatcher**. Each subagent ends its turn with a *handoff payload* recommending the next agent; main Claude reads the payload and makes the next call.
+
+### Agents
+
+**Specialists** (do the work, mutate the spec's `Status:` field):
+- `product-manager` — writes the spec from a feature request
+- `backend-architect` — designs the contract (and post-impl, reviews drift)
+- `backend-developer` — implements backend
+- `frontend-developer` — implements frontend
+- `code-reviewer` — reviews for quality
+- `security-auditor` — reviews for vulnerabilities
+- `test-engineer` — reviews coverage and acceptance criteria
+- `release-coordinator` — synthesizes reviewer findings into a single proposal
+
+**Routing layer** (advisory, never mutate `Status:`):
+- `workflow-orchestrator` — drafts the next routing decision
+- `workflow-auditor` — APPROVE / REVISE / REJECT verdict on the draft
+
+### Topology
+
+```
+user ──▶ main Claude ──▶ subagent ──▶ main Claude ──▶ user
+              ▲                            │
+              └─────── handoff payload ────┘
+```
+
+Subagents never call each other.
+
+### Typical pipeline
+
+```
+product-manager
+  │
+  ▼
+backend-architect  (design mode)
+  │
+  ▼
+backend-developer + frontend-developer            (parallel)
+  │
+  ▼
+code-reviewer + security-auditor + test-engineer  (parallel fan-out)
+  + backend-architect (post-impl mode)
+  │  findings written to specs/<spec>/reviews/<reviewer>.md
+  ▼
+release-coordinator
+  │  proposal written to specs/<spec>/reviews/release-proposal.md
+  ▼
+user decides
+```
+
+### Handoff payload format
+
+```
+## Handoff
+next_agent: <agent-name | comma-separated | NONE>
+prompt: <one short paragraph drafting what to ask next>
+payload_paths:
+  - <relevant paths>
+```
+
+`NONE` returns control to the user. Comma-separated names trigger parallel dispatch.
+
+### Recommended-next table
+
+| Agent                                            | Recommends                                                                       | When                                                                          |
+|--------------------------------------------------|----------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| product-manager                                  | backend-architect                                                                | After setting `Status: READY_FOR_ARCH`. Returns NONE if status stays DRAFT.   |
+| backend-architect (design)                       | backend-developer, frontend-developer (one or both)                              | After setting `Status: READY_FOR_BUILD`.                                      |
+| backend-architect (post-impl)                    | NONE                                                                             | Findings to `specs/<spec>/reviews/backend-architect.md`.                      |
+| backend-developer                                | code-reviewer, security-auditor, test-engineer, backend-architect (post-impl)    | After setting `Status: READY_FOR_REVIEW`.                                     |
+| frontend-developer                               | code-reviewer, security-auditor, test-engineer (+ architect if backend changed)  | Same.                                                                         |
+| code-reviewer / security-auditor / test-engineer | NONE                                                                             | Findings to `specs/<spec>/reviews/<name>.md`.                                 |
+| release-coordinator                              | NONE                                                                             | Proposal at `specs/<spec>/reviews/release-proposal.md`.                       |
+| workflow-orchestrator                            | workflow-auditor                                                                 | Output is a *draft*; auditor must APPROVE before main Claude acts on it.      |
+| workflow-auditor                                 | (verdict — APPROVE / REVISE / REJECT)                                            | Read-only.                                                                    |
+
+### Spec status state machine
+
+```
+(no spec) ─[user request]─▶
+DRAFT ─[PM resolves open questions]─▶
+READY_FOR_ARCH ─[architect produces design]─▶
+READY_FOR_BUILD ─[dev(s) implement]─▶
+READY_FOR_REVIEW ─[reviewers + release-coordinator]─▶ user
+```
+
+Only specialists write `Status:`. The routing layer reads it and routes — never writes.
+
+### Routing layer (non-linear cases)
+
+For mid-pipeline ambiguity, ad-hoc requests, or redo decisions, main Claude dispatches `workflow-orchestrator`. The orchestrator returns a draft routing decision. Main Claude then dispatches `workflow-auditor` on the draft.
+
+- APPROVE → main Claude dispatches the recommended specialist.
+- REVISE → orchestrator revises and main Claude re-dispatches the auditor. Cap at 2 revisions, then escalate to user.
+- REJECT → return to user with the rejection reason.
+
+Ad-hoc work that doesn't belong in the pipeline gets `next_agent: NONE` from the orchestrator and main Claude handles it directly.
+
+### Hard rules
+
+- `release-coordinator` cannot recommend SHIP_READY if **any** reviewer flagged a Critical (security, broken acceptance criteria, contract drift, broken build).
+- `release-coordinator` reads the actual reviewer files in `specs/<spec>/reviews/`, not second-hand summaries.
+- Reviewer findings are advisory. The decision to redo work is the user's, informed by `release-coordinator`'s proposal.
+- Main Claude does not auto-commit on SHIP_READY. The user confirms the commit.
 
 
 ## Resolved questions / project context

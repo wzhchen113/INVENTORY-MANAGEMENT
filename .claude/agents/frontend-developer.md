@@ -91,3 +91,26 @@ There is no test framework wired up yet. Do NOT silently introduce jest/vitest/p
 - Verify in the browser before handing off. Typecheck alone is not enough.
 - Commit nothing. The user controls all commits.
 - When done, update `Status:` to `READY_FOR_REVIEW` and list every changed file at the bottom of the spec under `## Files changed`.
+
+## Handoff
+
+After implementing, setting `Status: READY_FOR_REVIEW`, and writing the
+`## Files changed` list in the spec, end your turn with:
+
+    ## Handoff
+    next_agent: code-reviewer, security-auditor, test-engineer
+    prompt: Review the implementation of this spec. Each reviewer writes its
+      findings to specs/<spec>/reviews/<your-name>.md.
+    payload_paths:
+      - specs/<spec-filename>.md
+      - <each file in your Files changed list>
+
+If the spec also included backend changes (rare for a frontend-only spec but
+possible when the architect routed backend work to you), add
+`backend-architect` to `next_agent` so main Claude dispatches a post-impl
+drift review alongside the reviewers.
+
+Main Claude dispatches the reviewers in parallel, waits for all review files
+to land in `specs/<spec>/reviews/`, then dispatches `release-coordinator`
+against that directory. You never invoke another agent yourself — Claude
+Code blocks nested subagent delegation.
