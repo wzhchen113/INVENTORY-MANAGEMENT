@@ -251,10 +251,23 @@ Concretely:
 
   The drift-detection check satisfies acceptance criterion line 23 ("asserts that the canonical UUID `500ef28d-...` exists in `prep_recipes` AND has `is_current = true`") without making the migration UUID-coupled in its primary path.
 
-### 3. Migration filename — `supabase/migrations/20260505000000_repoint_burger_patty_orphans.sql`
+### 3. Migration filename — `supabase/migrations/20260504235959_repoint_burger_patty_orphans.sql`
 - Convention: `YYYYMMDDHHMMSS_snake_case.sql` per `supabase/migrations/`.
-- Date: 2026-05-05 (today). Time component `000000` chosen to sort cleanly after the 2026-05-04 brand-catalog Phase 2/3/5 migrations and before any other 2026-05-05 work — there are currently no other migrations dated 2026-05-05, so any time within the day works. Developer may bump to wall-clock time at apply if another 2026-05-05 migration lands first (filename is design-time guidance, not a contract).
+- Timestamp: **`20260504235959`** — chosen to sort **immediately before** the unapplied dedup migration `20260505000000_dedupe_repointed_ingredient_lines.sql`. See "Ordering rationale" below; this filename is now a contract, not a guidance — changing it later breaks the apply-order safety analysis.
 - Description: `repoint_burger_patty_orphans` — short, snake_case, names the action and the affected entity.
+
+#### Ordering rationale (post-design probe finding, 2026-05-05)
+A subsequent probe surfaced that `supabase/migrations/20260505000000_dedupe_repointed_ingredient_lines.sql` is on disk but unapplied to the local DB, and creates a new `recipe_prep_items_logical_unique` UNIQUE index on `(recipe_id, prep_recipe_id, unit) NULLS NOT DISTINCT`. If this Spec 001 migration ran **after** the dedup migration, the `UPDATE` would collapse all 4 cheeseburger orphans onto a single `(2AM Cheeseburger, 500ef28d-..., oz)` tuple and **violate the new unique index**, aborting the transaction. (No pre-existing canonical-pointing row exists for this recipe — confirmed by probe — so the collision count is 4 identical tuples post-update, not 5.)
+
+By sorting **before** the dedup migration:
+1. This migration runs first against any apply path (`supabase db push` or `supabase db reset`).
+2. The 4 orphans are repointed to canonical, producing 4 byte-identical rows differing only by `id`. The unique index does not yet exist, so no violation.
+3. The dedup migration then runs and collapses those 4 to 1 via its `ROW_NUMBER() OVER (PARTITION BY recipe_id, prep_recipe_id, unit) ... WHERE rn > 1` DELETE.
+4. The unique index is created against a now-clean state and succeeds.
+
+End state: exactly one `recipe_prep_items` row for `(2AM Cheeseburger, 500ef28d-..., oz, 6)`. The dedup migration is left unmodified — no coordination required between the two migrations beyond filename order.
+
+Developer must NOT bump the timestamp at apply time. The `20260504235959` slot is load-bearing for correctness.
 
 ### 4. RLS / `SECURITY DEFINER` considerations — decision: **no `SECURITY DEFINER`, no policy changes**
 - This is a one-shot migration, not a callable function. `SECURITY DEFINER` only applies to functions; the `DO` block runs as the migration role. No semantics to add.
@@ -267,7 +280,7 @@ Concretely:
 
 ### 5. Concrete migration sketch (developer refines, this is the contract)
 ```sql
--- supabase/migrations/20260505000000_repoint_burger_patty_orphans.sql
+-- supabase/migrations/20260504235959_repoint_burger_patty_orphans.sql
 --
 -- Spec 001: repoint 4 orphaned recipe_prep_items.prep_recipe_id values
 -- (in brand 2a000000-...) from non-current "Burger Patty" prep_recipes
