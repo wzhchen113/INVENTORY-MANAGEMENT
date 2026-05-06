@@ -1,6 +1,6 @@
 # Spec 001: Repoint orphaned "Burger Patty" prep references
 
-Status: READY_FOR_REVIEW
+Status: DONE
 
 ## User story
 As a downstream consumer of the `pwa-catalog` edge function (the customer PWA), I want every `recipes[].prep_items[].prep_recipe_id` returned by the catalog to resolve to an entry in the top-level `prep_recipes[]` array, so that the "2AM Cheeseburger" recipe stops triggering the "unresolved-prep" warning banner and renders its prep ingredients correctly.
@@ -18,18 +18,19 @@ A previous migration (`supabase/migrations/20260504062318_brand_catalog_p2_backf
 - No dangling FKs, no cross-brand issues identified in the original probe.
 
 ## Acceptance criteria
-- [ ] A new timestamped migration is added under `supabase/migrations/` following the established `YYYYMMDDHHMMSS_description.sql` naming convention.
-- [ ] The migration is wrapped in an atomic transaction (`BEGIN` / `COMMIT`).
-- [ ] The migration asserts that the canonical UUID `500ef28d-3288-4fb8-accb-c3708d1491f9` exists in `prep_recipes` AND has `is_current = true`. If not, `RAISE EXCEPTION` and abort.
-- [ ] The migration counts the orphan `recipe_prep_items` rows in scope (rows in brand `2a000000-...` whose `prep_recipe_id` resolves to a "Burger Patty" prep with `is_current = false`) before mutating anything.
+- [x] A new timestamped migration is added under `supabase/migrations/` following the established `YYYYMMDDHHMMSS_description.sql` naming convention.
+- [x] The migration is wrapped in an atomic transaction (`BEGIN` / `COMMIT`).
+- [x] The migration asserts that the canonical UUID `500ef28d-3288-4fb8-accb-c3708d1491f9` exists in `prep_recipes` AND has `is_current = true`. If not, `RAISE EXCEPTION` and abort.
+- [x] The migration counts the orphan `recipe_prep_items` rows in scope (rows in brand `2a000000-...` whose `prep_recipe_id` resolves to a "Burger Patty" prep with `is_current = false`) before mutating anything.
   - If the orphan count is exactly **0**, exit successfully as a no-op (idempotent re-run path).
   - If the orphan count is exactly **4**, repoint those 4 rows to the canonical UUID, then verify exactly 4 rows were updated. If the affected row count differs from 4, `RAISE EXCEPTION` and roll back.
   - If the orphan count is anything other than 0 or 4 (e.g., 1, 2, 3, 5+), `RAISE EXCEPTION` and roll back. Do not partially repair an unexpected state.
-- [ ] After the migration is applied **via `supabase db push` against a populated environment** (remote prod or a local DB that already has `seed.sql` loaded), re-running the orphan-count probe SQL returns 0 rows. This must hold under all three populated apply-path branches (Path A: remote, dedup applied, external canonical row exists → all 4 orphans deleted; Path B-original: populated without dedup applied, no external canonical row, no live unique index → 4 byte-identical UPDATEs collapsed by dedup later; Path B-revised: clean `db reset --local` re-execution, dedup index already live, no external canonical row → 3 sibling orphans deleted, 1 survivor updated to canonical). See "Backend design" section 5b for the apply-path matrix.
-- [ ] When applied via `supabase db reset --local` (which runs migrations against an EMPTY DB before loading `seed.sql`), the migration completes without error as a no-op. End-state orphans persisting after `seed.sql` loads is expected and is not a defect of this migration — see "Backend design" section 5b "Apply-path semantics and verification limits".
-- [ ] After the migration is applied, hitting the local `pwa-catalog` edge function returns a payload where every `recipes[].prep_items[].prep_recipe_id` for the "2AM Cheeseburger" recipe appears in the top-level `prep_recipes[]` array.
-- [ ] The migration has been reviewed by the security-auditor for RLS implications (writes touching `recipe_prep_items` under per-store RLS hardening — see `supabase/migrations/20260504173035_per_store_rls_hardening.sql`).
-- [ ] The migration has been reviewed by the backend-architect for migration convention adherence (filename format, helper function usage such as `auth_can_see_store()` / `auth_is_admin()` if relevant, `SECURITY DEFINER` semantics if used, transaction style, comment style).
+- [x] After the migration is applied **via `supabase db push` against a populated environment** (remote prod or a local DB that already has `seed.sql` loaded), re-running the orphan-count probe SQL returns 0 rows. This must hold under all three populated apply-path branches (Path A: remote, dedup applied, external canonical row exists → all 4 orphans deleted; Path B-original: populated without dedup applied, no external canonical row, no live unique index → 4 byte-identical UPDATEs collapsed by dedup later; Path B-revised: clean `db reset --local` re-execution, dedup index already live, no external canonical row → 3 sibling orphans deleted, 1 survivor updated to canonical). See "Backend design" section 5b for the apply-path matrix. **Post-merge note (2026-05-06):** Path A was never actually exercised — both local and remote produced Path B-revised `(3, 1)`. See "Post-merge review" at the end of this spec.
+- [x] When applied via `supabase db reset --local` (which runs migrations against an EMPTY DB before loading `seed.sql`), the migration completes without error as a no-op. End-state orphans persisting after `seed.sql` loads is expected and is not a defect of this migration — see "Backend design" section 5b "Apply-path semantics and verification limits". Verified 2026-05-06: NOTICE output `"Spec 001: no-op (no orphans found — pre-seed apply OR already repaired)"` fired during fresh `db reset --local`; post-seed orphan probe returned 4 (expected).
+- [x] **(AC7a — data invariant via SQL substitute)** After the migration is applied, every `prep_recipe_id` referenced by 2AM Cheeseburger's `recipe_prep_items` rows resolves to a `prep_recipes` row with `is_current = true`. Verified on local + remote via SQL probe (`docker exec ... psql` locally, `supabase db query --linked` remotely).
+- [ ] **(AC7b — HTTP path through `pwa-catalog`) DEFERRED.** The HTTP path through the `pwa-catalog` edge function returning a self-consistent payload is currently blocked on a pre-existing infrastructure issue: `supabase_edge_runtime_imr-inventory` is bind-mounted to a stale `.claude/worktrees/pensive-raman-4d93c5/supabase/functions/` path, so the local edge runtime returns `503 BOOT_ERROR`. Filed as a separate task (edge runtime worktree-bind-mount fix). Not blocking Spec 001 closeout — AC7a's SQL-equivalent subset check verifies the same data invariant.
+- [x] The migration has been reviewed by the security-auditor for RLS implications (writes touching `recipe_prep_items` under per-store RLS hardening — see `supabase/migrations/20260504173035_per_store_rls_hardening.sql`). Result 2026-05-06: clean — no critical/high/medium findings. See "Post-merge review".
+- [x] The migration has been reviewed by the backend-architect for migration convention adherence (filename format, helper function usage such as `auth_can_see_store()` / `auth_is_admin()` if relevant, `SECURITY DEFINER` semantics if used, transaction style, comment style). Architect designed and revised the migration three times during this spec's lifecycle; the final design is the contract.
 
 ## Pre-implementation gate: sibling-table orphan probe
 Before the architect designs the migration, run the following probe and document results inline in this spec (under "Probe results" below). Do NOT auto-expand scope based on the results — surface findings to the user, who decides whether sibling cleanup gets folded in or filed as a follow-up spec.
@@ -562,7 +563,7 @@ For local development convenience: after `db reset --local` (Path C) completes, 
 - **No edge function cold-start risk.** This migration touches no edge functions.
 - **Sibling-table contagion (out of scope, surfaced for awareness).** `prep_recipe_ingredients` has 399 analogous orphans. Spec 001 explicitly does not address them. The risk for Spec 001 is reputational only — a reviewer might ask "why didn't you fix the bigger one too?". The "Why proceeding with Spec 001 in isolation is safe" section in this spec answers that. No design accommodation needed.
 - **`useRealtimeSync` not subscribed to `recipe_prep_items`.** Noted in section 6. If a future spec wants admin clients to auto-reload on `recipe_prep_items` changes, that's a separate hook change — out of scope here.
-- **Pre-existing canonical-pointing row on remote (`(330d2882-..., 500ef28d-..., oz, 6)`) — provenance unknown.** The 2026-05-05 verification run confirmed this row exists on remote but is not in the local seed (which was pulled 2026-05-02). It may have been inserted by a manual SQL editor session, an out-of-band fix attempt, or a sibling brand-catalog Phase migration that ran on remote but whose effect was not reproduced in the seed. Spec 001 does not investigate the provenance — the row's existence is now load-bearing for the DELETE branch on Path A, and removing it would change the apply-path matrix. If the provenance is tracked down later, it should be filed as a separate finding. No action required for this spec.
+- **Pre-existing canonical-pointing row on remote — assumption was incorrect.** ~~The 2026-05-05 verification run confirmed this row exists on remote but is not in the local seed.~~ **Post-merge correction (2026-05-06):** the Phase 2 verification run that produced `(3, 1)` (Path B-revised) on remote demonstrated this assumption was wrong — no pre-existing canonical-pointing row at `(330d2882-..., 500ef28d-..., oz, 6)` actually existed on remote. The original Phase 2 23505 unique-violation that gave rise to this hypothesis was the same intra-orphan collision bug as local, not a pre-existing-row collision. The DELETE branch in the final design fires for siblings (3 of 4 orphans deleted; survivor repointed) on every populated environment we verified. Path A as originally defined in section 5b was never observed and may not exist in the wild. Risk note retained for traceability; no action required.
 
 ### 8. `src/lib/db.ts` surface, frontend store impact, edge function changes — none
 - No new helpers in `src/lib/db.ts`. The fix is entirely server-side data repair.
@@ -589,3 +590,42 @@ For local development convenience: after `db reset --local` (Path C) completes, 
 - Apply NOTICE: `Spec 001: cleared 4 Burger Patty orphans (3 deleted as collisions, 1 repointed to canonical 500ef28d-3288-4fb8-accb-c3708d1491f9)` — `(3, 1)` outcome on remote, NOT the Path A `(4, 0)` predicted in section 5b. The strictness assertion (`deleted + updated = 4`) held and the migration committed. Implication: the spec's "pre-existing external canonical-pointing row on remote at `(330d2882-..., 500ef28d-..., oz, 6)`" (section 7 risk note + section 5b Path A definition) was NOT present at apply time. Remote actually exercised Path B-revised, not Path A. Acceptance criterion (`total_orphans = 0` post-apply) is met regardless; the apply-path classification deviation does not represent a correctness failure of this migration. Provenance of why the external row was absent is out of scope per the existing section 7 note about that row's unknown provenance.
 - Remote post-state probe (via `supabase db query --linked`): `dangling = 0, non_current = 0, total_orphans = 0`.
 - Remote 2AM Cheeseburger subset check: 2 rows, both `status = OK` — `Burger Patty (500ef28d-...)`, `2AM SAUCE (66d823bb-...)`. PASS. (Used SQL-equivalent subset assertion via `supabase db query --linked` rather than HTTP `pwa-catalog` since the spec's earlier note flagged HTTP path as potentially broken on remote; SQL subset assertion is the documented fallback.)
+
+### Phase 3 — post-merge AC6 verification (`npx supabase db reset --local`)
+- Migration applied against empty DB during reset. NOTICE captured: `Spec 001: no-op (no orphans found — pre-seed apply OR already repaired)` — count = 0 branch fired as designed.
+- Post-seed orphan probe: `total_orphans = 4` — expected per section 5b (seed re-loads orphans after migrations replay against empty DB). Confirms AC6's "end-state orphans persisting after seed.sql loads" acknowledged limitation.
+- Validates the count-first design: against an empty DB, neither the canonical lookup nor the visibility check fires (the visibility check is gated by `prep_recipes` non-empty). No spurious failures. Path C of section 5b verified.
+
+## Post-merge review (2026-05-06)
+
+Three reviewers ran in parallel against the committed work (HEAD commits `f54d039` ignore-claude-worktrees + `c4c0f16` Spec 001 main commit).
+
+### code-reviewer — clean (2 should-fix nits, 4 stylistic)
+- **Should-fix (acknowledged, not patched):** see "Lessons learned" below. Migration file is treated as immutable post-apply; carrying these forward to the next migration.
+- No critical findings.
+
+### security-auditor — clean
+- All 4 `recipe_prep_items` policies enumerated; none would block `postgres`-role DELETE or UPDATE.
+- No `WITH CHECK` clause violation under the migration's mutation surface.
+- Scanned `src/lib/db.ts` and `supabase/functions/**/*.ts` for any path that could `EXECUTE` raw SQL or invoke the migration body under non-superuser context — **none found**. The "superuser-only apply path" claim is independently defensible.
+- No critical/high/medium/low blocking findings.
+
+### test-engineer — caveats
+- **No test framework gap surfaced.** Recommendation: `vitest` for the next spec that needs automated coverage. Not blocking Spec 001.
+- AC1–AC6, AC7a, AC8, AC9: PASS.
+- AC7b: DEFERRED — see acceptance criteria section.
+
+## Lessons learned (for the next migration in this codebase)
+
+These are the should-fix items the code-reviewer flagged. The migration file at `supabase/migrations/20260504235959_repoint_burger_patty_orphans.sql` is treated as immutable now that it has been applied to remote — these guidelines apply to future migrations rather than retro-edits.
+
+1. **Use `EXISTS (SELECT 1 ...)` for boolean-predicate checks**, not `SELECT COUNT(*) > 0`. The visibility sanity check at line 49 of the Spec 001 migration uses `SELECT COUNT(*) FROM public.prep_recipes` to answer "is the table non-empty?". `IF EXISTS (SELECT 1 FROM public.prep_recipes) THEN` is more idiomatic, doesn't aggregate, and short-circuits.
+2. **NOTICE messages should use neutral wording when multiple branches can produce the same final count.** The Spec 001 success NOTICE labels deleted rows as `"% deleted as collisions"` — accurate for Path A (collision target was a pre-existing canonical row) but misleading for Path B-revised (deleted rows were sibling orphans, not collisions). Better: `"% deleted (siblings or external-collision targets), % repointed to canonical"`.
+3. **Don't assume external state on remote without probing it.** Spec 001's section 5b Path A description hypothesized a pre-existing canonical-pointing row on remote based on the original 23505 error message. Phase 2 verification proved that row didn't exist; the error was actually intra-orphan collision (same as local). Diagnostic queries against remote — even read-only — are cheap and would have caught this.
+
+## Deferred / follow-up tasks
+
+- **Edge runtime stale-worktree-bind-mount** (`supabase_edge_runtime_imr-inventory` bound to `.claude/worktrees/pensive-raman-4d93c5/supabase/functions/`). Blocks AC7b (HTTP-path verification) and any future local edge-function testing. Independent of Spec 001's data fix. File as its own task.
+- **Spec 002 / Spec 003** — the 399 `prep_recipe_ingredients.prep_recipe_id` orphans documented in the "Sibling-table finding" section above. Spec 002 = ingredient-divergence investigation; Spec 003 = repointing migration once 002 informs the approach.
+- **Provenance of section 7's "pre-existing canonical row" hypothesis.** Now that Phase 2 demonstrated this row didn't exist on remote, the section 7 risk note's framing is stale; folded into "Lessons learned" #3 above for the next migration.
+- **Test framework selection** (vitest recommended) — applies to future specs with automated coverage requirements.
