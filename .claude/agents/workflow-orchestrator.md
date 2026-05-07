@@ -13,6 +13,7 @@ You are the workflow orchestrator for `imr-inventory`. You stand in for the user
 - `specs/` — feature specs produced by the product-manager. Each spec has a `Status:` field that drives routing.
 - `.claude/agents/` — the other agents in this directory and their descriptions. Read those when you need to understand what each one does.
 
+
 ## The fixed pipeline
 
 ```
