@@ -228,3 +228,21 @@ One-time use. Moved to `.claude/agents/_archive/` immediately after this CLAUDE.
 `app.json` has `slug: towson-inventory` from the project's original name. The package and brand are now `imr-inventory` / "2AM PROJECT". The `app.json` slug was never updated.
 
 **Agents must NOT change the `app.json` slug without explicit user approval.** This value may be load-bearing for EAS builds, app store identifiers, or push notification certificates. Surface any need to change it as an open question first.
+
+### Local edge runtime bind-mount captures CWD at boot
+
+`supabase start` (via `npm run dev:db`) bind-mounts `<cwd>/supabase/functions/`
+into `supabase_edge_runtime_imr-inventory` at *container creation* time, not at
+every restart. If the stack was first booted from a since-deleted directory
+(e.g., a `.claude/worktrees/<name>/` worktree), the mount stays pinned there
+even after you `cd` back to the repo root and `docker restart`. Symptom:
+`pwa-catalog` and other edge functions return `503 BOOT_ERROR` locally with
+otherwise unexplained "function source not found" errors in the runtime logs.
+
+**Sanity check before debugging an edge function locally:**
+
+`docker inspect supabase_edge_runtime_imr-inventory --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' | grep functions`
+should print a path under the active repo root. If it points at
+`.claude/worktrees/` or any other stale path, run `npx supabase stop --no-backup
+&& npm run dev:db` from the repo root to force a clean re-bind. Same shape as
+the realtime gotcha — `docker restart` alone won't help.
