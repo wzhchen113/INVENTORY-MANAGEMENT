@@ -1,6 +1,6 @@
 # Spec 003: Repoint orphaned `prep_recipe_ingredients.prep_recipe_id` references
 
-Status: READY_FOR_BUILD
+Status: READY_FOR_REVIEW
 
 **Type:** Backend / data repair migration
 **Filed:** 2026-05-06
@@ -1062,4 +1062,230 @@ The user picks. Until then, spec 003 is BLOCKED_AT_PROBE.
 ### Files staged
 
 None. No migration was authored, no source files were modified beyond this spec's Probe results section and this Build notes section. `docs/internal/prep-canonicalness-notes.md` was read but not modified, per the developer brief.
+
+### Re-probe 2026-05-07 (post-Spec-005, post-Spec-006)
+
+Re-run by backend-developer 2026-05-07 after Spec 005 (canonical curation: 4 variant-name renames into existing canonicals) and Spec 006 (House Special Blend (Sauce) drift cleanup) shipped to prod and were reflected in local seed.
+
+**All three prior stop conditions are now CLEARED.** Build proceeds.
+
+#### Status of the six build-stop conditions (2026-05-07)
+
+| Condition | 2026-05-06 (prior) | 2026-05-07 (this run) | Resolution |
+|---|---|---|---|
+| Cross-brand orphans | No | **No** (1 brand only — `2a000000-...`) | unchanged |
+| Variant same-prep evidence | **YES** (`2AM Sauce` ↔ `2AM SAUCE` near-identical) | **No** (gate_3 returns 0 rows — variants collapsed by Spec 005 renames) | CLEARED by Spec 005 |
+| `sub_recipe_id` orphan regression | No | **No** (gate_7: 0 dangling, 0 non-current) | unchanged |
+| Per-prep canonical-current count != 1 | **YES (4 of 10 zero canonical)** | **No** (every affected name has exactly 1 canonical) | CLEARED by Spec 005 (renamed orphans onto existing canonicals) |
+| All-zero divergent counts everywhere | n/a | n/a (mixed: some preps 0 divergent, others non-zero) | unchanged |
+| Local-vs-remote divergence | **YES (+6 row drift)** | **No** (per user prompt: remote = 399 post-Spec-006-apply, local = 399) | CLEARED by Spec 006 |
+
+#### Raw probe output (local, 2026-05-07)
+
+Source: `docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres < /tmp/spec003-probe.sql`.
+
+```
+gate_1_grand_total:    dangling=0, non_current=399, total_orphans=399
+
+gate_1b_distinct_sources: distinct_non_current_sources=52
+
+gate_1c_per_name (7 rows — consolidated from 10 by Spec 005 renames):
+  2AM SAUCE                           | 190 orphans | 19 source rows
+  House Special Seasoning (House Mix) |  56 orphans |  8 source rows
+  Cajun Seasoning (House Mix)         |  48 orphans |  8 source rows
+  White Sauce                         |  36 orphans |  4 source rows
+  Burger Patty                        |  28 orphans |  4 source rows
+  Tumeric Seasoning (House Mix)       |  25 orphans |  5 source rows
+  Yellow Rice                         |  16 orphans |  4 source rows
+  -- TOTAL: 190+56+48+36+28+25+16 = 399 ✓
+
+gate_2_canonical_per_name (7 rows, all count=1 — STOP condition CLEARED):
+  2AM SAUCE                           | canonical_current_count=1 | id=66d823bb-bad0-4f3e-9dd3-3ab378372cc4
+  Burger Patty                        | canonical_current_count=1 | id=500ef28d-3288-4fb8-accb-c3708d1491f9
+  Cajun Seasoning (House Mix)         | canonical_current_count=1 | id=5d6a0ea2-d4cd-4b3c-88ff-080a2eceb382
+  House Special Seasoning (House Mix) | canonical_current_count=1 | id=38678f33-66bf-420c-a50d-82899120aa9b
+  Tumeric Seasoning (House Mix)       | canonical_current_count=1 | id=c7d9a94b-cf30-4bb7-9b2b-c2577ae7a10a
+  White Sauce                         | canonical_current_count=1 | id=8782cf2d-6bfc-4639-b95d-54ff0f8c3ef1
+  Yellow Rice                         | canonical_current_count=1 | id=fb1e76b4-f8f2-40bb-ae1b-faf6534dfbf5
+
+gate_3_variants: (0 rows — STOP condition CLEARED; variant names collapsed by Spec 005)
+
+gate_3b_canonical_ingredients: 47 total rows across 7 canonicals
+  2AM SAUCE                           : 10 ingredients
+  Burger Patty                        :  5 ingredients
+  Cajun Seasoning (House Mix)         :  6 ingredients
+  House Special Seasoning (House Mix) :  7 ingredients
+  Tumeric Seasoning (House Mix)       :  5 ingredients
+  White Sauce                         :  9 ingredients
+  Yellow Rice                         :  5 ingredients
+
+gate_4_per_prep_split (7 rows — well-defined matching/divergent split):
+  prep                                | repoint | delete | total
+  2AM SAUCE                           |    155  |    35  |   190
+  House Special Seasoning (House Mix) |     48  |     8  |    56
+  Cajun Seasoning (House Mix)         |     44  |     4  |    48
+  White Sauce                         |     24  |    12  |    36
+  Burger Patty                        |     20  |     8  |    28
+  Tumeric Seasoning (House Mix)       |     25  |     0  |    25
+  Yellow Rice                         |     16  |     0  |    16
+  -- TOTAL: 332 repoint + 67 delete = 399 ✓
+
+gate_5_cross_brand: distinct_brands=1, brand_ids=[2a000000-0000-0000-0000-000000000001]
+
+gate_6_recipe_fanout: distinct_recipes_affected=15
+
+gate_7_sub_recipe_orphans: dangling=0, non_current=0, total_orphans=0
+```
+
+#### Raw probe output (remote, 2026-05-07)
+
+Direct remote queries (`npx supabase db query --linked`) are denied permission in this build session — same constraint as the prior 2026-05-06 dev session. Per the user's prompt opening this build run: **"Live prod state (verified post-Spec-006-apply via Supabase MCP): `prep_recipe_ingredients` grand-total orphan count: 399 (was 405 pre-Spec-006)."** This authoritatively records remote gate_1 grand total = 399, matching local. The +6 drift is closed by Spec 006.
+
+```
+gate_1_grand_total (remote, per user prompt): total_orphans=399  -- matches local
+```
+
+Per-name remote breakdown was not re-probed in this run (would require permission for additional `db query --linked` calls). The architect's design (§5 apply-path matrix) calls out that local and remote are expected to behave identically for Spec 003 because the dedup index is live everywhere and the DELETE-only design has no UPDATE-side collision branches. Grand-total parity (399 ↔ 399) is sufficient gate evidence to proceed.
+
+#### Comparison vs prior 2026-05-06 probe
+
+| Gate | 2026-05-06 (prior) | 2026-05-07 (this run) | Notes |
+|---|---|---|---|
+| 1 grand total local | 399 | 399 | unchanged |
+| 1 grand total remote | 405 | 399 | -6 from Spec 006 cleanup |
+| 1b distinct sources | 52 | 52 | unchanged |
+| 1c per-name breakdown | 10 names | **7 names** (consolidated by Spec 005 renames) | `2AM Sauce`+`2AM SAUCE 10` → `2AM SAUCE` (150+30+10=190); `Tumeric Mix` → `Tumeric Seasoning (House Mix)` (20+5=25); `House Special Seasoning Mix` → `House Special Seasoning (House Mix)` (56) |
+| 2 canonical per name | 6 of 10 = 1; **4 of 10 = 0** | **7 of 7 = 1** | STOP CLEARED |
+| 3 variants | `[2AM Sauce, 2AM SAUCE]` | (0 rows) | STOP CLEARED |
+| 4 per-prep split | unreliable for 4 zero-canonical names | well-defined for all 7 names | downstream effect of canonical resolution |
+| 5 cross-brand | 1 brand | 1 brand | unchanged |
+| 6 recipe fan-out | 15 recipes | 15 recipes | unchanged |
+| 7 sub_recipe orphans | 0 | 0 | unchanged |
+
+### Apply log (local-only, pre-prod-push)
+
+#### Local dry-run (BEGIN ... ROLLBACK)
+
+Source: `docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -f /tmp/spec003-dryrun-wrapper.sql` where the wrapper sources the migration's DO block (BEGIN/COMMIT stripped) inside an outer `BEGIN; ... ROLLBACK;`.
+
+Output (tail):
+```
+psql:/tmp/spec003-body.sql:192: NOTICE:  Spec 003: cleared 399 orphans (332 matching-deduped, 67 divergent-discarded) across 7 preps
+DO
+-- Verify post-mutation state (within transaction):
+ post_orphan_count
+-------------------
+                 0
+(1 row)
+ROLLBACK
+```
+
+Result: success NOTICE fired with the certified grand-total split (332 matching + 67 divergent = 399), in-transaction post-mutation orphan count = 0, transaction ROLLBACKed cleanly. No assertion fired (per-prep classification matched the manifest exactly).
+
+#### Local real-apply (BEGIN ... COMMIT)
+
+Source: `docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -f - < supabase/migrations/20260507040000_spec003_repoint_or_delete_ingredient_orphans.sql`.
+
+Pre-apply orphan count: **399**.
+
+Output (tail):
+```
+BEGIN
+DO
+psql:<stdin>:260: NOTICE:  Spec 003: cleared 399 orphans (332 matching-deduped, 67 divergent-discarded) across 7 preps
+COMMIT
+```
+
+#### §9 verification probe (post-apply)
+
+```
+== Post-apply gate 1 (orphan count) ==
+ total_orphans
+---------------
+             0
+(1 row)
+
+== Post-apply gate 7 (sub_recipe regression) ==
+ sub_recipe_orphans
+--------------------
+                  0
+(1 row)
+```
+
+Canonical ingredient counts post-apply (must match pre-apply gate 3b row counts):
+```
+ 2AM SAUCE                           | 10
+ Burger Patty                        |  5
+ Cajun Seasoning (House Mix)         |  6
+ House Special Seasoning (House Mix) |  7
+ Tumeric Seasoning (House Mix)       |  5
+ White Sauce                         |  9
+ Yellow Rice                         |  5
+-- TOTAL: 47 — matches pre-apply gate 3b's 47 rows. Canonicals unchanged. ✓
+```
+
+#### Idempotent re-run
+
+Re-applying the migration against the now-clean local DB:
+```
+BEGIN
+psql:<stdin>:260: NOTICE:  Spec 003: no-op (no orphans found — pre-seed apply OR already repaired)
+DO
+COMMIT
+```
+
+Result: count = 0 branch fired, no mutation, transaction COMMITted cleanly. Spec 001 / 005 / 006 idempotency precedent upheld.
+
+### Files changed (build phase, pre-prod-push)
+
+- `supabase/migrations/20260507040000_spec003_repoint_or_delete_ingredient_orphans.sql` (new, 262 lines) — the repair migration. Architect's filename from §3 retained verbatim (with `spec003_` prefix per Spec 004/006 convention). Architect's §5 finding ("DELETE-only, not DELETE-or-UPDATE") encoded in the body — both branches use `DELETE FROM`. Per-prep assertion fires BEFORE mutation (catches manifest drift loudly without leaving partial state in the DB on failure). Grand-total assertion is defense-in-depth post-mutation.
+- `specs/003-prep-recipe-ingredients-orphans.md` (modified) — appended `### Re-probe 2026-05-07`, `### Apply log (local-only, pre-prod-push)`, `### Files changed (build phase, pre-prod-push)`, and this list. Spec status remains `READY_FOR_BUILD` per developer brief — flips to `READY_FOR_REVIEW` only after prod apply + verification, which is the user's separate authorization.
+
+### Remote-push status (2026-05-07)
+
+**Authorized and applied to prod 2026-05-07.** User authorized
+`npx supabase db push --linked` after reviewing the staged migration
++ build-phase outputs. Apply log + post-apply verification below.
+
+### Apply log + post-apply verification (2026-05-07, user-authorized push)
+
+```
+Applying migration 20260507040000_spec003_repoint_or_delete_ingredient_orphans.sql...
+NOTICE (00000): Spec 003: cleared 399 orphans (332 matching-deduped, 67 divergent-discarded) across 7 preps
+Finished supabase db push.
+```
+
+Migration applied without error against project `ebwnovzzkwhsdxkpyjka`.
+The `RAISE NOTICE` line emitted at COMMIT time matches the local
+real-apply output verbatim — identical row counts (332 + 67 = 399).
+
+#### §9 verification probes — all PASS
+
+Run via the Supabase MCP `execute_sql` tool against project
+`ebwnovzzkwhsdxkpyjka` immediately after push.
+
+| Probe | Expected | Actual | Status |
+|---|---|---|---|
+| verify_orphan_count (left-join `is_current=false` or null parent) | 0 | 0 | PASS |
+| verify_sub_recipe_orphans (`sub_recipe_id` regression check) | 0 | 0 | PASS |
+| verify_pri_total_remaining (informational) | — | 65 | — |
+
+Post-apply prod-row breakdown (matches local):
+- 47 canonical ingredient rows across the 7 affected preps (unchanged)
+- 18 ingredient rows belonging to non-affected preps
+- 0 orphans
+- Total `prep_recipe_ingredients` = 65 (was 464 pre-apply: 399 orphans + 47 canonical + 18 non-affected = 464)
+
+Net prod payload: −399 orphan rows. No canonical ingredient lists were
+modified — the migration's "matching-deduped" branch deletes orphans
+that already had a canonical-side equivalent, and the
+"divergent-discarded" branch deletes orphans whose ingredient lists
+disagreed with their canonical (per user's resolved Q1 policy on
+divergent rows).
+
+### Status flip
+
+`Status: READY_FOR_BUILD` → `Status: READY_FOR_REVIEW` (this commit).
+Reviewer fan-out next: code-reviewer + security-auditor + test-engineer
++ backend-architect (post-impl drift).
 
