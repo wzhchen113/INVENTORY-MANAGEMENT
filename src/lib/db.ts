@@ -1112,6 +1112,80 @@ export async function upsertIngredientConversion(conv: Omit<IngredientConversion
   }, { onConflict: 'catalog_id,purchase_unit' });
 }
 
+// ─── Spec 004: explicit insert / update / delete for the conversions tab ──
+// The existing `upsertIngredientConversion` above stays as-is for callers
+// that don't need the saved row back. The functions below give the new
+// CatalogConversionsTab write UI the row id (for optimistic-then-revert
+// reconciliation) and a per-id update/delete path.
+//
+// Writes use `catalog_id` exclusively. The legacy `inventory_item_id`
+// column was dropped post-P3 (probe-confirmed 2026-05-07); the TS field
+// name `inventoryItemId` is preserved for back-compat with the rest of
+// the codebase but the value passed IS a catalog_ingredients.id.
+
+/** Insert a brand-new conversion. Returns the saved row mapped to the
+ *  same camelCase shape as `fetchIngredientConversions` so optimistic
+ *  callers can swap the temp id for the real one. */
+export async function createIngredientConversion(
+  conv: Omit<IngredientConversion, 'id'>,
+): Promise<IngredientConversion> {
+  const { data, error } = await supabase
+    .from('ingredient_conversions')
+    .insert({
+      catalog_id: conv.inventoryItemId,
+      purchase_unit: conv.purchaseUnit,
+      base_unit: conv.baseUnit,
+      conversion_factor: conv.conversionFactor,
+      net_yield_pct: conv.netYieldPct,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    inventoryItemId: data.catalog_id,
+    purchaseUnit: data.purchase_unit,
+    baseUnit: data.base_unit,
+    conversionFactor: data.conversion_factor,
+    netYieldPct: data.net_yield_pct,
+  };
+}
+
+/** Update an existing conversion by id. Used by the inline edit UI on
+ *  CatalogConversionsTab — purchase_unit / base_unit / factor / yield. */
+export async function updateIngredientConversion(
+  id: string,
+  patch: Partial<Pick<IngredientConversion, 'purchaseUnit' | 'baseUnit' | 'conversionFactor' | 'netYieldPct'>>,
+): Promise<IngredientConversion> {
+  const row: Record<string, unknown> = {};
+  if (patch.purchaseUnit !== undefined) row.purchase_unit = patch.purchaseUnit;
+  if (patch.baseUnit !== undefined) row.base_unit = patch.baseUnit;
+  if (patch.conversionFactor !== undefined) row.conversion_factor = patch.conversionFactor;
+  if (patch.netYieldPct !== undefined) row.net_yield_pct = patch.netYieldPct;
+  const { data, error } = await supabase
+    .from('ingredient_conversions')
+    .update(row)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    inventoryItemId: data.catalog_id,
+    purchaseUnit: data.purchase_unit,
+    baseUnit: data.base_unit,
+    conversionFactor: data.conversion_factor,
+    netYieldPct: data.net_yield_pct,
+  };
+}
+
+/** Delete a conversion row by id. Used by the row-level "delete" action
+ *  on the conversions tab. */
+export async function deleteIngredientConversion(id: string): Promise<void> {
+  const { error } = await supabase.from('ingredient_conversions').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ─── VERSIONED PREP RECIPE UPDATE ───────────────────────────────────────
 export async function updatePrepRecipeVersioned(id: string, updates: any): Promise<string> {
   // 1. Mark current version as not current

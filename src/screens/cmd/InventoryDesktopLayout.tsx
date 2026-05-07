@@ -30,6 +30,7 @@ import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import { confirmAction } from '../../utils/confirmAction';
 import VendorsSection from './sections/VendorsSection';
+import CategoriesSection from './sections/CategoriesSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
@@ -146,6 +147,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       items: [
         { id: 'PurchaseOrders',  label: 'Purchase orders' },
         { id: 'Vendors',         label: 'Vendors' },
+        { id: 'Categories',      label: 'Categories' },
         { id: 'Recipes',         label: 'Menu items / BOM' },
         { id: 'PrepRecipes',     label: 'Prep recipes' },
         { id: 'Restock',         label: 'Restock' },
@@ -224,6 +226,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <DashboardSection />
         ) : section === 'Vendors' ? (
           <VendorsSection />
+        ) : section === 'Categories' ? (
+          <CategoriesSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
         ) : section === 'EODCount' ? (

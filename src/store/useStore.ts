@@ -5,6 +5,7 @@ import {
   EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition,
+  IngredientConversion,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -68,6 +69,11 @@ interface StoreActions {
   addIngredientCategory: (name: string) => void;
   updateIngredientCategory: (oldName: string, newName: string) => void;
   deleteIngredientCategory: (name: string) => void;
+
+  // Ingredient Conversions (Spec 004 — write UI on CatalogConversionsTab)
+  addIngredientConversion: (conv: Omit<IngredientConversion, 'id'>) => void;
+  updateIngredientConversion: (id: string, patch: Partial<IngredientConversion>) => void;
+  deleteIngredientConversion: (id: string) => void;
 
   // Recipes
   addRecipe: (recipe: Omit<Recipe, 'id'>) => void;
@@ -181,7 +187,7 @@ export const useStore = create<FullStore>((set, get) => ({
   darkMode: false,
   notifications: [],
   storeLoading: false,
-  ingredientConversions: [] as any[],
+  ingredientConversions: [] as IngredientConversion[],
   savedReports: [],
 
   // Auth
@@ -487,6 +493,62 @@ export const useStore = create<FullStore>((set, get) => ({
     db.deleteIngredientCategory(name).catch((e: any) => {
       set({ ingredientCategories: prevCats });
       notifyBackendError('Delete ingredient category', e);
+    });
+  },
+
+  // Ingredient Conversions — write UI on CatalogConversionsTab (Spec 004).
+  // Optimistic-then-revert. The slice itself is hydrated by
+  // loadFromSupabase via fetchIngredientConversions; these actions add
+  // the missing per-row CRUD path.
+  addIngredientConversion: (conv) => {
+    const tempId = `_tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic: IngredientConversion = { ...conv, id: tempId };
+    set((s) => ({ ingredientConversions: [...s.ingredientConversions, optimistic] }));
+    db.createIngredientConversion(conv)
+      .then((saved) => set((s) => ({
+        ingredientConversions: s.ingredientConversions.map(
+          (c) => (c.id === tempId ? saved : c),
+        ),
+      })))
+      .catch((e: any) => {
+        set((s) => ({
+          ingredientConversions: s.ingredientConversions.filter(
+            (c) => c.id !== tempId,
+          ),
+        }));
+        notifyBackendError('Add conversion', e);
+      });
+  },
+
+  updateIngredientConversion: (id, patch) => {
+    const prev = get().ingredientConversions;
+    set((s) => ({
+      ingredientConversions: s.ingredientConversions.map(
+        (c) => (c.id === id ? { ...c, ...patch } : c),
+      ),
+    }));
+    db.updateIngredientConversion(id, patch)
+      .then((saved) => set((s) => ({
+        ingredientConversions: s.ingredientConversions.map(
+          (c) => (c.id === id ? saved : c),
+        ),
+      })))
+      .catch((e: any) => {
+        set({ ingredientConversions: prev });
+        notifyBackendError('Update conversion', e);
+      });
+  },
+
+  deleteIngredientConversion: (id) => {
+    const prev = get().ingredientConversions;
+    set((s) => ({
+      ingredientConversions: s.ingredientConversions.filter(
+        (c) => c.id !== id,
+      ),
+    }));
+    db.deleteIngredientConversion(id).catch((e: any) => {
+      set({ ingredientConversions: prev });
+      notifyBackendError('Delete conversion', e);
     });
   },
 

@@ -374,12 +374,11 @@ export interface AppState {
   /**
    * Per-item unit-conversion rows used to bridge recipe units (oz, fl_oz,
    * ea, ...) to the inventory item's tracking unit (cases, bags, ...).
-   * Optional in the type because not every store has populated these yet,
-   * but `useStore` always initializes it to []. Read by `convertToItemUnit`
-   * (src/utils/unitConversion.ts) when caseQty/subUnitSize alone can't bridge
-   * the units (e.g. custom packs).
+   * Always initialized to `[]` by `useStore`; never undefined at runtime.
+   * Read by `convertToItemUnit` (src/utils/unitConversion.ts) when
+   * caseQty/subUnitSize alone can't bridge the units (e.g. custom packs).
    */
-  ingredientConversions?: IngredientConversion[];
+  ingredientConversions: IngredientConversion[];
 }
 
 export interface ReportDefinition {
