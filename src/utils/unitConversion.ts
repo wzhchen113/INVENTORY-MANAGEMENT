@@ -18,6 +18,24 @@ const VOLUME_TO_FLOZ: Record<string, number> = {
   gal: 128,
 };
 
+// ─── Canonical unit registry — used by dropdowns & validation ──────────
+// The single source of truth for what counts as a "canonical mass/volume
+// unit" in the admin UI. Spec 004 §7 restricts the form's pack-unit
+// dropdown to this set; abstract units (case, bag, tray) are handled
+// per-ingredient via ingredient_conversions.
+export const CANONICAL_WEIGHT_UNITS: ReadonlyArray<string> = ['g', 'kg', 'oz', 'lbs'];
+export const CANONICAL_VOLUME_UNITS: ReadonlyArray<string> = ['fl_oz', 'cups', 'qt', 'gal'];
+export const CANONICAL_UNITS: ReadonlyArray<string> = [
+  ...CANONICAL_WEIGHT_UNITS,
+  ...CANONICAL_VOLUME_UNITS,
+];
+
+/** True when the unit string maps to a canonical mass/volume factor. */
+export function isCanonicalUnit(unit: string): boolean {
+  const u = (unit || '').toLowerCase().trim();
+  return WEIGHT_TO_GRAMS[u] !== undefined || VOLUME_TO_FLOZ[u] !== undefined;
+}
+
 // Legacy compatibility maps
 const WEIGHT_TO_LBS: Record<string, number> = { lbs: 1, oz: 1 / 16 };
 const VOLUME_TO_GAL: Record<string, number> = { gal: 1, qt: 1 / 4 };

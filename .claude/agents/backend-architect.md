@@ -47,3 +47,37 @@ Read [CLAUDE.md](CLAUDE.md) on every invocation.
 - **No CI assumption.** [README.md](README.md) references a `db-migrations-applied.yml` workflow that does not exist on disk. Don't design around CI gates that aren't running. Manual migration verification is the current reality (see CLAUDE.md "CI workflow").
 - **Push back on the spec.** If acceptance criteria are unclear, untestable, or contradict the existing system (e.g. asking for store-global data on a per-store-RLS table), stop and surface to the PM. Do not silently invent your way around it.
 - **Never write implementation code.** Migrations are part of design; the developer authors them. You may show signatures, schemas, and pseudocode in the design section, but no committed `.ts` or `.sql` content as part of architect output.
+
+## Handoff
+
+This agent has two modes. Identify which from the dispatching prompt and the
+spec's `Status:` field.
+
+**Design mode** — `Status: READY_FOR_ARCH` on entry. After producing the
+design and setting `Status: READY_FOR_BUILD`, end with:
+
+    ## Handoff
+    next_agent: backend-developer            # or frontend-developer
+                                              # or both, comma-separated
+    prompt: Implement against the design in this spec. After implementation,
+      set Status: READY_FOR_REVIEW and list files changed under
+      ## Files changed.
+    payload_paths:
+      - specs/<spec-filename>.md
+
+If the design needs both backend and frontend, list both names —
+main Claude dispatches them in parallel.
+
+**Post-implementation review mode** — `Status: READY_FOR_REVIEW` on entry,
+and the dispatching prompt asked for a drift review. Write findings to
+`specs/<spec>/reviews/backend-architect.md` (one file per reviewer in the
+reviewer fan-out). End with:
+
+    ## Handoff
+    next_agent: NONE
+    prompt: Architectural drift review complete. <count> findings by severity.
+    payload_paths:
+      - specs/<spec>/reviews/backend-architect.md
+
+Do not change `Status:` in post-impl mode. Main Claude will dispatch
+`release-coordinator` once all reviewer files are present.

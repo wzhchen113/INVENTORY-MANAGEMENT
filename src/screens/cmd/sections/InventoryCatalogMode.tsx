@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, FlatList, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -13,11 +13,14 @@ import { FilterInput } from '../../../components/cmd/FilterInput';
 import { FilterChip } from '../../../components/cmd/FilterChip';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../../components/cmd/IngredientFormDrawer';
+import { SelectField } from '../../../components/cmd/IngredientForm';
 import { ExportCsvDrawer } from '../../../components/cmd/ExportCsvDrawer';
 import { relativeTime } from '../../../utils/relativeTime';
 import { confirmAction } from '../../../utils/confirmAction';
+import { CANONICAL_UNITS } from '../../../utils/unitConversion';
+import { isNumericInput } from '../../../utils/validators';
 import Toast from 'react-native-toast-message';
-import type { InventoryItem, ItemStatus } from '../../../types';
+import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../types';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const isUnfinished = (i: InventoryItem) => !i.costPerUnit || i.costPerUnit === 0;
@@ -547,20 +550,175 @@ function CatalogStoresTab({ sel }: { sel: Group }) {
   );
 }
 
-// ─── conversions.tsx — unit translation table ─────────────────────────
+// ─── conversions.tsx — unit translation table (CRUD per spec 004 §6) ───
+// Numeric input regex shared with `IngredientForm` via
+// `src/utils/validators.ts` — see import at top of file.
+
+function NumericInput({ value, onChange, placeholder, width = 110, monoFont = true }: { value: string; onChange: (v: string) => void; placeholder?: string; width?: number; monoFont?: boolean }) {
+  const C = useCmdColors();
+  return (
+    <TextInput
+      value={value}
+      onChangeText={(v) => { if (isNumericInput(v)) onChange(v); }}
+      placeholder={placeholder}
+      placeholderTextColor={C.fg3}
+      keyboardType="decimal-pad"
+      style={{
+        width, height: 30, paddingHorizontal: 8,
+        fontFamily: monoFont ? mono(400) : sans(500), fontSize: 12, color: C.fg,
+        backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm,
+        textAlign: 'right',
+        ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+      }}
+    />
+  );
+}
+
 function CatalogConversionsTab({ sel }: { sel: Group }) {
   const C = useCmdColors();
-  const allConversions = useStore((s) => s.ingredientConversions || []);
-  // Conversions are brand-level keyed on catalog_id. The InventoryItem
-  // rows here may have inventoryItemId (legacy) or catalogId — try both.
+  const allConversions = useStore((s) => s.ingredientConversions);
+  const addIngredientConversion    = useStore((s) => s.addIngredientConversion);
+  const updateIngredientConversion = useStore((s) => s.updateIngredientConversion);
+  const deleteIngredientConversion = useStore((s) => s.deleteIngredientConversion);
+
+  // Conversions are brand-level keyed on catalog_id. `IngredientConversion`
+  // exposes that as `inventoryItemId` for back-compat (see types/index.ts:160).
+  // Match against both the catalog id (canonical) and the per-store inventory
+  // id so legacy seeds linked the old way still surface.
   const conversions = React.useMemo(() => {
     const ids = new Set<string>();
     for (const r of sel.rows) {
-      if ((r as any).catalogId) ids.add((r as any).catalogId);
+      if (r.catalogId) ids.add(r.catalogId);
       ids.add(r.id); // legacy inventory_item_id link some seeds may have
     }
-    return allConversions.filter((c: any) => ids.has(c.catalogId) || ids.has(c.inventoryItemId));
+    return allConversions.filter((c) => ids.has(c.inventoryItemId));
   }, [allConversions, sel.rows]);
+
+  // The catalog_id we'll write new rows against — prefer the catalog id,
+  // fall back to the inventory item id only if catalog isn't populated.
+  const writeCatalogId = React.useMemo(() => {
+    return sel.primary.catalogId || sel.primary.id;
+  }, [sel.primary]);
+
+  // Add-row form state — kept local to the tab; reset after save.
+  const [addPurchaseUnit, setAddPurchaseUnit] = React.useState('');
+  const [addBaseUnit, setAddBaseUnit]         = React.useState('lbs');
+  const [addFactor, setAddFactor]             = React.useState('');
+  const [addYield, setAddYield]               = React.useState('100');
+  const [showAdvanced, setShowAdvanced]       = React.useState(false);
+
+  // Edit state — id of row currently being edited + its in-progress values.
+  const [editingId, setEditingId]   = React.useState<string | null>(null);
+  const [editValues, setEditValues] = React.useState<{ purchaseUnit: string; baseUnit: string; factor: string; yield: string }>({ purchaseUnit: '', baseUnit: 'lbs', factor: '', yield: '100' });
+
+  const baseUnitOptions = React.useMemo(
+    () => CANONICAL_UNITS.map((u) => ({ value: u, label: u })),
+    [],
+  );
+
+  // Distinct purchase units already used anywhere in the system — gives a
+  // dropdown of likely picks while still allowing free-text below.
+  const purchaseUnitOptions = React.useMemo(() => {
+    const acc = new Set<string>();
+    for (const c of allConversions) {
+      const pu = c.purchaseUnit.toLowerCase().trim();
+      if (pu) acc.add(pu);
+    }
+    return Array.from(acc).sort().map((u) => ({ value: u, label: u }));
+  }, [allConversions]);
+
+  const handleAdd = () => {
+    const pu = addPurchaseUnit.trim().toLowerCase();
+    if (!pu) {
+      Toast.show({ type: 'error', text1: 'Purchase unit is required' });
+      return;
+    }
+    const factorN = parseFloat(addFactor);
+    if (!isFinite(factorN) || factorN <= 0) {
+      Toast.show({ type: 'error', text1: 'Factor must be a positive number' });
+      return;
+    }
+    // Yield % must land in (0, 100]. Empty / blank input falls back to 100
+    // (the column default). Negative or out-of-range inputs surface a toast
+    // instead of silently coercing — would otherwise corrupt cost-calc step
+    // 3 (security-auditor M1 / spec 004 fix-pass item 3).
+    const yieldRaw = addYield.trim();
+    let yieldN = 100;
+    if (yieldRaw !== '') {
+      const parsed = parseFloat(yieldRaw);
+      if (!isFinite(parsed) || parsed <= 0 || parsed > 100) {
+        Toast.show({ type: 'error', text1: 'Yield % must be between 0 and 100' });
+        return;
+      }
+      yieldN = parsed;
+    }
+    const conv: Omit<IngredientConversion, 'id'> = {
+      inventoryItemId: writeCatalogId, // TS-side back-compat name; semantically a catalog_id
+      purchaseUnit: pu,
+      baseUnit: addBaseUnit,
+      conversionFactor: factorN,
+      netYieldPct: yieldN,
+    };
+    addIngredientConversion(conv);
+    Toast.show({ type: 'success', text1: 'Conversion added', text2: `1 ${pu} = ${factorN} ${addBaseUnit}` });
+    setAddPurchaseUnit('');
+    setAddFactor('');
+    setAddYield('100');
+    setShowAdvanced(false);
+  };
+
+  const startEdit = (conv: IngredientConversion) => {
+    setEditingId(conv.id);
+    setEditValues({
+      purchaseUnit: conv.purchaseUnit,
+      baseUnit: conv.baseUnit || 'lbs',
+      factor: String(conv.conversionFactor ?? ''),
+      yield: String(conv.netYieldPct ?? 100),
+    });
+  };
+  const cancelEdit = () => setEditingId(null);
+  const saveEdit = () => {
+    if (!editingId) return;
+    const pu = editValues.purchaseUnit.trim().toLowerCase();
+    const factorN = parseFloat(editValues.factor);
+    if (!pu) {
+      Toast.show({ type: 'error', text1: 'Purchase unit is required' });
+      return;
+    }
+    if (!isFinite(factorN) || factorN <= 0) {
+      Toast.show({ type: 'error', text1: 'Factor must be a positive number' });
+      return;
+    }
+    // Same range-check as handleAdd — security-auditor M1.
+    const yieldRaw = editValues.yield.trim();
+    let yieldN = 100;
+    if (yieldRaw !== '') {
+      const parsed = parseFloat(yieldRaw);
+      if (!isFinite(parsed) || parsed <= 0 || parsed > 100) {
+        Toast.show({ type: 'error', text1: 'Yield % must be between 0 and 100' });
+        return;
+      }
+      yieldN = parsed;
+    }
+    updateIngredientConversion(editingId, {
+      purchaseUnit: pu,
+      baseUnit: editValues.baseUnit,
+      conversionFactor: factorN,
+      netYieldPct: yieldN,
+    });
+    Toast.show({ type: 'success', text1: 'Conversion updated' });
+    setEditingId(null);
+  };
+  const handleDelete = (conv: IngredientConversion) => {
+    confirmAction(
+      `Delete conversion "${conv.purchaseUnit}"?`,
+      'Recipes that use this purchase unit will fall back to step-2 cost-calc; if there is no sub-unit pair set, they will become unmatchable until the row is recreated.',
+      () => {
+        deleteIngredientConversion(conv.id);
+        Toast.show({ type: 'success', text1: 'Conversion deleted' });
+      },
+    );
+  };
 
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
@@ -570,6 +728,76 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
           Unit translation table. Without these rows, recipes that use a different unit than the base can't compute cost or depletion.
         </Text>
       </View>
+
+      {/* ── Add-row card ─────────────────────────────────────── */}
+      <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 10 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <SectionCaption tone="fg3" size={10.5}>+ add conversion</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            e.g. 1 case = 40 lbs (chicken leg)
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>purchase unit</Text>
+            <TextInput
+              value={addPurchaseUnit}
+              onChangeText={setAddPurchaseUnit}
+              placeholder="case / bag / tray"
+              placeholderTextColor={C.fg3}
+              autoCapitalize="none"
+              style={{
+                height: 30, paddingHorizontal: 8,
+                fontFamily: mono(400), fontSize: 12, color: C.fg,
+                backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm,
+                ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+              }}
+            />
+            {purchaseUnitOptions.length > 0 ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                {purchaseUnitOptions.slice(0, 6).map((opt) => (
+                  <TouchableOpacity key={opt.value} onPress={() => setAddPurchaseUnit(opt.value)}
+                    style={{ paddingVertical: 2, paddingHorizontal: 6, borderRadius: 3, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border }}>
+                    <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingBottom: 8 }}>=</Text>
+          <View style={{ width: 100 }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>factor</Text>
+            <NumericInput value={addFactor} onChange={setAddFactor} placeholder="40" width={100} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <SelectField
+              label="base unit"
+              value={addBaseUnit}
+              options={baseUnitOptions}
+              onChange={setAddBaseUnit}
+              monoFont
+            />
+          </View>
+          <TouchableOpacity onPress={handleAdd} style={{ paddingVertical: 7, paddingHorizontal: 12, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>ADD</Text>
+          </TouchableOpacity>
+        </View>
+        {/* Advanced disclosure: net_yield_pct */}
+        <TouchableOpacity onPress={() => setShowAdvanced((p) => !p)} activeOpacity={0.7}>
+          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg3 }}>
+            {showAdvanced ? '▼' : '▶'} advanced — yield % (default 100)
+          </Text>
+        </TouchableOpacity>
+        {showAdvanced ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>net yield</Text>
+            <NumericInput value={addYield} onChange={setAddYield} placeholder="92" width={80} />
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>% (waste / trim discount)</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* ── Conversions list ──────────────────────────────── */}
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
           <SectionCaption tone="fg3" size={10.5}>conversions.tsv</SectionCaption>
@@ -579,31 +807,73 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
           <View style={{ padding: 18, gap: 6 }}>
             <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>FIX — NO CONVERSIONS</Text>
             <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg2 }}>
-              Recipes that consume {sel.name} in a unit other than {sel.unit} can't compute cost. Add a conversion row from any recipe edit screen.
+              Recipes that consume {sel.name} in a unit other than {sel.unit} can't compute cost. Use the form above to add one — e.g. "1 case = 40 lbs".
             </Text>
           </View>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>purchase u</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'center' }}>→</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40, textAlign: 'center' }}>→</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>base u</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>factor</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>net yield</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>net yield</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>actions</Text>
             </View>
-            {conversions.map((conv: any, i: number) => (
-              <View key={conv.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
-                <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.purchaseUnit || conv.purchase_unit}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'center' }}>→</Text>
-                <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.baseUnit || conv.base_unit}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg2, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                  ×{(conv.conversionFactor || conv.conversion_factor || 0).toFixed(4)}
-                </Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right' }}>
-                  {(conv.netYieldPct ?? conv.net_yield_pct ?? 100)}%
-                </Text>
-              </View>
-            ))}
+            {conversions.map((conv, i) => {
+              const isEditing = editingId === conv.id;
+              return (
+                <View key={conv.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                  {isEditing ? (
+                    <>
+                      <View style={{ flex: 1 }}>
+                        <TextInput
+                          value={editValues.purchaseUnit}
+                          onChangeText={(v) => setEditValues((p) => ({ ...p, purchaseUnit: v }))}
+                          placeholderTextColor={C.fg3}
+                          autoCapitalize="none"
+                          style={{ height: 26, paddingHorizontal: 6, fontFamily: mono(400), fontSize: 12, color: C.fg, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}) }}
+                        />
+                      </View>
+                      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 40, textAlign: 'center' }}>→</Text>
+                      <View style={{ flex: 1 }}>
+                        <SelectField label="" value={editValues.baseUnit} options={baseUnitOptions} onChange={(v) => setEditValues((p) => ({ ...p, baseUnit: v }))} monoFont />
+                      </View>
+                      <NumericInput value={editValues.factor} onChange={(v) => setEditValues((p) => ({ ...p, factor: v }))} width={110} />
+                      <NumericInput value={editValues.yield} onChange={(v) => setEditValues((p) => ({ ...p, yield: v }))} width={70} />
+                      <View style={{ flexDirection: 'row', gap: 6, width: 110, justifyContent: 'flex-end' }}>
+                        <TouchableOpacity onPress={saveEdit} style={{ paddingVertical: 4, paddingHorizontal: 8, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
+                          <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>SAVE</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={cancelEdit} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm }}>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>CANCEL</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.purchaseUnit}</Text>
+                      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 40, textAlign: 'center' }}>→</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.baseUnit}</Text>
+                      <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg2, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                        ×{(conv.conversionFactor || 0).toFixed(4)}
+                      </Text>
+                      <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 70, textAlign: 'right' }}>
+                        {conv.netYieldPct ?? 100}%
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 6, width: 110, justifyContent: 'flex-end' }}>
+                        <TouchableOpacity onPress={() => startEdit(conv)} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>EDIT</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDelete(conv)} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.danger }}>DEL</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </View>
+              );
+            })}
           </>
         )}
       </View>

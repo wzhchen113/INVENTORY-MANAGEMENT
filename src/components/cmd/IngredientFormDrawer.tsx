@@ -5,6 +5,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { IngredientForm, IngredientFormValues, blankValues } from './IngredientForm';
+import { VendorFormDrawer } from './VendorFormDrawer';
 import { JsonPreview } from './JsonPreview';
 import { AuditHistory } from './AuditHistory';
 import { InventoryItem } from '../../types';
@@ -41,6 +42,9 @@ const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
   unit: v.unit,
   costPerUnit: parseFloat(v.costPerUnit) || 0,
   parLevel: parseFloat(v.parLevel) || 0,
+  // vendorId is the source of truth (drives FK joins); vendorName is
+  // derived from the picked vendor and stays in sync for legacy display.
+  vendorId: v.vendorId,
   vendorName: v.vendorName,
   caseQty: parseFloat(v.caseQty) || 1,
   casePrice: parseFloat(v.casePrice) || 0,
@@ -57,6 +61,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   const updateItem = useStore((s) => s.updateItem);
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
+  const vendors = useStore((s) => s.vendors);
 
   // Initial values snapshot — used for dirty-tracking + DISCARD reset.
   const initial = React.useMemo<IngredientFormValues>(
@@ -64,11 +69,31 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     [mode, item],
   );
   const [values, setValues] = React.useState<IngredientFormValues>(initial);
+  const [vendorDrawerOpen, setVendorDrawerOpen] = React.useState(false);
+  const vendorIdsBeforeAddRef = React.useRef<Set<string>>(new Set());
 
   // Reset form when the drawer reopens or the host item changes.
   React.useEffect(() => {
     if (visible) setValues(initial);
   }, [visible, initial]);
+
+  // Inline vendor-add: when the form's "+ new vendor" sentinel fires,
+  // snapshot the current vendor ids, open the VendorFormDrawer. When the
+  // drawer closes, find the newly-added vendor (id not in the snapshot)
+  // and auto-select it.
+  const handleAddVendor = React.useCallback(() => {
+    vendorIdsBeforeAddRef.current = new Set(vendors.map((v) => v.id));
+    setVendorDrawerOpen(true);
+  }, [vendors]);
+
+  const handleVendorDrawerClose = React.useCallback(() => {
+    setVendorDrawerOpen(false);
+    // Find the vendor whose id wasn't in the snapshot. If found, auto-select.
+    const added = vendors.find((v) => !vendorIdsBeforeAddRef.current.has(v.id));
+    if (added) {
+      setValues((prev) => ({ ...prev, vendorId: added.id, vendorName: added.name }));
+    }
+  }, [vendors]);
 
   const dirty = React.useMemo(() => JSON.stringify(values) !== JSON.stringify(initial), [values, initial]);
   const requiredValid = values.name.trim().length > 0 && values.category.trim().length > 0 && values.unit.trim().length > 0;
@@ -126,7 +151,19 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, values, mode, item]);
 
-  if (!visible) return null;
+  // Render the inline VendorFormDrawer as a sibling so it stacks on top
+  // of (rather than inside) the ingredient drawer's Modal — avoids
+  // backdrop-click-out / z-index battles on web. The vendor drawer keeps
+  // visible=false until the form's "+ new vendor" sentinel fires.
+  const vendorDrawerSibling = (
+    <VendorFormDrawer
+      visible={vendorDrawerOpen}
+      mode="new"
+      onClose={handleVendorDrawerClose}
+    />
+  );
+
+  if (!visible) return vendorDrawerSibling;
 
   const isNew = mode === 'new';
   const title = isNew ? 'untitled-ingredient' : (item?.name || 'ingredient');
@@ -137,6 +174,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
       : { label: '● saved', fg: C.fg3, bg: C.panel2 };
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* Backdrop click-outside */}
       <TouchableOpacity activeOpacity={1} onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', flexDirection: 'row', justifyContent: 'flex-end' }}>
@@ -159,7 +197,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
 
           {/* Body — form + side pane */}
           <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
-            <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} />
+            <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
             {isNew
               ? <JsonPreview values={values} valid={requiredValid} />
               : <AuditHistory itemName={item?.name || ''} />}
@@ -176,8 +214,12 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
             <TouchableOpacity onPress={handleDiscard} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.border }}>
               <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>{isNew ? 'CANCEL' : 'DISCARD'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleSave} disabled={!requiredValid} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, backgroundColor: requiredValid ? C.accent : C.panel2, opacity: requiredValid ? 1 : 0.6 }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 11, color: requiredValid ? '#000' : C.fg3 }}>
+            {/* SAVE is always enabled; required-field validation runs
+                inside `handleSave` and surfaces a Toast on miss. The "0/3
+                required valid" footer text below already communicates
+                form state — spec 004 fix-pass item 2. */}
+            <TouchableOpacity onPress={handleSave} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, backgroundColor: C.accent }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>
                 {isNew ? 'CREATE  ⌘⏎' : 'SAVE  ⌘S'}
               </Text>
             </TouchableOpacity>
@@ -185,5 +227,11 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
+    {/* Inline-add vendor — opened from the form's vendor dropdown's
+        "+ new vendor" sentinel. Rendered as a sibling Modal so it stacks
+        cleanly on top; on save, handleVendorDrawerClose finds the new
+        vendor and auto-selects it. */}
+    {vendorDrawerSibling}
+    </>
   );
 };

@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews code craftsmanship for imr-inventory — readability, naming, abstraction, dead code, duplication, idiomatic use of React Native + TypeScript + Zustand + Supabase, and adherence to project conventions in CLAUDE.md. Use after a developer sets spec status to READY_FOR_REVIEW. Read-only. Outputs findings ranked Critical → Should-fix → Nits.
-tools: Read, Grep, Glob
+tools: Read, Write, Grep, Glob
 model: sonnet
 ---
 
@@ -70,4 +70,17 @@ These are concrete patterns from CLAUDE.md. Treat deviation as a real finding.
 - `path/to/file.ts:200` — <finding>.
 ```
 
-Append this section to the spec file via the user — you are read-only and cannot edit the spec yourself. Output the review in chat; the user or PM will paste it into the spec.
+Write the review to `specs/<spec>/reviews/code-reviewer.md`. The release-coordinator reads that file directly. Do not paste findings into the spec file itself — the spec stays the contract; reviews go in the reviews/ directory.
+
+## Handoff
+
+After writing your review file, end your turn with:
+
+    ## Handoff
+    next_agent: NONE
+    prompt: Code review complete. <N Critical, M Should-fix, K Nit>.
+    payload_paths:
+      - specs/<spec>/reviews/code-reviewer.md
+
+Do not recommend a next agent — the release-coordinator will read your file
+directly when main Claude dispatches it.

@@ -43,7 +43,8 @@ export const JsonPreview: React.FC<Props> = ({ values, valid }) => {
           {'\n  "unit": '}<Str>{values.unit || '—'}</Str>,
           {'\n  "pack": {'}
           {' "size": '}<Num>{values.caseQty || 0}</Num>,
-          {' "unit": '}<Str>{values.packUnit || '—'}</Str>
+          {' "sub_unit_size": '}<Num>{values.subUnitSize || 0}</Num>,
+          {' "unit": '}<Str>{values.subUnitUnit || '—'}</Str>
           {' },'}
           {'\n  "par": '}<Num>{values.parLevel || 0}</Num>,
           {'\n  "vendor": {'}

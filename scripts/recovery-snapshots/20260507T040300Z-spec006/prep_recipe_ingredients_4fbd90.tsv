@@ -1,0 +1,7 @@
+id	prep_recipe_id	quantity	unit	base_quantity	base_unit	type	sub_recipe_id	catalog_id
+0601eff5-a312-43ae-9add-a2ab21637329	4fbd90cc-7e06-4eef-a462-82efd386bfef	16	fl_oz	16	fl_oz	raw		6106cc35-b903-4105-918d-d6bbb09bc1c2
+094d18c7-0c96-4eb6-8038-62d09d3a0797	4fbd90cc-7e06-4eef-a462-82efd386bfef	8	oz	226.796	g	raw		2558f9c2-fc3b-48d1-ba7b-12d2832a4bc8
+15caa0f6-aa1a-4435-b0a1-d64d2035f551	4fbd90cc-7e06-4eef-a462-82efd386bfef	26	lbs	11793.392	g	raw		dd1e1746-75b3-48f6-8fda-8e7632515453
+1ea7098a-b0b8-4dfa-b4ba-7d65ca6ba4d5	4fbd90cc-7e06-4eef-a462-82efd386bfef	2110	g	2110	g	prep	38678f33-66bf-420c-a50d-82899120aa9b	
+24794453-90ed-4b34-9ff0-4efb6da82811	4fbd90cc-7e06-4eef-a462-82efd386bfef	1	gal	128	fl_oz	raw		35c97899-a13f-4167-9bb2-a1194f91a925
+2540e268-a37d-4a38-8eae-af13cf7eb16e	4fbd90cc-7e06-4eef-a462-82efd386bfef	27	oz	765.4365	g	raw		86ea75bb-c53b-483e-8147-bfdb69b7c557

@@ -1,0 +1,68 @@
+[
+  {
+    "base_quantity": 16,
+    "base_unit": "fl_oz",
+    "catalog_id": "6106cc35-b903-4105-918d-d6bbb09bc1c2",
+    "id": "0601eff5-a312-43ae-9add-a2ab21637329",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 16,
+    "sub_recipe_id": null,
+    "type": "raw",
+    "unit": "fl_oz"
+  },
+  {
+    "base_quantity": 226.796,
+    "base_unit": "g",
+    "catalog_id": "2558f9c2-fc3b-48d1-ba7b-12d2832a4bc8",
+    "id": "094d18c7-0c96-4eb6-8038-62d09d3a0797",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 8,
+    "sub_recipe_id": null,
+    "type": "raw",
+    "unit": "oz"
+  },
+  {
+    "base_quantity": 11793.392,
+    "base_unit": "g",
+    "catalog_id": "dd1e1746-75b3-48f6-8fda-8e7632515453",
+    "id": "15caa0f6-aa1a-4435-b0a1-d64d2035f551",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 26,
+    "sub_recipe_id": null,
+    "type": "raw",
+    "unit": "lbs"
+  },
+  {
+    "base_quantity": 2110,
+    "base_unit": "g",
+    "catalog_id": null,
+    "id": "1ea7098a-b0b8-4dfa-b4ba-7d65ca6ba4d5",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 2110,
+    "sub_recipe_id": "38678f33-66bf-420c-a50d-82899120aa9b",
+    "type": "prep",
+    "unit": "g"
+  },
+  {
+    "base_quantity": 128,
+    "base_unit": "fl_oz",
+    "catalog_id": "35c97899-a13f-4167-9bb2-a1194f91a925",
+    "id": "24794453-90ed-4b34-9ff0-4efb6da82811",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 1,
+    "sub_recipe_id": null,
+    "type": "raw",
+    "unit": "gal"
+  },
+  {
+    "base_quantity": 765.4365,
+    "base_unit": "g",
+    "catalog_id": "86ea75bb-c53b-483e-8147-bfdb69b7c557",
+    "id": "2540e268-a37d-4a38-8eae-af13cf7eb16e",
+    "prep_recipe_id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "quantity": 27,
+    "sub_recipe_id": null,
+    "type": "raw",
+    "unit": "oz"
+  }
+]

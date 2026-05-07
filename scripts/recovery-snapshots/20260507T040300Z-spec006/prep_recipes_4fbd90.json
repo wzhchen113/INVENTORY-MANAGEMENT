@@ -1,0 +1,16 @@
+[
+  {
+    "brand_id": "2a000000-0000-0000-0000-000000000001",
+    "category": "Sauces",
+    "created_at": "2026-04-13T07:27:14.552636+00:00",
+    "created_by": null,
+    "id": "4fbd90cc-7e06-4eef-a462-82efd386bfef",
+    "is_current": false,
+    "name": "House Special Blend (Sauce)",
+    "notes": "",
+    "parent_id": null,
+    "version": 1,
+    "yield_quantity": 42.228,
+    "yield_unit": "lbs"
+  }
+]
