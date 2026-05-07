@@ -96,7 +96,7 @@ PREP - 5d6a0e - Cajun Seasoning (House Mix) - 8 oz - $26.30 - 30%
 RAW - 84a323 - Imitation Crabmeat (Oyster Bay) - 12 lbs - $12.00 - 14%
 RAW - 5231ea - Crabmeat (Claw) - 6 lbs - $72.96 - 85%
 
-### House Special Blend (Sauce) (canonical prefix: 4fbd90)
+### House Special Blend (Sauce) (canonical prefix: 36016d31)
 RAW - dd1e17 - Margarine - 26 lbs - $29.71 - 56%
 RAW - 6106cc - Lemon Juice 48fl. oz. - 16 fl_oz - $0.00 - 0%
 PREP - 38678f - House Special Seasoning (House Mix) - 2110 g - $5836.06 - 10911%
