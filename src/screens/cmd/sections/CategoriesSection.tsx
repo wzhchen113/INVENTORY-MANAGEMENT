@@ -26,16 +26,19 @@ export default function CategoriesSection() {
   const [editValue, setEditValue]     = React.useState('');
   const [warning, setWarning]         = React.useState('');
 
-  // Sorted alphabetically with a count of inventory rows that reference
-  // each category. Counts are read-only and don't include catalog-only
-  // matches; the delete blocker uses `inventory` because that's the
-  // primary FK source.
+  // Sorted alphabetically with a count of unique catalog ingredients
+  // (deduped by lowercase name) per category. inventory is per-store, so
+  // a raw row-count would multiply by store count; the user-visible
+  // expectation is the same "N unique" total InventoryCatalogMode shows.
   const sorted = React.useMemo(() => {
     const list = [...ingredientCategories].sort((a, b) => a.localeCompare(b));
-    const counts = new Map<string, number>();
+    const seenCategoryByName = new Map<string, string>();
     for (const it of inventory) {
-      const c = it.category;
-      if (!c) continue;
+      const k = it.name.toLowerCase();
+      if (!seenCategoryByName.has(k) && it.category) seenCategoryByName.set(k, it.category);
+    }
+    const counts = new Map<string, number>();
+    for (const c of seenCategoryByName.values()) {
       counts.set(c, (counts.get(c) || 0) + 1);
     }
     return list.map((name) => ({ name, count: counts.get(name) || 0 }));
@@ -82,7 +85,11 @@ export default function CategoriesSection() {
   };
 
   const handleDelete = (name: string) => {
-    const inUseCount = inventory.filter((i) => i.category === name).length;
+    // Dedupe by lowercase name to match the per-row count semantics — see
+    // the sorted-counts memo above for rationale.
+    const inUseCount = new Set(
+      inventory.filter((i) => i.category === name).map((i) => i.name.toLowerCase()),
+    ).size;
     if (inUseCount > 0) {
       setWarning(`Cannot delete "${name}" — used by ${inUseCount} item${inUseCount === 1 ? '' : 's'}.`);
       Toast.show({
