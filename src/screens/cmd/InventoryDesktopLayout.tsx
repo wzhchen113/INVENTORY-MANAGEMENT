@@ -31,6 +31,7 @@ import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer'
 import { confirmAction } from '../../utils/confirmAction';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
+import OrderScheduleSection from './sections/OrderScheduleSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
@@ -148,6 +149,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
         { id: 'PurchaseOrders',  label: 'Purchase orders' },
         { id: 'Vendors',         label: 'Vendors' },
         { id: 'Categories',      label: 'Categories' },
+        { id: 'OrderSchedule',   label: 'Order schedule' },
         { id: 'Recipes',         label: 'Menu items / BOM' },
         { id: 'PrepRecipes',     label: 'Prep recipes' },
         { id: 'Restock',         label: 'Restock' },
@@ -228,6 +230,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
           <VendorsSection />
         ) : section === 'Categories' ? (
           <CategoriesSection />
+        ) : section === 'OrderSchedule' ? (
+          <OrderScheduleSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
         ) : section === 'EODCount' ? (

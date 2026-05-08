@@ -114,6 +114,16 @@ interface StoreActions {
 
   // Orders
   setOrderSchedule: (day: string, vendors: OrderDayVendor[]) => void;
+  /** Spec 007 §3 — add a single (store, day, vendor) row to the schedule.
+   *  Optimistic; reverts on failure via notifyBackendError. day must be
+   *  TitleCase ("Monday".."Sunday"). */
+  addOrderScheduleEntry: (
+    day: string,
+    vendor: { vendorId: string; vendorName: string; deliveryDay?: string },
+  ) => void;
+  /** Spec 007 §3 — remove a single (store, day, vendor) row. Optimistic;
+   *  reverts on failure via notifyBackendError. */
+  removeOrderScheduleEntry: (day: string, vendorId: string) => void;
   submitOrder: (submission: Omit<OrderSubmission, 'id'>) => void;
   setTimezone: (tz: string) => void;
   toggleDarkMode: () => void;
@@ -1035,6 +1045,54 @@ export const useStore = create<FullStore>((set, get) => ({
       db.saveOrderSchedule(storeId, day, vendors).catch((e: any) => {
         set({ orderSchedule: prev });
         notifyBackendError('Save order schedule', e);
+      });
+    }
+  },
+
+  // Spec 007 §3 — per-cell schedule writes. The new OrderScheduleSection
+  // weekly grid + the EOD inline `+ vendor` / `×` affordances both go
+  // through these actions instead of saveOrderSchedule's bulk replace.
+  // Optimistic-then-revert with notifyBackendError on failure (matches
+  // the addIngredientConversion / setOrderSchedule pattern).
+  addOrderScheduleEntry: (day, vendor) => {
+    const prev = get().orderSchedule;
+    set((s) => ({
+      orderSchedule: {
+        ...s.orderSchedule,
+        [day]: [
+          ...(s.orderSchedule[day] ?? []),
+          {
+            vendorId: vendor.vendorId,
+            vendorName: vendor.vendorName,
+            deliveryDay: vendor.deliveryDay ?? day,
+          },
+        ],
+      },
+    }));
+    const storeId = get().currentStore?.id;
+    if (storeId && storeId !== '__all__' && vendor.vendorId) {
+      db.addOrderScheduleEntry(storeId, day, vendor).catch((e: any) => {
+        set({ orderSchedule: prev });
+        notifyBackendError('Add schedule entry', e);
+      });
+    }
+  },
+
+  removeOrderScheduleEntry: (day, vendorId) => {
+    const prev = get().orderSchedule;
+    set((s) => ({
+      orderSchedule: {
+        ...s.orderSchedule,
+        [day]: (s.orderSchedule[day] ?? []).filter(
+          (v) => v.vendorId !== vendorId,
+        ),
+      },
+    }));
+    const storeId = get().currentStore?.id;
+    if (storeId && storeId !== '__all__') {
+      db.removeOrderScheduleEntry(storeId, day, vendorId).catch((e: any) => {
+        set({ orderSchedule: prev });
+        notifyBackendError('Remove schedule entry', e);
       });
     }
   },

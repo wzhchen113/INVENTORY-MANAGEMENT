@@ -13,6 +13,7 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { AddCountModal } from '../../../components/cmd/AddCountModal';
+import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorScheduleModal';
 import { EODEntry } from '../../../types';
 
 type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
@@ -28,6 +29,18 @@ interface DayCell {
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Local-day ISO string ("YYYY-MM-DD" in the user's timezone). Avoids the
+// `new Date().toISOString().slice(0,10)` trap, which returns the UTC date —
+// at e.g. 22:04 EDT (UTC-4) on Thursday, that returns Friday's UTC date and
+// breaks day-of-week filters / submission-date comparisons. Must be derived
+// from the local Date components, not from a UTC iso string.
+function localDayIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 // Pattern A — workflow: 240px week sidebar (date list with status pills)
 // + worksheet (vendor tabs, category chips, status line, grouped item
@@ -49,8 +62,13 @@ export default function EODCountSection() {
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
   const submitEOD = useStore((s) => s.submitEOD);
+  const orderSchedule = useStore((s) => s.orderSchedule);
+  // Backend-developer adds these store actions in spec 007's backend slice.
+  // Same optimistic-then-revert pattern as setOrderSchedule.
+  const addOrderScheduleEntry = useStore((s) => s.addOrderScheduleEntry);
+  const removeOrderScheduleEntry = useStore((s) => s.removeOrderScheduleEntry);
 
-  const [selectedIso, setSelectedIso] = React.useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedIso, setSelectedIso] = React.useState<string>(() => localDayIso(new Date()));
   const [selectedVendorId, setSelectedVendorId] = React.useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
   const [caseCounts, setCaseCounts] = React.useState<Record<string, string>>({});
@@ -59,6 +77,12 @@ export default function EODCountSection() {
   const [submitting, setSubmitting] = React.useState(false);
   const [tabId, setTabId] = React.useState('count.tsx');
   const [addCountOpen, setAddCountOpen] = React.useState(false);
+  const [addVendorOpen, setAddVendorOpen] = React.useState(false);
+  // Toggle: when ON, bypass the day-of-week schedule filter for the current
+  // view. Default OFF — the filter is the whole point of this screen. The
+  // toggle never mutates the schedule itself; it's a per-session view escape
+  // hatch (Q4=(d)).
+  const [showUnscheduled, setShowUnscheduled] = React.useState(false);
   // Items added via + COUNT — unioned into the worksheet regardless of
   // current vendor/category filter so the user sees their addition.
   const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
@@ -106,12 +130,12 @@ export default function EODCountSection() {
   const week: DayCell[] = React.useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayIso = today.toISOString().slice(0, 10);
+    const todayIso = localDayIso(today);
     const out: DayCell[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = localDayIso(d);
       const monthDay = `${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
       const dayName = DAY_NAMES[d.getDay()];
       const sub = eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === iso);
@@ -134,8 +158,33 @@ export default function EODCountSection() {
     [inventory, currentStore.id],
   );
 
-  // Vendor tabs — only vendors that have items at this store
-  const vendorTabs = React.useMemo(() => {
+  // Day-of-week derived from the selected day cell. TitleCase to match the
+  // store's order_schedule slice keys ("Monday".."Sunday"). The +'T00:00:00'
+  // anchors to local midnight so day-of-week math doesn't wobble across
+  // timezones.
+  const selectedDayName = React.useMemo(() => {
+    return DAY_NAMES[new Date(selectedIso + 'T00:00:00').getDay()];
+  }, [selectedIso]);
+
+  // "Schedule configured" = any day of the week has at least one row for
+  // this store. Until that's true we fall back to "all vendors on all days"
+  // (Q3=(b)) — no regression for stores that haven't opened the schedule
+  // admin yet.
+  const scheduleConfigured = React.useMemo(() => {
+    return Object.values(orderSchedule || {}).some((arr) => Array.isArray(arr) && arr.length > 0);
+  }, [orderSchedule]);
+
+  // Vendor IDs scheduled for the selected weekday. Filter out null/undefined
+  // ids defensively (legacy rows pre-vendor_id can show up here).
+  const dayScheduledVendorIds = React.useMemo(() => {
+    const arr = orderSchedule?.[selectedDayName] || [];
+    return new Set(arr.map((v) => v.vendorId).filter((id): id is string => !!id));
+  }, [orderSchedule, selectedDayName]);
+
+  // Vendor tabs — only vendors that have items at this store, then filtered
+  // by the day's schedule (unless toggle is on, or schedule isn't configured
+  // yet for this store).
+  const allVendorTabs = React.useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of storeInventory) {
       if (i.vendorId) counts.set(i.vendorId, (counts.get(i.vendorId) || 0) + 1);
@@ -144,6 +193,12 @@ export default function EODCountSection() {
       .filter((v) => counts.has(v.id))
       .map((v) => ({ ...v, count: counts.get(v.id) || 0 }));
   }, [storeInventory, vendors]);
+
+  const vendorTabs = React.useMemo(() => {
+    if (showUnscheduled) return allVendorTabs;       // toggle override
+    if (!scheduleConfigured) return allVendorTabs;   // store has no schedule rows at all → fallback
+    return allVendorTabs.filter((v) => dayScheduledVendorIds.has(v.id));
+  }, [allVendorTabs, showUnscheduled, scheduleConfigured, dayScheduledVendorIds]);
 
   React.useEffect(() => {
     if (selectedVendorId && vendorTabs.find((v) => v.id === selectedVendorId)) return;
@@ -307,6 +362,26 @@ export default function EODCountSection() {
     return { fg: C.fg3, bg: C.panel2, label: 'rest' };
   };
 
+  // REST day flag — drives input/action disable below. Only the SELECTED
+  // day's status matters here; the week sidebar still reduces opacity per
+  // day cell as before.
+  const selectedDayCell = week.find((d) => d.iso === selectedIso);
+  const isRestDay = selectedDayCell?.status === 'rest';
+
+  // __all__ defensive guard. setCurrentStore redirects __all__ to a real
+  // store before currentStore.id ever reaches that value in normal flow,
+  // but cover the brief pre-load window + any future call-site that bypasses
+  // setCurrentStore (e.g. direct set state).
+  if (!currentStore?.id || currentStore.id === '__all__') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
+        <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
+          Select a store to count inventory.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <>
       {/* Week sidebar */}
@@ -404,13 +479,50 @@ export default function EODCountSection() {
                 {new Date().toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })}
               </Text>
               <View style={{ width: 1, height: 16, backgroundColor: C.border }} />
-              <TouchableOpacity onPress={() => setAddCountOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
+              {isRestDay ? (
+                // REST DAY pill — Q7=(a) with read-only enforcement. Echoes
+                // the per-day-cell pill in the week sidebar so the user sees
+                // a matching signal at the worksheet head.
+                <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warn }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.5 }}>
+                    REST DAY — NO INPUT
+                  </Text>
+                </View>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => setAddCountOpen(true)}
+                disabled={isRestDay}
+                style={{
+                  paddingVertical: 4, paddingHorizontal: 10,
+                  borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
+                  opacity: isRestDay ? 0.4 : 1,
+                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                }}
+              >
                 <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>+ COUNT</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onSaveDraft} disabled={submitting} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm, opacity: submitting ? 0.6 : 1 }}>
+              <TouchableOpacity
+                onPress={onSaveDraft}
+                disabled={submitting || isRestDay}
+                style={{
+                  paddingVertical: 4, paddingHorizontal: 10,
+                  borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
+                  opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
+                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                }}
+              >
                 <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onSubmit} disabled={submitting} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm, opacity: submitting ? 0.6 : 1 }}>
+              <TouchableOpacity
+                onPress={onSubmit}
+                disabled={submitting || isRestDay}
+                style={{
+                  paddingVertical: 4, paddingHorizontal: 10,
+                  backgroundColor: C.accent, borderRadius: CmdRadius.sm,
+                  opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
+                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                }}
+              >
                 <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>SUBMIT COUNT</Text>
               </TouchableOpacity>
             </View>
@@ -425,40 +537,132 @@ export default function EODCountSection() {
         {/* Sticky filter chrome */}
         <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
           {/* Vendor tabs */}
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {vendorTabs.map((v) => {
               const sel = v.id === selectedVendorId;
+              // A vendor pill counts as "scheduled for today" only when the
+              // schedule is configured AND the vendor id is in the day's set.
+              // When the toggle is on or schedule isn't configured, no
+              // vendors are "scheduled" in the per-day sense — the × remove
+              // affordance only shows when the vendor is actually in the
+              // day's schedule, since otherwise removeOrderScheduleEntry is
+              // a no-op for the user's view.
+              const isScheduledToday = scheduleConfigured && dayScheduledVendorIds.has(v.id);
               return (
-                <TouchableOpacity
+                <View
                   key={v.id}
-                  onPress={() => { setSelectedVendorId(v.id); setSelectedCategory('all'); }}
                   style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
+                    flexDirection: 'row',
+                    alignItems: 'center',
                     borderRadius: CmdRadius.md,
                     borderWidth: 1,
                     borderColor: sel ? C.fg : C.border,
                     backgroundColor: sel ? C.fg : C.panel,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
                   }}
                 >
-                  <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.bg : C.fg2 }}>
-                    {v.name.toUpperCase()} ({v.count})
-                  </Text>
-                  {v.orderCutoffTime ? (
-                    <Text style={{ fontFamily: mono(400), fontSize: 10, color: sel ? C.bg : C.fg3, opacity: 0.7 }}>
-                      · cutoff {v.orderCutoffTime}
+                  <TouchableOpacity
+                    onPress={() => { setSelectedVendorId(v.id); setSelectedCategory('all'); }}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.bg : C.fg2 }}>
+                      {v.name.toUpperCase()} ({v.count})
                     </Text>
+                    {v.orderCutoffTime ? (
+                      <Text style={{ fontFamily: mono(400), fontSize: 10, color: sel ? C.bg : C.fg3, opacity: 0.7 }}>
+                        · cutoff {v.orderCutoffTime}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                  {isScheduledToday ? (
+                    // Subtle "×" remove affordance. Architect §6: keep it
+                    // inline so add+remove are symmetric, but small enough
+                    // that it doesn't look like a primary count action.
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!removeOrderScheduleEntry) return;
+                        removeOrderScheduleEntry(selectedDayName, v.id);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${v.name} from ${selectedDayName} schedule`}
+                      style={{
+                        paddingHorizontal: 7,
+                        paddingVertical: 6,
+                        borderLeftWidth: 1,
+                        borderLeftColor: sel ? C.bg : C.border,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 11, color: sel ? C.bg : C.fg3, opacity: 0.7 }}>×</Text>
+                    </TouchableOpacity>
                   ) : null}
-                </TouchableOpacity>
+                </View>
               );
             })}
             {vendorTabs.length === 0 ? (
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                no vendors with items at this store
+                {scheduleConfigured && !showUnscheduled
+                  ? `no vendors scheduled for ${selectedDayName.toLowerCase()}`
+                  : 'no vendors with items at this store'}
               </Text>
+            ) : null}
+            {/* + vendor button — opens the vendor picker modal scoped to
+                vendors not already on this day's schedule. Disabled when
+                we're showing unscheduled vendors (the schedule is the wrong
+                surface to mutate from there) or in __all__ (defensive). */}
+            <TouchableOpacity
+              onPress={() => setAddVendorOpen(true)}
+              disabled={showUnscheduled}
+              accessibilityRole="button"
+              accessibilityLabel={`Add a vendor to ${selectedDayName} schedule`}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: CmdRadius.md,
+                borderWidth: 1,
+                borderColor: C.borderStrong,
+                borderStyle: 'dashed',
+                backgroundColor: C.panel,
+                opacity: showUnscheduled ? 0.4 : 1,
+              }}
+            >
+              <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.fg2 }}>+ vendor</Text>
+            </TouchableOpacity>
+            {/* Show-unscheduled toggle. Q4=(d): bypass filter for this view
+                only; never mutates the schedule. Hidden when the store has
+                no schedule rows at all (the toggle would be a no-op). */}
+            {scheduleConfigured ? (
+              <TouchableOpacity
+                onPress={() => setShowUnscheduled((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: showUnscheduled }}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: CmdRadius.md,
+                  borderWidth: 1,
+                  borderColor: showUnscheduled ? C.accent : C.border,
+                  backgroundColor: showUnscheduled ? C.accentBg : 'transparent',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <View
+                  style={{
+                    width: 9, height: 9, borderRadius: 2,
+                    borderWidth: 1, borderColor: showUnscheduled ? C.accent : C.borderStrong,
+                    backgroundColor: showUnscheduled ? C.accent : 'transparent',
+                  }}
+                />
+                <Text style={{ fontFamily: mono(showUnscheduled ? 700 : 500), fontSize: 10.5, color: showUnscheduled ? C.accent : C.fg3 }}>
+                  show unscheduled vendors
+                </Text>
+              </TouchableOpacity>
             ) : null}
           </View>
           {/* Divider between vendor pills and category chips */}
@@ -558,17 +762,17 @@ export default function EODCountSection() {
                           {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
                         </Text>
                       </View>
-                      {/* BOX/CASE input — disabled when item has no case info */}
+                      {/* BOX/CASE input — disabled when item has no case info, or
+                          on REST days. Both cases collapse to "show the cell
+                          but don't accept input"; rest gets a 0.5 opacity
+                          consistent with the no-case-info treatment. */}
                       <View style={{ width: 80, alignItems: 'center' }}>
                         <TextInput
                           ref={(r) => {
-                            // Capture the case-input ref only when this item
-                            // actually has cases; otherwise the unit input below
-                            // gets the focus ref (see ref={...} on the unit input).
                             if (hasCase) caseInputRefs.current[it.id] = r;
                           }}
                           value={hasCase ? cVal : ''}
-                          editable={hasCase}
+                          editable={hasCase && !isRestDay}
                           onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
                           placeholder={hasCase ? '0' : '—'}
                           placeholderTextColor={C.fg3}
@@ -584,7 +788,7 @@ export default function EODCountSection() {
                             borderWidth: 1,
                             borderColor: cFocused ? C.accent : C.border,
                             borderRadius: CmdRadius.sm,
-                            opacity: hasCase ? 1 : 0.5,
+                            opacity: !hasCase || isRestDay ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                           }}
                         />
@@ -596,10 +800,10 @@ export default function EODCountSection() {
                       <View style={{ width: 80, alignItems: 'center' }}>
                         <TextInput
                           ref={(r) => {
-                            // Items without case info — focus the unit input.
                             if (!hasCase) caseInputRefs.current[it.id] = r;
                           }}
                           value={uVal}
+                          editable={!isRestDay}
                           onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
                           placeholder="0"
                           placeholderTextColor={C.fg3}
@@ -615,6 +819,7 @@ export default function EODCountSection() {
                             borderWidth: 1,
                             borderColor: uFocused ? C.accent : C.border,
                             borderRadius: CmdRadius.sm,
+                            opacity: isRestDay ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                           }}
                         />
@@ -624,6 +829,7 @@ export default function EODCountSection() {
                       </View>
                       <TextInput
                         value={notes[it.id] || ''}
+                        editable={!isRestDay}
                         onChangeText={(text) => setNotes((p) => ({ ...p, [it.id]: text }))}
                         placeholder="Note…"
                         placeholderTextColor={C.fg3}
@@ -638,6 +844,7 @@ export default function EODCountSection() {
                           borderWidth: 1,
                           borderColor: C.border,
                           borderRadius: CmdRadius.sm,
+                          opacity: isRestDay ? 0.5 : 1,
                           ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                         }}
                       />
@@ -694,6 +901,25 @@ export default function EODCountSection() {
           if (jump) setPendingFocusItem(itemId);
         }}
       />
+
+      <AddVendorScheduleModal
+        visible={addVendorOpen}
+        day={selectedDayName}
+        excludedVendorIds={dayScheduledVendorIds}
+        onClose={() => setAddVendorOpen(false)}
+        onAdd={(vendor) => {
+          if (!addOrderScheduleEntry) return;
+          addOrderScheduleEntry(selectedDayName, {
+            vendorId: vendor.id,
+            vendorName: vendor.name,
+            deliveryDay: selectedDayName,
+          });
+          // Auto-select the just-added vendor so the user immediately sees
+          // its items appear in the worksheet.
+          setSelectedVendorId(vendor.id);
+          setSelectedCategory('all');
+        }}
+      />
     </>
   );
 }
@@ -707,7 +933,7 @@ function EODHistoryTab() {
   const ninetyDaysAgo = React.useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 90);
-    return d.toISOString().slice(0, 10);
+    return localDayIso(d);
   }, []);
 
   const submissions = React.useMemo(
@@ -788,7 +1014,7 @@ function VarianceLogTab() {
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDayIso(new Date());
   const todaySub = React.useMemo(
     () => eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === todayStr),
     [eodSubmissions, currentStore.id, todayStr],

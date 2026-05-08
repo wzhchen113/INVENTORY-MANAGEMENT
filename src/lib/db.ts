@@ -1529,6 +1529,58 @@ export async function saveOrderSchedule(storeId: string, day: string, vendors: a
   }
 }
 
+// Spec 007 §3a — per-cell add. Idempotent against the
+// order_schedule_store_day_vendor_unique constraint added in
+// 20260507214842_spec007_order_schedule_unique.sql: a duplicate insert
+// returns PG error code 23505 (unique_violation) which we swallow as a
+// no-op. The OrderScheduleSection grid and the EOD inline `+ vendor`
+// button both call this helper.
+//
+// `day` MUST be a TitleCase weekday string ("Monday".."Sunday") —
+// matches the existing fetchOrderSchedule key contract and the
+// useStore.orderSchedule slice baseline at useStore.ts:182.
+export async function addOrderScheduleEntry(
+  storeId: string,
+  day: string,
+  vendor: { vendorId: string; vendorName: string; deliveryDay?: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from('order_schedule')
+    .insert({
+      store_id: storeId,
+      day_of_week: day,
+      vendor_id: vendor.vendorId,
+      vendor_name: vendor.vendorName,
+      // delivery_day is NOT NULL on the table (per the prod-pulled schema
+      // in 20260502071736_remote_schema.sql); fall back to the day itself
+      // if the caller didn't provide one. saveOrderSchedule's existing
+      // contract assumes the caller always supplies a value, but the
+      // architect's helper signature lists deliveryDay as optional, so
+      // the fallback keeps both contracts honest.
+      delivery_day: vendor.deliveryDay ?? day,
+    });
+  // 23505 = unique_violation = the (store, day, vendor) cell is already
+  // scheduled. Treat as idempotent no-op so double-clicks and stale
+  // optimistic state don't surface as backend errors.
+  if (error && (error as any).code !== '23505') throw error;
+}
+
+// Spec 007 §3b — per-cell remove. Idempotent: deleting a non-existent
+// (store, day, vendor) row returns no error and zero affected rows.
+export async function removeOrderScheduleEntry(
+  storeId: string,
+  day: string,
+  vendorId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('order_schedule')
+    .delete()
+    .eq('store_id', storeId)
+    .eq('day_of_week', day)
+    .eq('vendor_id', vendorId);
+  if (error) throw error;
+}
+
 // ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
 // Note: supabase-js v2 filter builders are thenable but don't expose `.catch`,
 // so chaining `.catch(() => {})` directly on `.delete().lt(...)` throws a
