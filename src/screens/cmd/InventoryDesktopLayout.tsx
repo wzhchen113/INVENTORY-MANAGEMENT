@@ -26,9 +26,12 @@ import { InventoryRow } from '../../components/cmd/InventoryRow';
 import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { TreeItem } from '../../components/cmd/TreeGroup';
+import { SidebarGroup } from '../../components/cmd/Sidebar';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import { confirmAction } from '../../utils/confirmAction';
+import { applySidebarOverride, produceOverride } from '../../lib/sidebarLayout';
+import type { SidebarLayoutOverride } from '../../lib/sidebarLayout';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
 import OrderScheduleSection from './sections/OrderScheduleSection';
@@ -69,9 +72,23 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const getItemStatus = useStore((s) => s.getItemStatus);
   const deleteItem = useStore((s) => s.deleteItem);
 
+  // Spec 008 — per-user sidebar layout override. Backend-developer's slice
+  // populates `sidebarLayoutOverride` from profiles.sidebar_layout at login
+  // (`App.tsx`). The setter is optimistic-then-revert per architect §4.
+  const sidebarLayoutOverride = useStore((s) => s.sidebarLayoutOverride);
+  const setSidebarLayoutOverride = useStore((s) => s.setSidebarLayoutOverride);
+
   const [section, setSection]         = React.useState('Inventory');
   const [filterText, setFilterText]   = React.useState('');
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
+  // Spec 008 — sidebar edit mode (gear → DONE). Section state is preserved
+  // across edit-mode entry/exit (this state is local to the layout and is
+  // never reset by the edit-mode transitions).
+  const [sidebarEditMode, setSidebarEditMode] = React.useState(false);
+  // Working copy of the rendered groups while in edit mode. Mutated by
+  // DnD drags + eye-toggle clicks; on DONE, diffed against `groups` to
+  // produce the override list.
+  const [draftGroups, setDraftGroups] = React.useState<SidebarGroup[] | null>(null);
   // Selection is keyed on lowercase name so it survives the items.tsv ↔
   // catalog.tsv mode switch (and store switching, where ids differ but
   // names line up across rows).
@@ -132,7 +149,14 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   ).size;
 
   // Admin-only app — store users have a separate app + API.
-  const groups: { label: string; items: TreeItem[] }[] = [
+  // Spec 008: this is the *default* group structure. The user's per-user
+  // override (loaded into `sidebarLayoutOverride` on login) is merged in
+  // via `applySidebarOverride` to produce the rendered structure passed
+  // to <Sidebar>. The id values below are load-bearing — they're stable
+  // identifiers for the override list. Don't rename them casually.
+  // `useMemo` on `nav` because the Insights group's DB inspector row
+  // captures it via closure, and `nav` is stable across renders.
+  const defaultGroups = React.useMemo<SidebarGroup[]>(() => [
     {
       label: 'Operations',
       items: [
@@ -167,7 +191,80 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
         { id: 'DBInspector',     label: 'DB inspector', onPress: () => nav.navigate('DBInspector') },
       ],
     },
-  ];
+  ], [nav]);
+
+  // Spec 008 — merge default + user override into the rendered group
+  // structure. In edit mode we feed `applySidebarOverride` { editMode: true }
+  // so hidden items stay visible (with hiddenByUser flag) while the user
+  // is reorganizing.
+  const renderedGroups = React.useMemo(
+    () => applySidebarOverride(defaultGroups, sidebarLayoutOverride ?? null, {
+      editMode: sidebarEditMode,
+    }),
+    [defaultGroups, sidebarLayoutOverride, sidebarEditMode],
+  );
+
+  // When entering edit mode, capture the rendered structure into a draft
+  // that the DnD wrapper can mutate. When leaving edit mode (DONE),
+  // diff back to an override and persist; on cancel, just discard.
+  const groupsForSidebar = sidebarEditMode ? (draftGroups ?? renderedGroups) : renderedGroups;
+
+  const handleToggleEditMode = React.useCallback(() => {
+    setSidebarEditMode((prev) => {
+      if (!prev) {
+        // Entering edit mode — seed the draft from the current rendered
+        // edit-mode view (hidden items included).
+        const editView = applySidebarOverride(
+          defaultGroups,
+          sidebarLayoutOverride ?? null,
+          { editMode: true },
+        );
+        setDraftGroups(editView);
+        return true;
+      }
+      // Exiting edit mode (DONE) — diff and save.
+      if (draftGroups) {
+        const next = produceOverride(draftGroups, defaultGroups);
+        setSidebarLayoutOverride(next);
+      }
+      setDraftGroups(null);
+      return false;
+    });
+  }, [defaultGroups, sidebarLayoutOverride, draftGroups, setSidebarLayoutOverride]);
+
+  const handleGroupsChange = React.useCallback((next: SidebarGroup[]) => {
+    setDraftGroups(next);
+  }, []);
+
+  const handleToggleHide = React.useCallback((id: string) => {
+    setDraftGroups((prev) => {
+      const base = prev ?? applySidebarOverride(
+        defaultGroups,
+        sidebarLayoutOverride ?? null,
+        { editMode: true },
+      );
+      return base.map((g) => ({
+        label: g.label,
+        items: g.items.map((it) =>
+          it.id === id
+            ? { ...it, hiddenByUser: !(it as any).hiddenByUser }
+            : it,
+        ),
+      }));
+    });
+  }, [defaultGroups, sidebarLayoutOverride]);
+
+  const handleReset = React.useCallback(() => {
+    confirmAction(
+      'Reset sidebar to default?',
+      'This clears all your customizations.',
+      () => {
+        setSidebarLayoutOverride(null);
+        setDraftGroups(null);
+        setSidebarEditMode(false);
+      },
+    );
+  }, [setSidebarLayoutOverride]);
 
   const inventoryTitle = 'Inventory';
 
@@ -180,7 +277,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
       />
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar
-          groups={groups}
+          groups={groupsForSidebar}
           selectedId={section}
           onSelect={(id) => {
             setSection(id);
@@ -188,6 +285,11 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
             if (id !== 'Inventory') setSelectedName(null);
           }}
           onPaletteOpen={onPaletteOpen}
+          editMode={sidebarEditMode}
+          onToggleEditMode={handleToggleEditMode}
+          onGroupsChange={handleGroupsChange}
+          onToggleHide={handleToggleHide}
+          onReset={handleReset}
           footerLeft={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[Type.statusBar, { color: C.fg3 }]}>

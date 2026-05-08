@@ -370,6 +370,13 @@ export interface AppState {
   orderSubmissions: OrderSubmission[];
   timezone: string;
   darkMode: boolean;
+  /**
+   * Spec 008: per-user Cmd UI sidebar layout override. `null` means
+   * uncustomized (the InventoryDesktopLayout hardcoded default groups
+   * render verbatim). Populated from profiles.sidebar_layout at login;
+   * mutated only via setSidebarLayoutOverride which persists optimistically.
+   */
+  sidebarLayoutOverride: SidebarLayoutOverride | null;
   notifications: AppNotification[];
   /**
    * Per-item unit-conversion rows used to bridge recipe units (oz, fl_oz,
@@ -397,4 +404,38 @@ export interface AppNotification {
   message: string;
   timestamp: string;
   read: boolean;
+}
+
+/**
+ * Spec 008: per-user Cmd UI sidebar override list. Stored in
+ * profiles.sidebar_layout (jsonb). NULL on the row OR `null`/`undefined`
+ * here means "use the hardcoded default groups array verbatim".
+ *
+ * Override semantics (see spec 008 §2 + §7):
+ *   - One entry per customized item; items not present inherit default
+ *     position + visibility.
+ *   - `id` matches TreeItem.id from InventoryDesktopLayout.tsx.
+ *   - `group?` present only when the user moved the item to a different
+ *     group than its default ("Operations" | "Planning" | "Insights").
+ *   - `order?` present only when the user reordered. Lower = higher in
+ *     the list within its group. Sort keys are normalized at render time;
+ *     stored values just need to be ordered.
+ *   - `hidden?` present and `true` only when the user hid the item.
+ *
+ * The merge algorithm (`applySidebarOverride`) silently drops stale
+ * entries whose `id` no longer exists in the hardcoded default — that
+ * gives "future spec-added items auto-append to default group" for free.
+ */
+export interface SidebarLayoutOverrideEntry {
+  id: string;
+  group?: string;
+  order?: number;
+  hidden?: boolean;
+}
+
+export interface SidebarLayoutOverride {
+  /** Schema version. Readers that don't recognize `v` must fall back to
+   *  the default layout (treat as if the override were null). */
+  v: 1;
+  items: SidebarLayoutOverrideEntry[];
 }

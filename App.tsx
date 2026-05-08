@@ -117,6 +117,7 @@ export default function App() {
   const bodyBg = NEW_UI ? Cmd.bg : C.bgTertiary;
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
+  const hydrateSidebarLayoutOverride = useStore((s) => s.hydrateSidebarLayoutOverride);
 
   // Hold first paint until Inter Tight + JetBrains Mono are registered, so
   // numeric values don't flash in the system font then snap to mono.
@@ -154,6 +155,16 @@ export default function App() {
         // DB is the cross-device source of truth — overrides the cached value
         // if they differ. Only applies when the user is actually logged in.
         if (typeof result.darkMode === 'boolean') setDarkMode(result.darkMode);
+        // Spec 008: hydrate the per-user sidebar override from
+        // profiles.sidebar_layout. `null` = uncustomized; the hydrator
+        // accepts null and stores it as the "use default" sentinel.
+        // We use the no-persist hydrator (mirrors setDarkMode) so login
+        // does NOT round-trip the just-read value back to the column.
+        // The persisting setSidebarLayoutOverride is reserved for the
+        // edit-mode DONE / reset paths.
+        if (result.sidebarLayout !== undefined) {
+          hydrateSidebarLayoutOverride(result.sidebarLayout);
+        }
       }
     })();
   }, []);

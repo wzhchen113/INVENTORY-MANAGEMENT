@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
+  SidebarLayoutOverride,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -877,6 +878,29 @@ export async function updateProfileNotifications(
     return false;
   }
   return true;
+}
+
+// ─── SIDEBAR LAYOUT (Spec 008) ─────────────────────────────────────────
+/**
+ * Persist the user's Cmd UI sidebar override list to
+ * `profiles.sidebar_layout`. Save-on-done semantics — the caller passes
+ * the full override list (or `null` for "reset to default"); we don't do
+ * partial writes. Throws on error so the store layer can revert and call
+ * `notifyBackendError` per the optimistic-then-revert pattern.
+ *
+ * Gated by the existing "Users can update own profile" RLS policy on
+ * profiles (id = auth.uid()), so a cross-user write is silently 0 rows.
+ * See specs/008-sidebar-layout-customization.md §4.
+ */
+export async function saveSidebarLayout(
+  userId: string,
+  layout: SidebarLayoutOverride | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ sidebar_layout: layout })
+    .eq('id', userId);
+  if (error) throw error;
 }
 
 // ─── PREP RECIPES ───────────────────────────────────────────────────────

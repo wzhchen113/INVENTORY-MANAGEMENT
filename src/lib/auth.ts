@@ -1,6 +1,7 @@
 // src/lib/auth.ts
 import { supabase } from './supabase';
-import { User } from '../types';
+import { User, SidebarLayoutOverride } from '../types';
+import { isValidOverride } from './sidebarLayout';
 
 export interface AuthResult {
   user: User | null;
@@ -8,6 +9,25 @@ export interface AuthResult {
   /** Saved theme preference from profiles.dark_mode. Undefined = unknown
    *  (e.g. signed out). Callers should apply this to the store after login. */
   darkMode?: boolean;
+  /** Spec 008: per-user Cmd UI sidebar override list from
+   *  profiles.sidebar_layout. `null` means uncustomized (use the hardcoded
+   *  default). `undefined` means unknown (e.g. signed out). Callers should
+   *  apply this to the store after login. Defensively coerced to null when
+   *  the stored shape is invalid (wrong `v`, missing items array, etc). */
+  sidebarLayout?: SidebarLayoutOverride | null;
+}
+
+/** Defensive shape guard for profiles.sidebar_layout. We treat any
+ *  non-conforming JSON as "uncustomized" rather than crashing the
+ *  sidebar render. Mirrors the invariant in spec 008 §2 — readers that
+ *  don't recognize `v` fall back to the default.
+ *
+ *  Delegates to `isValidOverride` from sidebarLayout.ts (the single
+ *  source of truth for shape validation — also validates per-item
+ *  field types, which the prior local guard did not).
+ */
+function coerceSidebarLayout(raw: unknown): SidebarLayoutOverride | null {
+  return isValidOverride(raw) ? raw : null;
 }
 
 /** Sign in with email + password */
@@ -70,7 +90,14 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     notificationsEnabled: profile.notifications_enabled !== false,
   };
 
-  return { user, error: null, darkMode: !!profile.dark_mode };
+  return {
+    user,
+    error: null,
+    darkMode: !!profile.dark_mode,
+    // Spec 008: per-user sidebar override; null when uncustomized or when
+    // the stored shape is invalid (defensive coercion).
+    sidebarLayout: coerceSidebarLayout(profile.sidebar_layout),
+  };
 }
 
 /** Helper: call a Supabase Edge Function */

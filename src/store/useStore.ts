@@ -5,7 +5,7 @@ import {
   EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition,
-  IngredientConversion,
+  IngredientConversion, SidebarLayoutOverride,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -131,6 +131,23 @@ interface StoreActions {
    *  the cached / DB-stored preference. */
   setDarkMode: (value: boolean) => void;
 
+  // Sidebar layout (Spec 008)
+  /**
+   * Apply a sidebar override value WITHOUT persisting — used at boot to
+   * restore the DB-stored value into local state. Mirrors `setDarkMode`
+   * (no-persist hydrator) vs `toggleDarkMode` (persisting setter).
+   * See spec 008 §3 — avoids the redundant UPDATE-on-login round-trip.
+   */
+  hydrateSidebarLayoutOverride: (override: SidebarLayoutOverride | null) => void;
+  /**
+   * Persist the user's Cmd UI sidebar override list (or `null` to reset
+   * to the hardcoded default). Optimistic-then-revert: writes local state
+   * first, then `db.saveSidebarLayout`; on error reverts and surfaces via
+   * `notifyBackendError`. Save-on-done semantics — caller passes the full
+   * override list, not partial diffs. See spec 008 §4 / §6.
+   */
+  setSidebarLayoutOverride: (override: SidebarLayoutOverride | null) => void;
+
   // Notifications
   addNotification: (message: string) => void;
   markNotificationRead: (id: string) => void;
@@ -195,6 +212,9 @@ export const useStore = create<FullStore>((set, get) => ({
   orderSubmissions: [],
   timezone: 'America/New_York',
   darkMode: false,
+  // Spec 008: null = uncustomized. Hydrated from profiles.sidebar_layout
+  // at login (App.tsx) and mutated by setSidebarLayoutOverride.
+  sidebarLayoutOverride: null,
   notifications: [],
   storeLoading: false,
   ingredientConversions: [] as IngredientConversion[],
@@ -1163,6 +1183,32 @@ export const useStore = create<FullStore>((set, get) => ({
 
   setDarkMode: (value) => {
     set({ darkMode: value });
+  },
+
+  // Spec 008: no-persist hydrator. Mirrors setDarkMode — used by the
+  // App.tsx login-restore path to seed local state from the value just
+  // read out of profiles.sidebar_layout. Avoids the redundant UPDATE
+  // that the original (persisting) setter would have triggered.
+  hydrateSidebarLayoutOverride: (override) => {
+    set({ sidebarLayoutOverride: override });
+  },
+
+  // Spec 008: optimistic-then-revert per setDarkMode/addOrderScheduleEntry
+  // precedent. `null` = reset to default (writes NULL to the column).
+  // `produceOverride` (frontend) returns null for "no changes" so an
+  // empty edit-mode session never writes a spurious override.
+  // Used by edit-mode DONE / reset paths in InventoryDesktopLayout.tsx.
+  // For login-restore (no DB write), use hydrateSidebarLayoutOverride.
+  setSidebarLayoutOverride: (override) => {
+    const prev = get().sidebarLayoutOverride;
+    set({ sidebarLayoutOverride: override });
+    const userId = get().currentUser?.id;
+    // Not logged in (e.g. legacy/demo mode) — local-only, no persistence.
+    if (!userId) return;
+    db.saveSidebarLayout(userId, override).catch((e: any) => {
+      set({ sidebarLayoutOverride: prev });
+      notifyBackendError('Save sidebar layout', e);
+    });
   },
 
   // Notifications — optimistic in-memory write, then persist to Supabase so the
