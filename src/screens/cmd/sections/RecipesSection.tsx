@@ -11,8 +11,10 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { RecipeFormDrawer } from '../../../components/cmd/RecipeFormDrawer';
+import { FilterInput } from '../../../components/cmd/FilterInput';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getConversionFactor } from '../../../utils/unitConversion';
+import { parseFilter } from '../../../utils/filterParser';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -36,16 +38,36 @@ export default function RecipesSection() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('recipe.tsx');
   const [drawerMode, setDrawerMode] = React.useState<null | 'new' | 'edit' | 'duplicate'>(null);
+  const [filterText, setFilterText] = React.useState('');
 
   // Recipes are brand-level after the catalog refactor — every store sees
   // the same set. (Previously this filtered by storeId; that's now the
   // brand id, and the comparison always failed for non-Towson stores.)
   const storeRecipes = recipes;
 
+  // Same `key:value` syntax as the inventory filter — `cat:appetizer chicken`
+  // narrows by category and substring-matches menuItem. status / vendor are
+  // accepted but no-op (don't apply to recipes), so users can paste a query
+  // copied from the inventory filter without errors.
+  const filteredRecipes = React.useMemo(() => {
+    if (!filterText.trim()) return storeRecipes;
+    const parsed = parseFilter(filterText);
+    return storeRecipes.filter((r) => {
+      for (const { key, value } of parsed.filters) {
+        if (key === 'category' && (r.category || '').toLowerCase() !== value) return false;
+      }
+      if (parsed.text.length > 0) {
+        const haystack = (r.menuItem || '').toLowerCase();
+        for (const t of parsed.text) if (!haystack.includes(t)) return false;
+      }
+      return true;
+    });
+  }, [storeRecipes, filterText]);
+
   React.useEffect(() => {
-    if (selectedId && storeRecipes.find((r) => r.id === selectedId)) return;
-    setSelectedId(storeRecipes[0]?.id || null);
-  }, [storeRecipes, selectedId]);
+    if (selectedId && filteredRecipes.find((r) => r.id === selectedId)) return;
+    setSelectedId(filteredRecipes[0]?.id || null);
+  }, [filteredRecipes, selectedId]);
 
   const sel = storeRecipes.find((r) => r.id === selectedId);
   const selCost = sel ? getRecipeCost(sel.id) : 0;
@@ -123,16 +145,18 @@ export default function RecipesSection() {
             paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: C.border,
-            flexDirection: 'row',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
+            gap: 10,
           }}
         >
-          <Text style={[Type.h2, { color: C.fg }]}>Recipes</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {storeRecipes.length} total
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+              <Text style={[Type.h2, { color: C.fg }]}>Recipes</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                {filterText.trim()
+                  ? `${filteredRecipes.length} / ${storeRecipes.length}`
+                  : `${storeRecipes.length} total`}
+              </Text>
+            </View>
             {role === 'admin' ? (
               <TouchableOpacity
                 onPress={() => setDrawerMode('new')}
@@ -144,14 +168,21 @@ export default function RecipesSection() {
               </TouchableOpacity>
             ) : null}
           </View>
+          <FilterInput
+            value={filterText}
+            onChangeText={setFilterText}
+            placeholder="cat:appetizer chicken"
+          />
         </View>
         <FlatList
           style={{ flex: 1, minHeight: 0 }}
-          data={storeRecipes}
+          data={filteredRecipes}
           keyExtractor={(r) => r.id}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no recipes for {currentStore.name || 'this store'}
+              {filterText.trim()
+                ? `no recipes match filter`
+                : `no recipes for ${currentStore.name || 'this store'}`}
             </Text>
           }
           renderItem={({ item: r }) => {
