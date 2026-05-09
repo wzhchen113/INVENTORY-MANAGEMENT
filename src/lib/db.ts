@@ -20,9 +20,19 @@ export async function fetchStores(): Promise<Store[]> {
 }
 
 export async function createStore(store: Omit<Store, 'id'>): Promise<string> {
+  // brand_id is load-bearing post-Spec-012a — the stores INSERT policy
+  // requires auth_can_see_brand(brand_id), and NULL fails that check for
+  // any non-super-admin. Caller (addStore in useStore) must resolve
+  // brandId via the same chain other actions use:
+  //   recipe.brandId || get().brand?.id || get().currentStore.brandId
   const { data, error } = await supabase
     .from('stores')
-    .insert({ name: store.name, address: store.address, status: store.status || 'active' })
+    .insert({
+      name: store.name,
+      address: store.address,
+      status: store.status || 'active',
+      brand_id: store.brandId || null,
+    })
     .select()
     .single();
   if (error) throw error;

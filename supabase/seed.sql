@@ -60,8 +60,12 @@ begin
   )
   on conflict (provider_id, provider) do nothing;
 
-  insert into public.profiles (id, name, role, initials, color, status)
-  values (admin_id, 'Local Admin', 'admin', 'LA', '#378ADD', 'active')
+  -- brand_id required since spec 012a: admin-role profiles must be
+  -- scoped to a brand (CHECK profiles_role_brand_consistent). Local
+  -- admin lives in the seed 2AM PROJECT brand.
+  insert into public.profiles (id, name, role, initials, color, status, brand_id)
+  values (admin_id, 'Local Admin', 'admin', 'LA', '#378ADD', 'active',
+          '2a000000-0000-0000-0000-000000000001')
   on conflict (id) do nothing;
 end $$;
 
@@ -108,8 +112,12 @@ begin
   )
   on conflict (provider_id, provider) do nothing;
 
-  insert into public.profiles (id, name, role, initials, color, status)
-  values (manager_id, 'Tara Manager', 'user', 'TM', '#E0853B', 'active')
+  -- brand_id is unconstrained for 'user' role per spec 012a, but we set
+  -- it to the seed brand anyway so cross-brand store assignment via
+  -- user_stores doesn't trip the user_stores_brand_match trigger.
+  insert into public.profiles (id, name, role, initials, color, status, brand_id)
+  values (manager_id, 'Tara Manager', 'user', 'TM', '#E0853B', 'active',
+          '2a000000-0000-0000-0000-000000000001')
   on conflict (id) do nothing;
 end $$;
 
@@ -156,8 +164,11 @@ begin
   )
   on conflict (provider_id, provider) do nothing;
 
-  insert into public.profiles (id, name, role, initials, color, status)
-  values (master_id, 'Mae Master', 'master', 'MM', '#7A4FCF', 'active')
+  -- 'master' is admin-equivalent and must have a brand_id per
+  -- profiles_role_brand_consistent (see migration 20260509000000).
+  insert into public.profiles (id, name, role, initials, color, status, brand_id)
+  values (master_id, 'Mae Master', 'master', 'MM', '#7A4FCF', 'active',
+          '2a000000-0000-0000-0000-000000000001')
   on conflict (id) do nothing;
 end $$;
 
