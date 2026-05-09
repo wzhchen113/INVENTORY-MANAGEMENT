@@ -29,6 +29,7 @@ export default function RecipesSection() {
   const getRecipeCost = useStore((s) => s.getRecipeCost);
   const getRecipeFoodCostPct = useStore((s) => s.getRecipeFoodCostPct);
   const getIngredientLineCost = useStore((s) => s.getIngredientLineCost);
+  const getPrepRecipe = useStore((s) => s.getPrepRecipe);
   const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const deleteRecipe = useStore((s) => s.deleteRecipe);
 
@@ -76,8 +77,10 @@ export default function RecipesSection() {
     // Mirrors the conversion in useStore.getRecipeCost: cost-per-unit ×
     // (ing.unit → yieldUnit converted) quantity.
     const prepRows = (sel.prepItems || []).map((prep) => {
-      const subRecipe = prepRecipes.find((p) => p.id === prep.prepRecipeId);
-      const cpu = getPrepRecipeCostPerUnit(prep.prepRecipeId);
+      // Resolve via lineage so a recipe pointing at an old version still
+      // costs against the current prep (yield, ingredients, etc.).
+      const subRecipe = getPrepRecipe(prep.prepRecipeId);
+      const cpu = subRecipe ? getPrepRecipeCostPerUnit(subRecipe.id) : 0;
       const factor = subRecipe ? getConversionFactor(prep.unit, subRecipe.yieldUnit) : null;
       const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
       const lineCost = +(cpu * convertedQty).toFixed(2);
@@ -93,7 +96,7 @@ export default function RecipesSection() {
       };
     });
     return [...rawRows, ...prepRows];
-  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipeCostPerUnit, selCost, currentStore.id]);
+  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost, currentStore.id]);
 
   const marginColor = (m: number | null): string =>
     m == null ? C.fg2

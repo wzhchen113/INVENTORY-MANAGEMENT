@@ -277,6 +277,7 @@ interface StoreActions {
   getWasteThisWeek: () => number;
   getRecipeCost: (recipeId: string) => number;
   getRecipeFoodCostPct: (recipeId: string) => number;
+  getPrepRecipe: (prepRecipeId: string) => PrepRecipe | undefined;
   getPrepRecipeCost: (prepRecipeId: string) => number;
   getPrepRecipeCostPerUnit: (prepRecipeId: string) => number;
   getIngredientLineCost: (ing: { itemId: string; itemName?: string; quantity: number; unit: string }) => number;
@@ -1783,21 +1784,41 @@ export const useStore = create<FullStore>((set, get) => ({
     );
   },
 
+  // Resolve a prep_recipes id to the current version of its lineage. Recipes
+  // and sub-recipes may reference an older version (is_current=false) created
+  // before a version bump; without this walk, downstream cost calc finds
+  // nothing and returns $0. Walks descendants via parent_id with a cycle
+  // guard. Returns the original prep if no descendants exist (orphaned
+  // chains still get the historical record rather than nothing).
+  getPrepRecipe: (prepRecipeId) => {
+    const all = get().prepRecipes;
+    const visited = new Set<string>();
+    let cur = all.find((p) => p.id === prepRecipeId);
+    if (!cur) return undefined;
+    while (cur.isCurrent === false && !visited.has(cur.id)) {
+      visited.add(cur.id);
+      const child = all.find((p) => p.parentId === cur!.id);
+      if (!child) break;
+      cur = child;
+    }
+    return cur;
+  },
+
   // Prep recipe cost = sum of ingredient costs (supports sub-recipes with cycle guard)
   getPrepRecipeCost: (prepRecipeId) => {
     const calcCost = (id: string, visited: Set<string>): number => {
       if (visited.has(id)) return 0; // cycle detected
       visited.add(id);
-      const prep = get().prepRecipes.find((p) => p.id === id);
+      const prep = get().getPrepRecipe(id);
       if (!prep) return 0;
       const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
       const allConversions = get().ingredientConversions || [];
       return prep.ingredients.reduce((sum, ing) => {
         const isSubRecipe = (ing.type || 'raw') === 'prep';
         if (isSubRecipe) {
-          const subRecipe = get().prepRecipes.find((p) => p.id === ing.itemId);
+          const subRecipe = get().getPrepRecipe(ing.itemId);
           if (!subRecipe) return sum;
-          const subCost = calcCost(ing.itemId, new Set(visited));
+          const subCost = calcCost(subRecipe.id, new Set(visited));
           const subYield = subRecipe.yieldQuantity || 1;
           const costPerUnit = subYield > 0 ? subCost / subYield : 0;
           const factor = getConversionFactor(ing.unit, subRecipe.yieldUnit);
@@ -1819,9 +1840,9 @@ export const useStore = create<FullStore>((set, get) => ({
   // live recompute only when yieldQuantity is missing (legacy data) so
   // unmigrated rows still produce a non-zero number.
   getPrepRecipeCostPerUnit: (prepRecipeId) => {
-    const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
+    const prep = get().getPrepRecipe(prepRecipeId);
     if (!prep) return 0;
-    const totalCost = get().getPrepRecipeCost(prepRecipeId);
+    const totalCost = get().getPrepRecipeCost(prep.id);
     if (prep.yieldQuantity && prep.yieldQuantity > 0) {
       return totalCost / prep.yieldQuantity;
     }
@@ -1897,9 +1918,9 @@ export const useStore = create<FullStore>((set, get) => ({
     const rawCost = recipe.ingredients.reduce((sum, ing) => sum + get().getIngredientLineCost(ing), 0);
 
     const prepCost = (recipe.prepItems || []).reduce((sum, prep) => {
-      const subRecipe = get().prepRecipes.find((p) => p.id === prep.prepRecipeId);
+      const subRecipe = get().getPrepRecipe(prep.prepRecipeId);
       if (!subRecipe) return sum;
-      const costPerUnit = get().getPrepRecipeCostPerUnit(prep.prepRecipeId);
+      const costPerUnit = get().getPrepRecipeCostPerUnit(subRecipe.id);
       const factor = getConversionFactor(prep.unit, subRecipe.yieldUnit);
       const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
       return sum + costPerUnit * convertedQty;

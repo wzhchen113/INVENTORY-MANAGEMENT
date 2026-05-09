@@ -1055,13 +1055,18 @@ export async function saveSidebarLayout(
  * (type='prep'), itemId is the prep_recipes.id.
  */
 export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
+  // Load ALL versions, not just is_current=true. Existing recipes may
+  // reference an older prep_recipes.id (created before a version bump);
+  // without those rows the cost calc returns $0. The resolver in
+  // useStore.getPrepRecipe walks parent_id lineage to find the current
+  // version when a recipe still points at a stale id. Section list views
+  // filter to is_current=true in-memory so the UI doesn't change.
   let query = supabase
     .from('prep_recipes')
     .select(`*,
       prep_recipe_ingredients!prep_recipe_ingredients_prep_recipe_id_fkey(*,
         catalog:catalog_ingredients(id, name, unit)
-      )`)
-    .eq('is_current', true);
+      )`);
   if (brandId) query = query.eq('brand_id', brandId);
   const { data, error } = await query;
   if (error) throw error;
