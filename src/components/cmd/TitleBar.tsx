@@ -10,6 +10,11 @@ interface Props {
   storeName: string;
   section: string;
   itemSlug?: string;
+  /** Spec 012b — optional super-admin brand picker rendered between the
+   *  breadcrumb and the connection indicator. The shell passes the
+   *  BrandPicker only when useIsSuperAdmin() === true; non-super-admin
+   *  users see the same chrome as before (slot is null). */
+  brandPicker?: React.ReactNode;
 }
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
@@ -23,7 +28,7 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 // to drop a menu of stores the user has access to (admin/master see all,
 // regular users see their user_stores grants). Picking one calls
 // setCurrentStore.
-export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug }) => {
+export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandPicker }) => {
   const C = useCmdColors();
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
@@ -33,7 +38,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug }) => {
 
   if (Platform.OS !== 'web') return null;
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master' || currentUser?.role === 'super_admin';
   const accessibleStores = isAdmin
     ? stores
     : stores.filter((s) => currentUser?.stores?.includes(s.id));
@@ -187,6 +192,8 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug }) => {
             document.body,
           )
         : null}
+      {/* Spec 012b — brand picker slot (super-admin only, gated upstream) */}
+      {brandPicker ? <View>{brandPicker}</View> : null}
       {/* Connection indicator */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         <View

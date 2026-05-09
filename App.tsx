@@ -8,7 +8,7 @@ import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator from './src/navigation/AppNavigator';
 import { useColors, useCmdColors } from './src/theme/colors';
-import { useStore } from './src/store/useStore';
+import { useStore, ACTIVE_BRAND_KEY } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
@@ -29,6 +29,19 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 
 const DARK_MODE_KEY = 'darkMode';
+
+async function readCachedActiveBrandAsync(): Promise<string | null> {
+  try {
+    if (Platform.OS === 'web') {
+      const v = window.localStorage.getItem(ACTIVE_BRAND_KEY);
+      return v && v.length > 0 ? v : null;
+    }
+    const v = await AsyncStorage.getItem(ACTIVE_BRAND_KEY);
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read the cached dark-mode flag from local storage and apply it to the
@@ -151,6 +164,14 @@ export default function App() {
       }
       const result = await getSession();
       if (result.user) {
+        // Spec 012b — read the cached super-admin active-brand BEFORE
+        // login() runs (login clears the key by design so a fresh
+        // sign-in starts in "All brands" mode). Session-restore is the
+        // tab-reload case where we DO want to keep the user where they
+        // were. Re-apply after login completes.
+        const cachedActiveBrand =
+          result.user.role === 'super_admin' ? await readCachedActiveBrandAsync() : null;
+
         login(result.user);
         // DB is the cross-device source of truth — overrides the cached value
         // if they differ. Only applies when the user is actually logged in.
@@ -164,6 +185,12 @@ export default function App() {
         // edit-mode DONE / reset paths.
         if (result.sidebarLayout !== undefined) {
           hydrateSidebarLayoutOverride(result.sidebarLayout);
+        }
+        // Spec 012b — re-apply the cached active brand. setCurrentBrandId
+        // re-persists, so the localStorage stays in sync with the active
+        // state.
+        if (cachedActiveBrand) {
+          useStore.getState().setCurrentBrandId(cachedActiveBrand);
         }
       }
     })();

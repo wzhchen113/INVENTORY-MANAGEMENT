@@ -1397,7 +1397,7 @@ export function UsersScreen() {
 
     // Save to Supabase
     const storeNames = form.storeIds.map((sid) => stores.find((s) => s.id === sid)?.name).filter(Boolean).join(', ');
-    const { inviteUser: supabaseInvite } = await import('../lib/auth');
+    const { inviteUserLegacy: supabaseInvite } = await import('../lib/auth');
     const result = await supabaseInvite(form.email.trim(), form.name.trim(), form.role, form.storeIds, storeNames);
 
     setLoading(false);

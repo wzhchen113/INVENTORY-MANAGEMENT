@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
-  SidebarLayoutOverride, POSImport,
+  SidebarLayoutOverride, POSImport, Brand, User,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -48,6 +48,32 @@ export async function deleteStore(id: string): Promise<void> {
   await supabase.from('audit_log').delete().eq('store_id', id);
   await supabase.from('user_stores').delete().eq('store_id', id);
   await supabase.from('stores').delete().eq('id', id);
+}
+
+/**
+ * Spec 012b cleanup #1 — extracted from auth.ts so PostgREST traffic stays
+ * in db.ts per CLAUDE.md. Returns the set of store ids belonging to a brand,
+ * used by fetchAllUsers to clip cross-brand grants out of the per-user store
+ * list.
+ */
+export async function fetchStoreIdsForBrand(brandId: string): Promise<Set<string>> {
+  const { data } = await supabase.from('stores').select('id').eq('brand_id', brandId);
+  return new Set((data || []).map((s: any) => s.id));
+}
+
+/**
+ * Spec 012b cleanup #1 — extracted from auth.ts. Pulls (email, profile_id,
+ * name, brand_id) for invitation rows used to infer email for active
+ * profiles. When `brandId` is supplied (cleanup #16) the query is scoped at
+ * the SQL layer instead of pulling the whole table.
+ */
+export async function fetchInvitationsForUserLookup(
+  brandId?: string,
+): Promise<Array<{ email: string; profile_id: string | null; name: string; brand_id: string | null }>> {
+  let q = supabase.from('invitations').select('email, profile_id, name, brand_id');
+  if (brandId) q = q.eq('brand_id', brandId);
+  const { data } = await q;
+  return (data || []) as any[];
 }
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
@@ -1568,6 +1594,219 @@ export async function fetchBrandForStore(storeId: string): Promise<{ id: string;
   // sometimes infer it as an array; coerce defensively.
   const b: any = Array.isArray(data.brand) ? data.brand[0] : data.brand;
   return b ? { id: b.id, name: b.name } : null;
+}
+
+/**
+ * Spec 012b §5 — lightweight brands list for the BrandPicker dropdown.
+ * Excludes soft-deleted by default. Read-gated by 012a's
+ * `brand_member_read_brands` policy: super-admin sees all rows;
+ * non-super-admin sees only their `profiles.brand_id` row (which is
+ * fine for non-super-admin since the picker is hidden for them anyway).
+ */
+export async function fetchBrandsLite(opts?: {
+  includeSoftDeleted?: boolean;
+}): Promise<Brand[]> {
+  let query = supabase.from('brands').select('id, name, deleted_at, created_at').order('name', { ascending: true });
+  if (!opts?.includeSoftDeleted) {
+    query = query.is('deleted_at', null);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map((b: any) => ({
+    id: b.id,
+    name: b.name,
+    deletedAt: b.deleted_at ?? null,
+    createdAt: b.created_at ?? null,
+  }));
+}
+
+/**
+ * Spec 012b §5 — brands list with stats for the Brands section list pane.
+ * Returns one row per brand (active only, deleted_at IS NULL) plus
+ * counts for stores + admin members. The counts use PostgREST embeds
+ * with `count` aggregates for a single round-trip.
+ */
+export async function fetchBrandsWithStats(): Promise<Array<Brand & {
+  storeCount: number;
+  memberCount: number;
+  catalogIngredientCount: number;
+}>> {
+  // Cleanup #3 — adds catalog_ingredients(count) per spec AC S1.
+  // Cleanup #5 — profiles count is filtered to role IN (admin, master,
+  // super_admin) so the UI's "X admins" label is accurate (regular `user`
+  // role rows don't contribute).
+  const { data, error } = await supabase
+    .from('brands')
+    .select(`
+      id, name, created_at, deleted_at,
+      stores(count),
+      profiles!inner(count),
+      catalog_ingredients(count)
+    `)
+    .in('profiles.role', ['admin', 'master', 'super_admin'])
+    .is('deleted_at', null)
+    .order('name', { ascending: true });
+  if (error) {
+    // The !inner join drops brands with zero admin profiles. Fall back to
+    // a non-inner query so a freshly-created brand without any admin yet
+    // still surfaces (admin count is then 0).
+    const fallback = await supabase
+      .from('brands')
+      .select('id, name, created_at, deleted_at, stores(count), profiles(count), catalog_ingredients(count)')
+      .is('deleted_at', null)
+      .order('name', { ascending: true });
+    if (fallback.error) throw fallback.error;
+    return mapBrandStats(fallback.data || []);
+  }
+  return mapBrandStats(data || []);
+}
+
+function mapBrandStats(rows: any[]): Array<Brand & { storeCount: number; memberCount: number; catalogIngredientCount: number }> {
+  return rows.map((b: any) => {
+    // PostgREST embed `relation(count)` returns either an array with one
+    // `{ count: N }` object or the same shape — coerce defensively.
+    const storesEmbed = Array.isArray(b.stores) ? b.stores : [b.stores];
+    const profilesEmbed = Array.isArray(b.profiles) ? b.profiles : [b.profiles];
+    const catalogEmbed = Array.isArray(b.catalog_ingredients) ? b.catalog_ingredients : [b.catalog_ingredients];
+    return {
+      id: b.id,
+      name: b.name,
+      createdAt: b.created_at ?? null,
+      deletedAt: b.deleted_at ?? null,
+      storeCount: storesEmbed?.[0]?.count ?? 0,
+      memberCount: profilesEmbed?.[0]?.count ?? 0,
+      catalogIngredientCount: catalogEmbed?.[0]?.count ?? 0,
+    };
+  });
+}
+
+/**
+ * Spec 012b §5 — INSERT a new brand. RLS gates this to super-admin via
+ * the `super_admin_manage_brands` policy from 012a; non-super-admin
+ * INSERT will return a Postgres error which the optimistic-revert path
+ * surfaces via notifyBackendError. Throws on duplicate name (UNIQUE
+ * constraint on brands.name from init_schema).
+ */
+export async function createBrand(name: string): Promise<Brand> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Brand name is required');
+  const { data, error } = await supabase
+    .from('brands')
+    .insert({ name: trimmed })
+    .select('id, name, deleted_at, created_at')
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    name: data.name,
+    deletedAt: data.deleted_at ?? null,
+    createdAt: data.created_at ?? null,
+  };
+}
+
+/**
+ * Spec 012b §5 — admins for a specific brand for the BrandsSection
+ * members tab. Returns User[] shape with status='active' for joined
+ * profiles + status='pending' synthetic rows for outstanding invitations
+ * (so the UI can show "Bobby invited yesterday, not yet registered").
+ *
+ * RLS — super-admin sees all profiles via `super_admin_read_all_profiles`
+ * from 012a. The invitations read uses 012a's existing admin policy
+ * (super-admin satisfies the admin-or-master JWT claim on local; in
+ * prod, the `role` JWT claim is set when super-admin promoted).
+ */
+export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
+  if (!brandId) return [];
+
+  const [profilesRes, invitesRes, storesRes] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('brand_id', brandId)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('invitations')
+      .select('id, email, name, role, store_ids, brand_id, used, expires_at, profile_id')
+      .eq('brand_id', brandId)
+      .eq('used', false),
+    supabase
+      .from('stores')
+      .select('id')
+      .eq('brand_id', brandId),
+  ]);
+
+  if (profilesRes.error) throw profilesRes.error;
+  const profiles = profilesRes.data || [];
+  const invites = invitesRes.data || [];
+  const brandStoreIds = new Set((storesRes.data || []).map((s: any) => s.id));
+
+  // user_stores join for store counts on the active profiles.
+  const userIds = profiles.map((p: any) => p.id);
+  let storeLinks: any[] = [];
+  if (userIds.length > 0) {
+    const { data: links } = await supabase
+      .from('user_stores')
+      .select('user_id, store_id')
+      .in('user_id', userIds);
+    storeLinks = links || [];
+  }
+
+  // Cleanup #4 + #15 — profiles has no email column; we pull email from
+  // the invitation row that registered this profile. Prefer profile_id
+  // (set by consume_invitation when the user accepted the invite) and
+  // fall back to name match for legacy invitations whose profile_id is
+  // still the placeholder. profile_id wins because two admins sharing a
+  // display name would otherwise get swapped emails.
+  const inviteByProfileId = new Map<string, any>();
+  const inviteByName = new Map<string, any>();
+  for (const inv of invites) {
+    if (inv.profile_id && inv.profile_id !== '00000000-0000-0000-0000-000000000000') {
+      inviteByProfileId.set(inv.profile_id, inv);
+    }
+    if (inv.name) inviteByName.set(inv.name, inv);
+  }
+
+  const activeRows: User[] = profiles.map((p: any) => {
+    const stores = storeLinks
+      .filter((sl: any) => sl.user_id === p.id)
+      .map((sl: any) => sl.store_id)
+      .filter((sid: string) => brandStoreIds.has(sid));
+    const fallback = inviteByProfileId.get(p.id) ?? inviteByName.get(p.name);
+    return {
+      id: p.id,
+      name: p.role === 'master' ? 'MASTER' : p.name,
+      nickname: p.nickname || '',
+      email: fallback?.email || '',
+      role: p.role,
+      stores,
+      status: p.status,
+      initials: p.role === 'master' ? 'M' : (p.initials || p.name.slice(0, 2).toUpperCase()),
+      color: p.color || '#378ADD',
+      notificationsEnabled: p.notifications_enabled !== false,
+      brandId: p.brand_id ?? null,
+    } as User;
+  });
+
+  // Outstanding invitations: synthetic User rows with status='pending'.
+  // Skip ones already represented in profiles (matched by email).
+  const activeEmails = new Set(activeRows.map((u) => u.email.toLowerCase()).filter(Boolean));
+  const pendingRows: User[] = invites
+    .filter((inv: any) => !activeEmails.has(inv.email.toLowerCase()))
+    .map((inv: any) => ({
+      id: `invitation:${inv.id}`,
+      name: inv.name,
+      nickname: '',
+      email: inv.email,
+      role: inv.role,
+      stores: (inv.store_ids || []).filter((sid: string) => brandStoreIds.has(sid)),
+      status: 'pending' as const,
+      initials: inv.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase(),
+      color: '#378ADD',
+      notificationsEnabled: true,
+      brandId: inv.brand_id ?? null,
+    }));
+
+  return [...activeRows, ...pendingRows];
 }
 
 export async function fetchCatalogIngredients(brandId: string) {

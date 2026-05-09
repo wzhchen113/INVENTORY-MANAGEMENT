@@ -5,6 +5,7 @@ import {
   Store, OrderSubmission, OrderSchedule, ItemStatus,
 } from '../types';
 import type { SidebarGroup } from './sidebarLayout';
+import { useIsSuperAdmin } from '../hooks/useRole';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -1022,43 +1023,59 @@ export function useCogsForCurrentStore(days: number = 7): {
  * an `onPress` (e.g. `DBInspector`) attach it after consuming.
  */
 export function useDefaultSidebarGroups(): SidebarGroup[] {
-  return useMemo<SidebarGroup[]>(() => [
-    {
-      label: 'Operations',
-      items: [
-        { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
-        { id: 'Dashboard',       label: 'Dashboard' },
-        { id: 'EODCount',        label: 'EOD count' },
-        { id: 'WasteLog',        label: 'Waste log' },
-        { id: 'Receiving',       label: 'Receiving' },
-      ],
-    },
-    {
-      label: 'Planning',
-      items: [
-        { id: 'PurchaseOrders',  label: 'Purchase orders' },
-        { id: 'Vendors',         label: 'Vendors' },
-        { id: 'Categories',      label: 'Categories' },
-        { id: 'OrderSchedule',   label: 'Order schedule' },
-        { id: 'Recipes',         label: 'Menu items / BOM' },
-        { id: 'PrepRecipes',     label: 'Prep recipes' },
-        { id: 'Restock',         label: 'Restock' },
-      ],
-    },
-    {
-      label: 'Insights',
-      items: [
-        { id: 'Reconciliation',  label: 'Reconciliation' },
-        { id: 'POSImports',      label: 'POS imports' },
-        { id: 'AuditLog',        label: 'Audit log' },
-        { id: 'Reports',         label: 'Reports' },
-        // DBInspector is rendered by the legacy color palette and is
-        // routed as a sibling stack screen rather than a section pane.
-        // The shell attaches `onPress` since this selector is decoupled
-        // from React Navigation.
-        { id: 'DBInspector',     label: 'DB inspector' },
-      ],
-    },
-  ], []);
+  // Spec 012b — gate the "Brands" item on super-admin. We filter at the
+  // default-groups layer (rather than hiding in the Sidebar component)
+  // so applySidebarOverride from spec 008 has nothing to operate on for
+  // non-super-admin users (the merge silently drops unknown ids).
+  const isSuperAdmin = useIsSuperAdmin();
+  return useMemo<SidebarGroup[]>(() => {
+    const groups: SidebarGroup[] = [
+      {
+        label: 'Operations',
+        items: [
+          { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
+          { id: 'Dashboard',       label: 'Dashboard' },
+          { id: 'EODCount',        label: 'EOD count' },
+          { id: 'WasteLog',        label: 'Waste log' },
+          { id: 'Receiving',       label: 'Receiving' },
+        ],
+      },
+      {
+        label: 'Planning',
+        items: [
+          { id: 'PurchaseOrders',  label: 'Purchase orders' },
+          { id: 'Vendors',         label: 'Vendors' },
+          { id: 'Categories',      label: 'Categories' },
+          { id: 'OrderSchedule',   label: 'Order schedule' },
+          { id: 'Recipes',         label: 'Menu items / BOM' },
+          { id: 'PrepRecipes',     label: 'Prep recipes' },
+          { id: 'Restock',         label: 'Restock' },
+        ],
+      },
+      {
+        label: 'Insights',
+        items: [
+          { id: 'Reconciliation',  label: 'Reconciliation' },
+          { id: 'POSImports',      label: 'POS imports' },
+          { id: 'AuditLog',        label: 'Audit log' },
+          { id: 'Reports',         label: 'Reports' },
+          // DBInspector is rendered by the legacy color palette and is
+          // routed as a sibling stack screen rather than a section pane.
+          // The shell attaches `onPress` since this selector is decoupled
+          // from React Navigation.
+          { id: 'DBInspector',     label: 'DB inspector' },
+        ],
+      },
+    ];
+    if (isSuperAdmin) {
+      groups.push({
+        label: 'Tenancy',
+        items: [
+          { id: 'Brands', label: 'Brands' },
+        ],
+      });
+    }
+    return groups;
+  }, [isSuperAdmin]);
 }
 

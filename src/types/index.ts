@@ -1,6 +1,6 @@
 // src/types/index.ts
 
-export type UserRole = 'master' | 'admin' | 'user';
+export type UserRole = 'super_admin' | 'master' | 'admin' | 'user';
 
 export interface User {
   id: string;
@@ -20,11 +20,23 @@ export interface User {
    * readers should treat `undefined` as "enabled" (default).
    */
   notificationsEnabled?: boolean;
+  /**
+   * Spec 012b — brand the user is scoped to (mirrors profiles.brand_id
+   * post-012a). NULL for super-admin (sees all brands). NULL for legacy
+   * 'user' role staff. Set for 'admin' role per
+   * profiles_role_brand_consistent CHECK.
+   */
+  brandId?: string | null;
 }
 
 export interface Brand {
   id: string;
   name: string;
+  /** Spec 012a — soft-delete tombstone. NULL on active brands. Surfaced
+   *  to super-admin Brands list so deleted tenants are visible. */
+  deletedAt?: string | null;
+  /** Spec 012b — brands list rendering uses this. */
+  createdAt?: string | null;
 }
 
 /**
@@ -394,6 +406,18 @@ export interface AppState {
    * caseQty/subUnitSize alone can't bridge the units (e.g. custom packs).
    */
   ingredientConversions: IngredientConversion[];
+  /**
+   * Spec 012b — super-admin's explicit brand-context override. NULL
+   * means:
+   *   - super-admin: "All brands" mode → app navigates to Brands section
+   *   - non-super-admin: NOT USED (the picker is hidden; brand is implicit
+   *     via profiles.brand_id, surfaced through the existing `brand` slice)
+   */
+  currentBrandId: string | null;
+  /** Spec 012b — full brands list (super-admin only). Empty array for
+   *  non-super-admin since the brand picker / Brands section are hidden
+   *  for them. Populated by loadBrandsList action at login for super-admins. */
+  brandsList: Brand[];
 }
 
 export interface ReportDefinition {

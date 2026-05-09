@@ -7,6 +7,7 @@ import { RoleBadge } from './RoleBadge';
 import { TreeGroup, TreeItem } from './TreeGroup';
 import { SidebarGroup } from './Sidebar';
 import { KbdHint } from './KbdHint';
+import { useStore } from '../../store/useStore';
 
 interface Props {
   visible: boolean;
@@ -41,6 +42,9 @@ export const MobileNavDrawer: React.FC<Props> = ({
   footerRight,
 }) => {
   const C = useCmdColors();
+  // Spec 012b — surface the user's actual role so super-admin sees a
+  // distinctive badge, not the static "ADMIN" placeholder.
+  const currentUserRole = useStore((s) => s.currentUser?.role);
 
   const itemsWithSelection = (items: TreeItem[]) =>
     items.map((it) => ({
@@ -71,7 +75,7 @@ export const MobileNavDrawer: React.FC<Props> = ({
                 <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{subtitle}</Text>
               ) : null}
             </View>
-            <RoleBadge />
+            <RoleBadge role={currentUserRole} />
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 18, color: C.fg2 }}>✕</Text>
             </TouchableOpacity>

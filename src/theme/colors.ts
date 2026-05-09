@@ -173,6 +173,9 @@ export const LightCmd = {
   fg3:          '#9094A0',
   accent:       '#3F7C20',
   accentBg:     '#E0EFC9',
+  // Spec 012b cleanup #8 — readable text color on `accent` background.
+  // Light palette: white reads cleanly on the dark green accent.
+  accentFg:     '#FFFFFF',
   ok:           '#3B6D11',
   okBg:         '#EAF3DE',
   warn:         '#854F0B',
@@ -194,6 +197,8 @@ export const DarkCmd: typeof LightCmd = {
   fg3:          '#5C6270',
   accent:       '#7DD668',
   accentBg:     'rgba(58,130,40,0.40)',
+  // Dark palette: black reads cleanly on the bright green accent.
+  accentFg:     '#0E1014',
   ok:           '#5CB832',
   okBg:         'rgba(92,184,50,0.15)',
   warn:         '#E0A030',

@@ -6,6 +6,7 @@ import {
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
+  Brand,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -34,6 +35,12 @@ function notifyBackendError(action: string, e: any) {
 
 const DARK_MODE_KEY = 'darkMode';
 
+// Spec 012b — super-admin's active-brand override key. Tab-scoped via
+// localStorage on web; per-install on native via AsyncStorage. Cleared
+// at login so a fresh session always starts in "All brands" mode.
+// Cleanup #9 — exported so App.tsx imports it instead of duplicating.
+export const ACTIVE_BRAND_KEY = 'imr.cmd.superAdmin.activeBrand';
+
 // Fire-and-forget local cache so the boot-time hydrator in App.tsx can
 // restore the theme before the first paint, without waiting on Supabase.
 function persistDarkModeLocal(value: boolean) {
@@ -46,12 +53,57 @@ function persistDarkModeLocal(value: boolean) {
   } catch { /* best-effort */ }
 }
 
+function persistActiveBrandLocal(brandId: string | null) {
+  try {
+    const v = brandId ?? '';
+    if (Platform.OS === 'web') {
+      window.localStorage.setItem(ACTIVE_BRAND_KEY, v);
+    } else {
+      AsyncStorage.setItem(ACTIVE_BRAND_KEY, v).catch(() => { /* best-effort */ });
+    }
+  } catch { /* best-effort */ }
+}
+
+function clearActiveBrandLocal() {
+  try {
+    if (Platform.OS === 'web') {
+      window.localStorage.removeItem(ACTIVE_BRAND_KEY);
+    } else {
+      AsyncStorage.removeItem(ACTIVE_BRAND_KEY).catch(() => { /* best-effort */ });
+    }
+  } catch { /* best-effort */ }
+}
+
 interface StoreActions {
   // Auth
   login: (user: User) => void;
   logout: () => void;
   setCurrentStore: (store: Store) => void;
   loadFromSupabase: (storeId?: string) => Promise<void>;
+
+  // Spec 012b — super-admin brand context.
+  /**
+   * Set the super-admin's explicit brand-context override. NULL = "All
+   * brands" mode (clears currentStore so per-store sections render an
+   * empty state and the consumer can navigate to BrandsSection). Non-null
+   * picks the first store in that brand and triggers loadFromSupabase
+   * via setCurrentStore.
+   */
+  setCurrentBrandId: (brandId: string | null) => void;
+  /** Spec 012b — load the full brands list (super-admin only). Called
+   *  after login when currentUser.role === 'super_admin'. Idempotent. */
+  loadBrandsList: () => Promise<void>;
+  /** Spec 012b — INSERT a brand. Optimistic-then-revert via
+   *  notifyBackendError. RLS gates to super-admin. */
+  createBrand: (name: string) => Promise<Brand | null>;
+  /** Spec 012b cleanup #2 — store-owned mirror of fetchBrandsWithStats.
+   *  BrandsSection consumes this slice instead of calling db.ts directly,
+   *  matching every other section under src/screens/cmd/sections/. */
+  brandStats: Array<Brand & { storeCount: number; memberCount: number; catalogIngredientCount: number }>;
+  loadBrandStats: () => Promise<void>;
+  /** Spec 012b cleanup #2 — per-brand admin lists, keyed by brandId. */
+  brandAdminsByBrandId: Record<string, User[]>;
+  loadBrandAdmins: (brandId: string) => Promise<void>;
 
   // Inventory
   addItem: (item: Omit<InventoryItem, 'id'>) => void;
@@ -233,10 +285,23 @@ export const useStore = create<FullStore>((set, get) => ({
   storeLoading: false,
   ingredientConversions: [] as IngredientConversion[],
   savedReports: [],
+  // Spec 012b — super-admin brand context. NULL = "All brands" mode,
+  // hidden for non-super-admin (the picker doesn't render).
+  currentBrandId: null,
+  brandsList: [] as Brand[],
+  // Spec 012b cleanup #2 — store-owned brand stats + admins. Empty until
+  // a super-admin opens BrandsSection.
+  brandStats: [] as Array<Brand & { storeCount: number; memberCount: number; catalogIngredientCount: number }>,
+  brandAdminsByBrandId: {} as Record<string, User[]>,
 
   // Auth
   login: (user) => {
     set({ currentUser: user });
+    // Spec 012b — clear any stale super-admin active-brand override on
+    // login so a fresh session always starts in "All brands" mode.
+    // localStorage value persists across tab reloads but not across logins.
+    clearActiveBrandLocal();
+    set({ currentBrandId: null, brandsList: [] });
     // Fetch stores from Supabase, then set current store and load data
     db.fetchStores().then((cloudStores) => {
       const allStores = cloudStores.length > 0 ? cloudStores : get().stores;
@@ -251,9 +316,17 @@ export const useStore = create<FullStore>((set, get) => ({
       const localStore = get().stores.find((s) => user.stores.includes(s.id)) || get().stores[0];
       if (localStore) set({ currentStore: localStore });
     });
+    // Spec 012b — super-admin gets the brand picker; preload the full
+    // brands list so the dropdown renders immediately on first open.
+    if (user.role === 'super_admin') {
+      get().loadBrandsList().catch(() => { /* logged inside */ });
+    }
   },
   logout: () => {
     set({ currentUser: null });
+    // Spec 012b — drop super-admin brand context on logout.
+    clearActiveBrandLocal();
+    set({ currentBrandId: null, brandsList: [], brandStats: [], brandAdminsByBrandId: {} });
     import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     // Drop web-push subscription for this browser so the user doesn't keep
     // getting reminders for a store they no longer have access to.
@@ -266,7 +339,7 @@ export const useStore = create<FullStore>((set, get) => ({
     // we don't end up with a phantom store id and broken loadFromSupabase.
     if (store.id === '__all__') {
       const user = get().currentUser;
-      const accessible = user?.role === 'admin' || user?.role === 'master'
+      const accessible = user?.role === 'admin' || user?.role === 'master' || user?.role === 'super_admin'
         ? get().stores
         : get().stores.filter((s) => user?.stores.includes(s.id));
       const fallback = accessible[0] || get().stores[0];
@@ -277,6 +350,114 @@ export const useStore = create<FullStore>((set, get) => ({
     }
     set({ currentStore: store });
     get().loadFromSupabase(store.id);
+  },
+
+  // Spec 012b — super-admin brand context.
+  setCurrentBrandId: (brandId) => {
+    const prev = get().currentBrandId;
+    if (prev === brandId) return;
+
+    persistActiveBrandLocal(brandId);
+    set({ currentBrandId: brandId });
+
+    if (brandId === null) {
+      // "All brands" mode — clear currentStore so per-store sections
+      // don't render stale data. The consumer (ResponsiveCmdShell)
+      // forces section to "Brands" via a paletteAction request.
+      set({
+        currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' },
+        brand: null,
+      });
+      return;
+    }
+
+    // Brand-switch — re-derive currentStore for the new brand. Pick the
+    // first store the user can see in the new brand. Super-admin sees
+    // every store via 012a's RLS. setCurrentStore triggers
+    // loadFromSupabase as a side-effect; that fetcher writes the `brand`
+    // slice from fetchBrandForStore.
+    const newStore = get().stores.find((s) => s.brandId === brandId);
+    if (newStore) {
+      get().setCurrentStore(newStore);
+    } else {
+      // Fresh brand with no stores yet — clear currentStore. Sections
+      // will render empty states; the operator's first task is to add
+      // a store inside the brand.
+      const placeholder: Store = { id: '', brandId, name: '', address: '', status: 'active' };
+      const matchingBrand = get().brandsList.find((b) => b.id === brandId);
+      set({
+        currentStore: placeholder,
+        brand: matchingBrand ? { id: matchingBrand.id, name: matchingBrand.name } : null,
+      });
+    }
+  },
+
+  loadBrandsList: async () => {
+    try {
+      const list = await db.fetchBrandsLite({ includeSoftDeleted: false });
+      set({ brandsList: list });
+    } catch (e: any) {
+      console.warn('[Supabase] loadBrandsList:', e?.message || e);
+    }
+  },
+
+  createBrand: async (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    // Optimistic insert with a temp id so the UI updates immediately.
+    const tempId = `tmp-brand-${Date.now()}`;
+    const optimistic: Brand = { id: tempId, name: trimmed, deletedAt: null, createdAt: new Date().toISOString() };
+    const prev = get().brandsList;
+    set({ brandsList: [...prev, optimistic].sort((a, b) => a.name.localeCompare(b.name)) });
+    try {
+      const created = await db.createBrand(trimmed);
+      // Swap temp id for server-assigned UUID.
+      set({
+        brandsList: get().brandsList
+          .map((b) => (b.id === tempId ? created : b))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      });
+      // Cleanup #6 — re-fetch brandStats so the BrandsSection list pane
+      // shows the new brand without requiring navigate-away-and-back.
+      get().loadBrandStats().catch(() => { /* logged inside */ });
+      return created;
+    } catch (e: any) {
+      // Revert.
+      set({ brandsList: prev });
+      notifyBackendError('Create brand', e);
+      return null;
+    }
+  },
+
+  // Cleanup #2 — store-owned brand stats. BrandsSection consumes via the
+  // `brandStats` slice + `loadBrandStats` action instead of importing
+  // db.ts directly.
+  loadBrandStats: async () => {
+    try {
+      const rows = await db.fetchBrandsWithStats();
+      set({ brandStats: rows });
+    } catch (e: any) {
+      console.warn('[Supabase] loadBrandStats:', e?.message || e);
+      set({ brandStats: [] });
+    }
+  },
+
+  // Cleanup #2 — per-brand admin lists. BrandsSection's detail pane
+  // dispatches this when the selection changes; result is keyed by brandId
+  // so multiple opened detail tabs don't trample each other's data.
+  loadBrandAdmins: async (brandId) => {
+    if (!brandId) return;
+    try {
+      const rows = await db.fetchBrandAdmins(brandId);
+      set({
+        brandAdminsByBrandId: {
+          ...get().brandAdminsByBrandId,
+          [brandId]: rows,
+        },
+      });
+    } catch (e: any) {
+      console.warn('[Supabase] loadBrandAdmins:', e?.message || e);
+    }
   },
 
   loadFromSupabase: async (storeId?: string) => {

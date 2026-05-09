@@ -15,6 +15,8 @@ import { MobileTopAppBar } from '../../components/cmd/MobileTopAppBar';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { TitleBar } from '../../components/cmd/TitleBar';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
+import { BrandPicker } from '../../components/cmd/BrandPicker';
+import { useIsSuperAdmin } from '../../hooks/useRole';
 import { confirmAction } from '../../utils/confirmAction';
 import InventoryDesktopLayout from './InventoryDesktopLayout';
 
@@ -75,6 +77,10 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   const currentStore = useStore((s) => s.currentStore);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
+  // Spec 012b — super-admin gate for the header brand picker.
+  const isSuperAdmin = useIsSuperAdmin();
+  const brandPickerSlot = isSuperAdmin ? <BrandPicker /> : null;
+  const brandPickerCompact = isSuperAdmin ? <BrandPicker compact /> : null;
 
   // Spec 008 — per-user sidebar layout override.
   const sidebarLayoutOverride = useStore((s) => s.sidebarLayoutOverride);
@@ -346,6 +352,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         <MobileTopAppBar
           onHamburgerPress={() => setMobileDrawerOpen(true)}
           title={section}
+          trailing={brandPickerCompact}
         />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
         <MobileNavDrawer
@@ -379,6 +386,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         <TitleBar
           storeName={currentStore?.name || 'store'}
           section={section}
+          brandPicker={brandPickerSlot}
         />
         <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
           {tabletCollapsed ? (
@@ -436,6 +444,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
       <TitleBar
         storeName={currentStore?.name || 'store'}
         section={section}
+        brandPicker={brandPickerSlot}
       />
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar
