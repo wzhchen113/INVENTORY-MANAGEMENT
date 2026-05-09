@@ -13,6 +13,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { PrepRecipeFormDrawer } from '../../../components/cmd/PrepRecipeFormDrawer';
 import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
+import { getConversionFactor } from '../../../utils/unitConversion';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -65,11 +66,15 @@ export default function PrepRecipesSection() {
            inventory.find((i) => i.id === ing.itemId))
         : undefined;
       // For raw ingredients we delegate to getIngredientLineCost; for sub-recipes
-      // we estimate via cost-per-unit × converted quantity.
+      // we estimate via cost-per-unit × converted quantity (matches the
+      // canonical conversion used by getRecipeCost — without it a 1 lb yield
+      // sub-recipe used at 8 oz would be charged 8× instead of 0.5×).
       let lineCost = 0;
       if (isPrep && subRecipe) {
         const cpu = getPrepRecipeCostPerUnit(subRecipe.id);
-        lineCost = +(cpu * ing.quantity).toFixed(2);
+        const factor = getConversionFactor(ing.unit, subRecipe.yieldUnit);
+        const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
+        lineCost = +(cpu * convertedQty).toFixed(2);
       } else {
         lineCost = +getIngredientLineCost(ing).toFixed(2);
       }

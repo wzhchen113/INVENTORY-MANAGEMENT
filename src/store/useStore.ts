@@ -1811,18 +1811,29 @@ export const useStore = create<FullStore>((set, get) => ({
     return calcCost(prepRecipeId, new Set());
   },
 
-  // Cost per yield unit (e.g., cost per lb of marinated chicken)
+  // Cost per yield unit (e.g., cost per lb of marinated chicken).
+  // Trusts the user-entered yieldQuantity — that's the cooked / drained net
+  // yield that the cost should be amortized across. For preps with cook /
+  // drain loss (e.g. marinade chicken: 2kg input → 1.5kg cooked), dividing
+  // by the input ingredient sum understates per-unit cost. Falls back to a
+  // live recompute only when yieldQuantity is missing (legacy data) so
+  // unmigrated rows still produce a non-zero number.
   getPrepRecipeCostPerUnit: (prepRecipeId) => {
     const prep = get().prepRecipes.find((p) => p.id === prepRecipeId);
     if (!prep) return 0;
-    // Live yield calculation (don't trust stored yieldQuantity — may have corrupt baseQuantity)
+    const totalCost = get().getPrepRecipeCost(prepRecipeId);
+    if (prep.yieldQuantity && prep.yieldQuantity > 0) {
+      return totalCost / prep.yieldQuantity;
+    }
+    // Legacy fallback — yieldQuantity was never set. Sum ingredient base
+    // quantities and convert to a friendly display unit.
     const { smartToBase } = require('../utils/unitConversion');
     let yG = 0, yF = 0;
     for (const ing of prep.ingredients) {
       const b = smartToBase(ing.quantity, ing.unit);
       if (b.unit === 'fl_oz') yF += b.quantity; else yG += b.quantity;
     }
-    let yieldQty = prep.yieldQuantity;
+    let yieldQty = 0;
     if (prep.ingredients.length > 0) {
       if (yF > 0 && yG === 0) {
         yieldQty = yF >= 128 ? yF / 128 : yF >= 32 ? yF / 32 : yF;
@@ -1834,7 +1845,8 @@ export const useStore = create<FullStore>((set, get) => ({
       }
     }
     if (yieldQty === 0) return 0;
-    return get().getPrepRecipeCost(prepRecipeId) / yieldQty;
+    console.warn(`[prep] using live-recomputed yield for "${prep.name}" — set yield_quantity for accurate cost-per-unit`);
+    return totalCost / yieldQty;
   },
 
   // Shared helper: calculate cost of a single raw ingredient line item
