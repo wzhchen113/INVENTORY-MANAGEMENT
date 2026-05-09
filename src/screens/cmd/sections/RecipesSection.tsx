@@ -12,6 +12,7 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { RecipeFormDrawer } from '../../../components/cmd/RecipeFormDrawer';
 import { confirmAction } from '../../../utils/confirmAction';
+import { getConversionFactor } from '../../../utils/unitConversion';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -23,10 +24,12 @@ export default function RecipesSection() {
   const role = useRole();
   const recipes = useStore((s) => s.recipes);
   const inventory = useStore((s) => s.inventory);
+  const prepRecipes = useStore((s) => s.prepRecipes);
   const currentStore = useStore((s) => s.currentStore);
   const getRecipeCost = useStore((s) => s.getRecipeCost);
   const getRecipeFoodCostPct = useStore((s) => s.getRecipeFoodCostPct);
   const getIngredientLineCost = useStore((s) => s.getIngredientLineCost);
+  const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const deleteRecipe = useStore((s) => s.deleteRecipe);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -50,7 +53,7 @@ export default function RecipesSection() {
 
   const ingredientRows = React.useMemo(() => {
     if (!sel) return [];
-    return (sel.ingredients || []).map((ing) => {
+    const rawRows = (sel.ingredients || []).map((ing) => {
       // ing.itemId is now a catalog id; resolve to the current store's
       // inventory_items row for cost/par. Fall back to legacy id match.
       const item =
@@ -65,9 +68,32 @@ export default function RecipesSection() {
         unit: ing.unit,
         cost: lineCost,
         pct,
+        kind: 'raw' as const,
       };
     });
-  }, [sel, inventory, getIngredientLineCost, selCost]);
+    // Prep recipes contribute to plate cost too — render them as PREP rows so
+    // the breakdown sums to 100% and the user can see what each prep costs.
+    // Mirrors the conversion in useStore.getRecipeCost: cost-per-unit ×
+    // (ing.unit → yieldUnit converted) quantity.
+    const prepRows = (sel.prepItems || []).map((prep) => {
+      const subRecipe = prepRecipes.find((p) => p.id === prep.prepRecipeId);
+      const cpu = getPrepRecipeCostPerUnit(prep.prepRecipeId);
+      const factor = subRecipe ? getConversionFactor(prep.unit, subRecipe.yieldUnit) : null;
+      const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
+      const lineCost = +(cpu * convertedQty).toFixed(2);
+      const pct = selCost > 0 ? Math.round((lineCost / selCost) * 100) : 0;
+      return {
+        id: prep.prepRecipeId,
+        name: prep.prepRecipeName || subRecipe?.name || '—',
+        qty: prep.quantity,
+        unit: prep.unit,
+        cost: lineCost,
+        pct,
+        kind: 'prep' as const,
+      };
+    });
+    return [...rawRows, ...prepRows];
+  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipeCostPerUnit, selCost, currentStore.id]);
 
   const marginColor = (m: number | null): string =>
     m == null ? C.fg2
@@ -254,7 +280,15 @@ export default function RecipesSection() {
 
               {role === 'admin' ? (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <StatCard label="Plate cost" value={`$${selCost.toFixed(2)}`} sub={`${(sel.ingredients || []).length} ingredients`} />
+                  <StatCard
+                    label="Plate cost"
+                    value={`$${selCost.toFixed(2)}`}
+                    sub={
+                      (sel.prepItems || []).length
+                        ? `${(sel.ingredients || []).length} ingredients + ${(sel.prepItems || []).length} prep`
+                        : `${(sel.ingredients || []).length} ingredients`
+                    }
+                  />
                   <StatCard label="Menu price" value={sel.sellPrice ? `$${sel.sellPrice.toFixed(2)}` : '—'} sub={sel.category.toLowerCase()} />
                   <StatCard
                     label="Margin"
@@ -286,6 +320,7 @@ export default function RecipesSection() {
                     ) : null}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40 }}>kind</Text>
                     <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>id</Text>
                     <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>name</Text>
                     <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>qty</Text>
@@ -315,6 +350,9 @@ export default function RecipesSection() {
                           borderStyle: 'dashed',
                         }}
                       >
+                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: row.kind === 'prep' ? C.accent : C.fg3, width: 40, letterSpacing: 0.5 }}>
+                          {row.kind === 'prep' ? 'PREP' : 'RAW'}
+                        </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60 }}>{shortId(row.id)}</Text>
                         <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>
                           {row.name}

@@ -5,6 +5,32 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { PrepRecipe, PrepRecipeIngredient } from '../../types';
+import { SelectField } from './SelectField';
+import { CANONICAL_UNITS } from '../../utils/unitConversion';
+
+// Unit options for an ingredient row inside a prep recipe. Mirrors the
+// recipe drawer helper — canonical units always present, plus the picked
+// item / sub-recipe unit so abstract pack units (cases, bags, each) and
+// non-canonical legacy values stay selectable.
+function buildUnitOptions(itemUnit: string | undefined, currentValue: string) {
+  const acc = new Set<string>(CANONICAL_UNITS);
+  if (itemUnit) acc.add(itemUnit);
+  if (currentValue) acc.add(currentValue);
+  return Array.from(acc).map((u) => ({ value: u, label: u }));
+}
+
+// Yield-unit options for the prep recipe itself. Restricted to canonical
+// mass / volume — preps yield in g/kg/oz/lbs or fl_oz/cups/qt/gal. If the
+// existing record holds a non-canonical legacy yield_unit, surface it as
+// a disabled option so the user sees what's there but can't pick more.
+function buildYieldUnitOptions(currentValue: string) {
+  const opts: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: u }));
+  const cur = (currentValue || '').toLowerCase().trim();
+  if (cur && !CANONICAL_UNITS.includes(cur)) {
+    opts.push({ value: currentValue, label: `${currentValue} · non-canonical`, disabled: true });
+  }
+  return opts;
+}
 
 type Mode = 'edit' | 'new' | 'duplicate';
 
@@ -273,11 +299,19 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
                 <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Yield qty</Text>
                 <NumField width={120} value={values.yieldQuantity} onChange={setVal('yieldQuantity')} placeholder="1" />
               </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Yield unit</Text>
-                <TextField value={values.yieldUnit} onChange={setVal('yieldUnit')} placeholder="lb" />
+              <View style={{ flex: 1 }}>
+                <SelectField
+                  label="Yield unit"
+                  monoFont
+                  value={values.yieldUnit}
+                  options={buildYieldUnitOptions(values.yieldUnit)}
+                  onChange={setVal('yieldUnit')}
+                />
               </View>
             </View>
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: -10 }}>
+              Cooked / drained net yield. Cost-per-unit divides total batch cost by this. e.g. 2kg meat + 500g marinade → enter 1.5 kg cooked.
+            </Text>
             <View style={{ gap: 4 }}>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</Text>
               <TextField value={values.notes} onChange={setVal('notes')} placeholder="optional" />
@@ -299,33 +333,41 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
               {values.ingredients.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>no ingredients — click + RAW or + PREP</Text>
               ) : null}
-              {values.ingredients.map((r, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.ingredients.length - i }}>
-                  <View style={{ width: 44, paddingTop: 18 }}>
-                    <View style={{ paddingVertical: 5, paddingHorizontal: 6, backgroundColor: r.type === 'prep' ? C.accentBg : C.panel2, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: r.type === 'prep' ? C.accent : C.border, alignItems: 'center' }}>
-                      <Text style={{ fontFamily: mono(700), fontSize: 9, color: r.type === 'prep' ? C.accent : C.fg3 }}>{r.type === 'prep' ? 'PREP' : 'RAW'}</Text>
+              {values.ingredients.map((r, i) => {
+                const sourceList = r.type === 'prep' ? prepOptions : catalogOptions;
+                const itemUnit = sourceList.find((o) => o.id === r.itemId)?.unit;
+                return (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.ingredients.length - i }}>
+                    <View style={{ width: 44, paddingTop: 18 }}>
+                      <View style={{ paddingVertical: 5, paddingHorizontal: 6, backgroundColor: r.type === 'prep' ? C.accentBg : C.panel2, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: r.type === 'prep' ? C.accent : C.border, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: mono(700), fontSize: 9, color: r.type === 'prep' ? C.accent : C.fg3 }}>{r.type === 'prep' ? 'PREP' : 'RAW'}</Text>
+                      </View>
                     </View>
+                    <PickerField
+                      label="Item"
+                      value={r.itemName}
+                      onChange={(v) => updateRow(i, { itemName: v, itemId: '' })}
+                      onPick={(id, name, unit) => updateRow(i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
+                      options={sourceList}
+                    />
+                    <View>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
+                      <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow(i, { quantity: v })} placeholder="1" /></View>
+                    </View>
+                    <SelectField
+                      label="Unit"
+                      width={80}
+                      monoFont
+                      value={r.unit}
+                      options={buildUnitOptions(itemUnit, r.unit)}
+                      onChange={(v) => updateRow(i, { unit: v })}
+                    />
+                    <TouchableOpacity onPress={() => removeRow(i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
+                    </TouchableOpacity>
                   </View>
-                  <PickerField
-                    label="Item"
-                    value={r.itemName}
-                    onChange={(v) => updateRow(i, { itemName: v, itemId: '' })}
-                    onPick={(id, name, unit) => updateRow(i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
-                    options={r.type === 'prep' ? prepOptions : catalogOptions}
-                  />
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
-                    <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow(i, { quantity: v })} placeholder="1" /></View>
-                  </View>
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Unit</Text>
-                    <View style={{ marginTop: 4 }}><TextField width={70} value={r.unit} onChange={(v) => updateRow(i, { unit: v })} placeholder="oz" /></View>
-                  </View>
-                  <TouchableOpacity onPress={() => removeRow(i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </ScrollView>
 

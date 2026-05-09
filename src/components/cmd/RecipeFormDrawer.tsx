@@ -5,6 +5,22 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { Recipe, RecipeIngredient, RecipePrepItem } from '../../types';
+import { SelectField } from './SelectField';
+import { CANONICAL_UNITS } from '../../utils/unitConversion';
+
+// Unit dropdown options for a recipe ingredient row.
+// Always includes all canonical mass/volume units. When the row has a
+// picked item, also includes the item's tracked unit (so abstract units
+// like 'cases', 'bags', 'each' remain selectable for items packed that
+// way). Surfacing the current value as well — even if non-canonical and
+// not on any item — protects legacy data from getting silently nulled
+// out by the dropdown's value filter.
+function buildUnitOptions(itemUnit: string | undefined, currentValue: string) {
+  const acc = new Set<string>(CANONICAL_UNITS);
+  if (itemUnit) acc.add(itemUnit);
+  if (currentValue) acc.add(currentValue);
+  return Array.from(acc).map((u) => ({ value: u, label: u }));
+}
 
 type Mode = 'edit' | 'new' | 'duplicate';
 
@@ -285,28 +301,35 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
               {values.ingredients.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>no ingredients — click + ADD</Text>
               ) : null}
-              {values.ingredients.map((r, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.ingredients.length - i }}>
-                  <PickerField
-                    label="Ingredient"
-                    value={r.itemName}
-                    onChange={(v) => updateRow('ingredients', i, { itemName: v, itemId: '' })}
-                    onPick={(id, name, unit) => updateRow('ingredients', i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
-                    options={catalogOptions}
-                  />
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
-                    <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow('ingredients', i, { quantity: v })} placeholder="1" /></View>
+              {values.ingredients.map((r, i) => {
+                const itemUnit = catalogOptions.find((o) => o.id === r.itemId)?.unit;
+                return (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.ingredients.length - i }}>
+                    <PickerField
+                      label="Ingredient"
+                      value={r.itemName}
+                      onChange={(v) => updateRow('ingredients', i, { itemName: v, itemId: '' })}
+                      onPick={(id, name, unit) => updateRow('ingredients', i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
+                      options={catalogOptions}
+                    />
+                    <View>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
+                      <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow('ingredients', i, { quantity: v })} placeholder="1" /></View>
+                    </View>
+                    <SelectField
+                      label="Unit"
+                      width={80}
+                      monoFont
+                      value={r.unit}
+                      options={buildUnitOptions(itemUnit, r.unit)}
+                      onChange={(v) => updateRow('ingredients', i, { unit: v })}
+                    />
+                    <TouchableOpacity onPress={() => removeRow('ingredients', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
+                    </TouchableOpacity>
                   </View>
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Unit</Text>
-                    <View style={{ marginTop: 4 }}><TextField width={70} value={r.unit} onChange={(v) => updateRow('ingredients', i, { unit: v })} placeholder="g" /></View>
-                  </View>
-                  <TouchableOpacity onPress={() => removeRow('ingredients', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+                );
+              })}
             </View>
 
             {/* Prep items editor */}
@@ -320,28 +343,35 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
               {values.prepItems.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>no preps — click + ADD</Text>
               ) : null}
-              {values.prepItems.map((r, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.prepItems.length - i }}>
-                  <PickerField
-                    label="Prep recipe"
-                    value={r.itemName}
-                    onChange={(v) => updateRow('prepItems', i, { itemName: v, itemId: '' })}
-                    onPick={(id, name, unit) => updateRow('prepItems', i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
-                    options={prepOptions}
-                  />
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
-                    <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow('prepItems', i, { quantity: v })} placeholder="1" /></View>
+              {values.prepItems.map((r, i) => {
+                const prepYieldUnit = prepOptions.find((o) => o.id === r.itemId)?.unit;
+                return (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', zIndex: values.prepItems.length - i }}>
+                    <PickerField
+                      label="Prep recipe"
+                      value={r.itemName}
+                      onChange={(v) => updateRow('prepItems', i, { itemName: v, itemId: '' })}
+                      onPick={(id, name, unit) => updateRow('prepItems', i, { itemId: id, itemName: name, unit: r.unit || unit || '' })}
+                      options={prepOptions}
+                    />
+                    <View>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Qty</Text>
+                      <View style={{ marginTop: 4 }}><NumField value={r.quantity} onChange={(v) => updateRow('prepItems', i, { quantity: v })} placeholder="1" /></View>
+                    </View>
+                    <SelectField
+                      label="Unit"
+                      width={80}
+                      monoFont
+                      value={r.unit}
+                      options={buildUnitOptions(prepYieldUnit, r.unit)}
+                      onChange={(v) => updateRow('prepItems', i, { unit: v })}
+                    />
+                    <TouchableOpacity onPress={() => removeRow('prepItems', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
+                    </TouchableOpacity>
                   </View>
-                  <View>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Unit</Text>
-                    <View style={{ marginTop: 4 }}><TextField width={70} value={r.unit} onChange={(v) => updateRow('prepItems', i, { unit: v })} placeholder="oz" /></View>
-                  </View>
-                  <TouchableOpacity onPress={() => removeRow('prepItems', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger }}>×</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </ScrollView>
 
