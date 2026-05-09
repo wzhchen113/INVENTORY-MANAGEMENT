@@ -1,3 +1,10 @@
+// ORPHANED post-Spec-011 (2026-05-08).
+// Kept on disk for potential native EAS reuse in Phase 3 of the
+// responsive overhaul (see specs/011-responsive-admin-ui.md §4.B).
+// Not imported anywhere as of 2026-05-08 — `ResponsiveCmdShell` +
+// `InventoryDesktopLayout` now serve the Inventory section on every
+// breakpoint, including phone. Delete in a future cleanup sweep once
+// the native-shipping decision is locked.
 import React from 'react';
 import { View, Text, FlatList, TouchableOpacity, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';

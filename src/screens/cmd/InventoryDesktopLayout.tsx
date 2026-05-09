@@ -1,6 +1,5 @@
 import React from 'react';
-import { useNavigation } from '@react-navigation/native';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
@@ -11,9 +10,7 @@ import { calculateWeeklyUsageTrend } from '../../utils/usageCalculations';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
-import { TitleBar } from '../../components/cmd/TitleBar';
 import { CmdStatusBar } from '../../components/cmd/StatusBar';
-import { Sidebar } from '../../components/cmd/Sidebar';
 import { TabStrip } from '../../components/cmd/TabStrip';
 import { StatCard } from '../../components/cmd/StatCard';
 import { StatusPill } from '../../components/cmd/StatusPill';
@@ -25,13 +22,8 @@ import { StatusDot } from '../../components/cmd/StatusDot';
 import { InventoryRow } from '../../components/cmd/InventoryRow';
 import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
-import { TreeItem } from '../../components/cmd/TreeGroup';
-import { SidebarGroup } from '../../components/cmd/Sidebar';
-import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import { confirmAction } from '../../utils/confirmAction';
-import { applySidebarOverride, produceOverride } from '../../lib/sidebarLayout';
-import type { SidebarLayoutOverride } from '../../lib/sidebarLayout';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
 import OrderScheduleSection from './sections/OrderScheduleSection';
@@ -49,52 +41,57 @@ import POSImportsSection from './sections/POSImportsSection';
 import AuditLogSection from './sections/AuditLogSection';
 import ReportsSection from './sections/ReportsSection';
 
+// Spec 011 — body-only. The chrome (TitleBar / Sidebar / hamburger drawer
+// / footer slots / Spec-008 edit-mode handlers) lives in
+// `ResponsiveCmdShell`. This file owns:
+//   - the section-dispatch tree
+//   - the Inventory section's 3-pane (list + detail), EDIT drawer,
+//     items.tsv/catalog.tsv mode switch, and selectedName state
+//   - the bottom CmdStatusBar (section-aware "row N / total" + filter)
+//   - the palette-action consume() for Inventory-specific selectedName
+//     and viewMode (the shell already swapped section before we see it)
+//
+// `section` and `setSection` are passed in from the shell. Resetting
+// `selectedName` when leaving Inventory stays local — it's an Inventory
+// concern, not a chrome concern.
+
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
 interface Props {
-  /** Open the global ⌘K palette (Phase 7 wires this). */
+  /** Open the global ⌘K palette (CmdPaletteHost wires this). */
   onPaletteOpen?: () => void;
+  /** Active section — owned by the shell post-Spec-011. */
+  section: string;
+  /** Section setter — used by per-section affordances inside the body
+   *  (e.g. tab navigation that swaps sections). */
+  setSection: (id: string) => void;
 }
 
-export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
+export default function InventoryDesktopLayout({ onPaletteOpen, section, setSection }: Props) {
   const C = useCmdColors();
-  const nav = useNavigation<any>();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
   const auditLog  = useStore((s) => s.auditLog);
   const currentUser = useStore((s) => s.currentUser);
-  const logout = useStore((s) => s.logout);
   const currentStore = useStore((s) => s.currentStore);
-  const eodSubmissions = useStore((s) => s.eodSubmissions);
-  const stores = useStore((s) => s.stores);
   const getItemStatus = useStore((s) => s.getItemStatus);
   const deleteItem = useStore((s) => s.deleteItem);
 
-  // Spec 008 — per-user sidebar layout override. Backend-developer's slice
-  // populates `sidebarLayoutOverride` from profiles.sidebar_layout at login
-  // (`App.tsx`). The setter is optimistic-then-revert per architect §4.
-  const sidebarLayoutOverride = useStore((s) => s.sidebarLayoutOverride);
-  const setSidebarLayoutOverride = useStore((s) => s.setSidebarLayoutOverride);
-
-  const [section, setSection]         = React.useState('Inventory');
   const [filterText, setFilterText]   = React.useState('');
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
-  // Spec 008 — sidebar edit mode (gear → DONE). Section state is preserved
-  // across edit-mode entry/exit (this state is local to the layout and is
-  // never reset by the edit-mode transitions).
-  const [sidebarEditMode, setSidebarEditMode] = React.useState(false);
-  // Working copy of the rendered groups while in edit mode. Mutated by
-  // DnD drags + eye-toggle clicks; on DONE, diffed against `groups` to
-  // produce the override list.
-  const [draftGroups, setDraftGroups] = React.useState<SidebarGroup[] | null>(null);
   // Selection is keyed on lowercase name so it survives the items.tsv ↔
   // catalog.tsv mode switch (and store switching, where ids differ but
   // names line up across rows).
   const [selectedName, setSelectedName] = React.useState<string | null>(null);
   const [tabId, setTabId]             = React.useState('detail.tsx');
   const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog'>('per-store');
+
+  // Reset selection when the shell swaps us out of Inventory.
+  React.useEffect(() => {
+    if (section !== 'Inventory') setSelectedName(null);
+  }, [section]);
 
   const storeInventory = React.useMemo(
     () => inventory.filter((i) => i.storeId === currentStore.id),
@@ -115,16 +112,13 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
     setSelectedName(items[0]?.name.toLowerCase() || null);
   }, [items, selectedName, viewMode]);
 
-  // ⌘K palette → desktop selection bridge. Palette writes a pending action
-  // (paletteAction.request); we apply it once and consume.
-  //
-  // Special case: when `eodFocusItemId` is set, the layout switches the
-  // section but does NOT consume — EODCountSection consumes after it picks
-  // the item up. Otherwise the action would be cleared before EOD mounts.
+  // ⌘K palette → body bridge. The shell already swapped `section` for us.
+  // Here we apply the Inventory-specific bits (selectedName / viewMode)
+  // and consume the action — except when an EOD-focus is in flight, in
+  // which case EODCountSection consumes after it picks the item up.
   const pendingPaletteAction = usePaletteAction((s) => s.pending);
   React.useEffect(() => {
     if (!pendingPaletteAction) return;
-    setSection(pendingPaletteAction.section);
     if (pendingPaletteAction.section === 'Inventory') {
       setViewMode('per-store');
       if (pendingPaletteAction.selectedName) setSelectedName(pendingPaletteAction.selectedName);
@@ -143,188 +137,11 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
   const series = useStockSeries(item?.id || '', 14);
   const recipesUsing = useRecipesUsingItem(item?.id || '');
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const submittedToday = new Set(
-    eodSubmissions.filter((s) => s.date === todayStr).map((s) => s.storeId),
-  ).size;
-
-  // Admin-only app — store users have a separate app + API.
-  // Spec 008: this is the *default* group structure. The user's per-user
-  // override (loaded into `sidebarLayoutOverride` on login) is merged in
-  // via `applySidebarOverride` to produce the rendered structure passed
-  // to <Sidebar>. The id values below are load-bearing — they're stable
-  // identifiers for the override list. Don't rename them casually.
-  // `useMemo` on `nav` because the Insights group's DB inspector row
-  // captures it via closure, and `nav` is stable across renders.
-  const defaultGroups = React.useMemo<SidebarGroup[]>(() => [
-    {
-      label: 'Operations',
-      items: [
-        { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
-        { id: 'Dashboard',       label: 'Dashboard' },
-        { id: 'EODCount',        label: 'EOD count' },
-        { id: 'WasteLog',        label: 'Waste log' },
-        { id: 'Receiving',       label: 'Receiving' },
-      ],
-    },
-    {
-      label: 'Planning',
-      items: [
-        { id: 'PurchaseOrders',  label: 'Purchase orders' },
-        { id: 'Vendors',         label: 'Vendors' },
-        { id: 'Categories',      label: 'Categories' },
-        { id: 'OrderSchedule',   label: 'Order schedule' },
-        { id: 'Recipes',         label: 'Menu items / BOM' },
-        { id: 'PrepRecipes',     label: 'Prep recipes' },
-        { id: 'Restock',         label: 'Restock' },
-      ],
-    },
-    {
-      label: 'Insights',
-      items: [
-        { id: 'Reconciliation',  label: 'Reconciliation' },
-        { id: 'POSImports',      label: 'POS imports' },
-        { id: 'AuditLog',        label: 'Audit log' },
-        { id: 'Reports',         label: 'Reports' },
-        // DBInspector is rendered by the legacy color palette, so we route
-        // it as a separate stack screen rather than a section pane.
-        { id: 'DBInspector',     label: 'DB inspector', onPress: () => nav.navigate('DBInspector') },
-      ],
-    },
-  ], [nav]);
-
-  // Spec 008 — merge default + user override into the rendered group
-  // structure. In edit mode we feed `applySidebarOverride` { editMode: true }
-  // so hidden items stay visible (with hiddenByUser flag) while the user
-  // is reorganizing.
-  const renderedGroups = React.useMemo(
-    () => applySidebarOverride(defaultGroups, sidebarLayoutOverride ?? null, {
-      editMode: sidebarEditMode,
-    }),
-    [defaultGroups, sidebarLayoutOverride, sidebarEditMode],
-  );
-
-  // When entering edit mode, capture the rendered structure into a draft
-  // that the DnD wrapper can mutate. When leaving edit mode (DONE),
-  // diff back to an override and persist; on cancel, just discard.
-  const groupsForSidebar = sidebarEditMode ? (draftGroups ?? renderedGroups) : renderedGroups;
-
-  const handleToggleEditMode = React.useCallback(() => {
-    setSidebarEditMode((prev) => {
-      if (!prev) {
-        // Entering edit mode — seed the draft from the current rendered
-        // edit-mode view (hidden items included).
-        const editView = applySidebarOverride(
-          defaultGroups,
-          sidebarLayoutOverride ?? null,
-          { editMode: true },
-        );
-        setDraftGroups(editView);
-        return true;
-      }
-      // Exiting edit mode (DONE) — diff and save.
-      if (draftGroups) {
-        const next = produceOverride(draftGroups, defaultGroups);
-        setSidebarLayoutOverride(next);
-      }
-      setDraftGroups(null);
-      return false;
-    });
-  }, [defaultGroups, sidebarLayoutOverride, draftGroups, setSidebarLayoutOverride]);
-
-  const handleGroupsChange = React.useCallback((next: SidebarGroup[]) => {
-    setDraftGroups(next);
-  }, []);
-
-  const handleToggleHide = React.useCallback((id: string) => {
-    setDraftGroups((prev) => {
-      const base = prev ?? applySidebarOverride(
-        defaultGroups,
-        sidebarLayoutOverride ?? null,
-        { editMode: true },
-      );
-      return base.map((g) => ({
-        label: g.label,
-        items: g.items.map((it) =>
-          it.id === id
-            ? { ...it, hiddenByUser: !(it as any).hiddenByUser }
-            : it,
-        ),
-      }));
-    });
-  }, [defaultGroups, sidebarLayoutOverride]);
-
-  const handleReset = React.useCallback(() => {
-    confirmAction(
-      'Reset sidebar to default?',
-      'This clears all your customizations.',
-      () => {
-        setSidebarLayoutOverride(null);
-        setDraftGroups(null);
-        setSidebarEditMode(false);
-      },
-    );
-  }, [setSidebarLayoutOverride]);
-
   const inventoryTitle = 'Inventory';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
-      <TitleBar
-        storeName={currentStore?.name || 'store'}
-        section={section}
-        itemSlug={section === 'Inventory' && item ? item.name : undefined}
-      />
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
-        <Sidebar
-          groups={groupsForSidebar}
-          selectedId={section}
-          onSelect={(id) => {
-            setSection(id);
-            // Reset selection when leaving Inventory
-            if (id !== 'Inventory') setSelectedName(null);
-          }}
-          onPaletteOpen={onPaletteOpen}
-          editMode={sidebarEditMode}
-          onToggleEditMode={handleToggleEditMode}
-          onGroupsChange={handleGroupsChange}
-          onToggleHide={handleToggleHide}
-          onReset={handleReset}
-          footerLeft={
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={[Type.statusBar, { color: C.fg3 }]}>
-                ● {currentUser?.name || 'guest'}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                    ? window.confirm('Sign out?')
-                    : true;
-                  if (ok) logout();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Sign out"
-                style={{
-                  paddingHorizontal: 6,
-                  paddingVertical: 1,
-                  borderRadius: CmdRadius.xs,
-                  borderWidth: 1,
-                  borderColor: C.border,
-                }}
-              >
-                <Text style={[Type.statusBar, { color: C.fg3 }]}>sign out</Text>
-              </TouchableOpacity>
-            </View>
-          }
-          footerRight={
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <ThemeToggle />
-              <Text style={[Type.statusBar, { color: C.fg3 }]}>
-                EOD {submittedToday}/{stores.length}
-              </Text>
-            </View>
-          }
-        />
 
         {section === 'Dashboard' ? (
           <DashboardSection />
@@ -513,7 +330,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen }: Props) {
         }
       />
 
-      {/* EDIT drawer — mounted at layout root so it overlays the chrome */}
+      {/* EDIT drawer — mounted at body root so it overlays the chrome */}
       <IngredientFormDrawer
         visible={editDrawerOpen}
         mode="edit"

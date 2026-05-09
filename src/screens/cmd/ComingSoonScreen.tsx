@@ -1,3 +1,10 @@
+// ORPHANED post-Spec-011 (2026-05-08).
+// Kept on disk for potential native EAS reuse in Phase 3 of the
+// responsive overhaul (see specs/011-responsive-admin-ui.md §4.B).
+// Not imported anywhere as of 2026-05-08 — `InventoryDesktopLayout`
+// already renders `<ComingSoonPanel>` inline for unimplemented
+// sections, which is the same content. Delete in a future cleanup
+// sweep once the native-shipping decision is locked.
 import React from 'react';
 import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';

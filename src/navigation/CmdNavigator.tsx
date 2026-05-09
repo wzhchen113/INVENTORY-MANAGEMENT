@@ -5,17 +5,12 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useCmdColors } from '../theme/colors';
-import { useBreakpoint } from '../theme/breakpoints';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
 import { usePaletteAction } from '../lib/paletteAction';
 import { CommandPalette } from '../components/cmd/CommandPalette';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
-import InventoryListScreen from '../screens/cmd/InventoryListScreen';
-import ItemDetailScreen from '../screens/cmd/ItemDetailScreen';
-import ComingSoonScreen from '../screens/cmd/ComingSoonScreen';
-import NavDrawerScreen from '../screens/cmd/NavDrawerScreen';
-import InventoryDesktopLayout from '../screens/cmd/InventoryDesktopLayout';
+import ResponsiveCmdShell from '../screens/cmd/ResponsiveCmdShell';
 import CmdAtomsPreview from '../screens/dev/CmdAtomsPreview';
 import DBInspectorScreen from '../screens/DBInspectorScreen';
 
@@ -24,7 +19,20 @@ const navRef = createNavigationContainerRef();
 const RootStack = createStackNavigator();
 const AuthedStack = createStackNavigator();
 
-function MobileStack() {
+// Spec 011 — single navigator stack across all breakpoints. The
+// `ResponsiveCmdShell` owns the breakpoint branch (sidebar / rail /
+// hamburger drawer) and the section state. `MobileStack` (the legacy
+// real-stack navigation for narrow widths) is retired — it routed most
+// sidebar items to `ComingSoonScreen` and ignored Spec 008's per-user
+// sidebar override. The shell consumes the same lifted selector
+// (`useDefaultSidebarGroups`) on every tier, so the override is
+// honored on phone too.
+//
+// `DBInspector` stays as a sibling stack route — the lifted selector
+// returns the row without an `onPress`, the shell attaches
+// `nav.navigate('DBInspector')`. `CmdAtomsPreview` stays as a dev-only
+// sibling.
+function ShellStack() {
   const C = useCmdColors();
   return (
     <AuthedStack.Navigator
@@ -36,18 +44,7 @@ function MobileStack() {
         cardStyle: { backgroundColor: C.bg, flex: 1, minHeight: 0 },
       }}
     >
-      <AuthedStack.Screen name="Inventory" component={InventoryListScreen} />
-      <AuthedStack.Screen name="ItemDetail" component={ItemDetailScreen} />
-      <AuthedStack.Screen
-        name="ComingSoon"
-        component={ComingSoonScreen}
-        initialParams={{ sectionName: 'Section' }}
-      />
-      <AuthedStack.Screen
-        name="Drawer"
-        component={NavDrawerScreen}
-        options={{ presentation: 'transparentModal', cardStyle: { backgroundColor: 'transparent' } }}
-      />
+      <AuthedStack.Screen name="Shell" component={ResponsiveCmdShell} />
       <AuthedStack.Screen name="DBInspector" component={DBInspectorScreen} />
       {__DEV__ ? (
         <AuthedStack.Screen name="CmdAtomsPreview" component={CmdAtomsPreview} />
@@ -56,34 +53,11 @@ function MobileStack() {
   );
 }
 
-// Single-screen stack so InventoryDesktopLayout sits inside a NavigationContainer
-// child and can use any nav APIs in the future. Today the layout uses
-// nav.navigate('DBInspector') from the sidebar's "DB Inspector" item — that
-// screen needs to live as a sibling here so the navigation works.
-function DesktopShell() {
-  const C = useCmdColors();
-  return (
-    <AuthedStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        // flex:1 + minHeight:0 so the screen card is bounded by the
-        // navigator's available height instead of auto-sizing to content
-        // (which broke list-pane scrolling at sections with long lists).
-        cardStyle: { backgroundColor: C.bg, flex: 1, minHeight: 0 },
-      }}
-    >
-      <AuthedStack.Screen name="DesktopLayout" component={InventoryDesktopLayout} />
-      <AuthedStack.Screen name="DBInspector" component={DBInspectorScreen} />
-    </AuthedStack.Navigator>
-  );
-}
-
 function AuthedRoot() {
   const storeId = useStore((s) => s.currentStore?.id);
   const brandId = useStore((s) => s.brand?.id);
-  const breakpoint = useBreakpoint();
 
-  // Shared realtime debounce (mobile + desktop both consume).
+  // Shared realtime debounce.
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSync = useCallback(() => {
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
@@ -100,17 +74,23 @@ function AuthedRoot() {
 
   return (
     <>
-      {breakpoint === 'desktop' ? <DesktopShell /> : <MobileStack />}
+      <ShellStack />
       <CmdPaletteHost />
     </>
   );
 }
 
-// Web-only ⌘K palette. Listens for keydown at the document level and
-// navigates via the container ref so it can fire from any screen.
+// Web-only ⌘K palette. Listens for keydown at the document level. Phone
+// users (no hardware keyboard) never trigger it; the MobileNavDrawer's
+// search field is the phone palette entry.
+//
+// Spec 011 — the desktop "in-screen state" (paletteAction) is now the
+// single delivery channel on every tier; ResponsiveCmdShell consumes
+// it for the section swap, and InventoryDesktopLayout consumes the
+// Inventory-specific selectedName/viewMode bits. The pre-Spec-011
+// branch on breakpoint is gone.
 function CmdPaletteHost() {
   const index = useCommandPaletteIndex();
-  const breakpoint = useBreakpoint();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -125,10 +105,8 @@ function CmdPaletteHost() {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  // Map palette result → desktop section + selection. Desktop is a single
-  // screen with local state, so we go through paletteAction instead of
-  // react-navigation routes (which only register a top-level DesktopLayout).
-  const desktopActionForRoute = useCallback((route: PaletteEntry['route']) => {
+  // Map palette result → shell section + selection.
+  const actionForRoute = useCallback((route: PaletteEntry['route']) => {
     if (route.name === 'ItemDetail') {
       const itemId = (route.params as any)?.itemId;
       const item = itemId ? useStore.getState().inventory.find((i) => i.id === itemId) : undefined;
@@ -139,19 +117,8 @@ function CmdPaletteHost() {
   }, []);
 
   const handleNavigate = useCallback((route: PaletteEntry['route']) => {
-    if (breakpoint === 'desktop') {
-      usePaletteAction.getState().request(desktopActionForRoute(route));
-      return;
-    }
-    if (!navRef.isReady()) return;
-    const dispatch = (name: string, params?: Record<string, unknown>) =>
-      (navRef as any).navigate(name, params);
-    if (route.name === 'Inventory' || route.name === 'ItemDetail' || route.name === 'ComingSoon') {
-      dispatch(route.name, route.params);
-      return;
-    }
-    dispatch('ComingSoon', { sectionName: route.name });
-  }, [breakpoint, desktopActionForRoute]);
+    usePaletteAction.getState().request(actionForRoute(route));
+  }, [actionForRoute]);
 
   if (Platform.OS !== 'web') return null;
   return (

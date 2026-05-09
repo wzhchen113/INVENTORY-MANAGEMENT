@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Platform, ScrollView } from 'react-native';
+// Note: Modal is intentionally not imported — ResponsiveSheet wraps it.
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
@@ -8,6 +9,8 @@ import { IngredientForm, IngredientFormValues, blankValues } from './IngredientF
 import { VendorFormDrawer } from './VendorFormDrawer';
 import { JsonPreview } from './JsonPreview';
 import { AuditHistory } from './AuditHistory';
+import { ResponsiveSheet } from './ResponsiveSheet';
+import { useIsCompact, useIsPhone } from '../../theme/breakpoints';
 import { InventoryItem } from '../../types';
 
 type Mode = 'edit' | 'new';
@@ -64,11 +67,17 @@ const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
   expiryDate: v.expiryDate || null,
 });
 
-// Right-anchored drawer, 760w. Header (mode pill + name + status indicator)
-// + body (form + side pane) + footer (DISCARD / SAVE | CREATE).
-// Uses Modal with a click-outside backdrop.
+// Spec 011 — drawer adapts via `ResponsiveSheet`:
+//   - desktop: right-anchored 760w drawer (pre-Spec-011 behavior)
+//   - tablet : bottom sheet @ 85% viewport
+//   - phone  : full-screen modal
+// On compact tiers (phone/tablet) the form body flips to a vertical
+// stack and the side pane (JsonPreview / AuditHistory) is suppressed
+// on phone — it's a power-user assist that doesn't fit thumb width.
 export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onClose }) => {
   const C = useCmdColors();
+  const isCompact = useIsCompact();
+  const isPhone = useIsPhone();
   const addItem = useStore((s) => s.addItem);
   const updateItem = useStore((s) => s.updateItem);
   const stores = useStore((s) => s.stores);
@@ -214,65 +223,98 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
       ? { label: '● modified', fg: C.warn, bg: C.warnBg }
       : { label: '● saved', fg: C.fg3, bg: C.panel2 };
 
+  // Header / footer JSX — passed as ResponsiveSheet slots so they sit
+  // sticky above/below the scrollable body on every tier.
+  const header = (
+    <View style={{ height: 44, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.panel }}>
+      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accent }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>{isNew ? 'NEW' : 'EDIT'}</Text>
+      </View>
+      <Text style={{ fontWeight: '600', fontSize: 13.5, color: C.fg }} numberOfLines={1}>{title}</Text>
+      {!isNew && item ? (
+        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>· {item.id.slice(0, 11)}</Text>
+      ) : null}
+      <View style={{ flex: 1 }} />
+      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: statusPill.bg }}>
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: statusPill.fg }}>{statusPill.label}</Text>
+      </View>
+      {/* Phone has no Esc key — show an explicit ✕ close affordance.
+          Desktop/tablet keep the "esc" hint since the keydown handler
+          fires for them. */}
+      {isPhone ? (
+        <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={6}>
+          <Text style={{ fontFamily: mono(400), fontSize: 16, color: C.fg2 }}>✕</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>esc</Text>
+      )}
+    </View>
+  );
+
+  const footer = (
+    <View style={{ minHeight: 54, paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.panel, flexWrap: 'wrap' }}>
+      <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+        {isNew
+          ? `${requiredValid ? '3/3' : '0/3'} required valid · creates audit entry`
+          : (dirty ? 'unsaved changes' : 'no changes')}
+      </Text>
+      <View style={{ flex: 1 }} />
+      <TouchableOpacity onPress={handleDiscard} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>{isNew ? 'CANCEL' : 'DISCARD'}</Text>
+      </TouchableOpacity>
+      {/* SAVE is always enabled; required-field validation runs
+          inside `handleSave` and surfaces a Toast on miss. The "0/3
+          required valid" footer text below already communicates
+          form state — spec 004 fix-pass item 2. */}
+      <TouchableOpacity onPress={handleSave} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, backgroundColor: C.accent }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>
+          {isNew ? 'CREATE  ⌘⏎' : 'SAVE  ⌘S'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Body — form + side pane. On compact tiers stack vertically; on
+  // phone hide the side pane entirely (it's a power-user assist that
+  // doesn't fit thumb width). On tablet bottom-sheet, the side pane
+  // drops below the form so the user can scroll down to it.
+  const sidePane = isPhone
+    ? null
+    : isNew
+      ? <JsonPreview values={values} valid={requiredValid} />
+      : <AuditHistory itemName={item?.name || ''} />;
+
+  const body = isCompact ? (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+      <View style={{ flexDirection: 'column', gap: 0 }}>
+        <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
+        {sidePane}
+      </View>
+    </ScrollView>
+  ) : (
+    <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+      <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
+      {sidePane}
+    </View>
+  );
+
   return (
     <>
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      {/* Backdrop click-outside */}
-      <TouchableOpacity activeOpacity={1} onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.32)', flexDirection: 'row', justifyContent: 'flex-end' }}>
-        <TouchableOpacity activeOpacity={1} onPress={() => {}} style={{ width: 760, height: '100%', backgroundColor: C.bg, borderLeftWidth: 1, borderLeftColor: C.borderStrong, ...(Platform.OS === 'web' ? ({ boxShadow: '-12px 0 40px rgba(0,0,0,0.18)' } as any) : {}) }}>
-          {/* Header */}
-          <View style={{ height: 44, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.panel }}>
-            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accent }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>{isNew ? 'NEW' : 'EDIT'}</Text>
-            </View>
-            <Text style={{ fontWeight: '600', fontSize: 13.5, color: C.fg }}>{title}</Text>
-            {!isNew && item ? (
-              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>· {item.id.slice(0, 11)}</Text>
-            ) : null}
-            <View style={{ flex: 1 }} />
-            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: statusPill.bg }}>
-              <Text style={{ fontFamily: mono(400), fontSize: 10, color: statusPill.fg }}>{statusPill.label}</Text>
-            </View>
-            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>esc</Text>
-          </View>
-
-          {/* Body — form + side pane */}
-          <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
-            <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
-            {isNew
-              ? <JsonPreview values={values} valid={requiredValid} />
-              : <AuditHistory itemName={item?.name || ''} />}
-          </View>
-
-          {/* Footer */}
-          <View style={{ height: 54, paddingHorizontal: 18, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.panel }}>
-            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {isNew
-                ? `${requiredValid ? '3/3' : '0/3'} required valid · creates audit entry`
-                : (dirty ? 'unsaved changes' : 'no changes')}
-            </Text>
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity onPress={handleDiscard} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>{isNew ? 'CANCEL' : 'DISCARD'}</Text>
-            </TouchableOpacity>
-            {/* SAVE is always enabled; required-field validation runs
-                inside `handleSave` and surfaces a Toast on miss. The "0/3
-                required valid" footer text below already communicates
-                form state — spec 004 fix-pass item 2. */}
-            <TouchableOpacity onPress={handleSave} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, backgroundColor: C.accent }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>
-                {isNew ? 'CREATE  ⌘⏎' : 'SAVE  ⌘S'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
-    {/* Inline-add vendor — opened from the form's vendor dropdown's
-        "+ new vendor" sentinel. Rendered as a sibling Modal so it stacks
-        cleanly on top; on save, handleVendorDrawerClose finds the new
-        vendor and auto-selects it. */}
-    {vendorDrawerSibling}
+      <ResponsiveSheet
+        visible={visible}
+        onClose={onClose}
+        desktopWidth={760}
+        header={header}
+        footer={footer}
+        accessibilityLabel={isNew ? 'New ingredient' : 'Edit ingredient'}
+      >
+        {body}
+      </ResponsiveSheet>
+      {/* Inline-add vendor — opened from the form's vendor dropdown's
+          "+ new vendor" sentinel. Rendered as a sibling so it stacks
+          cleanly on top; on save, handleVendorDrawerClose finds the new
+          vendor and auto-selects it. */}
+      {vendorDrawerSibling}
     </>
   );
 };

@@ -4,6 +4,7 @@ import {
   EODSubmission, Recipe, PrepRecipe, InventoryItem, Vendor, AuditEvent, POSImport,
   Store, OrderSubmission, OrderSchedule, ItemStatus,
 } from '../types';
+import type { SidebarGroup } from './sidebarLayout';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -996,5 +997,68 @@ export function useCogsForCurrentStore(days: number = 7): {
     const pct = theoretical > 0 ? +((delta / theoretical) * 100).toFixed(1) : 0;
     return { theoretical, actual, delta, pct };
   }, [currentStore.id, inventory, eodSubmissions, posImports, recipes, days]);
+}
+
+// ─── Spec 011: Responsive sidebar — single source of truth ──────────
+//
+// Per architect §2 / §4.C, the canonical sidebar group structure lives
+// here so the desktop `Sidebar`, the tablet `RailSidebar`, and the
+// `MobileNavDrawer` consume the same tree. Lifting it also fixes the
+// real bug that `NavDrawerScreen` ignored the Spec 008 user override
+// (it built its own inline tree). `useDefaultSidebarGroups()` returns
+// groups WITHOUT an `onPress` for the `DBInspector` row — the consuming
+// shell attaches navigation, since the selector is decoupled from React
+// Navigation. The shell also runs `applySidebarOverride()` to merge the
+// Spec 008 per-user override; we don't co-locate that hook here because
+// the shell needs to attach `onPress` BEFORE the override merge.
+//
+// Item ids are load-bearing for the Spec 008 override merge — don't
+// rename them casually.
+
+/**
+ * Default group structure (admin-only app — store users have a separate
+ * app + API). Memoized via stable identity: the array is constructed
+ * once per `useMemo` boundary and returned. Consumers that need to wire
+ * an `onPress` (e.g. `DBInspector`) attach it after consuming.
+ */
+export function useDefaultSidebarGroups(): SidebarGroup[] {
+  return useMemo<SidebarGroup[]>(() => [
+    {
+      label: 'Operations',
+      items: [
+        { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
+        { id: 'Dashboard',       label: 'Dashboard' },
+        { id: 'EODCount',        label: 'EOD count' },
+        { id: 'WasteLog',        label: 'Waste log' },
+        { id: 'Receiving',       label: 'Receiving' },
+      ],
+    },
+    {
+      label: 'Planning',
+      items: [
+        { id: 'PurchaseOrders',  label: 'Purchase orders' },
+        { id: 'Vendors',         label: 'Vendors' },
+        { id: 'Categories',      label: 'Categories' },
+        { id: 'OrderSchedule',   label: 'Order schedule' },
+        { id: 'Recipes',         label: 'Menu items / BOM' },
+        { id: 'PrepRecipes',     label: 'Prep recipes' },
+        { id: 'Restock',         label: 'Restock' },
+      ],
+    },
+    {
+      label: 'Insights',
+      items: [
+        { id: 'Reconciliation',  label: 'Reconciliation' },
+        { id: 'POSImports',      label: 'POS imports' },
+        { id: 'AuditLog',        label: 'Audit log' },
+        { id: 'Reports',         label: 'Reports' },
+        // DBInspector is rendered by the legacy color palette and is
+        // routed as a sibling stack screen rather than a section pane.
+        // The shell attaches `onPress` since this selector is decoupled
+        // from React Navigation.
+        { id: 'DBInspector',     label: 'DB inspector' },
+      ],
+    },
+  ], []);
 }
 
