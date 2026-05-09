@@ -98,12 +98,56 @@ interface StoreActions {
   createBrand: (name: string) => Promise<Brand | null>;
   /** Spec 012b cleanup #2 — store-owned mirror of fetchBrandsWithStats.
    *  BrandsSection consumes this slice instead of calling db.ts directly,
-   *  matching every other section under src/screens/cmd/sections/. */
+   *  matching every other section under src/screens/cmd/sections/.
+   *  012c cleanup SF #6: post-012c the slice may contain soft-deleted
+   *  brands too if any consumer last invoked `loadBrandStatsIncludingDeleted`
+   *  rather than `loadBrandStats`. Filter by `deletedAt == null` if you
+   *  need active-only. (Future spec should split into two slices for
+   *  cleaner separation.) */
   brandStats: Array<Brand & { storeCount: number; memberCount: number; catalogIngredientCount: number }>;
   loadBrandStats: () => Promise<void>;
   /** Spec 012b cleanup #2 — per-brand admin lists, keyed by brandId. */
   brandAdminsByBrandId: Record<string, User[]>;
   loadBrandAdmins: (brandId: string) => Promise<void>;
+
+  // Spec 012c — brand lifecycle (rename, soft-delete, restore, preview,
+  // hard-delete, audit log) + Q-ARCH-1 profile mutations on the members
+  // tab (demote, delete). All super-admin-only at the RLS / RPC layer;
+  // the UI also gates on useIsSuperAdmin().
+  /** Rename a brand. Optimistic-then-revert via notifyBackendError. */
+  renameBrand: (brandId: string, newName: string) => Promise<boolean>;
+  /** Soft-delete a brand. Optimistic — moves the row to the soft-deleted
+   *  partition. If brandId === currentBrandId, also auto-swaps to null
+   *  (per AC S5) and surfaces a toast. Revert on backend error. */
+  softDeleteBrand: (brandId: string) => Promise<boolean>;
+  /** Restore a soft-deleted brand. Optimistic. Per Q-ARCH-3 does NOT
+   *  touch currentBrandId. Revert on backend error. */
+  restoreBrand: (brandId: string) => Promise<boolean>;
+  /** Preview the cascade — wraps db.previewBrandCascade. No optimistic
+   *  state mutation; just returns the payload to the caller. */
+  previewBrandCascade: (brandId: string) => Promise<db.BrandCascadePreview | null>;
+  /** Hard-delete a brand. NO optimistic mutation — destructive enough
+   *  that the UI waits for server confirmation. After success, drops
+   *  the row from brandStats / brandsList; if brandId === currentBrandId,
+   *  auto-swaps to null. Errors surface via notifyBackendError. */
+  hardDeleteBrand: (brandId: string) => Promise<db.BrandCascadePreview | null>;
+  /** Variant of loadBrandStats that includes soft-deleted brands.
+   *  Powers the Trash sub-tab. */
+  loadBrandStatsIncludingDeleted: () => Promise<void>;
+  /** brand_deletion_log audit slice — keyed by brandId, or `__all__`
+   *  for the unfiltered call. */
+  brandDeletionLog: Record<string, db.BrandDeletionLogEntry[]>;
+  loadBrandDeletionLog: (brandId?: string) => Promise<void>;
+  /** Spec 012c (Q-ARCH-1) — demote an admin/master profile to user.
+   *  Optimistic-then-revert. Wraps db.demoteProfileToUser, which also
+   *  clears `brand_id` so the row stops counting toward the H5
+   *  blocking-profile total. */
+  demoteProfileToUser: (profileId: string) => Promise<boolean>;
+  /** Spec 012c (Q-ARCH-1) — irreversibly delete a profile + auth user.
+   *  NO optimistic mutation. Wraps the existing auth.deleteUser edge
+   *  function call. On success, drops the row from any cached members
+   *  lists. On error, notifyBackendError. */
+  deleteProfile: (profileId: string) => Promise<boolean>;
 
   // Inventory
   addItem: (item: Omit<InventoryItem, 'id'>) => void;
@@ -293,6 +337,8 @@ export const useStore = create<FullStore>((set, get) => ({
   // a super-admin opens BrandsSection.
   brandStats: [] as Array<Brand & { storeCount: number; memberCount: number; catalogIngredientCount: number }>,
   brandAdminsByBrandId: {} as Record<string, User[]>,
+  // Spec 012c — audit-log slice keyed by brandId or `__all__`.
+  brandDeletionLog: {} as Record<string, db.BrandDeletionLogEntry[]>,
 
   // Auth
   login: (user) => {
@@ -326,7 +372,7 @@ export const useStore = create<FullStore>((set, get) => ({
     set({ currentUser: null });
     // Spec 012b — drop super-admin brand context on logout.
     clearActiveBrandLocal();
-    set({ currentBrandId: null, brandsList: [], brandStats: [], brandAdminsByBrandId: {} });
+    set({ currentBrandId: null, brandsList: [], brandStats: [], brandAdminsByBrandId: {}, brandDeletionLog: {} });
     import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     // Drop web-push subscription for this browser so the user doesn't keep
     // getting reminders for a store they no longer have access to.
@@ -457,6 +503,223 @@ export const useStore = create<FullStore>((set, get) => ({
       });
     } catch (e: any) {
       console.warn('[Supabase] loadBrandAdmins:', e?.message || e);
+    }
+  },
+
+  // ── Spec 012c — brand lifecycle actions ───────────────────────────
+  renameBrand: async (brandId, newName) => {
+    const trimmed = newName.trim();
+    if (!brandId || !trimmed) return false;
+    const prevList = get().brandsList;
+    const prevStats = get().brandStats;
+    const prevBrand = get().brand;
+    // Optimistic.
+    set({
+      brandsList: prevList.map((b) => (b.id === brandId ? { ...b, name: trimmed } : b)),
+      brandStats: prevStats.map((b) => (b.id === brandId ? { ...b, name: trimmed } : b)),
+      brand: prevBrand && prevBrand.id === brandId ? { ...prevBrand, name: trimmed } : prevBrand,
+    });
+    try {
+      await db.renameBrand(brandId, trimmed);
+      return true;
+    } catch (e: any) {
+      // Revert all three slices.
+      set({ brandsList: prevList, brandStats: prevStats, brand: prevBrand });
+      notifyBackendError('Rename brand', e);
+      return false;
+    }
+  },
+
+  softDeleteBrand: async (brandId) => {
+    if (!brandId) return false;
+    const prevList = get().brandsList;
+    const prevStats = get().brandStats;
+    const prevBrandId = get().currentBrandId;
+    const target = prevStats.find((b) => b.id === brandId) ?? prevList.find((b) => b.id === brandId);
+    const brandName = target?.name || 'brand';
+    const nowISO = new Date().toISOString();
+    // Optimistic — flip deletedAt locally; the Trash partition picks
+    // up the row on next render.
+    set({
+      brandsList: prevList.map((b) => (b.id === brandId ? { ...b, deletedAt: nowISO } : b)),
+      brandStats: prevStats.map((b) => (b.id === brandId ? { ...b, deletedAt: nowISO } : b)),
+    });
+    // Auto-swap currentBrandId if the soft-deleted brand was active.
+    if (prevBrandId === brandId) {
+      get().setCurrentBrandId(null);
+      Toast.show({
+        type: 'info',
+        text1: `Brand "${brandName}" was deleted`,
+        text2: 'Switched to All brands view.',
+        visibilityTime: 4000,
+      });
+    }
+    try {
+      await db.softDeleteBrand(brandId);
+      return true;
+    } catch (e: any) {
+      // Revert. Cleanup SF #4 — restore brandsList + brandStats. Restore
+      // currentBrandId via `set` directly instead of `setCurrentBrandId`
+      // because the latter triggers a full `loadFromSupabase` which we
+      // don't want on a failed RPC (the local data is already correct).
+      set({ brandsList: prevList, brandStats: prevStats });
+      if (prevBrandId === brandId) {
+        persistActiveBrandLocal(prevBrandId);
+        set({ currentBrandId: prevBrandId });
+      }
+      notifyBackendError('Soft-delete brand', e);
+      return false;
+    }
+  },
+
+  restoreBrand: async (brandId) => {
+    if (!brandId) return false;
+    const prevList = get().brandsList;
+    const prevStats = get().brandStats;
+    // Optimistic — Q-ARCH-3 says we do NOT auto-swap currentBrandId.
+    set({
+      brandsList: prevList.map((b) => (b.id === brandId ? { ...b, deletedAt: null } : b)),
+      brandStats: prevStats.map((b) => (b.id === brandId ? { ...b, deletedAt: null } : b)),
+    });
+    try {
+      await db.restoreBrand(brandId);
+      return true;
+    } catch (e: any) {
+      set({ brandsList: prevList, brandStats: prevStats });
+      notifyBackendError('Restore brand', e);
+      return false;
+    }
+  },
+
+  previewBrandCascade: async (brandId) => {
+    if (!brandId) return null;
+    try {
+      return await db.previewBrandCascade(brandId);
+    } catch (e: any) {
+      notifyBackendError('Preview brand cascade', e);
+      return null;
+    }
+  },
+
+  hardDeleteBrand: async (brandId) => {
+    if (!brandId) return null;
+    try {
+      const result = await db.hardDeleteBrand(brandId);
+      // After server confirms, remove from all brand slices.
+      set({
+        brandsList: get().brandsList.filter((b) => b.id !== brandId),
+        brandStats: get().brandStats.filter((b) => b.id !== brandId),
+      });
+      const brandName = result.brandName || 'brand';
+      if (get().currentBrandId === brandId) {
+        get().setCurrentBrandId(null);
+        Toast.show({
+          type: 'info',
+          text1: `Brand "${brandName}" was purged`,
+          text2: 'Switched to All brands view.',
+          visibilityTime: 4000,
+        });
+      } else {
+        Toast.show({
+          type: 'success',
+          text1: `Purged "${brandName}"`,
+          text2: 'Cascade complete — brand and all attached data erased.',
+          visibilityTime: 4000,
+        });
+      }
+      return result;
+    } catch (e: any) {
+      notifyBackendError('Hard-delete brand', e);
+      return null;
+    }
+  },
+
+  loadBrandStatsIncludingDeleted: async () => {
+    try {
+      const rows = await db.fetchBrandsWithStats({ includeSoftDeleted: true });
+      set({ brandStats: rows });
+    } catch (e: any) {
+      console.warn('[Supabase] loadBrandStatsIncludingDeleted:', e?.message || e);
+    }
+  },
+
+  loadBrandDeletionLog: async (brandId) => {
+    try {
+      const rows = await db.fetchBrandDeletionLog(brandId ? { brandId } : undefined);
+      const key = brandId || '__all__';
+      set({
+        brandDeletionLog: {
+          ...get().brandDeletionLog,
+          [key]: rows,
+        },
+      });
+    } catch (e: any) {
+      console.warn('[Supabase] loadBrandDeletionLog:', e?.message || e);
+    }
+  },
+
+  demoteProfileToUser: async (profileId) => {
+    if (!profileId) return false;
+    // Optimistic — flip the role pill across every cached members list
+    // that contains this profile. Spec §7: members tab re-renders from
+    // the cache so the row visually moves to the USER partition.
+    const prevByBrand = get().brandAdminsByBrandId;
+    const next: Record<string, User[]> = {};
+    for (const [bid, list] of Object.entries(prevByBrand)) {
+      next[bid] = list.map((u) => (u.id === profileId ? { ...u, role: 'user' as const, brandId: null } : u));
+    }
+    set({ brandAdminsByBrandId: next });
+    try {
+      await db.demoteProfileToUser(profileId);
+      // Re-fetch any brand whose admins list contained this profile so
+      // the row drops out of MembersTab (it's now role='user' AND
+      // brand_id=null, so fetchBrandAdmins won't return it next time).
+      const affectedBrands = Object.entries(prevByBrand)
+        .filter(([, list]) => list.some((u) => u.id === profileId))
+        .map(([bid]) => bid);
+      for (const bid of affectedBrands) {
+        get().loadBrandAdmins(bid).catch(() => { /* logged inside */ });
+      }
+      Toast.show({
+        type: 'info',
+        text1: 'Profile demoted',
+        text2: 'Role changed to user; brand affiliation cleared.',
+        visibilityTime: 4000,
+      });
+      return true;
+    } catch (e: any) {
+      set({ brandAdminsByBrandId: prevByBrand });
+      notifyBackendError('Demote profile', e);
+      return false;
+    }
+  },
+
+  deleteProfile: async (profileId) => {
+    if (!profileId) return false;
+    try {
+      const { deleteUser } = await import('../lib/auth');
+      const { error } = await deleteUser(profileId);
+      if (error) {
+        notifyBackendError('Delete profile', new Error(error));
+        return false;
+      }
+      // Drop the row from every cached members list.
+      const prevByBrand = get().brandAdminsByBrandId;
+      const next: Record<string, User[]> = {};
+      for (const [bid, list] of Object.entries(prevByBrand)) {
+        next[bid] = list.filter((u) => u.id !== profileId);
+      }
+      set({ brandAdminsByBrandId: next });
+      Toast.show({
+        type: 'info',
+        text1: 'Profile deleted',
+        text2: 'Both profile row and auth user have been removed.',
+        visibilityTime: 4000,
+      });
+      return true;
+    } catch (e: any) {
+      notifyBackendError('Delete profile', e);
+      return false;
     }
   },
 

@@ -1622,11 +1622,17 @@ export async function fetchBrandsLite(opts?: {
 
 /**
  * Spec 012b §5 — brands list with stats for the Brands section list pane.
- * Returns one row per brand (active only, deleted_at IS NULL) plus
- * counts for stores + admin members. The counts use PostgREST embeds
+ * Returns one row per brand (active only by default, deleted_at IS NULL)
+ * plus counts for stores + admin members. The counts use PostgREST embeds
  * with `count` aggregates for a single round-trip.
+ *
+ * Spec 012c §5 — `opts.includeSoftDeleted` flips the `deleted_at IS NULL`
+ * filter off so the BrandsSection Trash sub-tab can render soft-deleted
+ * brands. Default is back-compat (active-only).
  */
-export async function fetchBrandsWithStats(): Promise<Array<Brand & {
+export async function fetchBrandsWithStats(opts?: {
+  includeSoftDeleted?: boolean;
+}): Promise<Array<Brand & {
   storeCount: number;
   memberCount: number;
   catalogIngredientCount: number;
@@ -1635,7 +1641,7 @@ export async function fetchBrandsWithStats(): Promise<Array<Brand & {
   // Cleanup #5 — profiles count is filtered to role IN (admin, master,
   // super_admin) so the UI's "X admins" label is accurate (regular `user`
   // role rows don't contribute).
-  const { data, error } = await supabase
+  let primary = supabase
     .from('brands')
     .select(`
       id, name, created_at, deleted_at,
@@ -1644,17 +1650,23 @@ export async function fetchBrandsWithStats(): Promise<Array<Brand & {
       catalog_ingredients(count)
     `)
     .in('profiles.role', ['admin', 'master', 'super_admin'])
-    .is('deleted_at', null)
     .order('name', { ascending: true });
+  if (!opts?.includeSoftDeleted) {
+    primary = primary.is('deleted_at', null);
+  }
+  const { data, error } = await primary;
   if (error) {
     // The !inner join drops brands with zero admin profiles. Fall back to
     // a non-inner query so a freshly-created brand without any admin yet
     // still surfaces (admin count is then 0).
-    const fallback = await supabase
+    let fb = supabase
       .from('brands')
       .select('id, name, created_at, deleted_at, stores(count), profiles(count), catalog_ingredients(count)')
-      .is('deleted_at', null)
       .order('name', { ascending: true });
+    if (!opts?.includeSoftDeleted) {
+      fb = fb.is('deleted_at', null);
+    }
+    const fallback = await fb;
     if (fallback.error) throw fallback.error;
     return mapBrandStats(fallback.data || []);
   }
@@ -1702,6 +1714,174 @@ export async function createBrand(name: string): Promise<Brand> {
     deletedAt: data.deleted_at ?? null,
     createdAt: data.created_at ?? null,
   };
+}
+
+// ─── BRAND LIFECYCLE (Spec 012c) ────────────────────────────────────
+//
+// Five SECURITY DEFINER RPCs gated by auth_is_super_admin() server-side.
+// All raise PostgREST errors on rejection; callers (useStore actions)
+// surface via notifyBackendError. Local helpers wrap the RPC contracts
+// from spec 012c §2.
+
+export interface BrandCascadePreview {
+  brandId: string;
+  brandName: string;
+  deletedAt: string | null;
+  blockingProfiles: Array<{
+    profileId: string;
+    name: string;
+    email: string | null;
+    role: 'super_admin' | 'admin' | 'master' | 'user';
+    status: 'active' | 'pending';
+  }>;
+  blockingProfileCounts: { admins: number; users: number; superAdmins: number };
+  /** Per-table row counts (table_name → count). Keys come from the
+   *  RPC payload's `counts` object. */
+  counts: Record<string, number>;
+}
+
+export interface BrandDeletionLogEntry {
+  id: string;
+  brandId: string;
+  brandName: string;
+  event: 'soft_deleted' | 'restored' | 'hard_deleted';
+  actorUserId: string | null;
+  actorEmail: string | null;
+  cascadePayload: BrandCascadePreview | null;
+  createdAt: string;
+}
+
+function mapCascadePreview(p: any): BrandCascadePreview {
+  // RPC returns jsonb; supabase deserializes to a plain object.
+  // Cleanup C2 — local renamed from `counts` to `profileCounts` so it
+  // doesn't collide semantically with `p?.counts` (the per-table row
+  // counts read separately at the bottom). Future maintenance had a
+  // trap where a developer might copy this line for the per-table
+  // counts and get the wrong source.
+  const profiles = Array.isArray(p?.blocking_profiles) ? p.blocking_profiles : [];
+  const profileCounts = (p?.blocking_profile_counts ?? {}) as Record<string, number>;
+  return {
+    brandId: p?.brand_id ?? '',
+    brandName: p?.brand_name ?? '',
+    deletedAt: p?.deleted_at ?? null,
+    blockingProfiles: profiles.map((bp: any) => ({
+      profileId: bp.profile_id,
+      name: bp.name ?? '',
+      email: bp.email ?? null,
+      role: bp.role,
+      status: bp.status,
+    })),
+    blockingProfileCounts: {
+      admins: Number(profileCounts.admins ?? 0),
+      users: Number(profileCounts.users ?? 0),
+      superAdmins: Number(profileCounts.super_admins ?? 0),
+    },
+    counts: (p?.counts ?? {}) as Record<string, number>,
+  };
+}
+
+/** Spec 012c §2.1 — rename a brand. Wraps `rename_brand(uuid, text)`.
+ *  Trims client-side; server also trims and rejects empty. UNIQUE
+ *  collision surfaces as Postgres 23505 → notifyBackendError. */
+export async function renameBrand(brandId: string, newName: string): Promise<void> {
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error('Brand name cannot be empty');
+  const { error } = await supabase.rpc('rename_brand', {
+    p_brand_id: brandId,
+    p_new_name: trimmed,
+  });
+  if (error) throw error;
+}
+
+/** Spec 012c §2.2 — soft-delete a brand. Returns the assigned
+ *  `deleted_at` ISO string. Idempotent: re-calling on an already
+ *  soft-deleted brand returns the prior timestamp without writing
+ *  a new audit row. */
+export async function softDeleteBrand(brandId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('soft_delete_brand', {
+    p_brand_id: brandId,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Spec 012c §2.3 — restore a soft-deleted brand. Server-side blocks
+ *  the call past the 30-day grace window with a clear EXCEPTION
+ *  message that the UI surfaces via notifyBackendError. */
+export async function restoreBrand(brandId: string): Promise<void> {
+  const { error } = await supabase.rpc('restore_brand', { p_brand_id: brandId });
+  if (error) throw error;
+}
+
+/** Spec 012c §2.4 — preview the cascade. Returns per-table row counts
+ *  AND the blocking-profiles array (Q-USER-A hard-blocker). The
+ *  CascadePreviewModal renders the red error block when
+ *  `blockingProfiles.length > 0`. */
+export async function previewBrandCascade(brandId: string): Promise<BrandCascadePreview> {
+  const { data, error } = await supabase.rpc('preview_brand_cascade', {
+    p_brand_id: brandId,
+  });
+  if (error) throw error;
+  return mapCascadePreview(data);
+}
+
+/** Spec 012c §2.5 — irreversible cascade. Server-side enforces both
+ *  pre-flights (must be soft-deleted; must have zero attached
+ *  profiles). Returns the at-execution cascade snapshot for the
+ *  caller's success toast. */
+export async function hardDeleteBrand(brandId: string): Promise<BrandCascadePreview> {
+  const { data, error } = await supabase.rpc('hard_delete_brand', {
+    p_brand_id: brandId,
+  });
+  if (error) throw error;
+  return mapCascadePreview(data);
+}
+
+/** Spec 012c §5 — read the brand_deletion_log audit table. Super-admin
+ *  only via RLS. Optional brandId filter for the per-brand history;
+ *  default returns the global tail (most recent first). */
+export async function fetchBrandDeletionLog(
+  opts?: { brandId?: string; limit?: number },
+): Promise<BrandDeletionLogEntry[]> {
+  let q = supabase
+    .from('brand_deletion_log')
+    .select('id, brand_id, brand_name, event, actor_user_id, actor_email, cascade_payload, created_at')
+    .order('created_at', { ascending: false })
+    .limit(opts?.limit ?? 100);
+  if (opts?.brandId) q = q.eq('brand_id', opts.brandId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    brandId: r.brand_id,
+    brandName: r.brand_name,
+    event: r.event,
+    actorUserId: r.actor_user_id ?? null,
+    actorEmail: r.actor_email ?? null,
+    cascadePayload: r.cascade_payload ? mapCascadePreview(r.cascade_payload) : null,
+    createdAt: r.created_at,
+  }));
+}
+
+/** Spec 012c §5 (Q-ARCH-1) — demote an admin/master profile to user
+ *  AND clear `brand_id`. Both columns must change in a single UPDATE
+ *  so (a) `profiles_role_brand_consistent` CHECK passes (role='user'
+ *  allows any brand_id) and (b) the H5 pre-flight in `hard_delete_brand`
+ *  stops counting this row toward the blocking total.
+ *
+ *  Direct PostgREST UPDATE per spec §5 architect default. RLS on
+ *  profiles must permit super-admin to UPDATE. If RLS rejects, this
+ *  raises an error which surfaces via notifyBackendError; backend-
+ *  developer is on the hook to wrap as a SECURITY DEFINER RPC if so. */
+export async function demoteProfileToUser(profileId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ role: 'user', brand_id: null })
+    .eq('id', profileId)
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
 }
 
 /**

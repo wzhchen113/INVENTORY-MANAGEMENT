@@ -11,7 +11,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const ADMIN_ROLES = new Set(["admin", "master"]);
+// Spec 012c §14 / Probe 16 — `super_admin` was missing from the
+// allowed-callers set, so the new "Delete profile" button in the Brands
+// section (super-admin only) would have been rejected with 403. Adding
+// it explicitly closes the gap. The existing 'admin' / 'master' grants
+// remain (pre-existing risk surface — flagged for security-auditor).
+const ADMIN_ROLES = new Set(["admin", "master", "super_admin"]);
 
 async function requireAdminCaller(authHeader: string | null) {
   if (!authHeader?.startsWith("Bearer ")) return { error: "missing bearer token", status: 401 };
