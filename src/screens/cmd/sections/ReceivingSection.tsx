@@ -9,8 +9,19 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { OrderSubmission } from '../../../types';
+import { computeExpiryFromShelfLife } from '../../../lib/db';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
+
+// Spec 010 §5 — short-date label for the "expires" column. Renders a
+// compact "May 11" form for any 'YYYY-MM-DD'; "—" for missing/invalid.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortExpiry(iso: string | undefined | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
 
 // Pattern A — workflow: list of POs in flight (left) + line-items checklist
 // (right). Real receiving requires a po_items join + per-row qty diff
@@ -29,6 +40,10 @@ export default function ReceivingSection() {
   const currentUser = useStore((s) => s.currentUser);
   const adjustStock = useStore((s) => s.adjustStock);
   const addAuditEvent = useStore((s) => s.addAuditEvent);
+  // Spec 010 §5 — auto-stamp on receive needs the catalog row's
+  // defaultShelfLifeDays + an inventory_items writer to set expiry_date.
+  const catalogIngredients = useStore((s) => s.catalogIngredients);
+  const updateItem = useStore((s) => s.updateItem);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('lines.tsx');
@@ -82,6 +97,10 @@ export default function ReceivingSection() {
         received: receivedQty,
         cost: orderedQty * i.costPerUnit,
         state,
+        // Spec 010 §5 — display-only expiry per line. Reads from the
+        // underlying inventory_items.expiry_date so the auto-stamp side
+        // effect surfaces here on the next render after commitReceive.
+        expiryDate: i.expiryDate,
       };
     });
   }, [sel, inventory, vendors, currentStore.id]);
@@ -100,6 +119,30 @@ export default function ReceivingSection() {
     if (qtyToReceive <= 0) return;
     const newStock = item.currentStock + qtyToReceive;
     adjustStock(item.id, newStock, currentUser?.name || 'unknown');
+    // Spec 010 §5 — auto-stamp expiry from the catalog row's
+    // defaultShelfLifeDays when (a) the row has no current expiry and
+    // (b) the catalog row carries a non-null shelf-life. This is the
+    // only persistence path for expiry on receipt today (Tier-1 mock —
+    // there is no po_items row to attach a per-line override to per
+    // architect §0/§9 flag #1). Operator wanting to override goes to
+    // the IngredientFormDrawer.
+    if (!item.expiryDate) {
+      const catalog = catalogIngredients.find((c) => c.id === item.catalogId);
+      const shelfLife = catalog?.defaultShelfLifeDays ?? null;
+      // Local-date YYYY-MM-DD (NOT toISOString.slice(0,10) — that yields
+      // UTC-today and stamps tomorrow's date when local time is past the
+      // UTC boundary; mirrors the canonical TZ-correct construction in
+      // src/lib/cmdSelectors.ts:886-888 — same Spec 007 TZ class).
+      const now = new Date();
+      const todayLocal =
+        `${now.getFullYear()}-` +
+        `${String(now.getMonth() + 1).padStart(2, '0')}-` +
+        `${String(now.getDate()).padStart(2, '0')}`;
+      const computed = computeExpiryFromShelfLife(todayLocal, shelfLife);
+      if (computed) {
+        updateItem(item.id, { expiryDate: computed });
+      }
+    }
     addAuditEvent({
       timestamp: new Date().toISOString(),
       userId: currentUser?.id || '',
@@ -276,6 +319,11 @@ export default function ReceivingSection() {
                   <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>name</Text>
                   <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>ordered</Text>
                   <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>received</Text>
+                  {/* Spec 010 §5 — display-only expires column. The
+                      auto-stamp branch in commitReceive sets this on
+                      first receive when the catalog row has a
+                      defaultShelfLifeDays. */}
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>expires</Text>
                   <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>line $</Text>
                   <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>state</Text>
                 </View>
@@ -325,6 +373,14 @@ export default function ReceivingSection() {
                         </Text>
                         <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: li.state === 'short' ? C.warn : (li.received > 0 ? C.fg : C.fg3), width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                           {li.received > 0 ? `${li.received} ${li.unit}` : '—'}
+                        </Text>
+                        {/* Spec 010 §5 — expires column. After
+                            commitReceive auto-stamps from the catalog's
+                            default shelf life, the row re-renders with
+                            the new date. "—" means no expiry set + no
+                            catalog default to apply. */}
+                        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: li.expiryDate ? C.fg2 : C.fg3, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                          {shortExpiry(li.expiryDate)}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                           ${li.cost.toFixed(2)}

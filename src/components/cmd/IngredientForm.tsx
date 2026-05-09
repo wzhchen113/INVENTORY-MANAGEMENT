@@ -41,6 +41,13 @@ export interface IngredientFormValues {
   allowSubstitute: boolean;
   // Multi-store create-time toggle (NEW mode only)
   createAtAllStores: boolean;
+  // Spec 010 — expiry tracking
+  // `defaultShelfLifeDays` writes through to catalog_ingredients (brand-
+  // level); `expiryDate` writes through to inventory_items (per row). Held
+  // as text on the form per the existing "everything is a string until
+  // save" convention; cast in IngredientFormDrawer's save handler.
+  defaultShelfLifeDays: string;  // numeric int days; '' = no auto-compute
+  expiryDate: string;            // 'YYYY-MM-DD' or '' for none
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -51,6 +58,7 @@ export const blankValues = (): IngredientFormValues => ({
   reorderPoint: '', max: '', vendorSku: '',
   countNightly: true, trackWaste: true, allowSubstitute: false,
   createAtAllStores: false,
+  defaultShelfLifeDays: '', expiryDate: '',
 });
 
 // Sentinel value for the "+ new vendor" inline-add option in the vendor
@@ -451,6 +459,38 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
         <InputLine label="par"        value={values.parLevel} onChangeText={(v) => set('parLevel', v)} monoFont width="33%" numericOnly />
         <InputLine label="reorder pt" value={values.reorderPoint} placeholder={isNew ? 'optional' : ''} monoFont width="33%" readOnly help={isNew ? '' : 'schema pending'} />
         <InputLine label="max"        value={values.max} placeholder={isNew ? 'optional' : ''} monoFont width="33%" readOnly />
+      </View>
+
+      {/* Spec 010 §6 — EXPIRY block. defaultShelfLifeDays writes to
+          catalog_ingredients (brand-level); expiryDate writes to
+          inventory_items (per row). On NEW mode the per-row expiry input
+          is hidden because the row doesn't exist yet — the auto-stamp
+          path applies on first receipt. */}
+      <SectionCaption tone="fg3" size={9.5}>EXPIRY · spec 010</SectionCaption>
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 14 }}>
+        <InputLine
+          label="default shelf life (days)"
+          value={values.defaultShelfLifeDays}
+          onChangeText={(v) => set('defaultShelfLifeDays', v)}
+          monoFont
+          width="50%"
+          numericOnly
+          placeholder="—"
+          help="brand-wide · auto-applied on receipt when row has no expiry"
+        />
+        {isNew ? (
+          <View style={{ width: '50%' }} />
+        ) : (
+          <InputLine
+            label="this row · expires"
+            value={values.expiryDate}
+            onChangeText={(v) => set('expiryDate', v)}
+            monoFont
+            width="50%"
+            placeholder="YYYY-MM-DD"
+            help="per-row override · blank to clear"
+          />
+        )}
       </View>
 
       <SectionCaption tone="fg3" size={9.5}>{isNew ? 'COSTING · snapshot' : 'COSTING · auto-computed'}</SectionCaption>

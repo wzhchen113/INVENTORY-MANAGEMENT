@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -7,6 +7,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { Sparkline } from '../../../components/cmd/Sparkline';
 import { Heatmap, HeatmapRow } from '../../../components/cmd/Heatmap';
+import { ExpiringItemsModal } from '../../../components/cmd/ExpiringItemsModal';
 import { relativeTime } from '../../../utils/relativeTime';
 import * as db from '../../../lib/db';
 import {
@@ -104,6 +105,14 @@ export default function DashboardSection() {
   // Single-tab strip per Decision D4. Stubs for by_store/variance would be
   // dead UI; kept the existing single-tab pattern from v1 instead.
   const [tabId, setTabId] = React.useState('overview.tsx');
+
+  // Spec 010 §4 — drill-down modal for the new `expiry` attention rule.
+  // One modal serves all per-store columns; the snapshot already carries
+  // store-scoped data so no extra fetch is needed when opening.
+  const [expiryDrillDown, setExpiryDrillDown] = React.useState<{
+    storeName: string;
+    detail: AttentionItem['expiryDetail'];
+  } | null>(null);
 
   // ─── Decision D2 — cross-store EOD + POS held in component-local state.
   // useStore.eodSubmissions / posImports only reflect the focal store;
@@ -408,11 +417,22 @@ export default function DashboardSection() {
                 users={users}
                 getItemStatus={getItemStatus}
                 todayISO={todayISO}
+                onSelectExpiry={(detail) =>
+                  setExpiryDrillDown({ storeName: s.name, detail })
+                }
               />
             </View>
           ))}
         </View>
       </ScrollView>
+      {/* Spec 010 §4 — single modal hosted by the dashboard. Click a
+          per-store expiry alert row → opens with that store's snapshot. */}
+      <ExpiringItemsModal
+        visible={!!expiryDrillDown}
+        storeName={expiryDrillDown?.storeName ?? ''}
+        detail={expiryDrillDown?.detail}
+        onClose={() => setExpiryDrillDown(null)}
+      />
     </View>
   );
 }
@@ -655,6 +675,13 @@ interface StoreColProps {
   users: User[];
   getItemStatus: (i: any) => 'ok' | 'low' | 'out';
   todayISO: string;
+  /**
+   * Spec 010 §4 — fired when a queue row with `rule === 'expiry'` is
+   * clicked. The dashboard hosts a single ExpiringItemsModal and opens
+   * it with the snapshot. Other rule types stay click-inert in v1
+   * (architect §9 flag #2).
+   */
+  onSelectExpiry: (detail: AttentionItem['expiryDetail']) => void;
 }
 const StoreCol: React.FC<StoreColProps> = ({
   store,
@@ -665,6 +692,7 @@ const StoreCol: React.FC<StoreColProps> = ({
   users,
   getItemStatus,
   todayISO,
+  onSelectExpiry,
 }) => {
   const C = useCmdColors();
 
@@ -833,50 +861,79 @@ const StoreCol: React.FC<StoreColProps> = ({
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.ok }}>all clear</Text>
           </View>
         ) : (
-          queue.map((item, i) => (
-            <View
-              key={item.id}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-                gap: 8,
-                paddingVertical: 5,
-                borderTopWidth: i === 0 ? 0 : 1,
-                borderTopColor: C.border,
-                borderStyle: 'dashed',
-              }}
-            >
-              <View
+          queue.map((item, i) => {
+            // Spec 010 §4 — expiry rows open the drill-down modal; other
+            // rules stay non-interactive (architect §9 flag #2). Render
+            // the same visual either way; only the wrapper element
+            // (TouchableOpacity vs View) differs.
+            const isClickable = item.rule === 'expiry' && !!item.expiryDetail;
+            const Wrapper: any = isClickable ? TouchableOpacity : View;
+            const wrapperProps = isClickable
+              ? {
+                  onPress: () => onSelectExpiry(item.expiryDetail),
+                  activeOpacity: 0.7,
+                  accessibilityRole: 'button' as const,
+                  accessibilityLabel: `${item.text} — open drill-down`,
+                }
+              : {};
+            return (
+              <Wrapper
+                key={item.id}
+                {...wrapperProps}
                 style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: CmdRadius.xs,
-                  marginTop: 1,
-                  backgroundColor:
-                    item.sev === 'high' ? C.dangerBg : item.sev === 'med' ? C.warnBg : C.panel2,
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  paddingVertical: 5,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: C.border,
+                  borderStyle: 'dashed',
                 }}
               >
-                <Text
+                <View
                   style={{
-                    fontFamily: mono(700),
-                    fontSize: 8,
-                    color:
-                      item.sev === 'high' ? C.danger : item.sev === 'med' ? C.warn : C.fg3,
-                    letterSpacing: 0.3,
+                    width: 14,
+                    height: 14,
+                    borderRadius: CmdRadius.xs,
+                    marginTop: 1,
+                    backgroundColor:
+                      item.sev === 'high' ? C.dangerBg : item.sev === 'med' ? C.warnBg : C.panel2,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  {item.sev[0].toUpperCase()}
+                  <Text
+                    style={{
+                      fontFamily: mono(700),
+                      fontSize: 8,
+                      color:
+                        item.sev === 'high' ? C.danger : item.sev === 'med' ? C.warn : C.fg3,
+                      letterSpacing: 0.3,
+                    }}
+                  >
+                    {item.sev[0].toUpperCase()}
+                  </Text>
+                </View>
+                <Text
+                  style={{ fontFamily: sans(400), fontSize: 11.5, color: C.fg, flex: 1, lineHeight: 15 }}
+                >
+                  {item.text}
                 </Text>
-              </View>
-              <Text
-                style={{ fontFamily: sans(400), fontSize: 11.5, color: C.fg, flex: 1, lineHeight: 15 }}
-              >
-                {item.text}
-              </Text>
-            </View>
-          ))
+                {isClickable ? (
+                  <Text
+                    style={{
+                      fontFamily: mono(400),
+                      fontSize: 10,
+                      color: C.fg3,
+                      marginTop: 2,
+                    }}
+                  >
+                    →
+                  </Text>
+                ) : null}
+              </Wrapper>
+            );
+          })
         )}
       </View>
 

@@ -1578,7 +1578,59 @@ export async function fetchCatalogIngredients(brandId: string) {
     subUnitUnit: c.sub_unit_unit || '',
     defaultCost: parseFloat(c.default_cost) || 0,
     defaultCasePrice: parseFloat(c.default_case_price) || 0,
+    // Spec 010 §2: nullable int. Older DBs without the column return
+    // undefined → coerce to null so the typed shape matches.
+    defaultShelfLifeDays:
+      c.default_shelf_life_days == null ? null : Number(c.default_shelf_life_days),
   }));
+}
+
+/**
+ * Spec 010 §2: brand-level catalog ingredient writer. Today only carries
+ * `defaultShelfLifeDays`; widen the patch type as more catalog-only
+ * fields move under this helper. Catalog-only fields that already
+ * round-trip through `updateInventoryItem` (name/unit/category/case_qty/
+ * sub_unit_*) stay there for back-compat — see db.ts:122. RLS is
+ * brand-scoped via existing catalog_ingredients policies (spec 005 P5).
+ */
+export async function updateCatalogIngredient(
+  catalogId: string,
+  patch: { defaultShelfLifeDays?: number | null },
+): Promise<void> {
+  if (!catalogId || catalogId.length < 10) return;
+  const row: Record<string, unknown> = {};
+  if (patch.defaultShelfLifeDays !== undefined) {
+    row.default_shelf_life_days = patch.defaultShelfLifeDays;
+  }
+  if (Object.keys(row).length === 0) return;
+  row.updated_at = new Date().toISOString();
+  const { error } = await supabase
+    .from('catalog_ingredients')
+    .update(row)
+    .eq('id', catalogId);
+  if (error) throw error;
+}
+
+/**
+ * Spec 010 §2 / §5: pure helper used by the Receiving auto-stamp branch.
+ * Returns 'YYYY-MM-DD' for receivedAt + shelfLife days, or null when
+ * shelfLife is not set. Works whether the input is a 'YYYY-MM-DD' or a
+ * full ISO timestamp — slices to the date component before parsing so
+ * the result lines up with `inventory_items.expiry_date` (which is a
+ * `date`, not `timestamptz`).
+ */
+export function computeExpiryFromShelfLife(
+  receivedAtISO: string,
+  defaultShelfLifeDays: number | null | undefined,
+): string | null {
+  if (defaultShelfLifeDays == null) return null;
+  const days = Number(defaultShelfLifeDays);
+  if (!Number.isFinite(days) || days < 0) return null;
+  const dateOnly = (receivedAtISO || '').slice(0, 10);
+  const base = new Date(`${dateOnly}T00:00:00Z`);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setUTCDate(base.getUTCDate() + Math.floor(days));
+  return base.toISOString().slice(0, 10);
 }
 
 // ─── FETCH ALL FOR STORE (bulk load) ────────────────────────────────────

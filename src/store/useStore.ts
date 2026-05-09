@@ -5,7 +5,7 @@ import {
   EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition,
-  IngredientConversion, SidebarLayoutOverride,
+  IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -59,6 +59,20 @@ interface StoreActions {
   deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
+
+  // Catalog (brand-level master records)
+  /**
+   * Spec 010: optimistic update of a catalog_ingredients row's
+   * brand-shared fields (today: `defaultShelfLifeDays`). Writes through
+   * `db.updateCatalogIngredient`; reverts the local catalogIngredients
+   * slice on failure via `notifyBackendError`. Catalog-only fields
+   * already round-tripped via `updateItem` (name/unit/category/case_qty
+   * /sub_unit_*) stay there for back-compat.
+   */
+  updateCatalogIngredient: (
+    catalogId: string,
+    patch: { defaultShelfLifeDays?: number | null },
+  ) => void;
 
   // Recipe Categories
   addRecipeCategory: (name: string) => void;
@@ -455,6 +469,25 @@ export const useStore = create<FullStore>((set, get) => ({
         set((s) => ({ inventory: s.inventory.map((i) => (i.id === id ? prev : i)) }));
       }
       notifyBackendError('Adjust stock', e);
+    });
+  },
+
+  // Spec 010: optimistic catalog-ingredient update for brand-shared
+  // fields (defaultShelfLifeDays today). Mirrors updateIngredientConversion
+  // (useStore.ts:553) — snapshot prev slice, mutate local, on error revert
+  // and surface via notifyBackendError. No audit-log entry: catalog
+  // metadata changes are infrequent and the diff isn't operator-facing.
+  updateCatalogIngredient: (catalogId, patch) => {
+    if (!catalogId) return;
+    const prev: CatalogIngredient[] = get().catalogIngredients;
+    set((s) => ({
+      catalogIngredients: s.catalogIngredients.map((c) =>
+        c.id === catalogId ? { ...c, ...patch } : c,
+      ),
+    }));
+    db.updateCatalogIngredient(catalogId, patch).catch((e: any) => {
+      set({ catalogIngredients: prev });
+      notifyBackendError('Update catalog ingredient', e);
     });
   },
 

@@ -20,7 +20,10 @@ interface Props {
   onClose: () => void;
 }
 
-const fromItem = (it: InventoryItem): IngredientFormValues => ({
+// Spec 010 §6 — `defaultShelfLifeDays` is brand-level (catalog_ingredients);
+// callers must resolve it via the InventoryItem.catalogId → catalog row
+// lookup. Pass through here so the drawer can populate the form on edit.
+const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undefined): IngredientFormValues => ({
   ...blankValues(),
   name: it.name,
   category: it.category,
@@ -34,6 +37,11 @@ const fromItem = (it: InventoryItem): IngredientFormValues => ({
   subUnitSize: String(it.subUnitSize || 1),
   subUnitUnit: it.subUnitUnit || '',
   sku: it.id.slice(0, 11), // STUB until real sku column lands; show item id prefix
+  // Spec 010 — expiry fields. defaultShelfLifeDays from catalog row;
+  // expiryDate from the inventory_items row.
+  defaultShelfLifeDays:
+    defaultShelfLifeDays == null ? '' : String(defaultShelfLifeDays),
+  expiryDate: it.expiryDate || '',
 });
 
 const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
@@ -50,6 +58,10 @@ const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
   casePrice: parseFloat(v.casePrice) || 0,
   subUnitSize: parseFloat(v.subUnitSize) || 1,
   subUnitUnit: v.subUnitUnit,
+  // Spec 010 §6 — per-row expiry override. Empty input must clear the
+  // column, so coalesce to null (undefined would be skipped by the PATCH
+  // mapper in db.ts and silently keep the old value).
+  expiryDate: v.expiryDate || null,
 });
 
 // Right-anchored drawer, 760w. Header (mode pill + name + status indicator)
@@ -62,11 +74,25 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
   const vendors = useStore((s) => s.vendors);
+  // Spec 010 §6 — catalog read for defaultShelfLifeDays population on edit,
+  // and write path for save.
+  const catalogIngredients = useStore((s) => s.catalogIngredients);
+  const updateCatalogIngredient = useStore((s) => s.updateCatalogIngredient);
+
+  // Resolve the ingredient's catalog row up front so fromItem() can hydrate
+  // defaultShelfLifeDays. Recomputes when item changes.
+  const catalogRow = React.useMemo(
+    () => (item ? catalogIngredients.find((c) => c.id === item.catalogId) : undefined),
+    [catalogIngredients, item],
+  );
 
   // Initial values snapshot — used for dirty-tracking + DISCARD reset.
   const initial = React.useMemo<IngredientFormValues>(
-    () => (mode === 'edit' && item ? fromItem(item) : blankValues()),
-    [mode, item],
+    () =>
+      mode === 'edit' && item
+        ? fromItem(item, catalogRow?.defaultShelfLifeDays ?? null)
+        : blankValues(),
+    [mode, item, catalogRow],
   );
   const [values, setValues] = React.useState<IngredientFormValues>(initial);
   const [vendorDrawerOpen, setVendorDrawerOpen] = React.useState(false);
@@ -105,6 +131,21 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     }
     if (mode === 'edit' && item) {
       updateItem(item.id, toUpdates(values));
+      // Spec 010 §6 — brand-level catalog write for defaultShelfLifeDays.
+      // Only fires when (a) we know the catalog id and (b) the value
+      // changed. parseInt('') is NaN → coerce to null. Empty input clears
+      // the brand-wide default.
+      const catalogId = item.catalogId;
+      if (catalogId) {
+        const parsed = parseInt(values.defaultShelfLifeDays, 10);
+        const newShelf: number | null =
+          values.defaultShelfLifeDays.trim() === '' || Number.isNaN(parsed) ? null : parsed;
+        const oldShelf =
+          catalogRow?.defaultShelfLifeDays == null ? null : Number(catalogRow.defaultShelfLifeDays);
+        if (newShelf !== oldShelf) {
+          updateCatalogIngredient(catalogId, { defaultShelfLifeDays: newShelf });
+        }
+      }
       Toast.show({ type: 'success', text1: 'Saved', text2: values.name });
       onClose();
       return;

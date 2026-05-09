@@ -645,8 +645,45 @@ export interface AttentionItem {
   id: string;
   sev: 'high' | 'med' | 'low';
   text: string;
-  rule: 'eod_missing' | 'low_out_stock' | 'food_cost_streak' | 'unconfirmed_po';
+  rule: 'eod_missing' | 'low_out_stock' | 'food_cost_streak' | 'unconfirmed_po' | 'expiry';
+  /**
+   * Spec 010: structured payload for the expiry drill-down modal.
+   * Populated only when `rule === 'expiry'`; undefined otherwise.
+   * Pure-function output stays JSON-serializable (no Date objects, no
+   * functions) so the snapshot can be passed through React state without
+   * re-deriving in the modal. Items are sorted ascending by
+   * `hoursToExpiry` so the modal opens with most-urgent at top.
+   * See specs/010-attention-queue-phase-2.md §3 / §4.
+   */
+  expiryDetail?: {
+    sev: 'high' | 'med' | 'low';
+    items: Array<{
+      itemId: string;          // inventory_items.id
+      itemName: string;
+      hoursToExpiry: number;   // negative if already expired
+      dollarAtRisk: number;    // currentStock × costPerUnit
+      unit: string;
+    }>;
+    totalDollarAtRisk: number;
+  };
 }
+
+/**
+ * Spec 010 §3 — system-wide thresholds for the expiry alert.
+ * Severity buckets:
+ *   - HIGH:   ≤ 24h to expiry (or already expired — rolls into HIGH per
+ *             literal reading of the rule; modal shows actual hours so
+ *             "expired 2 days ago" is visually distinct from "expiring
+ *             in 6 hours").
+ *   - MED:    24h < hours ≤ 72h
+ *   - LOW:    72h < hours ≤ 7d
+ *   - hidden: hours > 7d (queue stays clean for the long horizon).
+ *
+ * Per-category and per-item overrides are a follow-up spec (architect §9).
+ */
+export const EXPIRY_HIGH_HOURS = 24;
+export const EXPIRY_MED_HOURS = 72;
+export const EXPIRY_LOW_HOURS = 24 * 7;
 
 const SEV_RANK: Record<AttentionItem['sev'], number> = { high: 0, med: 1, low: 2 };
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -818,6 +855,66 @@ export function computeAttentionQueue(
         rule: 'unconfirmed_po',
       });
     }
+  }
+
+  // ─── expiry (Spec 010 §3) ─────────────────────────────────
+  // One row per severity bucket (high/med/low), aggregated across this
+  // store's inventory. `expiryDetail` carries a snapshot for the
+  // drill-down modal so the modal renders without calling the selector
+  // again with another store filter (cheaper + matches Spec 009's
+  // pure-function pattern).
+  type ExpiryBucketItem = {
+    itemId: string;
+    itemName: string;
+    hoursToExpiry: number;
+    dollarAtRisk: number;
+    unit: string;
+  };
+  const expiryBuckets: Record<'high' | 'med' | 'low', ExpiryBucketItem[]> = {
+    high: [], med: [], low: [],
+  };
+  const nowMs = now.getTime();
+  for (const item of storeInventory) {
+    if (!item.expiryDate) continue;
+    // Treat the date as end-of-day in the operator's local timezone so
+    // a "today" expiry isn't already negative at 9am. Parse the
+    // 'YYYY-MM-DD' literal directly into a local-time Date — the
+    // Date(string) constructor would otherwise parse it as UTC midnight,
+    // which shifts the day boundary by the local UTC offset and breaks
+    // the "until close" semantic. Matches the operator's mental model:
+    // "expires today" = "you have until close".
+    const m = String(item.expiryDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) continue;
+    const d = new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999);
+    if (Number.isNaN(d.getTime())) continue;
+    const hoursToExpiry = (d.getTime() - nowMs) / 3_600_000;
+    if (hoursToExpiry > EXPIRY_LOW_HOURS) continue;
+    const bucket: 'high' | 'med' | 'low' =
+      hoursToExpiry <= EXPIRY_HIGH_HOURS ? 'high'
+      : hoursToExpiry <= EXPIRY_MED_HOURS ? 'med'
+      : 'low';
+    expiryBuckets[bucket].push({
+      itemId: item.id,
+      itemName: item.name,
+      hoursToExpiry: +hoursToExpiry.toFixed(2),
+      dollarAtRisk: +((item.currentStock || 0) * (item.costPerUnit || 0)).toFixed(2),
+      unit: item.unit || '',
+    });
+  }
+  for (const bucket of ['high', 'med', 'low'] as const) {
+    const items = expiryBuckets[bucket];
+    if (items.length === 0) continue;
+    items.sort((a, b) => a.hoursToExpiry - b.hoursToExpiry);
+    const totalDollarAtRisk = +items.reduce((sum, i) => sum + i.dollarAtRisk, 0).toFixed(2);
+    const hoursLabel = bucket === 'high' ? '24h' : bucket === 'med' ? '72h' : '7d';
+    const noun = items.length === 1 ? 'item' : 'items';
+    out.push({
+      id: `${storeId}:expiry:${bucket}`,
+      sev: bucket,
+      text: `${items.length} ${noun} expiring <${hoursLabel}, $${Math.round(totalDollarAtRisk)} at risk`,
+      rule: 'expiry',
+      expiryDetail: { sev: bucket, items, totalDollarAtRisk },
+    });
   }
 
   // Stable ordering: severity → alphabetic text. Dedupe by id (a

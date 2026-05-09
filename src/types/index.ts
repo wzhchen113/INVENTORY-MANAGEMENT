@@ -43,6 +43,14 @@ export interface CatalogIngredient {
   subUnitUnit: string;
   defaultCost: number;
   defaultCasePrice: number;
+  /**
+   * Spec 010: default days from receipt to expiry, used by the
+   * Receiving auto-stamp branch to set inventory_items.expiry_date when
+   * the row has no existing expiry. NULL/undefined = no auto-compute.
+   * The per-row inventory_items.expiry_date can override on a per-row
+   * basis. See specs/010-attention-queue-phase-2.md §1.
+   */
+  defaultShelfLifeDays?: number | null;
 }
 
 export interface InventoryItem {
