@@ -29,6 +29,7 @@ export default function PrepRecipesSection() {
   const prepRecipes = useStore((s) => s.prepRecipes);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
+  const getPrepRecipe = useStore((s) => s.getPrepRecipe);
   const getPrepRecipeCost = useStore((s) => s.getPrepRecipeCost);
   const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const getIngredientLineCost = useStore((s) => s.getIngredientLineCost);
@@ -58,7 +59,9 @@ export default function PrepRecipesSection() {
     if (!sel) return [];
     return (sel.ingredients || []).map((ing) => {
       const isPrep = (ing.type ?? 'raw') === 'prep';
-      const subRecipe = isPrep ? prepRecipes.find((p) => p.id === ing.itemId) : undefined;
+      // Resolve via lineage — the stored sub-recipe id may point at a
+      // non-current version, but we want the current cost.
+      const subRecipe = isPrep ? getPrepRecipe(ing.itemId) : undefined;
       // Raw ingredient: ing.itemId is a catalog id (brand-level). Resolve
       // to current store's inventory row for cost / par display.
       const item = !isPrep
@@ -89,7 +92,7 @@ export default function PrepRecipesSection() {
         kind: isPrep ? 'sub' : 'raw',
       };
     });
-  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipeCostPerUnit, selCost]);
+  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost]);
 
   return (
     <>
