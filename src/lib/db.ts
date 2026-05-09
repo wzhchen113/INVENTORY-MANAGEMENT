@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
-  SidebarLayoutOverride,
+  SidebarLayoutOverride, POSImport,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -477,6 +477,111 @@ export async function fetchEODSubmissions(storeId: string, date?: string): Promi
   const { data, error } = await query;
   if (error) throw error;
   return data || [];
+}
+
+// Spec 009 §5/D2 — cross-store EOD fan-out for the All-Stores dashboard.
+// Per the architect, useStore.loadFromSupabase('__all__') only flatMaps
+// inventory/wasteLog/auditLog across stores; eodSubmissions are NOT
+// flatMapped (they stay scoped to whichever single store last loaded).
+// Without this helper the dashboard heatmap and per-store CoGS columns
+// can't compute for non-focal stores. Decision D2(b): hold the result
+// in component-local state inside DashboardSection rather than mutating
+// the Zustand slice — keeps the blast radius zero for every other Cmd
+// section that consumed eodSubmissions in __all__ mode previously.
+//
+// Single-trip IN(...) select; RLS (auth_can_see_store) silently drops
+// any rows the caller can't see, so we don't need to pre-filter the
+// storeIds list. Returns the same camelCase shape as
+// fetchRecentEODSubmissions so downstream selectors are interchangeable.
+export async function fetchEodSubmissionsForStores(
+  storeIds: string[],
+  sinceDate: string,
+): Promise<EODSubmission[]> {
+  if (storeIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('eod_submissions')
+    .select(`id, store_id, date, submitted_by, submitted_at, status,
+             submitter:profiles!submitted_by(name),
+             eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+                         item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
+    .in('store_id', storeIds)
+    .gte('date', sinceDate)
+    .order('submitted_at', { ascending: false });
+  if (error) {
+    console.warn('[Supabase] fetchEodSubmissionsForStores:', error.message);
+    return [];
+  }
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    storeId: row.store_id,
+    storeName: '', // backfilled by caller against useStore.stores if needed
+    date: row.date,
+    submittedBy: row.submitter?.name || '',
+    submittedByUserId: row.submitted_by,
+    timestamp: row.submitted_at,
+    status: row.status || 'submitted',
+    itemCount: (row.eod_entries || []).length,
+    entries: (row.eod_entries || []).map((e: any) => ({
+      id: e.id,
+      itemId: e.item_id,
+      itemName: e.item?.catalog?.name || '',
+      actualRemaining: Number(e.actual_remaining) || 0,
+      actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
+      actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
+      unit: e.item?.catalog?.unit || '',
+      submittedBy: row.submitter?.name || '',
+      submittedByUserId: row.submitted_by,
+      timestamp: e.created_at || row.submitted_at,
+      date: row.date,
+      storeId: row.store_id,
+      notes: e.notes || '',
+    })),
+  }));
+}
+
+// Spec 009 §5/D2 — cross-store POS imports fan-out for the All-Stores
+// dashboard's CoGS theoretical computation. Same rationale as
+// fetchEodSubmissionsForStores above: __all__ mode doesn't flatMap
+// posImports, and the dashboard needs them per-store to compute
+// theoretical depletion (POS qty × recipe BoM × per-store cost). Holds
+// in component-local state per Decision D2(b).
+//
+// Joins pos_import_items in a single round trip; RLS on pos_imports
+// scopes by store_id, RLS on pos_import_items scopes via the parent
+// pos_import. Returns the camelCase POSImport shape (matching
+// useStore.posImports semantics).
+export async function fetchPosImportsForStores(
+  storeIds: string[],
+  sinceDate: string,
+): Promise<POSImport[]> {
+  if (storeIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('pos_imports')
+    .select(`id, store_id, filename, imported_by, import_date, imported_at,
+             importer:profiles!imported_by(name),
+             pos_import_items(id, menu_item, qty_sold, revenue, recipe_id, recipe_mapped)`)
+    .in('store_id', storeIds)
+    .gte('import_date', sinceDate)
+    .order('import_date', { ascending: false });
+  if (error) {
+    console.warn('[Supabase] fetchPosImportsForStores:', error.message);
+    return [];
+  }
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    filename: row.filename || '',
+    importedAt: row.imported_at,
+    importedBy: row.importer?.name || '',
+    date: row.import_date,
+    storeId: row.store_id,
+    items: (row.pos_import_items || []).map((it: any) => ({
+      menuItem: it.menu_item || '',
+      qtySold: Number(it.qty_sold) || 0,
+      revenue: Number(it.revenue) || 0,
+      recipeId: it.recipe_id || undefined,
+      recipeMapped: !!it.recipe_mapped,
+    })),
+  }));
 }
 
 // ─── PURCHASE ORDERS ─────────────────────────────────────────────────────

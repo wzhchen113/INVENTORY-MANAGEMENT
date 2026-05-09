@@ -6,7 +6,7 @@ import { useStore } from '../../../store/useStore';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
-import { useStockSeries } from '../../../lib/cmdSelectors';
+import { useStockSeries, computeVarianceLines } from '../../../lib/cmdSelectors';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -30,11 +30,14 @@ export default function ReconciliationSection() {
   const C = useCmdColors();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
+  const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
 
   const [tabId, setTabId] = React.useState('variance.tsx');
 
-  // Latest EOD submission for this store
+  // Latest EOD submission for this store — kept for the screen subtitle
+  // (`Reconciliation · {date}`). The variance math itself moved to
+  // computeVarianceLines() in cmdSelectors per spec 009 §2.
   const latest = React.useMemo(() => {
     const sorted = eodSubmissions
       .filter((s) => s.storeId === currentStore.id)
@@ -43,45 +46,31 @@ export default function ReconciliationSection() {
     return sorted[0];
   }, [eodSubmissions, currentStore.id]);
 
-  // Previous EOD (immediately before latest, same store) to derive "expected"
-  const previous = React.useMemo(() => {
-    if (!latest) return undefined;
-    const sorted = eodSubmissions
-      .filter((s) => s.storeId === currentStore.id && s.date < latest.date)
-      .slice()
-      .sort((a, b) => b.date.localeCompare(a.date));
-    return sorted[0];
-  }, [eodSubmissions, latest, currentStore.id]);
-
+  // Spec 009 §2 / R3: rows now come from the shared selector. Map the
+  // selector's VarianceLine shape to the screen's local VarianceRow
+  // shape so the existing render code stays unchanged. priorEod mode
+  // matches the prior inline math one-for-one (diff = counted -
+  // priorEodActualRemaining, dollar = diff * costPerUnit, pct rounded).
   const rows = React.useMemo<VarianceRow[]>(() => {
-    if (!latest) return [];
+    const lines = computeVarianceLines(currentStore.id, inventory, eodSubmissions, stores, 'priorEod');
     const itemsById = new Map(inventory.map((i) => [i.id, i]));
-    const prevById = new Map((previous?.entries || []).map((e) => [e.itemId, e.actualRemaining]));
-    const out: VarianceRow[] = [];
-    for (const e of latest.entries || []) {
-      const item = itemsById.get(e.itemId);
-      if (!item) continue;
-      const expected = prevById.get(e.itemId) ?? e.actualRemaining;
-      const counted = e.actualRemaining;
-      const diff = +(counted - expected).toFixed(2);
-      const dollar = +(diff * item.costPerUnit).toFixed(2);
-      const pct = expected > 0 ? Math.round((diff / expected) * 100) : 0;
-      out.push({
-        id: e.itemId,
-        name: e.itemName,
-        category: item.category,
-        unit: item.unit,
-        expected,
-        counted,
-        diff,
-        dollar,
-        pct,
-      });
-    }
-    return out
-      .filter((r) => r.diff !== 0)
+    return lines
+      .map<VarianceRow>((l) => {
+        const item = itemsById.get(l.itemId);
+        return {
+          id: l.itemId,
+          name: l.itemName,
+          category: item?.category || '',
+          unit: l.unit,
+          expected: l.expected,
+          counted: l.counted,
+          diff: l.delta,
+          dollar: l.deltaCost,
+          pct: l.expected > 0 ? Math.round((l.delta / l.expected) * 100) : 0,
+        };
+      })
       .sort((a, b) => Math.abs(b.dollar) - Math.abs(a.dollar));
-  }, [latest, previous, inventory]);
+  }, [currentStore.id, inventory, eodSubmissions, stores]);
 
   const netDollar = rows.reduce((s, r) => s + r.dollar, 0);
   const netPct =
