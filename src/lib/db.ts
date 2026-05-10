@@ -1475,6 +1475,26 @@ export async function upsertPosRecipeAliases(
   if (error) console.warn('[Supabase] upsertPosRecipeAliases:', error.message);
 }
 
+// Spec 015 — delete a single store-scoped alias by (pos_name, store_id).
+// Unlike upsertPosRecipeAliases above, this throws on error so the store
+// action's optimistic-revert branch can fire. Filtering on store_id is
+// load-bearing: it prevents accidentally deleting a global alias
+// (store_id IS NULL) of the same pos_name when removing a store-scoped one.
+export async function deletePosRecipeAlias(
+  storeId: string,
+  posName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('pos_recipe_aliases')
+    .delete()
+    .eq('store_id', storeId)
+    .eq('pos_name', posName.trim());
+  if (error) {
+    console.warn('[Supabase] deletePosRecipeAlias:', error.message);
+    throw error;
+  }
+}
+
 // Past unmapped pos_import_items grouped by menu_item, for the review section
 // in POSImportScreen. Last 30 days, current store only.
 export async function fetchUnmappedPosImports(storeId: string): Promise<{ menu_item: string; count: number }[]> {

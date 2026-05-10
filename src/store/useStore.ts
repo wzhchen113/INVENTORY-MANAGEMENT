@@ -212,6 +212,12 @@ interface StoreActions {
   // POS recipe aliases (POS-name → recipe_id mappings, store-scoped)
   upsertPosRecipeAliases: (rows: { posName: string; recipeId: string }[]) => Promise<void>;
   applyAliasToPastImports: (posName: string, recipeId: string) => Promise<number>;
+  /** Spec 015 — delete the store-scoped alias for `posName`. Optimistic;
+   *  reverts via `notifyBackendError` on backend failure. Case-insensitive
+   *  trim-match against the local slice; the underlying DELETE is keyed
+   *  on `(store_id, pos_name)`. Global aliases (store_id IS NULL) are not
+   *  touched by this action — the UI hides remove for those rows. */
+  removePosRecipeAlias: (posName: string) => Promise<void>;
 
   // Stores
   addStore: (store: Omit<Store, 'id'>) => void;
@@ -1455,11 +1461,62 @@ export const useStore = create<FullStore>((set, get) => ({
   applyAliasToPastImports: async (posName, recipeId) => {
     const storeId = get().currentStore.id;
     if (!storeId) return 0;
+    let updated = 0;
     try {
-      return await db.applyAliasToPastImports(storeId, posName, recipeId);
+      updated = await db.applyAliasToPastImports(storeId, posName, recipeId);
     } catch (e: any) {
       console.warn('[Supabase] applyAliasToPastImports:', e?.message || e);
       return 0;
+    }
+    // Spec 015 §7b — local reconciliation. After the server-side `ilike`
+    // UPDATE returns N, walk the in-memory `posImports` slice and patch any
+    // `items[].menuItem` that case-insensitive-trim-matches `posName` so the
+    // imports.log row counts and the UNMAPPED.LOG panel stay in sync within
+    // the same session without a full reload. `posImports` is not hydrated
+    // from Supabase and not realtime-echoed for this table, so this patch is
+    // the only way the local UI reflects what the server just changed.
+    if (updated > 0) {
+      const target = posName.trim().toLowerCase();
+      set((s) => ({
+        posImports: s.posImports.map((im) => {
+          if (im.storeId !== storeId) return im;
+          let dirty = false;
+          const items = (im.items || []).map((it) => {
+            if (it.recipeMapped) return it;
+            const name = (it.menuItem || '').trim().toLowerCase();
+            if (name !== target) return it;
+            dirty = true;
+            return { ...it, recipeMapped: true, recipeId };
+          });
+          return dirty ? { ...im, items } : im;
+        }),
+      }));
+    }
+    return updated;
+  },
+
+  // Spec 015 §7a — remove a store-scoped alias. Optimistic-then-revert,
+  // mirrors `removeOrderScheduleEntry`. Snapshot the prev slice, mutate
+  // locally first, fire the DELETE, revert + toast on backend failure.
+  removePosRecipeAlias: async (posName) => {
+    const storeId = get().currentStore.id;
+    if (!storeId || !posName) return;
+    const trimmed = posName.trim();
+    if (!trimmed) return;
+    const prev = get().posRecipeAliases;
+    set({
+      posRecipeAliases: prev.filter(
+        (a) => !(
+          a.store_id === storeId
+          && a.pos_name.trim().toLowerCase() === trimmed.toLowerCase()
+        ),
+      ),
+    });
+    try {
+      await db.deletePosRecipeAlias(storeId, trimmed);
+    } catch (e: any) {
+      set({ posRecipeAliases: prev });
+      notifyBackendError('Remove alias', e);
     }
   },
 

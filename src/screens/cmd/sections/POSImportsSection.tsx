@@ -11,11 +11,13 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { UploadCsvModal } from '../../../components/cmd/UploadCsvModal';
 import { RunImportModal } from '../../../components/cmd/RunImportModal';
 import { FetchBreadbotModal, ParsedRow } from '../../../components/cmd/FetchBreadbotModal';
+import { RecipePickerModal } from '../../../components/cmd/RecipePickerModal';
 import { relativeTime } from '../../../utils/relativeTime';
 import { ColumnMapping, computeDiff, DiffSummary } from '../../../lib/csvImport';
 import { BREADBOT_STORES, BackfillResult } from '../../../lib/posBreadbot';
-import { savePOSImport } from '../../../lib/db';
+import { savePOSImport, fetchUnmappedPosImports } from '../../../lib/db';
 import { matchRecipe, MatchResult } from '../../../utils/recipeMatch';
+import { confirmAction } from '../../../utils/confirmAction';
 
 // Pattern C — stream/report. Table of POS imports with state pill +
 // counts. Reads useStore.posImports for the current store. Empty state
@@ -59,24 +61,34 @@ export default function POSImportsSection() {
   const [breadbotOpen, setBreadbotOpen] = React.useState(false);
   const [breadbotPreview, setBreadbotPreview] = React.useState<BreadbotPreview | null>(null);
   const [previewMatches, setPreviewMatches] = React.useState<RowMatch[]>([]);
+  // Spec 015 §10 — per-row override map. User-confirmed overrides survive
+  // the re-match `useEffect` below; cleared whenever the preview itself
+  // resets (cancel / confirm).
+  const [previewOverrides, setPreviewOverrides] = React.useState<Record<number, RowMatch>>({});
+  // Section-local picker state — `pickerForIdx` is the row index whose
+  // pill is being edited; null means closed.
+  const [pickerForIdx, setPickerForIdx] = React.useState<number | null>(null);
   const [committingPreview, setCommittingPreview] = React.useState(false);
   const [backfillResults, setBackfillResults] = React.useState<BackfillResult[] | null>(null);
 
-  // Re-run the matcher whenever the preview rows / recipes / aliases
-  // change. User-confirmed match overrides aren't surfaced in this port
-  // (legacy has a per-row picker; spec scope is the fetch flow itself).
+  // Spec 015 §10 — re-run the matcher whenever preview rows / recipes /
+  // aliases change, BUT honor any per-row override the user has set so
+  // their picks survive subsequent re-matches (alias slice mutations,
+  // recipe loads, etc).
   React.useEffect(() => {
     if (!breadbotPreview) {
       setPreviewMatches([]);
+      setPreviewOverrides({});  // reset overrides when preview clears
       return;
     }
     setPreviewMatches(
-      breadbotPreview.rows.map((r) => {
+      breadbotPreview.rows.map((r, idx) => {
+        if (idx in previewOverrides) return previewOverrides[idx];
         const m = matchRecipe(r.menuItem, recipes, posRecipeAliases);
         return { recipeId: m.recipeId, matchType: m.matchType };
       }),
     );
-  }, [breadbotPreview, recipes, posRecipeAliases]);
+  }, [breadbotPreview, recipes, posRecipeAliases, previewOverrides]);
 
   const imports = React.useMemo(
     () => posImports.filter((p) => p.storeId === currentStore.id).slice().reverse(),
@@ -174,9 +186,11 @@ export default function POSImportsSection() {
             preview={breadbotPreview}
             matches={previewMatches}
             committing={committingPreview}
+            onPickRow={(idx) => setPickerForIdx(idx)}
             onCancel={() => {
               setBreadbotPreview(null);
               setPreviewMatches([]);
+              setPreviewOverrides({});
             }}
             onConfirm={async () => {
               if (committingPreview) return;
@@ -229,6 +243,7 @@ export default function POSImportsSection() {
                 });
                 setBreadbotPreview(null);
                 setPreviewMatches([]);
+                setPreviewOverrides({});
               } catch (e: any) {
                 Toast.show({
                   type: 'error',
@@ -347,16 +362,38 @@ export default function POSImportsSection() {
             // POSImportScreen.tsx:330-358), NOT computeDiff →
             // RunImportModal (architect contract correction).
             setBreadbotPreview({ filename, rows, date: importDate });
+            setPreviewOverrides({});
             setBackfillResults(null);
             setBreadbotOpen(false);
           }}
           onBackfillComplete={(results) => {
             setBackfillResults(results);
             setBreadbotPreview(null);
+            setPreviewOverrides({});
             setBreadbotOpen(false);
           }}
         />
       )}
+      {/* Spec 015 — per-row override picker. Open whenever pickerForIdx is
+          a valid row index. onPick writes to the section-local
+          previewOverrides map; the re-match useEffect honors it. */}
+      {breadbotPreview && pickerForIdx !== null && pickerForIdx >= 0 && pickerForIdx < breadbotPreview.rows.length ? (
+        <RecipePickerModal
+          visible
+          onClose={() => setPickerForIdx(null)}
+          posName={breadbotPreview.rows[pickerForIdx].menuItem}
+          currentRecipeId={previewMatches[pickerForIdx]?.recipeId ?? null}
+          allowNoMatch
+          onPick={(recipeId) => {
+            const idx = pickerForIdx;
+            setPreviewOverrides((prev) => ({
+              ...prev,
+              [idx]: { recipeId, matchType: recipeId ? 'alias' : 'none' },
+            }));
+            setPickerForIdx(null);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -544,19 +581,24 @@ function BackfillSummaryCard({
 
 // ─── Single-fetch preview card (Cmd palette) ───────────────────────────
 // Renders the parsed Breadbot rows above the imports.log table with a
-// recipe-match pill per row and a confirm button. Match overrides are
-// out of scope (spec 014 In-scope is the fetch flow itself; user can
-// edit aliases on mapping.tsx after the fact).
+// recipe-match pill per row and a confirm button. Per spec 015 §10 each
+// pill is pressable — opens the parent's RecipePickerModal which writes
+// the user's choice to a section-local `previewOverrides` map. Override
+// state survives the re-match useEffect (which would otherwise reset it
+// when `recipes` or `posRecipeAliases` mutates).
 function BreadbotPreviewCard({
   preview,
   matches,
   committing,
+  onPickRow,
   onCancel,
   onConfirm,
 }: {
   preview: BreadbotPreview;
   matches: RowMatch[];
   committing: boolean;
+  /** Spec 015 §10 — open the per-row picker for this row index. */
+  onPickRow: (idx: number) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -681,13 +723,22 @@ function BreadbotPreviewCard({
                 >
                   {row.qtySold} sold{row.revenue > 0 ? ` · $${row.revenue.toFixed(2)}` : ''}
                 </Text>
-                <View
+                {/* Spec 015 §10 — pill is pressable. Tapping opens the
+                    per-row picker; user pick writes to previewOverrides. */}
+                <TouchableOpacity
+                  testID={`posimport-cmd-row-picker-${idx}`}
+                  onPress={() => onPickRow(idx)}
+                  disabled={committing}
                   style={{
                     paddingHorizontal: 7,
                     paddingVertical: 2,
                     borderRadius: 3,
                     backgroundColor: bg,
                     maxWidth: 200,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    opacity: committing ? 0.6 : 1,
                   }}
                 >
                   <Text
@@ -701,7 +752,8 @@ function BreadbotPreviewCard({
                   >
                     {label.toUpperCase()}{isFuzzy ? ' (GUESS)' : ''}
                   </Text>
-                </View>
+                  <Text style={{ fontFamily: mono(700), fontSize: 8.5, color: fg, opacity: 0.7 }}>▾</Text>
+                </TouchableOpacity>
               </View>
             );
           })}
@@ -765,49 +817,166 @@ function BreadbotPreviewCard({
 
 // ─── mapping.tsx — POS pos_name ↔ recipe map ────────────────────────────
 // Reads useStore.posRecipeAliases (= pos_recipe_aliases table) for
-// confirmed mappings, plus posImports.items where recipeMapped=false for
-// unmapped pos_names that need attention. Without this map, sales →
-// depletion is broken.
+// confirmed mappings. Unmapped panel is a UNION of (a) server-fetched
+// fetchUnmappedPosImports (last 30 days, canonical for the long-tail
+// rescue path) and (b) local-derived unmapped from `posImports.items`
+// (catches names just-imported that the server fetch hasn't reflected
+// yet). Per spec 015 §9.
+//
+// Each row is interactive:
+//   - Unmapped row → opens RecipePickerModal → upsertPosRecipeAliases +
+//     applyAliasToPastImports (Surfaces 2 + 3, retroactive flip).
+//   - Active alias row → edit (re-pick) or remove (confirmAction-gated).
+//     Global aliases (store_id === null) hide the remove affordance per §11.
 function MappingTab() {
   const C = useCmdColors();
   const aliases = useStore((s) => s.posRecipeAliases);
   const recipes = useStore((s) => s.recipes);
   const posImports = useStore((s) => s.posImports);
   const currentStore = useStore((s) => s.currentStore);
+  const upsertPosRecipeAliases = useStore((s) => s.upsertPosRecipeAliases);
+  const applyAliasToPastImports = useStore((s) => s.applyAliasToPastImports);
+  const removePosRecipeAlias = useStore((s) => s.removePosRecipeAlias);
 
-  const storeAliases = React.useMemo(
-    () => aliases.filter((a) => a.store_id === currentStore.id),
+  // Spec 015 §9 — server-fetched unmapped + refreshTick to re-fetch after
+  // any add/edit/remove that mutates aliases.
+  const [serverUnmapped, setServerUnmapped] = React.useState<{ menu_item: string; count: number }[]>([]);
+  const [refreshTick, setRefreshTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!currentStore.id) return;
+    let cancelled = false;
+    fetchUnmappedPosImports(currentStore.id)
+      .then((rows) => { if (!cancelled) setServerUnmapped(rows); })
+      .catch(() => { if (!cancelled) setServerUnmapped([]); });
+    return () => { cancelled = true; };
+  }, [currentStore.id, refreshTick]);
+  const triggerServerRefresh = React.useCallback(() => setRefreshTick((n) => n + 1), []);
+
+  // Picker state. `pickerPosName` is the row being mapped; `pickerCurrentRecipeId`
+  // is set only when editing an existing alias (so the picker highlights the
+  // current binding). `pickerMode` differentiates an unmapped→add (which
+  // also fires the retroactive flip) from a confirmed→edit (which only
+  // upserts).
+  const [pickerPosName, setPickerPosName] = React.useState<string | null>(null);
+  const [pickerCurrentRecipeId, setPickerCurrentRecipeId] = React.useState<string | null>(null);
+  const [pickerMode, setPickerMode] = React.useState<'add' | 'edit'>('add');
+
+  // All aliases visible to this store: store-scoped (store_id = currentStore.id)
+  // PLUS global (store_id = null). Global rows render a "global" badge and
+  // hide the remove affordance per §11.
+  const visibleAliases = React.useMemo(
+    () => aliases.filter((a) => a.store_id === currentStore.id || a.store_id === null),
     [aliases, currentStore.id],
   );
 
   // Confirmed mappings, joined to recipe.
   const confirmed = React.useMemo(
     () =>
-      storeAliases
+      visibleAliases
         .map((a) => ({
           pos_name: a.pos_name,
           recipe_id: a.recipe_id,
+          store_id: a.store_id,
           recipe: recipes.find((r) => r.id === a.recipe_id),
         }))
         .sort((a, b) => a.pos_name.localeCompare(b.pos_name)),
-    [storeAliases, recipes],
+    [visibleAliases, recipes],
   );
 
-  // Unmapped pos_names (with sales count for triage).
+  // Spec 015 §9 — merge server fetch (canonical 30-day count) with local
+  // derivation (augments with lastSeen, fills any local-only names that
+  // landed after the server fetch fired). Key by lowercase-trim.
   const unmapped = React.useMemo(() => {
-    const map = new Map<string, { pos_name: string; rows: number; lastSeen: string }>();
+    const map = new Map<string, { pos_name: string; rows: number; lastSeen?: string }>();
+    // Layer A — server (canonical).
+    for (const row of serverUnmapped) {
+      const key = (row.menu_item || '').trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, { pos_name: row.menu_item.trim(), rows: row.count });
+    }
+    // Layer B — local. Augments with lastSeen / adds local-only names.
     for (const im of posImports.filter((p) => p.storeId === currentStore.id)) {
       for (const it of im.items || []) {
         if (it.recipeMapped) continue;
-        const key = it.menuItem?.trim() || '—';
-        const cur = map.get(key) || { pos_name: key, rows: 0, lastSeen: im.importedAt };
-        cur.rows += 1;
-        if (new Date(im.importedAt) > new Date(cur.lastSeen)) cur.lastSeen = im.importedAt;
-        map.set(key, cur);
+        const name = (it.menuItem || '').trim();
+        const key = name.toLowerCase();
+        if (!key) continue;
+        const existing = map.get(key);
+        if (existing) {
+          // Server already counts the row; just attach a lastSeen.
+          if (!existing.lastSeen || new Date(im.importedAt) > new Date(existing.lastSeen)) {
+            existing.lastSeen = im.importedAt;
+          }
+        } else {
+          map.set(key, { pos_name: name, rows: 1, lastSeen: im.importedAt });
+        }
       }
     }
     return Array.from(map.values()).sort((a, b) => b.rows - a.rows);
-  }, [posImports, currentStore.id]);
+  }, [serverUnmapped, posImports, currentStore.id]);
+
+  // Surface 2 (unmapped → add) — upsert alias for current store, then run
+  // the retroactive flip (Surface 3). Toast based on returned count.
+  const handlePickForUnmapped = React.useCallback(async (posName: string, recipeId: string) => {
+    try {
+      await upsertPosRecipeAliases([{ posName, recipeId }]);
+      const count = await applyAliasToPastImports(posName, recipeId);
+      Toast.show({
+        type: 'success',
+        text1: 'Alias saved',
+        text2: count > 0
+          ? `Updated ${count} past row${count === 1 ? '' : 's'}.`
+          : 'Future imports will use this mapping.',
+        position: 'bottom',
+      });
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Mapping failed',
+        text2: e?.message || 'Could not save alias',
+        position: 'bottom',
+      });
+    } finally {
+      // Re-fetch the server-side unmapped count regardless of branch — even
+      // a partial success may have flipped some rows.
+      triggerServerRefresh();
+    }
+  }, [upsertPosRecipeAliases, applyAliasToPastImports, triggerServerRefresh]);
+
+  // Surface 2 (confirmed → edit) — UPSERT on (pos_name, store_id) collapses
+  // to update; no separate RPC. No retroactive flip — editing changes
+  // future imports' target, but past rows already counted on the prior
+  // recipe stay attributed to it (consistent with legacy semantics).
+  const handlePickForEdit = React.useCallback(async (posName: string, recipeId: string) => {
+    try {
+      await upsertPosRecipeAliases([{ posName, recipeId }]);
+      Toast.show({
+        type: 'success',
+        text1: 'Alias updated',
+        text2: posName,
+        position: 'bottom',
+      });
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Update failed',
+        text2: e?.message || 'Could not update alias',
+        position: 'bottom',
+      });
+    }
+  }, [upsertPosRecipeAliases]);
+
+  const handleRemove = React.useCallback((posName: string) => {
+    confirmAction(
+      'Remove alias',
+      `Remove alias for ${posName}? Future imports of this POS string will fall back to fuzzy matching.`,
+      () => {
+        removePosRecipeAlias(posName);
+      },
+    );
+  }, [removePosRecipeAlias]);
+
+  const ghostRowCount = unmapped.reduce((s, u) => s + u.rows, 0);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
@@ -821,7 +990,7 @@ function MappingTab() {
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <StatCard label="Confirmed" value={String(confirmed.length)} sub="active aliases" />
         <StatCard label="Unmapped" value={String(unmapped.length)} sub={unmapped.length === 0 ? 'all clean' : 'needs match'} />
-        <StatCard label="Ghost rows" value={String(unmapped.reduce((s, u) => s + u.rows, 0))} sub="across imports" />
+        <StatCard label="Ghost rows" value={String(ghostRowCount)} sub="across imports" />
       </View>
 
       <View style={{ flexDirection: 'row', gap: 14 }}>
@@ -829,13 +998,49 @@ function MappingTab() {
           {unmapped.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>no unmapped pos_names</Text>
           ) : (
-            unmapped.slice(0, 20).map((u, i) => (
-              <View key={u.pos_name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, gap: 8, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
-                <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>{u.pos_name}</Text>
-                <View style={{ borderWidth: 1, borderColor: C.warn, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: C.warnBg }}>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.4 }}>UNMAPPED</Text>
-                </View>
-                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg2, width: 50, textAlign: 'right' }}>{u.rows}×</Text>
+            unmapped.slice(0, 50).map((u, i) => (
+              <View
+                key={u.pos_name}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 7,
+                  gap: 8,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: C.border,
+                  borderStyle: 'dashed',
+                }}
+              >
+                <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>
+                  {u.pos_name}
+                </Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg2, width: 38, textAlign: 'right' }}>
+                  {u.rows}×
+                </Text>
+                <TouchableOpacity
+                  testID={`mapping-cmd-unmapped-pick-${u.pos_name}`}
+                  onPress={() => {
+                    setPickerPosName(u.pos_name);
+                    setPickerCurrentRecipeId(null);
+                    setPickerMode('add');
+                  }}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: C.warn,
+                    borderRadius: CmdRadius.xs,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    backgroundColor: C.warnBg,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 3,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.4 }}>
+                    MAP…
+                  </Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 8.5, color: C.warn, opacity: 0.7 }}>▾</Text>
+                </TouchableOpacity>
               </View>
             ))
           )}
@@ -843,24 +1048,130 @@ function MappingTab() {
         <SectionPanel title="ACTIVE_ALIASES.TSV" right={`${confirmed.length}`} style={{ flex: 1.4 }}>
           {confirmed.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>
-              no aliases yet — confirm an unmapped row in imports.tsx review and it will land here
+              no aliases yet — tap an unmapped row to map it, or wait for auto-matches on the next import
             </Text>
           ) : (
-            confirmed.map((c, i) => (
-              <View key={c.pos_name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, gap: 8, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
-                <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>{c.pos_name}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
-                <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>
-                  {c.recipe ? c.recipe.menuItem : <Text style={{ color: C.danger }}>recipe missing ({c.recipe_id.slice(0, 6)})</Text>}
-                </Text>
-                <View style={{ borderWidth: 1, borderColor: C.ok, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: C.okBg }}>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.4 }}>OK</Text>
+            confirmed.map((c, i) => {
+              const isGlobal = c.store_id === null;
+              return (
+                <View
+                  key={`${c.pos_name}-${c.store_id || 'global'}`}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 7,
+                    gap: 8,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: C.border,
+                    borderStyle: 'dashed',
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>
+                    {c.pos_name}
+                  </Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+                  <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>
+                    {c.recipe ? c.recipe.menuItem : <Text style={{ color: C.danger }}>recipe missing ({c.recipe_id.slice(0, 6)})</Text>}
+                  </Text>
+                  {isGlobal ? (
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: C.info,
+                        borderRadius: CmdRadius.xs,
+                        paddingHorizontal: 5,
+                        paddingVertical: 1,
+                        backgroundColor: C.infoBg,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.info, letterSpacing: 0.4 }}>
+                        GLOBAL
+                      </Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      testID={`mapping-cmd-alias-edit-${c.pos_name}`}
+                      onPress={() => {
+                        setPickerPosName(c.pos_name);
+                        setPickerCurrentRecipeId(c.recipe_id);
+                        setPickerMode('edit');
+                      }}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: C.borderStrong,
+                        borderRadius: CmdRadius.xs,
+                        paddingHorizontal: 5,
+                        paddingVertical: 1,
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg2, letterSpacing: 0.4 }}>
+                        EDIT
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {/* Spec §11 — hide remove for global aliases (UI-only gate;
+                      RLS on this table is still legacy, see spec backend §2). */}
+                  {!isGlobal ? (
+                    <TouchableOpacity
+                      testID={`mapping-cmd-alias-remove-${c.pos_name}`}
+                      onPress={() => handleRemove(c.pos_name)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: C.danger,
+                        borderRadius: CmdRadius.xs,
+                        paddingHorizontal: 5,
+                        paddingVertical: 1,
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.danger, letterSpacing: 0.4 }}>
+                        REMOVE
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
         </SectionPanel>
       </View>
+
+      {pickerPosName !== null ? (
+        <RecipePickerModal
+          visible
+          onClose={() => {
+            setPickerPosName(null);
+            setPickerCurrentRecipeId(null);
+          }}
+          posName={pickerPosName}
+          currentRecipeId={pickerCurrentRecipeId}
+          // Spec §8 / §11 — mapping.tsx never renders "No match"; closing
+          // the modal is the user's "leave it alone" path.
+          allowNoMatch={false}
+          onPick={(recipeId) => {
+            // recipeId can be null only when allowNoMatch is true; we set
+            // allowNoMatch=false above, but TS types still allow null.
+            if (!recipeId) {
+              setPickerPosName(null);
+              setPickerCurrentRecipeId(null);
+              return;
+            }
+            const posName = pickerPosName;
+            const mode = pickerMode;
+            // Close immediately so the picker feels instant; the optimistic
+            // alias slice update reflects the binding before the network call
+            // resolves.
+            setPickerPosName(null);
+            setPickerCurrentRecipeId(null);
+            if (mode === 'add') {
+              handlePickForUnmapped(posName, recipeId);
+            } else {
+              handlePickForEdit(posName, recipeId);
+            }
+          }}
+        />
+      ) : null}
     </ScrollView>
   );
 }
