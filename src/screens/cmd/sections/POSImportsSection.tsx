@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -9,23 +10,73 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { UploadCsvModal } from '../../../components/cmd/UploadCsvModal';
 import { RunImportModal } from '../../../components/cmd/RunImportModal';
+import { FetchBreadbotModal, ParsedRow } from '../../../components/cmd/FetchBreadbotModal';
 import { relativeTime } from '../../../utils/relativeTime';
 import { ColumnMapping, computeDiff, DiffSummary } from '../../../lib/csvImport';
+import { BREADBOT_STORES, BackfillResult } from '../../../lib/posBreadbot';
+import { savePOSImport } from '../../../lib/db';
+import { matchRecipe, MatchResult } from '../../../utils/recipeMatch';
 
 // Pattern C — stream/report. Table of POS imports with state pill +
 // counts. Reads useStore.posImports for the current store. Empty state
 // when no imports exist (default seeded state).
+// Section-local preview shape — single Breadbot fetch hands off these
+// rows after success, and the section renders a Cmd-styled preview card
+// (recipe pills + confirm) above the imports table. Mirrors the legacy
+// `step === 'preview'` flow in POSImportScreen.tsx, NOT the CSV
+// computeDiff → RunImportModal pipeline (which operates on inventory
+// item rows, not POS sales rows).
+type RowMatch = { recipeId: string | null; matchType: MatchResult['matchType'] };
+type BreadbotPreview = {
+  filename: string;
+  rows: ParsedRow[];
+  date: string;
+};
+
 export default function POSImportsSection() {
   const C = useCmdColors();
   const posImports = useStore((s) => s.posImports);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
+  const recipes = useStore((s) => s.recipes);
+  const posRecipeAliases = useStore((s) => s.posRecipeAliases);
+  const importPOS = useStore((s) => s.importPOS);
+  const upsertPosRecipeAliases = useStore((s) => s.upsertPosRecipeAliases);
+  const currentUser = useStore((s) => s.currentUser);
 
   const [tabId, setTabId] = React.useState('imports.tsx');
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [runOpen, setRunOpen] = React.useState(false);
   const [pendingFilename, setPendingFilename] = React.useState('');
   const [pendingDiff, setPendingDiff] = React.useState<DiffSummary | null>(null);
+
+  // ── Breadbot fetch state (Cmd UI port) ─────────────────────────────
+  // `breadbotOpen` toggles FetchBreadbotModal. `breadbotPreview` holds
+  // the post-single-fetch rows for in-section preview render. Range
+  // backfill writes its outcomes into `backfillResults`, surfaced as
+  // a dismissable Cmd-palette summary card above the imports table.
+  const storeHasBreadbot = !!currentStore && BREADBOT_STORES.has(currentStore.name);
+  const [breadbotOpen, setBreadbotOpen] = React.useState(false);
+  const [breadbotPreview, setBreadbotPreview] = React.useState<BreadbotPreview | null>(null);
+  const [previewMatches, setPreviewMatches] = React.useState<RowMatch[]>([]);
+  const [committingPreview, setCommittingPreview] = React.useState(false);
+  const [backfillResults, setBackfillResults] = React.useState<BackfillResult[] | null>(null);
+
+  // Re-run the matcher whenever the preview rows / recipes / aliases
+  // change. User-confirmed match overrides aren't surfaced in this port
+  // (legacy has a per-row picker; spec scope is the fetch flow itself).
+  React.useEffect(() => {
+    if (!breadbotPreview) {
+      setPreviewMatches([]);
+      return;
+    }
+    setPreviewMatches(
+      breadbotPreview.rows.map((r) => {
+        const m = matchRecipe(r.menuItem, recipes, posRecipeAliases);
+        return { recipeId: m.recipeId, matchType: m.matchType };
+      }),
+    );
+  }, [breadbotPreview, recipes, posRecipeAliases]);
 
   const imports = React.useMemo(
     () => posImports.filter((p) => p.storeId === currentStore.id).slice().reverse(),
@@ -53,6 +104,28 @@ export default function POSImportsSection() {
         onChange={setTabId}
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            {storeHasBreadbot && (
+              <TouchableOpacity
+                testID="breadbot-cmd-open"
+                onPress={() => {
+                  // Invalidate any pending CSV diff so a stale CSV preview
+                  // can't be confirmed against a Breadbot context (spec
+                  // 014 lines 103-107).
+                  setPendingDiff(null);
+                  setPendingFilename('');
+                  setBreadbotOpen(true);
+                }}
+                style={{
+                  paddingVertical: 4,
+                  paddingHorizontal: 10,
+                  borderWidth: 1,
+                  borderColor: C.borderStrong,
+                  borderRadius: CmdRadius.sm,
+                }}
+              >
+                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>FETCH BREADBOT</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setUploadOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
               <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>UPLOAD CSV</Text>
             </TouchableOpacity>
@@ -86,6 +159,90 @@ export default function POSImportsSection() {
           <StatCard label="Failed" value={String(failedCount)} sub={failedCount === 0 ? '—' : 'review parse errors'} />
         </View>
 
+        {/* Backfill summary — Cmd-styled inline card. Mirrors legacy
+            BackfillResult render at POSImportScreen.tsx:530-587. */}
+        {backfillResults && (
+          <BackfillSummaryCard results={backfillResults} onDismiss={() => setBackfillResults(null)} />
+        )}
+
+        {/* Single-fetch in-section preview. Renders above the imports
+            table; the imports.log itself remains visible below as a
+            read-only history (matches Cmd UI's stack layout, distinct
+            from the legacy hide-on-preview model). */}
+        {breadbotPreview && (
+          <BreadbotPreviewCard
+            preview={breadbotPreview}
+            matches={previewMatches}
+            committing={committingPreview}
+            onCancel={() => {
+              setBreadbotPreview(null);
+              setPreviewMatches([]);
+            }}
+            onConfirm={async () => {
+              if (committingPreview) return;
+              setCommittingPreview(true);
+              const items = breadbotPreview.rows.map((row, idx) => {
+                const m = previewMatches[idx];
+                return {
+                  menuItem: row.menuItem,
+                  qtySold: row.qtySold,
+                  revenue: row.revenue,
+                  recipeId: m?.recipeId ?? undefined,
+                  recipeMapped: !!m?.recipeId,
+                };
+              });
+              try {
+                // 1. Persist to pos_imports with explicit business date so
+                //    future hasPOSImportForDate() calls dedup correctly
+                //    across sessions/reloads (legacy parity at
+                //    POSImportScreen.tsx:438).
+                await savePOSImport(
+                  currentStore.id,
+                  breadbotPreview.filename,
+                  currentUser?.id || '',
+                  items,
+                  breadbotPreview.date,
+                );
+                // 2. In-memory + inventory deduction.
+                importPOS({
+                  filename: breadbotPreview.filename,
+                  importedAt: new Date().toISOString(),
+                  importedBy: currentUser?.name || '',
+                  date: breadbotPreview.date,
+                  storeId: currentStore.id,
+                  items,
+                });
+                // 3. Persist confirmed matches as aliases so the same POS
+                //    string never re-fuzzy-matches on subsequent imports
+                //    (legacy parity at POSImportScreen.tsx:351-356).
+                const aliases = breadbotPreview.rows
+                  .map((row, idx) => ({ posName: row.menuItem, recipeId: previewMatches[idx]?.recipeId }))
+                  .filter((a): a is { posName: string; recipeId: string } => !!a.recipeId);
+                if (aliases.length > 0) {
+                  upsertPosRecipeAliases(aliases).catch(() => { /* best-effort */ });
+                }
+                Toast.show({
+                  type: 'success',
+                  text1: 'Import complete',
+                  text2: `${items.length} item${items.length === 1 ? '' : 's'} for ${breadbotPreview.date}`,
+                  position: 'bottom',
+                });
+                setBreadbotPreview(null);
+                setPreviewMatches([]);
+              } catch (e: any) {
+                Toast.show({
+                  type: 'error',
+                  text1: 'Import failed',
+                  text2: e?.message || 'Could not write pos_imports',
+                  position: 'bottom',
+                });
+              } finally {
+                setCommittingPreview(false);
+              }
+            }}
+          />
+        )}
+
         <View
           style={{
             backgroundColor: C.panel,
@@ -109,7 +266,7 @@ export default function POSImportsSection() {
           </View>
           {imports.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no POS imports for {currentStore.name || 'this store'} — upload a CSV from Toast / Square / Clover to start
+              no POS imports for {currentStore.name || 'this store'} — upload a CSV from Toast / Square / Clover{storeHasBreadbot ? ', or fetch from Breadbot' : ''} to start
             </Text>
           ) : (
             imports.map((im, i) => {
@@ -177,6 +334,431 @@ export default function POSImportsSection() {
         diff={pendingDiff}
         onClose={() => { setRunOpen(false); setPendingDiff(null); }}
       />
+      {storeHasBreadbot && (
+        <FetchBreadbotModal
+          visible={breadbotOpen}
+          onClose={() => setBreadbotOpen(false)}
+          storeId={currentStore.id}
+          storeName={currentStore.name}
+          onSingleFetched={(filename, rows, importDate) => {
+            // Section-local preview state — render the rows + recipe
+            // pills above the imports table. The section confirm action
+            // calls savePOSImport + importPOS itself (legacy parity at
+            // POSImportScreen.tsx:330-358), NOT computeDiff →
+            // RunImportModal (architect contract correction).
+            setBreadbotPreview({ filename, rows, date: importDate });
+            setBackfillResults(null);
+            setBreadbotOpen(false);
+          }}
+          onBackfillComplete={(results) => {
+            setBackfillResults(results);
+            setBreadbotPreview(null);
+            setBreadbotOpen(false);
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
+// ─── Backfill summary card (Cmd palette) ───────────────────────────────
+// Inline card above the imports table. Surfaces the per-day outcomes
+// from a range backfill. Mirrors legacy `BackfillResult[]` render at
+// POSImportScreen.tsx:530-587 with Cmd-styled chips.
+function BackfillSummaryCard({
+  results,
+  onDismiss,
+}: {
+  results: BackfillResult[];
+  onDismiss: () => void;
+}) {
+  const C = useCmdColors();
+  const imported = results.filter((r) => r.outcome === 'imported');
+  const skipped = results.filter((r) => r.outcome === 'skipped');
+  const failed = results.filter((r) => r.outcome === 'failed');
+  return (
+    <View
+      style={{
+        backgroundColor: C.panel,
+        borderRadius: CmdRadius.lg,
+        borderWidth: 1,
+        borderColor: C.border,
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingTop: 12,
+          paddingBottom: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+        }}
+      >
+        <SectionCaption tone="fg3" size={10.5}>backfill.summary</SectionCaption>
+        <TouchableOpacity
+          testID="breadbot-cmd-summary-dismiss"
+          onPress={onDismiss}
+          style={{ paddingHorizontal: 6, paddingVertical: 2 }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg3 }}>×</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
+        <View
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: CmdRadius.sm,
+            backgroundColor: C.okBg,
+            minWidth: 70,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.ok, fontVariant: ['tabular-nums'] }}>
+            {imported.length}
+          </Text>
+          <Text
+            style={{
+              fontFamily: mono(700),
+              fontSize: 9,
+              color: C.fg3,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              marginTop: 2,
+            }}
+          >
+            imported
+          </Text>
+        </View>
+        <View
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: CmdRadius.sm,
+            backgroundColor: C.panel2,
+            minWidth: 70,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.fg, fontVariant: ['tabular-nums'] }}>
+            {skipped.length}
+          </Text>
+          <Text
+            style={{
+              fontFamily: mono(700),
+              fontSize: 9,
+              color: C.fg3,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              marginTop: 2,
+            }}
+          >
+            skipped
+          </Text>
+        </View>
+        {failed.length > 0 && (
+          <View
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: CmdRadius.sm,
+              backgroundColor: C.dangerBg,
+              minWidth: 70,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.danger, fontVariant: ['tabular-nums'] }}>
+              {failed.length}
+            </Text>
+            <Text
+              style={{
+                fontFamily: mono(700),
+                fontSize: 9,
+                color: C.fg3,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+                marginTop: 2,
+              }}
+            >
+              failed
+            </Text>
+          </View>
+        )}
+      </View>
+      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+        {results.map((r, i) => {
+          const status: 'ok' | 'low' | 'out' =
+            r.outcome === 'imported' ? 'ok' : r.outcome === 'failed' ? 'out' : 'low';
+          return (
+            <View
+              key={r.date}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                gap: 10,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: C.border,
+                borderStyle: 'dashed',
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: mono(500),
+                  fontSize: 11.5,
+                  color: C.fg,
+                  width: 100,
+                  fontVariant: ['tabular-nums'],
+                }}
+              >
+                {r.date}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: mono(400),
+                  fontSize: 11,
+                  color: C.fg3,
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {r.outcome === 'imported' && r.itemCount !== undefined
+                  ? `${r.itemCount} item${r.itemCount === 1 ? '' : 's'}`
+                  : r.reason || '—'}
+              </Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                <StatusPill status={status} label={r.outcome.toUpperCase()} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+// ─── Single-fetch preview card (Cmd palette) ───────────────────────────
+// Renders the parsed Breadbot rows above the imports.log table with a
+// recipe-match pill per row and a confirm button. Match overrides are
+// out of scope (spec 014 In-scope is the fetch flow itself; user can
+// edit aliases on mapping.tsx after the fact).
+function BreadbotPreviewCard({
+  preview,
+  matches,
+  committing,
+  onCancel,
+  onConfirm,
+}: {
+  preview: BreadbotPreview;
+  matches: RowMatch[];
+  committing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const C = useCmdColors();
+  const recipes = useStore((s) => s.recipes);
+  const matchedCount = matches.filter((m) => m.recipeId).length;
+  const totalQty = preview.rows.reduce((s, r) => s + r.qtySold, 0);
+  const totalRevenue = preview.rows.reduce((s, r) => s + r.revenue, 0);
+  return (
+    <View
+      style={{
+        backgroundColor: C.panel,
+        borderRadius: CmdRadius.lg,
+        borderWidth: 1,
+        borderColor: C.borderStrong,
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          paddingHorizontal: 14,
+          paddingTop: 12,
+          paddingBottom: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+        }}
+      >
+        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accent }}>
+          <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>PREVIEW</Text>
+        </View>
+        <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>
+          {preview.filename}
+        </Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+          {preview.rows.length} rows · {totalQty} sold{totalRevenue > 0 ? ` · $${totalRevenue.toFixed(2)}` : ''}
+        </Text>
+      </View>
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: 6,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+          backgroundColor: C.panel2,
+        }}
+      >
+        <View
+          style={{
+            paddingHorizontal: 7,
+            paddingVertical: 2,
+            borderRadius: 3,
+            backgroundColor: C.okBg,
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.4 }}>
+            {matchedCount} MATCHED
+          </Text>
+        </View>
+        {preview.rows.length - matchedCount > 0 && (
+          <View
+            style={{
+              paddingHorizontal: 7,
+              paddingVertical: 2,
+              borderRadius: 3,
+              backgroundColor: C.warnBg,
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.4 }}>
+              {preview.rows.length - matchedCount} UNMAPPED
+            </Text>
+          </View>
+        )}
+      </View>
+      <View style={{ maxHeight: 360 }}>
+        <ScrollView>
+          {preview.rows.map((row, idx) => {
+            const m = matches[idx];
+            const recipe = m?.recipeId ? recipes.find((r) => r.id === m.recipeId) : null;
+            const isFuzzy = m?.matchType === 'fuzzy';
+            const isNone = !recipe;
+            const fg = isNone ? C.danger : isFuzzy ? C.warn : C.ok;
+            const bg = isNone ? C.dangerBg : isFuzzy ? C.warnBg : C.okBg;
+            const label = recipe?.menuItem ?? 'no match';
+            return (
+              <View
+                key={`${row.menuItem}-${idx}`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  gap: 10,
+                  borderTopWidth: idx === 0 ? 0 : 1,
+                  borderTopColor: C.border,
+                  borderStyle: 'dashed',
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }} numberOfLines={1}>
+                    {row.menuItem}
+                  </Text>
+                  {row.canonical && row.canonical.toLowerCase() !== row.menuItem.toLowerCase() && (
+                    <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3, marginTop: 2 }}>
+                      → breadbot: {row.canonical}
+                    </Text>
+                  )}
+                </View>
+                <Text
+                  style={{
+                    fontFamily: mono(400),
+                    fontSize: 11,
+                    color: C.fg3,
+                    width: 90,
+                    textAlign: 'right',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {row.qtySold} sold{row.revenue > 0 ? ` · $${row.revenue.toFixed(2)}` : ''}
+                </Text>
+                <View
+                  style={{
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    borderRadius: 3,
+                    backgroundColor: bg,
+                    maxWidth: 200,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: mono(700),
+                      fontSize: 9.5,
+                      color: fg,
+                      letterSpacing: 0.4,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {label.toUpperCase()}{isFuzzy ? ' (GUESS)' : ''}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+          backgroundColor: C.panel,
+        }}
+      >
+        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+          {preview.rows.length - matchedCount === 0
+            ? 'all rows mapped — depletion will run'
+            : 'unmapped rows record but skip depletion · map them on mapping.tsx after import'}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity
+          testID="breadbot-cmd-preview-cancel"
+          onPress={onCancel}
+          disabled={committing}
+          style={{
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+            borderRadius: CmdRadius.sm,
+            borderWidth: 1,
+            borderColor: C.border,
+            opacity: committing ? 0.5 : 1,
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>CANCEL</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="breadbot-cmd-preview-confirm"
+          onPress={onConfirm}
+          disabled={committing}
+          style={{
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+            borderRadius: CmdRadius.sm,
+            backgroundColor: C.accent,
+            opacity: committing ? 0.6 : 1,
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.accentFg }}>
+            {committing
+              ? 'IMPORTING…'
+              : `IMPORT ${preview.rows.length} ITEM${preview.rows.length === 1 ? '' : 'S'} · ${preview.date}`}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
