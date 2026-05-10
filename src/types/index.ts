@@ -385,6 +385,14 @@ export interface AppState {
   posImports: POSImport[];
   posRecipeAliases: { pos_name: string; recipe_id: string; store_id: string | null }[];
   savedReports: ReportDefinition[];
+  /**
+   * Spec 016 — most-recent run per saved definition. Keyed by
+   * `definitionId`. Full history stays in DB; the store holds only the
+   * latest for the open detail view to render. Lazy-loaded by
+   * `loadLatestRun(definitionId)` when a saved-report tile is opened —
+   * NOT populated by `loadFromSupabase` to keep boot payload bounded.
+   */
+  reportRuns: Record<string, ReportRun>;
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
@@ -429,6 +437,50 @@ export interface ReportDefinition {
   params?: Record<string, unknown>;
   createdBy?: string;
   createdAt: string;
+}
+
+/**
+ * Spec 016 (REPORTS-1) — uniform output envelope returned by every
+ * `report_run_<template>` RPC. The detail frame trusts this shape;
+ * `kpis`/`columns`/`rows` are always non-null arrays, `series` is
+ * either an array or null. The `_status`/`_message` keys are
+ * envelope metadata used by the dispatcher to flag templates whose
+ * runner hasn't been wired yet.
+ */
+export interface ReportRunOutput {
+  kpis: Array<{
+    label: string;
+    value: string | number;
+    tone?: 'ok' | 'warn' | 'danger' | null;
+  }>;
+  columns: Array<{
+    key: string;
+    label: string;
+    align?: 'left' | 'right' | null;
+  }>;
+  rows: Array<Record<string, unknown>>;
+  series: Array<{ label: string; x: string; y: number }> | null;
+  _status?: 'not_implemented';
+  _message?: string;
+}
+
+/**
+ * Spec 016 (REPORTS-1) — single execution of a report definition (or
+ * an ad-hoc template + params with no saved definition). Append-only
+ * history; the latest row per `definitionId` is what the detail frame
+ * displays.
+ */
+export interface ReportRun {
+  id: string;
+  definitionId: string | null;
+  templateId: string;
+  storeId: string;
+  params: Record<string, unknown>;
+  output: ReportRunOutput | null;
+  status: 'pending' | 'ok' | 'error';
+  errorMessage: string | null;
+  ranAt: string;
+  ranBy: string | null;
 }
 
 export interface AppNotification {

@@ -5,46 +5,60 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { ReportDefinition } from '../../types';
+import { TEMPLATES, defaultReportName, findTemplate, Template } from '../../screens/cmd/sections/reports/templates';
 
-interface Template {
-  id: ReportDefinition['templateId'];
-  name: string;
-  sub: string;
-  cols: string;
-  icon: string;
-}
-
-const TEMPLATES: Template[] = [
-  { id: 'variance', name: 'Variance',             sub: 'expected vs counted',          cols: 'item · expected · counted · Δ · $impact', icon: 'Δ' },
-  { id: 'waste',    name: 'Waste cost',           sub: 'by reason & category',         cols: 'date · item · qty · reason · $cost',      icon: '⌫' },
-  { id: 'cogs',     name: 'COGS by category',     sub: 'over time',                    cols: 'date · category · revenue · cogs · margin', icon: '%' },
-  { id: 'vendor',   name: 'Vendor performance',   sub: 'on-time, fill-rate',           cols: 'vendor · orders · fill % · late · $',     icon: '⊡' },
-  { id: 'velocity', name: 'Item velocity',        sub: 'turn rate per ingredient',     cols: 'item · usage/wk · turns · DOH',           icon: '≋' },
-  { id: 'custom',   name: 'Custom SQL',           sub: 'write your own',               cols: '-- SELECT … FROM inventory',              icon: '>' },
-];
+// Re-export so existing consumers that imported `Template` from this module
+// keep working. The single source of truth is reports/templates.ts.
+export type { Template };
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Spec 016 — when set, seeds the picker to this template id so
+   * "click a catalog tile" opens the modal pre-selected. Defaults to
+   * 'variance' (the historical default) when omitted.
+   */
+  initialTemplateId?: ReportDefinition['templateId'];
+  /**
+   * Spec 016 — when set, seeds the name input to this string so the
+   * caller can pre-fill "<Template> — May 2026". Defaults to the variance
+   * template's default name when omitted.
+   */
+  initialName?: string;
 }
 
-export const NewReportModal: React.FC<Props> = ({ visible, onClose }) => {
+export const NewReportModal: React.FC<Props> = ({
+  visible,
+  onClose,
+  initialTemplateId,
+  initialName,
+}) => {
   const C = useCmdColors();
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
   const addReportDefinition = useStore((s) => s.addReportDefinition);
 
-  const [picked, setPicked] = React.useState<ReportDefinition['templateId']>('variance');
-  const [name, setName] = React.useState('Variance — May 2026');
+  const fallbackTemplate = findTemplate('variance') ?? TEMPLATES[0];
+  const initialPicked = initialTemplateId ?? fallbackTemplate.id;
+  const seededName =
+    initialName ?? defaultReportName(findTemplate(initialPicked) ?? fallbackTemplate);
+
+  const [picked, setPicked] = React.useState<ReportDefinition['templateId']>(initialPicked);
+  const [name, setName] = React.useState(seededName);
   const [filter, setFilter] = React.useState('');
 
   React.useEffect(() => {
-    if (!visible) {
-      setPicked('variance');
-      setName('Variance — May 2026');
+    if (visible) {
+      // Re-seed on each open so a second "open via catalog tile" picks up the
+      // freshly-passed initialTemplateId / initialName instead of stale state
+      // from a previous session.
+      setPicked(initialPicked);
+      setName(seededName);
       setFilter('');
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialTemplateId, initialName]);
 
   const filteredTemplates = React.useMemo(() => {
     if (!filter.trim()) return TEMPLATES;

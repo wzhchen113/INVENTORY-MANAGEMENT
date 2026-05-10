@@ -1601,6 +1601,156 @@ export async function deleteReportDefinition(id: string): Promise<void> {
   if (error) console.warn('[Supabase] deleteReportDefinition:', error.message);
 }
 
+// ─── REPORT RUNS (Spec 016 — REPORTS-1) ─────────────────────────────────
+// Append-only history of report executions. `runReport` calls the dispatcher
+// RPC then persists the resulting envelope; `fetchLatestRun` reads the most
+// recent row matching the saved-definition or ad-hoc key.
+import type { ReportRun, ReportRunOutput } from '../types';
+
+const mapReportRunRow = (r: any): ReportRun => ({
+  id: r.id,
+  definitionId: r.definition_id || null,
+  templateId: r.template_id,
+  storeId: r.store_id,
+  params: (r.params as Record<string, unknown>) || {},
+  output: (r.output as ReportRunOutput | null) || null,
+  status: r.status,
+  errorMessage: r.error_message || null,
+  ranAt: r.ran_at,
+  ranBy: r.ran_by || null,
+});
+
+/**
+ * Spec 016 — execute the dispatcher RPC for `templateId` against `storeId`,
+ * then persist the resulting envelope to `report_runs`. Returns the
+ * persisted row mapped to camelCase. Throws on either RPC OR insert
+ * failure so the caller (store action) can route through
+ * `notifyBackendError`.
+ *
+ * The envelope's `_status === 'not_implemented'` is NOT a runner error —
+ * the dispatcher uses it to flag templates whose runner hasn't been wired
+ * yet. Status is recorded as `'ok'`; the detail frame branches on
+ * `_status` to render the "Runner coming soon" placeholder.
+ *
+ * Spec 016 follow-up (`20260510130000_report_runs_consistency.sql`):
+ * - `ran_by` is intentionally NOT included in the INSERT. The column has a
+ *   `default auth.uid()`, so the server populates it from the caller's
+ *   JWT. This closes the audit-trail-forgery High flagged by the
+ *   security-auditor — the client can no longer lie about who ran the
+ *   report.
+ * - When the dispatcher RPC errors, we sanitize `rpcError.message` before
+ *   persisting. The deliberate `Not authorized for store …` raise stays
+ *   verbatim (it's intentional auth feedback the user can act on);
+ *   anything else becomes a generic copy and the raw error is logged via
+ *   `console.warn`. This prevents PostgrestError text (constraint names,
+ *   table names, hint fragments) from leaking into a row that any
+ *   store-member can read once REPORTS-2/3 lands real RPCs.
+ */
+export async function runReport(args: {
+  definitionId?: string | null;
+  templateId: string;
+  storeId: string;
+  params?: Record<string, unknown>;
+}): Promise<ReportRun> {
+  const params = args.params || {};
+  const { data: envelope, error: rpcError } = await supabase.rpc('report_run', {
+    p_template_id: args.templateId,
+    p_store_id: args.storeId,
+    p_params: params,
+  });
+
+  let output: ReportRunOutput | null;
+  let status: 'ok' | 'error';
+  let errorMessage: string | null;
+  if (rpcError) {
+    output = { kpis: [], columns: [], rows: [], series: null };
+    status = 'error';
+    // Sanitize before persisting. The deliberate 'Not authorized for
+    // store …' raise from the dispatcher is intentional and useful; any
+    // other Postgres error text could leak schema details to every
+    // store-member who reads the row.
+    const rawMessage = rpcError.message || '';
+    if (rawMessage.startsWith('Not authorized')) {
+      errorMessage = rawMessage;
+    } else {
+      console.warn('[Supabase] runReport RPC failed:', rpcError);
+      errorMessage = 'Run failed — check server logs';
+    }
+  } else {
+    output = (envelope as ReportRunOutput) || { kpis: [], columns: [], rows: [], series: null };
+    status = 'ok';
+    errorMessage = null;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('report_runs')
+    .insert({
+      definition_id: args.definitionId || null,
+      template_id: args.templateId,
+      store_id: args.storeId,
+      params,
+      output,
+      status,
+      error_message: errorMessage,
+      // ran_by is server-populated from `default auth.uid()`. Do not pass
+      // it from the client — that would let a misbehaving caller forge
+      // the audit trail.
+    })
+    .select('id, definition_id, template_id, store_id, params, output, status, error_message, ran_at, ran_by')
+    .single();
+  if (insertError) {
+    // Don't swallow — the caller's notifyBackendError needs to surface this
+    // to the user; otherwise we'd silently lose the run row.
+    throw insertError;
+  }
+  return mapReportRunRow(inserted);
+}
+
+/**
+ * Spec 016 — most recent run for either a saved definition (preferred) or
+ * an ad-hoc `(storeId, templateId)` key. Returns `null` when no rows
+ * exist; the detail frame interprets that as the "No runs yet" empty
+ * state. Errors are swallowed to a `console.warn` because a missing run
+ * is not user-facing.
+ */
+export async function fetchLatestRun(args: {
+  definitionId?: string | null;
+  templateId?: string;
+  /** Required for the ad-hoc branch (`definitionId` null + `templateId`
+   *  set). Not needed when `definitionId` is set since the saved
+   *  definition's id is globally unique. */
+  storeId?: string;
+}): Promise<ReportRun | null> {
+  let query = supabase
+    .from('report_runs')
+    .select('id, definition_id, template_id, store_id, params, output, status, error_message, ran_at, ran_by')
+    .order('ran_at', { ascending: false })
+    .limit(1);
+
+  if (args.definitionId) {
+    query = query.eq('definition_id', args.definitionId);
+  } else if (args.templateId && args.storeId) {
+    // Ad-hoc branch: scope by (store, template) and explicitly exclude
+    // saved-definition rows so we don't pick up a different user's saved
+    // run that happens to share `(store_id, template_id)`.
+    query = query
+      .eq('store_id', args.storeId)
+      .eq('template_id', args.templateId)
+      .is('definition_id', null);
+  } else {
+    console.warn('[Supabase] fetchLatestRun: must pass definitionId, or templateId+storeId');
+    return null;
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[Supabase] fetchLatestRun:', error.message);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+  return mapReportRunRow(data[0]);
+}
+
 // ─── BRAND + CATALOG ────────────────────────────────────────────────────
 /**
  * Resolve the brand a store belongs to. Single-tenant for now (one

@@ -4,7 +4,7 @@ import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
   EODSubmission, Vendor, POSImport, AppNotification,
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
-  OrderDayVendor, OrderSubmission, ReportDefinition,
+  OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand,
 } from '../types';
@@ -276,6 +276,23 @@ interface StoreActions {
   addReportDefinition: (rep: Omit<ReportDefinition, 'id' | 'createdAt'>) => void;
   deleteReportDefinition: (id: string) => void;
 
+  // Report runs (Spec 016 — REPORTS-1)
+  /**
+   * Spec 016 — append a new run for `definitionId`. Optimistic-then-revert.
+   * Writes a `pending` row to `reportRuns[definitionId]` immediately,
+   * swaps to the resolved row on success, deletes the pending entry on
+   * error and routes through `notifyBackendError('Run report', e)`.
+   * No-op if `definitionId` doesn't resolve to a saved report.
+   */
+  runReport: (definitionId: string) => void;
+  /**
+   * Spec 016 — pull the most recent run for `definitionId` from DB and
+   * hydrate `reportRuns[definitionId]`. No optimistic behavior; pure
+   * load. No-op if no row exists (the empty state). Console-warns on
+   * unexpected DB error since a missing run is not user-facing.
+   */
+  loadLatestRun: (definitionId: string) => Promise<void>;
+
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
@@ -336,6 +353,9 @@ export const useStore = create<FullStore>((set, get) => ({
   storeLoading: false,
   ingredientConversions: [] as IngredientConversion[],
   savedReports: [],
+  // Spec 016 — most-recent run per definitionId. Lazy-loaded; not
+  // populated by loadFromSupabase (see `loadLatestRun`).
+  reportRuns: {} as Record<string, ReportRun>,
   // Spec 012b — super-admin brand context. NULL = "All brands" mode,
   // hidden for non-super-admin (the picker doesn't render).
   currentBrandId: null,
@@ -1815,6 +1835,74 @@ export const useStore = create<FullStore>((set, get) => ({
       if (prev) set((s) => ({ savedReports: [...(s.savedReports || []), prev] }));
       notifyBackendError('Delete report', e);
     });
+  },
+
+  // Spec 016 — report runs (lazy-loaded)
+  runReport: (definitionId) => {
+    const def = (get().savedReports || []).find((r) => r.id === definitionId);
+    if (!def) return;
+    // Snapshot the previous run (if any) BEFORE the optimistic write so an
+    // RLS-rejected retry can restore the last-good row instead of leaving
+    // the detail frame stuck in "No runs yet". Mirror of the pattern in
+    // `deleteReportDefinition` above. Spec 016 follow-up — closes
+    // code-reviewer Should-fix #4.
+    const prev = (get().reportRuns || {})[definitionId] ?? null;
+    const optimistic: ReportRun = {
+      id: `run-pending-${Date.now()}`,
+      definitionId,
+      templateId: def.templateId,
+      storeId: def.storeId,
+      params: def.params || {},
+      output: null,
+      status: 'pending',
+      errorMessage: null,
+      ranAt: new Date().toISOString(),
+      // `ranBy` here is purely for the optimistic display row — it does
+      // NOT travel to the server. The persisted `ran_by` value is set by
+      // the column's `default auth.uid()` (spec 016 follow-up migration
+      // `20260510130000_report_runs_consistency.sql`).
+      ranBy: get().currentUser?.id || null,
+    };
+    set((s) => ({
+      reportRuns: { ...(s.reportRuns || {}), [definitionId]: optimistic },
+    }));
+
+    db.runReport({
+      definitionId,
+      templateId: def.templateId,
+      storeId: def.storeId,
+      params: def.params || {},
+    })
+      .then((saved) => {
+        set((s) => ({
+          reportRuns: { ...(s.reportRuns || {}), [definitionId]: saved },
+        }));
+      })
+      .catch((e: any) => {
+        set((s) => {
+          const next = { ...(s.reportRuns || {}) };
+          if (prev) {
+            next[definitionId] = prev;
+          } else {
+            delete next[definitionId];
+          }
+          return { reportRuns: next };
+        });
+        notifyBackendError('Run report', e);
+      });
+  },
+
+  loadLatestRun: async (definitionId) => {
+    try {
+      const row = await db.fetchLatestRun({ definitionId });
+      if (row) {
+        set((s) => ({
+          reportRuns: { ...(s.reportRuns || {}), [definitionId]: row },
+        }));
+      }
+    } catch (e: any) {
+      console.warn('[Supabase] loadLatestRun:', e?.message || e);
+    }
   },
 
   // Computed
