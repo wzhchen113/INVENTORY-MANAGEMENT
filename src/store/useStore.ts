@@ -283,8 +283,19 @@ interface StoreActions {
    * swaps to the resolved row on success, deletes the pending entry on
    * error and routes through `notifyBackendError('Run report', e)`.
    * No-op if `definitionId` doesn't resolve to a saved report.
+   *
+   * Spec 017 (REPORTS-2) — `overrideParams` shadows the saved
+   * `definition.params` for this run only (e.g. a chip-dropdown in the
+   * detail header changing the date range without saving it back to the
+   * definition). Merge shape: `{ ...def.params, ...overrideParams }` —
+   * override keys win. The merged object travels both to `db.runReport`
+   * (which sends it to the dispatcher AND persists to `report_runs.params`)
+   * AND to the optimistic display row so the detail frame sees the active
+   * override immediately. The saved `ReportDefinition.params` is NOT
+   * mutated by this action — the user's "save changes to definition"
+   * affordance is a separate follow-up.
    */
-  runReport: (definitionId: string) => void;
+  runReport: (definitionId: string, overrideParams?: Record<string, unknown>) => void;
   /**
    * Spec 016 — pull the most recent run for `definitionId` from DB and
    * hydrate `reportRuns[definitionId]`. No optimistic behavior; pure
@@ -1838,7 +1849,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   // Spec 016 — report runs (lazy-loaded)
-  runReport: (definitionId) => {
+  runReport: (definitionId, overrideParams) => {
     const def = (get().savedReports || []).find((r) => r.id === definitionId);
     if (!def) return;
     // Snapshot the previous run (if any) BEFORE the optimistic write so an
@@ -1847,12 +1858,20 @@ export const useStore = create<FullStore>((set, get) => ({
     // `deleteReportDefinition` above. Spec 016 follow-up — closes
     // code-reviewer Should-fix #4.
     const prev = (get().reportRuns || {})[definitionId] ?? null;
+    // Spec 017 (REPORTS-2) — merge override over saved params for this
+    // run only. The merged object travels to the optimistic display row,
+    // the dispatcher RPC, AND the persisted `report_runs.params` so the
+    // audit trail reflects what was actually computed. `def.params` is
+    // left untouched so the saved definition is preserved.
+    const mergedParams: Record<string, unknown> = overrideParams
+      ? { ...(def.params || {}), ...overrideParams }
+      : (def.params || {});
     const optimistic: ReportRun = {
       id: `run-pending-${Date.now()}`,
       definitionId,
       templateId: def.templateId,
       storeId: def.storeId,
-      params: def.params || {},
+      params: mergedParams,
       output: null,
       status: 'pending',
       errorMessage: null,
@@ -1872,6 +1891,7 @@ export const useStore = create<FullStore>((set, get) => ({
       templateId: def.templateId,
       storeId: def.storeId,
       params: def.params || {},
+      overrideParams,
     })
       .then((saved) => {
         set((s) => ({

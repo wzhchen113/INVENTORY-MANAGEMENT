@@ -9,7 +9,7 @@
 //   - 'live' → catalog tile drops the badge, dispatcher routes to the real
 //     `report_run_<id>` RPC.
 //
-// REPORTS-2 will flip `cogs` to 'live' once `report_run_cogs` lands.
+// REPORTS-2 flipped `cogs` to 'live' (see `20260511120000_report_run_cogs.sql`).
 // REPORTS-3 will flip `variance` to 'live' once `report_run_variance` lands.
 
 import { ReportDefinition } from '../../../../types';
@@ -26,7 +26,7 @@ export interface Template {
 export const TEMPLATES: Template[] = [
   { id: 'variance', name: 'Variance',           sub: 'expected vs counted',         cols: 'item · expected · counted · Δ · $impact',  icon: 'Δ', status: 'preview' },
   { id: 'waste',    name: 'Waste cost',         sub: 'by reason & category',        cols: 'date · item · qty · reason · $cost',       icon: '⌫', status: 'preview' },
-  { id: 'cogs',     name: 'COGS by category',   sub: 'over time',                   cols: 'date · category · revenue · cogs · margin', icon: '%', status: 'preview' },
+  { id: 'cogs',     name: 'COGS by category',   sub: 'over time',                   cols: 'date · category · revenue · cogs · margin', icon: '%', status: 'live'    },
   { id: 'vendor',   name: 'Vendor performance', sub: 'on-time, fill-rate',          cols: 'vendor · orders · fill % · late · $',      icon: '⊡', status: 'preview' },
   { id: 'velocity', name: 'Item velocity',      sub: 'turn rate per ingredient',    cols: 'item · usage/wk · turns · DOH',            icon: '≋', status: 'preview' },
   { id: 'custom',   name: 'Custom SQL',         sub: 'write your own',              cols: '-- SELECT … FROM inventory',               icon: '>', status: 'preview' },

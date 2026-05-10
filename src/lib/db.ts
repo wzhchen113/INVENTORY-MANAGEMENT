@@ -1645,14 +1645,33 @@ const mapReportRunRow = (r: any): ReportRun => ({
  *   `console.warn`. This prevents PostgrestError text (constraint names,
  *   table names, hint fragments) from leaking into a row that any
  *   store-member can read once REPORTS-2/3 lands real RPCs.
+ *
+ * Spec 017 (REPORTS-2) — `overrideParams` lets callers shadow the saved
+ * `params` for this run only (e.g. the chip-dropdown in
+ * `ReportDetailFrame` letting the user change the date range without
+ * saving it back to the definition). When set, the override is merged
+ * FLAT over `params` (`{ ...params, ...overrideParams }`) and the merged
+ * object is BOTH sent to the dispatcher AND persisted to the
+ * `report_runs.params` column. The persisted value reflects what was
+ * actually computed, so the audit trail is honest. The saved
+ * `ReportDefinition.params` is unchanged — that's the store action's
+ * concern, not this helper's.
  */
 export async function runReport(args: {
   definitionId?: string | null;
   templateId: string;
   storeId: string;
   params?: Record<string, unknown>;
+  /** Spec 017 — per-run shadow of `params`. See JSDoc above. */
+  overrideParams?: Record<string, unknown>;
 }): Promise<ReportRun> {
-  const params = args.params || {};
+  const baseParams = args.params || {};
+  // Flat merge: override keys win. Persisting the merged object means the
+  // audit trail shows what was actually computed for this run; the saved
+  // definition's params (passed in as `args.params`) is untouched.
+  const params = args.overrideParams
+    ? { ...baseParams, ...args.overrideParams }
+    : baseParams;
   const { data: envelope, error: rpcError } = await supabase.rpc('report_run', {
     p_template_id: args.templateId,
     p_store_id: args.storeId,

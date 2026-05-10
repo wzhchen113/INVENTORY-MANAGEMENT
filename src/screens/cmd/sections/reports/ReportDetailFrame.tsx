@@ -7,10 +7,17 @@
 // dev `report_run_stub`. REPORTS-2 (cogs) and REPORTS-3 (variance) flip the
 // dispatcher to return real envelopes and the same frame renders them as-is
 // — that's the point of keeping it template-agnostic.
+//
+// Spec 017 (REPORTS-2) — the previously-read-only `range:` and `by:` chips
+// become interactive dropdowns when the parent passes `onRangeChange` /
+// `onByChange`. A subtle `·` indicator next to the chip's label means the
+// in-frame override differs from the saved definition's value — the next
+// press of RUN will use the override, but the saved definition is untouched.
 
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, TextInput } from 'react-native';
 import Svg, { Polyline, Polygon, Line as SvgLine, Circle, Text as SvgText } from 'react-native-svg';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../../theme/colors';
 import { sans, mono, Type } from '../../../../theme/typography';
 import { ReportDefinition, ReportRun, ReportRunOutput } from '../../../../types';
@@ -23,6 +30,27 @@ export interface ReportDetailFrameProps {
   onRun: () => void;
   onBack: () => void;
   running: boolean;
+  /**
+   * Spec 017 — in-frame override of the date range. When passed, the
+   * `range:` chip becomes a dropdown of presets + manual edit. When
+   * omitted (default), the chip stays read-only (REPORTS-1 behaviour
+   * — preview templates and any template whose runner isn't `'live'`
+   * yet pass nothing here).
+   */
+  overrideRange?: { range: string; from: string; to: string } | null;
+  onRangeChange?: (override: { range: string; from: string; to: string }) => void;
+  /**
+   * Spec 017 — in-frame override of the `by:` group key. Same gating
+   * pattern as `onRangeChange`.
+   */
+  overrideBy?: 'category' | 'item' | null;
+  onByChange?: (by: 'category' | 'item') => void;
+  /**
+   * Spec 017 — reset both overrides back to the definition's saved
+   * params. Wired by `ReportsSection`; the chips show a small `reset`
+   * affordance when at least one override is active.
+   */
+  onResetOverrides?: () => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -53,6 +81,60 @@ function formatCellValue(v: unknown): string {
   }
 }
 
+// ─── Date helpers (mirror NewReportModal — kept local to avoid a
+//     premature shared module before REPORTS-3 proves the shape) ─────────
+
+type PresetId = 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d' | 'custom';
+
+const PRESETS: Array<{ id: Exclude<PresetId, 'custom'>; label: string }> = [
+  { id: 'last_30d',        label: 'Last 30d'        },
+  { id: 'this_month',      label: 'This month'      },
+  { id: 'last_full_month', label: 'Last full month' },
+  { id: 'last_90d',        label: 'Last 90d'        },
+];
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isISODate(s: string): boolean {
+  if (!ISO_DATE_RE.test(s)) return false;
+  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+function toISODate(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+function computePreset(id: Exclude<PresetId, 'custom'>, now: Date = new Date()): { from: string; to: string } {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (id === 'last_30d') {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 30);
+    return { from: toISODate(from), to: toISODate(today) };
+  }
+  if (id === 'this_month') {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: toISODate(from), to: toISODate(today) };
+  }
+  if (id === 'last_full_month') {
+    const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const to = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { from: toISODate(from), to: toISODate(to) };
+  }
+  const from = new Date(today);
+  from.setDate(from.getDate() - 90);
+  return { from: toISODate(from), to: toISODate(today) };
+}
+
+function rangeLabel(range: string, from: string, to: string): string {
+  const preset = PRESETS.find((p) => p.id === range);
+  if (preset) return preset.label.toLowerCase();
+  if (range === 'custom') return `${from} → ${to}`;
+  // Fallback for legacy `range` values from REPORTS-1 stubs (raw strings).
+  return range;
+}
+
 // ─── ReportDetailFrame ───────────────────────────────────────────────────
 
 export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
@@ -61,6 +143,11 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
   onRun,
   onBack,
   running,
+  overrideRange,
+  onRangeChange,
+  overrideBy,
+  onByChange,
+  onResetOverrides,
 }) => {
   const C = useCmdColors();
   const template = findTemplate(definition.templateId);
@@ -82,13 +169,86 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
     ? relativeTime(latestRun.ranAt) || 'just now'
     : null;
 
-  // Date-range chip — REPORTS-1 has no picker; we surface a static "last 30d"
-  // string that future specs (REPORTS-2 COGS) will replace with the picker
-  // value from `params.range`. `params` is `Record<string, unknown>`, so a
-  // typeof-narrowed lookup is the right shape — closes spec 016
-  // code-reviewer Should-fix #7.
-  const range = definition.params?.['range'];
-  const rangeChip = typeof range === 'string' ? `range: ${range}` : 'range: last 30d';
+  // Saved-definition values for the chips. Falls back to the legacy
+  // "last 30d" string if the saved params don't have `range`/`from`/`to`
+  // (REPORTS-1 stubs and migrated rows).
+  const savedRange = typeof definition.params?.['range'] === 'string'
+    ? (definition.params!['range'] as string)
+    : null;
+  const savedFrom = typeof definition.params?.['from'] === 'string'
+    ? (definition.params!['from'] as string)
+    : null;
+  const savedTo = typeof definition.params?.['to'] === 'string'
+    ? (definition.params!['to'] as string)
+    : null;
+  const savedBy = definition.params?.['by'] === 'item' ? 'item' : 'category';
+
+  // Effective values = override if present, else saved. The chips render
+  // the effective value; the `·` indicator paints when override !== saved.
+  const effectiveRange = overrideRange?.range ?? savedRange ?? 'last_30d';
+  const effectiveFrom = overrideRange?.from ?? savedFrom ?? '';
+  const effectiveTo = overrideRange?.to ?? savedTo ?? '';
+  const effectiveBy: 'category' | 'item' = overrideBy ?? savedBy;
+
+  const rangeOverridden = overrideRange != null && (
+    overrideRange.range !== (savedRange ?? '') ||
+    overrideRange.from  !== (savedFrom  ?? '') ||
+    overrideRange.to    !== (savedTo    ?? '')
+  );
+  const byOverridden = overrideBy != null && overrideBy !== savedBy;
+  const anyOverride = rangeOverridden || byOverridden;
+
+  // Dropdown popover state — controlled here rather than per-chip so
+  // opening the `by:` menu auto-closes the `range:` menu.
+  const [openMenu, setOpenMenu] = React.useState<'range' | 'by' | null>(null);
+  // Manual-edit affordance for custom range. Drafts mirror the modal's
+  // pattern so a tap on the chip's date cell flips it to a TextInput.
+  const [editingDate, setEditingDate] = React.useState<'from' | 'to' | null>(null);
+  const [draftFrom, setDraftFrom] = React.useState<string>(effectiveFrom);
+  const [draftTo, setDraftTo] = React.useState<string>(effectiveTo);
+  React.useEffect(() => {
+    setDraftFrom(effectiveFrom);
+    setDraftTo(effectiveTo);
+  }, [effectiveFrom, effectiveTo]);
+
+  const rangeInteractive = typeof onRangeChange === 'function';
+  const byInteractive = typeof onByChange === 'function';
+
+  const onPickPreset = (id: Exclude<PresetId, 'custom'>) => {
+    if (!onRangeChange) return;
+    const r = computePreset(id);
+    onRangeChange({ range: id, from: r.from, to: r.to });
+    setEditingDate(null);
+    setOpenMenu(null);
+  };
+
+  const commitDate = (which: 'from' | 'to', raw: string) => {
+    if (!onRangeChange) return;
+    const v = raw.trim();
+    if (!isISODate(v)) {
+      // Surface the validation failure via the same Toast pattern the
+      // modal uses (`NewReportModal.tsx:162`) so the user gets immediate
+      // feedback. Then revert the draft to the last committed value and
+      // close the editor.
+      Toast.show({ type: 'error', text1: 'Invalid date — must be YYYY-MM-DD' });
+      if (which === 'from') setDraftFrom(effectiveFrom);
+      else setDraftTo(effectiveTo);
+      setEditingDate(null);
+      return;
+    }
+    onRangeChange({
+      range: 'custom',
+      from: which === 'from' ? v : effectiveFrom,
+      to:   which === 'to'   ? v : effectiveTo,
+    });
+    setEditingDate(null);
+  };
+
+  const onPickBy = (b: 'category' | 'item') => {
+    if (!onByChange) return;
+    onByChange(b);
+    setOpenMenu(null);
+  };
 
   return (
     <ScrollView
@@ -172,19 +332,73 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
 
         <Text style={[Type.h1, { color: C.fg }]}>{definition.name}</Text>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
             scope: {definition.scope || 'this_store'}
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
-          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-            {rangeChip}
-          </Text>
+
+          {/* range chip */}
+          <ChipButton
+            C={C}
+            label={`range: ${rangeLabel(effectiveRange, effectiveFrom, effectiveTo)}`}
+            overridden={rangeOverridden}
+            interactive={rangeInteractive}
+            onPress={() => { setOpenMenu((m) => (m === 'range' ? null : 'range')); }}
+          />
+
+          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+
+          {/* by chip */}
+          <ChipButton
+            C={C}
+            label={`by: ${effectiveBy}`}
+            overridden={byOverridden}
+            interactive={byInteractive}
+            onPress={() => { setOpenMenu((m) => (m === 'by' ? null : 'by')); }}
+          />
+
+          {anyOverride && onResetOverrides ? (
+            <>
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+              <TouchableOpacity
+                onPress={() => { onResetOverrides(); setOpenMenu(null); setEditingDate(null); }}
+                accessibilityLabel="Reset chip overrides"
+                style={{ paddingHorizontal: 7, paddingVertical: 2 }}
+              >
+                <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: C.accent }}>reset</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
             {lastRunStr ? `last run ${lastRunStr} ago` : 'never run'}
           </Text>
         </View>
+
+        {/* Inline popover for range / by chips. We render below the chips
+            (not as an absolute-positioned Modal) so it works identically on
+            web and native without portal/positioning math. Touching outside
+            closes via the chip's toggle behaviour or the panel's CLOSE. */}
+        {openMenu === 'range' && rangeInteractive ? (
+          <RangePopover
+            C={C}
+            effective={{ range: effectiveRange, from: effectiveFrom, to: effectiveTo }}
+            editing={editingDate}
+            draftFrom={draftFrom}
+            draftTo={draftTo}
+            setDraftFrom={setDraftFrom}
+            setDraftTo={setDraftTo}
+            setEditing={setEditingDate}
+            onPickPreset={onPickPreset}
+            onCommitDate={commitDate}
+            onClose={() => { setOpenMenu(null); setEditingDate(null); }}
+          />
+        ) : null}
+        {openMenu === 'by' && byInteractive ? (
+          <ByPopover C={C} effective={effectiveBy} onPick={onPickBy} onClose={() => setOpenMenu(null)} />
+        ) : null}
       </View>
 
       {/* ─── Body — branches ─────────────────────────────────────────── */}
@@ -216,6 +430,222 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
     </ScrollView>
   );
 };
+
+// ─── Chip button ─────────────────────────────────────────────────────────
+
+const ChipButton: React.FC<{
+  C: ReturnType<typeof useCmdColors>;
+  label: string;
+  overridden: boolean;
+  interactive: boolean;
+  onPress: () => void;
+}> = ({ C, label, overridden, interactive, onPress }) => {
+  // The `·` indicator (small filled dot in the accent color) paints when
+  // the effective value differs from the saved definition. Non-interactive
+  // chips (preview templates) render as plain text matching the REPORTS-1
+  // shape so we don't visually regress that surface.
+  if (!interactive) {
+    return (
+      <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityLabel={`Toggle ${label}`}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderWidth: 1,
+        borderColor: overridden ? C.accent : C.border,
+        backgroundColor: overridden ? C.accentBg : C.panel,
+        borderRadius: 3,
+      }}
+    >
+      <Text style={{ fontFamily: mono(overridden ? 700 : 500), fontSize: 10.5, color: overridden ? C.accent : C.fg2 }}>
+        {label}
+      </Text>
+      {overridden ? (
+        <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.accent, lineHeight: 11 }}>·</Text>
+      ) : null}
+    </TouchableOpacity>
+  );
+};
+
+// ─── Range popover ───────────────────────────────────────────────────────
+
+const RangePopover: React.FC<{
+  C: ReturnType<typeof useCmdColors>;
+  effective: { range: string; from: string; to: string };
+  editing: 'from' | 'to' | null;
+  draftFrom: string;
+  draftTo: string;
+  setDraftFrom: (s: string) => void;
+  setDraftTo: (s: string) => void;
+  setEditing: (e: 'from' | 'to' | null) => void;
+  onPickPreset: (id: Exclude<PresetId, 'custom'>) => void;
+  onCommitDate: (which: 'from' | 'to', raw: string) => void;
+  onClose: () => void;
+}> = ({ C, effective, editing, draftFrom, draftTo, setDraftFrom, setDraftTo, setEditing, onPickPreset, onCommitDate, onClose }) => {
+  return (
+    <View
+      style={{
+        marginTop: 6,
+        padding: 12,
+        gap: 10,
+        backgroundColor: C.panel,
+        borderWidth: 1,
+        borderColor: C.borderStrong,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } as any) : {}),
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>range</Text>
+        {/* from cell */}
+        {editing === 'from' ? (
+          <TextInput
+            autoFocus
+            value={draftFrom}
+            onChangeText={setDraftFrom}
+            onBlur={() => onCommitDate('from', draftFrom)}
+            onSubmitEditing={() => onCommitDate('from', draftFrom)}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={C.fg3}
+            maxLength={10}
+            style={{
+              fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+              backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+              paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+        ) : (
+          <TouchableOpacity
+            accessibilityLabel="Edit from date"
+            onPress={() => { setDraftFrom(effective.from); setEditing('from'); }}
+            style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+          >
+            <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.from || 'YYYY-MM-DD'}</Text>
+          </TouchableOpacity>
+        )}
+        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+        {/* to cell */}
+        {editing === 'to' ? (
+          <TextInput
+            autoFocus
+            value={draftTo}
+            onChangeText={setDraftTo}
+            onBlur={() => onCommitDate('to', draftTo)}
+            onSubmitEditing={() => onCommitDate('to', draftTo)}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={C.fg3}
+            maxLength={10}
+            style={{
+              fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+              backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+              paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+        ) : (
+          <TouchableOpacity
+            accessibilityLabel="Edit to date"
+            onPress={() => { setDraftTo(effective.to); setEditing('to'); }}
+            style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+          >
+            <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.to || 'YYYY-MM-DD'}</Text>
+          </TouchableOpacity>
+        )}
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity onPress={onClose} accessibilityLabel="Close range popover" style={{ paddingHorizontal: 7, paddingVertical: 2 }}>
+          <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: C.fg3 }}>close</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+        {PRESETS.map((p) => {
+          const sel = effective.range === p.id;
+          return (
+            <TouchableOpacity
+              key={p.id}
+              onPress={() => onPickPreset(p.id)}
+              accessibilityLabel={`Preset ${p.label}`}
+              style={{
+                paddingHorizontal: 9, paddingVertical: 4,
+                borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                backgroundColor: sel ? C.accentBg : C.panel,
+                borderRadius: 3,
+              }}
+            >
+              <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+        Next RUN uses this range. The saved report keeps its original range.
+      </Text>
+    </View>
+  );
+};
+
+// ─── By popover ──────────────────────────────────────────────────────────
+
+const ByPopover: React.FC<{
+  C: ReturnType<typeof useCmdColors>;
+  effective: 'category' | 'item';
+  onPick: (b: 'category' | 'item') => void;
+  onClose: () => void;
+}> = ({ C, effective, onPick, onClose }) => (
+  <View
+    style={{
+      marginTop: 6,
+      padding: 12,
+      gap: 10,
+      backgroundColor: C.panel,
+      borderWidth: 1,
+      borderColor: C.borderStrong,
+      borderRadius: 6,
+      alignSelf: 'flex-start',
+      ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } as any) : {}),
+    }}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>by</Text>
+      {(['category', 'item'] as const).map((opt) => {
+        const sel = effective === opt;
+        return (
+          <TouchableOpacity
+            key={opt}
+            onPress={() => onPick(opt)}
+            accessibilityLabel={`Group by ${opt}`}
+            style={{
+              paddingHorizontal: 10, paddingVertical: 4,
+              borderWidth: 1, borderColor: sel ? C.accent : C.border,
+              backgroundColor: sel ? C.accentBg : C.panel,
+              borderRadius: 3,
+            }}
+          >
+            <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{opt}</Text>
+          </TouchableOpacity>
+        );
+      })}
+      <View style={{ flex: 1 }} />
+      <TouchableOpacity onPress={onClose} accessibilityLabel="Close by popover" style={{ paddingHorizontal: 7, paddingVertical: 2 }}>
+        <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: C.fg3 }}>close</Text>
+      </TouchableOpacity>
+    </View>
+    <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+      Next RUN groups by this dimension. The saved report keeps its original.
+    </Text>
+  </View>
+);
 
 // ─── Sub-panels ──────────────────────────────────────────────────────────
 

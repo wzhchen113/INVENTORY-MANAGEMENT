@@ -434,6 +434,19 @@ export interface ReportDefinition {
   templateId: 'variance' | 'waste' | 'cogs' | 'vendor' | 'velocity' | 'custom';
   name: string;
   scope?: 'this_store' | 'all_stores';
+  /**
+   * Per-template params. Shape is template-dependent; the dispatcher
+   * RPC `report_run` accepts whatever is here as `jsonb` and the
+   * specific runner coerces / defaults. Stays `Record<string, unknown>`
+   * for forward-compat so adding a new template doesn't churn the
+   * frontend type wall.
+   *
+   * Per-template expected keys (informational — runners default
+   * missing keys, so this is what the modal SHOULD send):
+   *  - `cogs` (Spec 017 / REPORTS-2): `{ range?: 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d', from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD', by?: 'category' | 'item' }`.
+   *    `range` is informational (drives the chip label); `from`/`to` are authoritative.
+   *  - Other templates: TBD per their own specs.
+   */
   params?: Record<string, unknown>;
   createdBy?: string;
   createdAt: string;

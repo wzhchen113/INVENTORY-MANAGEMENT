@@ -28,6 +28,68 @@ interface Props {
   initialName?: string;
 }
 
+// ─── Spec 017 (REPORTS-2) — date-range helpers ───────────────────────
+//
+// All date helpers operate on local Date objects formatted to ISO YYYY-MM-DD
+// strings. We do NOT pull in a date-picker library — the modal's manual-edit
+// affordance is a plain TextInput validated by `isISODate`. The four preset
+// chips compute against today's local date so a user in Eastern time sees
+// "Last 30d" ending at their local today, not UTC's.
+
+type PresetId = 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d';
+
+interface DateRange {
+  range: PresetId | 'custom';
+  from: string;
+  to: string;
+}
+
+function toISODate(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isISODate(s: string): boolean {
+  if (!ISO_DATE_RE.test(s)) return false;
+  // Reject e.g. "2026-02-31" — JS Date will roll over silently.
+  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
+function computePreset(id: PresetId, now: Date = new Date()): { from: string; to: string } {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (id === 'last_30d') {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 30);
+    return { from: toISODate(from), to: toISODate(today) };
+  }
+  if (id === 'this_month') {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: toISODate(from), to: toISODate(today) };
+  }
+  if (id === 'last_full_month') {
+    const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const to = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { from: toISODate(from), to: toISODate(to) };
+  }
+  // last_90d
+  const from = new Date(today);
+  from.setDate(from.getDate() - 90);
+  return { from: toISODate(from), to: toISODate(today) };
+}
+
+const PRESETS: Array<{ id: PresetId; label: string }> = [
+  { id: 'last_30d',        label: 'Last 30d'        },
+  { id: 'this_month',      label: 'This month'      },
+  { id: 'last_full_month', label: 'Last full month' },
+  { id: 'last_90d',        label: 'Last 90d'        },
+];
+
 export const NewReportModal: React.FC<Props> = ({
   visible,
   onClose,
@@ -43,19 +105,39 @@ export const NewReportModal: React.FC<Props> = ({
   const initialPicked = initialTemplateId ?? fallbackTemplate.id;
   const seededName =
     initialName ?? defaultReportName(findTemplate(initialPicked) ?? fallbackTemplate);
+  const initialPreset = computePreset('last_30d');
 
   const [picked, setPicked] = React.useState<ReportDefinition['templateId']>(initialPicked);
   const [name, setName] = React.useState(seededName);
   const [filter, setFilter] = React.useState('');
+  const [dateRange, setDateRange] = React.useState<DateRange>({
+    range: 'last_30d',
+    from: initialPreset.from,
+    to: initialPreset.to,
+  });
+  const [by, setBy] = React.useState<'category' | 'item'>('category');
+  // Manual-edit affordance: each cell flips to an editable TextInput on tap.
+  // We track per-field edit state so tapping `from` doesn't also open `to`.
+  const [editing, setEditing] = React.useState<'from' | 'to' | null>(null);
+  // Working copies of the date strings while editing — commits on blur.
+  const [draftFrom, setDraftFrom] = React.useState<string>(initialPreset.from);
+  const [draftTo, setDraftTo] = React.useState<string>(initialPreset.to);
 
   React.useEffect(() => {
     if (visible) {
       // Re-seed on each open so a second "open via catalog tile" picks up the
       // freshly-passed initialTemplateId / initialName instead of stale state
-      // from a previous session.
+      // from a previous session. Date range and `by:` also reset to defaults
+      // — REPORTS-2 doesn't preserve modal state across opens.
       setPicked(initialPicked);
       setName(seededName);
       setFilter('');
+      const fresh = computePreset('last_30d');
+      setDateRange({ range: 'last_30d', from: fresh.from, to: fresh.to });
+      setBy('category');
+      setEditing(null);
+      setDraftFrom(fresh.from);
+      setDraftTo(fresh.to);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialTemplateId, initialName]);
@@ -66,14 +148,59 @@ export const NewReportModal: React.FC<Props> = ({
     return TEMPLATES.filter((t) => t.name.toLowerCase().includes(q) || t.sub.toLowerCase().includes(q));
   }, [filter]);
 
+  const onPickPreset = (id: PresetId) => {
+    const r = computePreset(id);
+    setDateRange({ range: id, from: r.from, to: r.to });
+    setDraftFrom(r.from);
+    setDraftTo(r.to);
+    setEditing(null);
+  };
+
+  const commitDateEdit = (which: 'from' | 'to', raw: string) => {
+    const value = raw.trim();
+    if (!isISODate(value)) {
+      Toast.show({ type: 'error', text1: 'Invalid date — must be YYYY-MM-DD' });
+      // Revert the draft to the committed value, keep editing OFF.
+      if (which === 'from') setDraftFrom(dateRange.from);
+      else setDraftTo(dateRange.to);
+      setEditing(null);
+      return;
+    }
+    // Manual edit forces `range` to 'custom' so the chips deselect — the
+    // detail-header chip will show the literal YYYY-MM-DD range rather than
+    // a preset label.
+    setDateRange((prev) => ({
+      range: 'custom',
+      from: which === 'from' ? value : prev.from,
+      to:   which === 'to'   ? value : prev.to,
+    }));
+    setEditing(null);
+  };
+
   const onCreate = () => {
     if (!name.trim()) { Toast.show({ type: 'error', text1: 'Name required' }); return; }
+    if (!isISODate(dateRange.from) || !isISODate(dateRange.to)) {
+      Toast.show({ type: 'error', text1: 'Invalid date — must be YYYY-MM-DD' });
+      return;
+    }
+    if (dateRange.from > dateRange.to) {
+      Toast.show({ type: 'error', text1: 'from must be on or before to' });
+      return;
+    }
+    // Spec 017 — params shape: { range, from, to, by }. `range` is the
+    // informational preset id (or 'custom'); `from` / `to` are the
+    // authoritative ISO dates the RPC reads.
     addReportDefinition({
       storeId: currentStore.id,
       templateId: picked,
       name: name.trim(),
       scope: 'this_store',
-      params: {},
+      params: {
+        range: dateRange.range,
+        from:  dateRange.from,
+        to:    dateRange.to,
+        by,
+      },
       createdBy: currentUser?.id,
     });
     Toast.show({ type: 'success', text1: 'Report saved', text2: name });
@@ -83,9 +210,11 @@ export const NewReportModal: React.FC<Props> = ({
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !visible) return;
     const handler = (e: KeyboardEvent) => {
+      // Don't hijack Enter while a date cell is in edit mode — the user is
+      // typing into it. ⌘⏎ still creates even from a focused TextInput.
       if (e.key === 'Escape') { onClose(); e.preventDefault(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { onCreate(); e.preventDefault(); }
-      else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+      else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && editing == null) {
         // Plain Enter creates too — design says "↑↓ pick · ⏎ create"
         onCreate();
         e.preventDefault();
@@ -94,7 +223,7 @@ export const NewReportModal: React.FC<Props> = ({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, picked, name]);
+  }, [visible, picked, name, dateRange, by, editing]);
 
   if (!visible) return null;
 
@@ -128,7 +257,7 @@ export const NewReportModal: React.FC<Props> = ({
           </View>
 
           {/* Template grid */}
-          <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 18, gap: 10, flexDirection: 'row', flexWrap: 'wrap' }}>
+          <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ padding: 18, gap: 10, flexDirection: 'row', flexWrap: 'wrap' }}>
             {filteredTemplates.map((tpl) => {
               const sel = tpl.id === picked;
               return (
@@ -167,6 +296,113 @@ export const NewReportModal: React.FC<Props> = ({
               );
             })}
           </ScrollView>
+
+          {/* Spec 017 — date-range + by: params. Always visible regardless of
+              template `status`, per AC line 173-174 ("simplifies the layout,
+              keeps the UI consistent across templates"). */}
+          <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border, gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>range</Text>
+              {/* From cell */}
+              {editing === 'from' ? (
+                <TextInput
+                  autoFocus
+                  value={draftFrom}
+                  onChangeText={setDraftFrom}
+                  onBlur={() => commitDateEdit('from', draftFrom)}
+                  onSubmitEditing={() => commitDateEdit('from', draftFrom)}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={C.fg3}
+                  maxLength={10}
+                  style={{
+                    fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                    backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                    paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                  }}
+                />
+              ) : (
+                <TouchableOpacity
+                  accessibilityLabel="Edit from date"
+                  onPress={() => { setDraftFrom(dateRange.from); setEditing('from'); }}
+                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.from}</Text>
+                </TouchableOpacity>
+              )}
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+              {/* To cell */}
+              {editing === 'to' ? (
+                <TextInput
+                  autoFocus
+                  value={draftTo}
+                  onChangeText={setDraftTo}
+                  onBlur={() => commitDateEdit('to', draftTo)}
+                  onSubmitEditing={() => commitDateEdit('to', draftTo)}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={C.fg3}
+                  maxLength={10}
+                  style={{
+                    fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                    backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                    paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                  }}
+                />
+              ) : (
+                <TouchableOpacity
+                  accessibilityLabel="Edit to date"
+                  onPress={() => { setDraftTo(dateRange.to); setEditing('to'); }}
+                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.to}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {/* Preset chips */}
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              {PRESETS.map((p) => {
+                const sel = dateRange.range === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    onPress={() => onPickPreset(p.id)}
+                    accessibilityLabel={`Preset ${p.label}`}
+                    style={{
+                      paddingHorizontal: 9, paddingVertical: 4,
+                      borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                      backgroundColor: sel ? C.accentBg : C.panel,
+                      borderRadius: 3,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {/* by: toggle */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>by</Text>
+              {(['category', 'item'] as const).map((opt) => {
+                const sel = by === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    onPress={() => setBy(opt)}
+                    accessibilityLabel={`Group by ${opt}`}
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                      backgroundColor: sel ? C.accentBg : C.panel,
+                      borderRadius: 3,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{opt}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
           {/* Name input */}
           <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.border }}>

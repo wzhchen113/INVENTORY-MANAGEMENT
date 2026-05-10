@@ -19,6 +19,18 @@ import { ReportDetailFrame } from './reports/ReportDetailFrame';
 // Catalog tiles render no fake numbers in REPORTS-1 — every template still
 // returns the `not_implemented` envelope from the dispatcher. REPORTS-2 will
 // flip `cogs` to `status: 'live'`, REPORTS-3 will flip `variance`.
+//
+// Spec 017 (REPORTS-2) — per-definition override state for the `range:` and
+// `by:` chips. The override is in-memory only (never mutated onto the saved
+// definition); when present, the next RUN sends merged params. Stored in a
+// Map keyed by definitionId so switching between saved reports preserves
+// each report's override.
+
+interface OverrideState {
+  range?: { range: string; from: string; to: string };
+  by?: 'category' | 'item';
+}
+
 export default function ReportsSection() {
   const C = useCmdColors();
   const [tabId, setTabId] = React.useState('library.tsx');
@@ -41,6 +53,13 @@ export default function ReportsSection() {
   // locally rather than introducing a store-level loading flag — the store
   // action already handles optimistic-then-revert via `notifyBackendError`.
   const [running, setRunning] = React.useState(false);
+
+  // Spec 017 — chip overrides per definition. A `Map` survives re-renders
+  // (we re-set into the same instance to trigger React state churn) and lets
+  // us read `overrides.get(id)` cheaply without rebuilding the whole record.
+  // Switching between saved reports preserves each report's override so a
+  // user toggling between two open tabs (mental model) sees their state.
+  const [overrides, setOverrides] = React.useState<Map<string, OverrideState>>(() => new Map());
 
   const savedReports = useStore((s) => s.savedReports || []);
   const reportRuns = useStore((s) => s.reportRuns || {});
@@ -67,6 +86,29 @@ export default function ReportsSection() {
       setSelectedDefinitionId(null);
     }
   }, [view, selectedDefinitionId, selectedDefinition]);
+
+  // Spec 017 — reconcile the overrides Map against the current list of
+  // saved reports. Removes entries whose definitionId no longer exists in
+  // `myReports` (deletion path — both the local inline-delete button and
+  // a realtime delete from another tab). Prevents the Map from
+  // accumulating stale entries over the component's lifetime.
+  React.useEffect(() => {
+    setOverrides((prev) => {
+      if (prev.size === 0) return prev;
+      const valid = new Set(myReports.map((r) => r.id));
+      let changed = false;
+      const next = new Map(prev);
+      for (const id of Array.from(next.keys())) {
+        if (!valid.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      // Returning the same reference when nothing changed avoids a needless
+      // render churn — Zustand subscribers don't care about this state.
+      return changed ? next : prev;
+    });
+  }, [myReports]);
 
   // Lazy-load the latest run when the detail view opens for a definition.
   React.useEffect(() => {
@@ -106,10 +148,50 @@ export default function ReportsSection() {
     setView('detail');
   };
 
+  // Spec 017 — override mutators. Each replaces the Map entry for the
+  // current definition; we always clone the Map so React notices the change.
+  const setOverrideRange = (range: { range: string; from: string; to: string }) => {
+    if (!selectedDefinitionId) return;
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(selectedDefinitionId) || {};
+      next.set(selectedDefinitionId, { ...cur, range });
+      return next;
+    });
+  };
+  const setOverrideBy = (by: 'category' | 'item') => {
+    if (!selectedDefinitionId) return;
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(selectedDefinitionId) || {};
+      next.set(selectedDefinitionId, { ...cur, by });
+      return next;
+    });
+  };
+  const resetOverrides = () => {
+    if (!selectedDefinitionId) return;
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      next.delete(selectedDefinitionId);
+      return next;
+    });
+  };
+
   const onRun = () => {
     if (!selectedDefinitionId) return;
     setRunning(true);
-    runReport(selectedDefinitionId);
+    // Spec 017 — build the optional override from the chip state for this
+    // definition. The store's `runReport` second arg merges over the saved
+    // `definition.params` for THIS run only — the saved definition is not
+    // mutated. Undefined override = REPORTS-1 behaviour (no merge).
+    const over = overrides.get(selectedDefinitionId);
+    const mergedOverride: Record<string, unknown> | undefined = over
+      ? {
+          ...(over.range ? { range: over.range.range, from: over.range.from, to: over.range.to } : {}),
+          ...(over.by    ? { by: over.by } : {}),
+        }
+      : undefined;
+    runReport(selectedDefinitionId, mergedOverride);
     // The store action is fire-and-forget; `runReport` keeps the optimistic
     // pending row in `reportRuns[definitionId]` until the RPC resolves. We
     // clear the local `running` flag on the next microtask — the frame will
@@ -121,6 +203,15 @@ export default function ReportsSection() {
   const onBack = () => {
     setView('list');
   };
+
+  // Spec 017 — derive which template the selected definition belongs to so
+  // we can gate the chip-dropdown wiring on `status === 'live'`. Preview
+  // templates keep the read-only chip strip behaviour from REPORTS-1.
+  const selectedTemplate = selectedDefinition
+    ? findTemplate(selectedDefinition.templateId)
+    : undefined;
+  const selectedIsLive = selectedTemplate?.status === 'live';
+  const selectedOverride = selectedDefinitionId ? overrides.get(selectedDefinitionId) : undefined;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
@@ -150,6 +241,11 @@ export default function ReportsSection() {
           onRun={onRun}
           onBack={onBack}
           running={running}
+          overrideRange={selectedIsLive ? (selectedOverride?.range ?? null) : null}
+          onRangeChange={selectedIsLive ? setOverrideRange : undefined}
+          overrideBy={selectedIsLive ? (selectedOverride?.by ?? null) : null}
+          onByChange={selectedIsLive ? setOverrideBy : undefined}
+          onResetOverrides={selectedIsLive ? resetOverrides : undefined}
         />
       ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 18 }}>
@@ -199,6 +295,18 @@ export default function ReportsSection() {
                         if (e && typeof e.stopPropagation === 'function') {
                           e.stopPropagation();
                         }
+                        // Spec 017 — pair the deletion with an immediate
+                        // overrides Map cleanup. The reconcile-on-myReports
+                        // useEffect above is a belt-and-suspenders safety
+                        // net for realtime deletes from another tab, but
+                        // doing it inline here closes the gap during the
+                        // optimistic-then-revert window.
+                        setOverrides((prev) => {
+                          if (!prev.has(r.id)) return prev;
+                          const next = new Map(prev);
+                          next.delete(r.id);
+                          return next;
+                        });
                         deleteReportDefinition(r.id);
                       }}
                       style={{ paddingHorizontal: 7, paddingVertical: 2 }}
