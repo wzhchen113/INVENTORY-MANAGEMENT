@@ -23,6 +23,15 @@ import { sans, mono, Type } from '../../../../theme/typography';
 import { ReportDefinition, ReportRun, ReportRunOutput } from '../../../../types';
 import { findTemplate } from './templates';
 import { relativeTime } from '../../../../utils/relativeTime';
+// Spec 018 round-2 — date helpers extracted to a shared module now that
+// the REPORTS-3 shape is proven. NewReportModal imports the same trio.
+// The frame extends the shared `PresetId` with `'custom'` for the
+// manual-edit affordance — the shared union stays preset-only.
+import {
+  PresetId as PresetIdShared,
+  isISODate,
+  computePreset,
+} from '../../../../utils/reportDates';
 
 export interface ReportDetailFrameProps {
   definition: ReportDefinition;
@@ -81,10 +90,12 @@ function formatCellValue(v: unknown): string {
   }
 }
 
-// ─── Date helpers (mirror NewReportModal — kept local to avoid a
-//     premature shared module before REPORTS-3 proves the shape) ─────────
+// `toISODate` / `isISODate` / `computePreset` live in
+// `src/utils/reportDates.ts` (see top-of-file import). Local extension:
+// the frame's manual-edit affordance adds `'custom'` to the shared
+// preset union — keep `PresetId` as a local alias for that augmentation.
 
-type PresetId = 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d' | 'custom';
+type PresetId = PresetIdShared | 'custom';
 
 const PRESETS: Array<{ id: Exclude<PresetId, 'custom'>; label: string }> = [
   { id: 'last_30d',        label: 'Last 30d'        },
@@ -93,46 +104,23 @@ const PRESETS: Array<{ id: Exclude<PresetId, 'custom'>; label: string }> = [
   { id: 'last_90d',        label: 'Last 90d'        },
 ];
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-function isISODate(s: string): boolean {
-  if (!ISO_DATE_RE.test(s)) return false;
-  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
-  const dt = new Date(y, m - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
-}
-function toISODate(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-function computePreset(id: Exclude<PresetId, 'custom'>, now: Date = new Date()): { from: string; to: string } {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (id === 'last_30d') {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 30);
-    return { from: toISODate(from), to: toISODate(today) };
-  }
-  if (id === 'this_month') {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: toISODate(from), to: toISODate(today) };
-  }
-  if (id === 'last_full_month') {
-    const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const to = new Date(today.getFullYear(), today.getMonth(), 0);
-    return { from: toISODate(from), to: toISODate(to) };
-  }
-  const from = new Date(today);
-  from.setDate(from.getDate() - 90);
-  return { from: toISODate(from), to: toISODate(today) };
-}
-
 function rangeLabel(range: string, from: string, to: string): string {
   const preset = PRESETS.find((p) => p.id === range);
   if (preset) return preset.label.toLowerCase();
   if (range === 'custom') return `${from} → ${to}`;
   // Fallback for legacy `range` values from REPORTS-1 stubs (raw strings).
   return range;
+}
+
+// Spec 018 — variance reports show two distinct anchor dates rather than a
+// continuous range. The chip label re-frames the relationship as
+// `prior: <date> · current: <date>` so the two-EOD-anchor semantics are
+// readable at a glance. Falls back to "—" when an anchor hasn't been
+// resolved yet (e.g. a fresh definition with no params).
+function varianceRangeLabel(from: string, to: string): string {
+  const left = from || '—';
+  const right = to || '—';
+  return `prior: ${left} · current: ${right}`;
 }
 
 // ─── ReportDetailFrame ───────────────────────────────────────────────────
@@ -152,6 +140,13 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
   const C = useCmdColors();
   const template = findTemplate(definition.templateId);
   const templateName = template?.name ?? definition.templateId;
+  // Spec 018 — variance reports get a re-framed `range:` chip
+  // (`prior · current`), hide the `by:` chip entirely, and hide the
+  // preset chip strip inside the range popover. Single-flag branch
+  // gating; we don't bother with a generic "live-template-X" registry
+  // since variance is the only template that interprets the date pair
+  // this way for now.
+  const isVariance = definition.templateId === 'variance';
 
   const isNotImplemented =
     latestRun?.output?._status === 'not_implemented';
@@ -341,22 +336,29 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
           {/* range chip */}
           <ChipButton
             C={C}
-            label={`range: ${rangeLabel(effectiveRange, effectiveFrom, effectiveTo)}`}
+            label={
+              isVariance
+                ? varianceRangeLabel(effectiveFrom, effectiveTo)
+                : `range: ${rangeLabel(effectiveRange, effectiveFrom, effectiveTo)}`
+            }
             overridden={rangeOverridden}
             interactive={rangeInteractive}
             onPress={() => { setOpenMenu((m) => (m === 'range' ? null : 'range')); }}
           />
 
-          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
-
-          {/* by chip */}
-          <ChipButton
-            C={C}
-            label={`by: ${effectiveBy}`}
-            overridden={byOverridden}
-            interactive={byInteractive}
-            onPress={() => { setOpenMenu((m) => (m === 'by' ? null : 'by')); }}
-          />
+          {/* by chip — hidden for variance per Spec 018. */}
+          {isVariance ? null : (
+            <>
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
+              <ChipButton
+                C={C}
+                label={`by: ${effectiveBy}`}
+                overridden={byOverridden}
+                interactive={byInteractive}
+                onPress={() => { setOpenMenu((m) => (m === 'by' ? null : 'by')); }}
+              />
+            </>
+          )}
 
           {anyOverride && onResetOverrides ? (
             <>
@@ -394,6 +396,8 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
             onPickPreset={onPickPreset}
             onCommitDate={commitDate}
             onClose={() => { setOpenMenu(null); setEditingDate(null); }}
+            hidePresets={isVariance}
+            labels={isVariance ? { from: 'Prior EOD', to: 'Current EOD' } : undefined}
           />
         ) : null}
         {openMenu === 'by' && byInteractive ? (
@@ -491,7 +495,20 @@ const RangePopover: React.FC<{
   onPickPreset: (id: Exclude<PresetId, 'custom'>) => void;
   onCommitDate: (which: 'from' | 'to', raw: string) => void;
   onClose: () => void;
-}> = ({ C, effective, editing, draftFrom, draftTo, setDraftFrom, setDraftTo, setEditing, onPickPreset, onCommitDate, onClose }) => {
+  /** Spec 018 — variance hides the preset chip strip (anchor pairs are
+   *  not a continuous range). */
+  hidePresets?: boolean;
+  /** Spec 018 — variance relabels the from/to cells as "Prior EOD"/"Current EOD".
+   *  When omitted the cells render without an inline column header (legacy
+   *  REPORTS-2 shape). */
+  labels?: { from?: string; to?: string };
+}> = ({ C, effective, editing, draftFrom, draftTo, setDraftFrom, setDraftTo, setEditing, onPickPreset, onCommitDate, onClose, hidePresets, labels }) => {
+  const fromLabel = labels?.from;
+  const toLabel = labels?.to;
+  // The header label of the popover. For variance we drop the "range"
+  // header (it's misleading) and let the per-cell labels carry the
+  // semantics instead.
+  const headerLabel = labels ? null : 'range';
   return (
     <View
       style={{
@@ -506,90 +523,106 @@ const RangePopover: React.FC<{
         ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } as any) : {}),
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>range</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {headerLabel ? (
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>{headerLabel}</Text>
+        ) : null}
         {/* from cell */}
-        {editing === 'from' ? (
-          <TextInput
-            autoFocus
-            value={draftFrom}
-            onChangeText={setDraftFrom}
-            onBlur={() => onCommitDate('from', draftFrom)}
-            onSubmitEditing={() => onCommitDate('from', draftFrom)}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={C.fg3}
-            maxLength={10}
-            style={{
-              fontFamily: mono(500), fontSize: 11.5, color: C.fg,
-              backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
-              paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
-              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-            }}
-          />
-        ) : (
-          <TouchableOpacity
-            accessibilityLabel="Edit from date"
-            onPress={() => { setDraftFrom(effective.from); setEditing('from'); }}
-            style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
-          >
-            <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.from || 'YYYY-MM-DD'}</Text>
-          </TouchableOpacity>
-        )}
-        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+        <View style={{ gap: 3 }}>
+          {fromLabel ? (
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>{fromLabel}</Text>
+          ) : null}
+          {editing === 'from' ? (
+            <TextInput
+              autoFocus
+              value={draftFrom}
+              onChangeText={setDraftFrom}
+              onBlur={() => onCommitDate('from', draftFrom)}
+              onSubmitEditing={() => onCommitDate('from', draftFrom)}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={C.fg3}
+              maxLength={10}
+              style={{
+                fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+              }}
+            />
+          ) : (
+            <TouchableOpacity
+              accessibilityLabel={fromLabel ? `Edit ${fromLabel} date` : 'Edit from date'}
+              onPress={() => { setDraftFrom(effective.from); setEditing('from'); }}
+              style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.from || 'YYYY-MM-DD'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, alignSelf: 'flex-end', paddingBottom: 4 }}>→</Text>
         {/* to cell */}
-        {editing === 'to' ? (
-          <TextInput
-            autoFocus
-            value={draftTo}
-            onChangeText={setDraftTo}
-            onBlur={() => onCommitDate('to', draftTo)}
-            onSubmitEditing={() => onCommitDate('to', draftTo)}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={C.fg3}
-            maxLength={10}
-            style={{
-              fontFamily: mono(500), fontSize: 11.5, color: C.fg,
-              backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
-              paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
-              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-            }}
-          />
-        ) : (
-          <TouchableOpacity
-            accessibilityLabel="Edit to date"
-            onPress={() => { setDraftTo(effective.to); setEditing('to'); }}
-            style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
-          >
-            <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.to || 'YYYY-MM-DD'}</Text>
-          </TouchableOpacity>
-        )}
+        <View style={{ gap: 3 }}>
+          {toLabel ? (
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>{toLabel}</Text>
+          ) : null}
+          {editing === 'to' ? (
+            <TextInput
+              autoFocus
+              value={draftTo}
+              onChangeText={setDraftTo}
+              onBlur={() => onCommitDate('to', draftTo)}
+              onSubmitEditing={() => onCommitDate('to', draftTo)}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={C.fg3}
+              maxLength={10}
+              style={{
+                fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+              }}
+            />
+          ) : (
+            <TouchableOpacity
+              accessibilityLabel={toLabel ? `Edit ${toLabel} date` : 'Edit to date'}
+              onPress={() => { setDraftTo(effective.to); setEditing('to'); }}
+              style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{effective.to || 'YYYY-MM-DD'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={onClose} accessibilityLabel="Close range popover" style={{ paddingHorizontal: 7, paddingVertical: 2 }}>
           <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: C.fg3 }}>close</Text>
         </TouchableOpacity>
       </View>
-      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-        {PRESETS.map((p) => {
-          const sel = effective.range === p.id;
-          return (
-            <TouchableOpacity
-              key={p.id}
-              onPress={() => onPickPreset(p.id)}
-              accessibilityLabel={`Preset ${p.label}`}
-              style={{
-                paddingHorizontal: 9, paddingVertical: 4,
-                borderWidth: 1, borderColor: sel ? C.accent : C.border,
-                backgroundColor: sel ? C.accentBg : C.panel,
-                borderRadius: 3,
-              }}
-            >
-              <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {hidePresets ? null : (
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          {PRESETS.map((p) => {
+            const sel = effective.range === p.id;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                onPress={() => onPickPreset(p.id)}
+                accessibilityLabel={`Preset ${p.label}`}
+                style={{
+                  paddingHorizontal: 9, paddingVertical: 4,
+                  borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                  backgroundColor: sel ? C.accentBg : C.panel,
+                  borderRadius: 3,
+                }}
+              >
+                <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
       <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-        Next RUN uses this range. The saved report keeps its original range.
+        {hidePresets
+          ? 'Next RUN uses these anchor dates. The saved report keeps its original anchors.'
+          : 'Next RUN uses this range. The saved report keeps its original range.'}
       </Text>
     </View>
   );

@@ -17,8 +17,11 @@ import { ReportDetailFrame } from './reports/ReportDetailFrame';
 // drill-down pattern rather than a separate Cmd sidebar section or URL hash.
 //
 // Catalog tiles render no fake numbers in REPORTS-1 — every template still
-// returns the `not_implemented` envelope from the dispatcher. REPORTS-2 will
-// flip `cogs` to `status: 'live'`, REPORTS-3 will flip `variance`.
+// returned the `not_implemented` envelope from the dispatcher. The historical
+// progression (REPORTS-2 flipped `cogs` to `'live'`, REPORTS-3 flipped
+// `variance`) is captured in `templates.ts`; the remaining four templates
+// (`waste` / `vendor` / `velocity` / `custom`) still return `not_implemented`
+// until their own specs land.
 //
 // Spec 017 (REPORTS-2) — per-definition override state for the `range:` and
 // `by:` chips. The override is in-memory only (never mutated onto the saved
@@ -184,11 +187,20 @@ export default function ReportsSection() {
     // definition. The store's `runReport` second arg merges over the saved
     // `definition.params` for THIS run only — the saved definition is not
     // mutated. Undefined override = REPORTS-1 behaviour (no merge).
+    // Spec 018 — variance ignores `range`/`by` keys (it computes anchor
+    // semantics directly from `from`/`to`). We omit them from the merged
+    // override to keep the persisted `report_runs.params` clean rather
+    // than leaking COGS-shaped vocabulary into the variance audit trail.
     const over = overrides.get(selectedDefinitionId);
+    const definitionIsVariance = selectedDefinition?.templateId === 'variance';
     const mergedOverride: Record<string, unknown> | undefined = over
       ? {
-          ...(over.range ? { range: over.range.range, from: over.range.from, to: over.range.to } : {}),
-          ...(over.by    ? { by: over.by } : {}),
+          ...(over.range
+            ? (definitionIsVariance
+                ? { from: over.range.from, to: over.range.to }
+                : { range: over.range.range, from: over.range.from, to: over.range.to })
+            : {}),
+          ...(over.by && !definitionIsVariance ? { by: over.by } : {}),
         }
       : undefined;
     runReport(selectedDefinitionId, mergedOverride);
@@ -207,10 +219,14 @@ export default function ReportsSection() {
   // Spec 017 — derive which template the selected definition belongs to so
   // we can gate the chip-dropdown wiring on `status === 'live'`. Preview
   // templates keep the read-only chip strip behaviour from REPORTS-1.
+  // Spec 018 — variance has no by-mode (per-item only); we gate the
+  // overrideBy/onByChange props so the frame hides the `by:` chip and the
+  // overrides map never gets a `by` key for a variance definition.
   const selectedTemplate = selectedDefinition
     ? findTemplate(selectedDefinition.templateId)
     : undefined;
   const selectedIsLive = selectedTemplate?.status === 'live';
+  const selectedSupportsBy = selectedIsLive && selectedTemplate?.id !== 'variance';
   const selectedOverride = selectedDefinitionId ? overrides.get(selectedDefinitionId) : undefined;
 
   return (
@@ -243,8 +259,8 @@ export default function ReportsSection() {
           running={running}
           overrideRange={selectedIsLive ? (selectedOverride?.range ?? null) : null}
           onRangeChange={selectedIsLive ? setOverrideRange : undefined}
-          overrideBy={selectedIsLive ? (selectedOverride?.by ?? null) : null}
-          onByChange={selectedIsLive ? setOverrideBy : undefined}
+          overrideBy={selectedSupportsBy ? (selectedOverride?.by ?? null) : null}
+          onByChange={selectedSupportsBy ? setOverrideBy : undefined}
           onResetOverrides={selectedIsLive ? resetOverrides : undefined}
         />
       ) : (

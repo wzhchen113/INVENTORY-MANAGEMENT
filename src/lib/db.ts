@@ -575,6 +575,36 @@ export async function fetchEodSubmissionsForStores(
   }));
 }
 
+/**
+ * Spec 018 (REPORTS-3) — most-recent `limit` submitted EOD dates for
+ * `storeId`, descending. Used by NewReportModal to seed the Prior EOD /
+ * Current EOD inputs when picking the variance template. Returns
+ * `string[]` of ISO dates (YYYY-MM-DD); `[]` on error or empty (RLS
+ * denial, network issue, or store has no submissions). No camelCase
+ * mapping needed — the column is `date` on both sides.
+ *
+ * RLS: `eod_submissions` is per-store via `auth_can_see_store(store_id)`
+ * from `20260504173035_per_store_rls_hardening.sql:46-61`, so a caller
+ * with no visibility to `storeId` gets `[]` here.
+ */
+export async function fetchRecentEodDates(
+  storeId: string,
+  limit: number = 2,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('eod_submissions')
+    .select('date')
+    .eq('store_id', storeId)
+    .eq('status', 'submitted')
+    .order('date', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('[Supabase] fetchRecentEodDates:', error.message);
+    return [];
+  }
+  return (data || []).map((r: any) => r.date as string);
+}
+
 // Spec 009 §5/D2 — cross-store POS imports fan-out for the All-Stores
 // dashboard's CoGS theoretical computation. Same rationale as
 // fetchEodSubmissionsForStores above: __all__ mode doesn't flatMap

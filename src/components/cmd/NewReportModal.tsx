@@ -6,6 +6,12 @@ import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { ReportDefinition } from '../../types';
 import { TEMPLATES, defaultReportName, findTemplate, Template } from '../../screens/cmd/sections/reports/templates';
+// Spec 018 (REPORTS-3) — variance template seeds the prior/current EOD
+// inputs from the most-recent two submitted EODs.
+import { fetchRecentEodDates } from '../../lib/db';
+// Spec 018 round-2 — date helpers extracted to a shared module now that
+// the shape is proven across REPORTS-2 / REPORTS-3.
+import { PresetId, isISODate, computePreset } from '../../utils/reportDates';
 
 // Re-export so existing consumers that imported `Template` from this module
 // keep working. The single source of truth is reports/templates.ts.
@@ -30,57 +36,14 @@ interface Props {
 
 // ─── Spec 017 (REPORTS-2) — date-range helpers ───────────────────────
 //
-// All date helpers operate on local Date objects formatted to ISO YYYY-MM-DD
-// strings. We do NOT pull in a date-picker library — the modal's manual-edit
-// affordance is a plain TextInput validated by `isISODate`. The four preset
-// chips compute against today's local date so a user in Eastern time sees
-// "Last 30d" ending at their local today, not UTC's.
-
-type PresetId = 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d';
+// Date helpers (`toISODate`, `isISODate`, `computePreset`, `PresetId`) live
+// in `src/utils/reportDates.ts` and are shared with `ReportDetailFrame`.
+// Extracted in REPORTS-3 round-2 after the shape stabilised.
 
 interface DateRange {
   range: PresetId | 'custom';
   from: string;
   to: string;
-}
-
-function toISODate(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function isISODate(s: string): boolean {
-  if (!ISO_DATE_RE.test(s)) return false;
-  // Reject e.g. "2026-02-31" — JS Date will roll over silently.
-  const [y, m, d] = s.split('-').map((n) => parseInt(n, 10));
-  const dt = new Date(y, m - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
-}
-
-function computePreset(id: PresetId, now: Date = new Date()): { from: string; to: string } {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (id === 'last_30d') {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 30);
-    return { from: toISODate(from), to: toISODate(today) };
-  }
-  if (id === 'this_month') {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: toISODate(from), to: toISODate(today) };
-  }
-  if (id === 'last_full_month') {
-    const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const to = new Date(today.getFullYear(), today.getMonth(), 0);
-    return { from: toISODate(from), to: toISODate(to) };
-  }
-  // last_90d
-  const from = new Date(today);
-  from.setDate(from.getDate() - 90);
-  return { from: toISODate(from), to: toISODate(today) };
 }
 
 const PRESETS: Array<{ id: PresetId; label: string }> = [
@@ -89,6 +52,28 @@ const PRESETS: Array<{ id: PresetId; label: string }> = [
   { id: 'last_full_month', label: 'Last full month' },
   { id: 'last_90d',        label: 'Last 90d'        },
 ];
+
+// Spec 018 (REPORTS-3) — variance seeds default anchor pair from the most-
+// recent two submitted EODs. When the helper returns < 2 dates (a fresh
+// store) we leave the inputs blank — per spec line 263, the danger hint is
+// the sufficient UX affordance; the user can still save the definition and
+// pressing RUN will surface the RPC's `P0002` error through the standard
+// sanitized toast path. The helper already swallows network/RLS errors to
+// `[]` so a thrown error here is genuinely unexpected — we treat it the
+// same as the empty-history path.
+async function seedVarianceDates(storeId: string): Promise<{ from: string; to: string; eodCount: number }> {
+  try {
+    const dates = await fetchRecentEodDates(storeId, 2);
+    if (Array.isArray(dates) && dates.length >= 2) {
+      // Helper returns descending: index 0 is most-recent (current anchor),
+      // index 1 is second-most-recent (prior anchor).
+      return { from: dates[1], to: dates[0], eodCount: dates.length };
+    }
+    return { from: '', to: '', eodCount: Array.isArray(dates) ? dates.length : 0 };
+  } catch {
+    return { from: '', to: '', eodCount: 0 };
+  }
+}
 
 export const NewReportModal: React.FC<Props> = ({
   visible,
@@ -122,6 +107,13 @@ export const NewReportModal: React.FC<Props> = ({
   // Working copies of the date strings while editing — commits on blur.
   const [draftFrom, setDraftFrom] = React.useState<string>(initialPreset.from);
   const [draftTo, setDraftTo] = React.useState<string>(initialPreset.to);
+  // Spec 018 — known EOD-submission count for the current store. Drives the
+  // "< 2 EODs" inline danger hint for variance. Per spec AC line 265 the
+  // CREATE button is NOT disabled — the user can still save the definition
+  // and discover the `P0002` error on RUN via the standard toast.
+  // `-1` is the "not yet fetched" sentinel (variance hasn't been picked or
+  // the fetch is in flight); `0`/`1` triggers the hint.
+  const [eodCount, setEodCount] = React.useState<number>(-1);
 
   React.useEffect(() => {
     if (visible) {
@@ -138,9 +130,54 @@ export const NewReportModal: React.FC<Props> = ({
       setEditing(null);
       setDraftFrom(fresh.from);
       setDraftTo(fresh.to);
+      setEodCount(-1);
+      // Spec 018 — variance pre-fills from the most-recent two EODs.
+      if (initialPicked === 'variance' && currentStore?.id) {
+        seedVarianceDates(currentStore.id).then(({ from, to, eodCount: n }) => {
+          setDateRange({ range: 'custom', from, to });
+          setDraftFrom(from);
+          setDraftTo(to);
+          setEodCount(n);
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialTemplateId, initialName]);
+
+  // Spec 018 — when the user switches the picked template TO variance
+  // mid-modal (e.g. they opened on COGS and clicked the Variance tile),
+  // re-seed from EOD history. When switching AWAY from variance, restore
+  // the default "Last 30d" preset so the COGS path renders normally.
+  // `prevPickedRef` is reset alongside `picked` on each modal open so a
+  // second open after a previous close doesn't carry stale state.
+  const prevPickedRef = React.useRef<ReportDefinition['templateId']>(initialPicked);
+  React.useEffect(() => {
+    if (visible) prevPickedRef.current = initialPicked;
+  }, [visible, initialPicked]);
+  React.useEffect(() => {
+    if (!visible) return;
+    if (prevPickedRef.current === picked) return;
+    prevPickedRef.current = picked;
+    if (picked === 'variance') {
+      if (currentStore?.id) {
+        seedVarianceDates(currentStore.id).then(({ from, to, eodCount: n }) => {
+          setDateRange({ range: 'custom', from, to });
+          setDraftFrom(from);
+          setDraftTo(to);
+          setEodCount(n);
+          setEditing(null);
+        });
+      }
+    } else {
+      const fresh = computePreset('last_30d');
+      setDateRange({ range: 'last_30d', from: fresh.from, to: fresh.to });
+      setDraftFrom(fresh.from);
+      setDraftTo(fresh.to);
+      setEodCount(-1);
+      setEditing(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked, visible]);
 
   const filteredTemplates = React.useMemo(() => {
     if (!filter.trim()) return TEMPLATES;
@@ -177,6 +214,15 @@ export const NewReportModal: React.FC<Props> = ({
     setEditing(null);
   };
 
+  // Spec 018 — variance has two derived flags. `isVariance` enables the
+  // variance-specific layout; `varianceBlocked` drives the inline danger
+  // hint when the store has < 2 submitted EODs. Per spec AC line 265 the
+  // CREATE button is NOT disabled — the user is allowed to save a
+  // variance definition with 0/1 EODs, and the subsequent RUN surfaces
+  // the RPC's `P0001`/`P0002` error via the sanitized toast path.
+  const isVariance = picked === 'variance';
+  const varianceBlocked = isVariance && eodCount >= 0 && eodCount < 2;
+
   const onCreate = () => {
     if (!name.trim()) { Toast.show({ type: 'error', text1: 'Name required' }); return; }
     if (!isISODate(dateRange.from) || !isISODate(dateRange.to)) {
@@ -187,20 +233,29 @@ export const NewReportModal: React.FC<Props> = ({
       Toast.show({ type: 'error', text1: 'from must be on or before to' });
       return;
     }
-    // Spec 017 — params shape: { range, from, to, by }. `range` is the
-    // informational preset id (or 'custom'); `from` / `to` are the
-    // authoritative ISO dates the RPC reads.
+    if (isVariance && dateRange.from === dateRange.to) {
+      Toast.show({ type: 'error', text1: 'Variance needs two distinct EOD dates' });
+      return;
+    }
+    // Spec 017 — COGS params shape: { range, from, to, by }. `range` is
+    // informational (drives the chip label); `from`/`to` are authoritative.
+    // Spec 018 — variance params shape: { from, to }. Per Q3, reuse from/to
+    // keys (no anchor_from / anchor_to) but drop `range` and `by` since
+    // variance has no preset window and is inherently per-item.
+    const params: Record<string, unknown> = isVariance
+      ? { from: dateRange.from, to: dateRange.to }
+      : {
+          range: dateRange.range,
+          from:  dateRange.from,
+          to:    dateRange.to,
+          by,
+        };
     addReportDefinition({
       storeId: currentStore.id,
       templateId: picked,
       name: name.trim(),
       scope: 'this_store',
-      params: {
-        range: dateRange.range,
-        from:  dateRange.from,
-        to:    dateRange.to,
-        by,
-      },
+      params,
       createdBy: currentUser?.id,
     });
     Toast.show({ type: 'success', text1: 'Report saved', text2: name });
@@ -299,109 +354,189 @@ export const NewReportModal: React.FC<Props> = ({
 
           {/* Spec 017 — date-range + by: params. Always visible regardless of
               template `status`, per AC line 173-174 ("simplifies the layout,
-              keeps the UI consistent across templates"). */}
+              keeps the UI consistent across templates").
+              Spec 018 — variance branches: relabel from/to cells as
+              "Prior EOD" / "Current EOD", hide preset chips, hide by:
+              toggle (variance is inherently per-item). */}
           <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border, gap: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>range</Text>
-              {/* From cell */}
-              {editing === 'from' ? (
-                <TextInput
-                  autoFocus
-                  value={draftFrom}
-                  onChangeText={setDraftFrom}
-                  onBlur={() => commitDateEdit('from', draftFrom)}
-                  onSubmitEditing={() => commitDateEdit('from', draftFrom)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={C.fg3}
-                  maxLength={10}
-                  style={{
-                    fontFamily: mono(500), fontSize: 11.5, color: C.fg,
-                    backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
-                    paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
-                    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                  }}
-                />
-              ) : (
-                <TouchableOpacity
-                  accessibilityLabel="Edit from date"
-                  onPress={() => { setDraftFrom(dateRange.from); setEditing('from'); }}
-                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
-                >
-                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.from}</Text>
-                </TouchableOpacity>
-              )}
-              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
-              {/* To cell */}
-              {editing === 'to' ? (
-                <TextInput
-                  autoFocus
-                  value={draftTo}
-                  onChangeText={setDraftTo}
-                  onBlur={() => commitDateEdit('to', draftTo)}
-                  onSubmitEditing={() => commitDateEdit('to', draftTo)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={C.fg3}
-                  maxLength={10}
-                  style={{
-                    fontFamily: mono(500), fontSize: 11.5, color: C.fg,
-                    backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
-                    paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
-                    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                  }}
-                />
-              ) : (
-                <TouchableOpacity
-                  accessibilityLabel="Edit to date"
-                  onPress={() => { setDraftTo(dateRange.to); setEditing('to'); }}
-                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
-                >
-                  <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.to}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {/* Preset chips */}
-            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-              {PRESETS.map((p) => {
-                const sel = dateRange.range === p.id;
-                return (
-                  <TouchableOpacity
-                    key={p.id}
-                    onPress={() => onPickPreset(p.id)}
-                    accessibilityLabel={`Preset ${p.label}`}
-                    style={{
-                      paddingHorizontal: 9, paddingVertical: 4,
-                      borderWidth: 1, borderColor: sel ? C.accent : C.border,
-                      backgroundColor: sel ? C.accentBg : C.panel,
-                      borderRadius: 3,
-                    }}
-                  >
-                    <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            {/* by: toggle */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>by</Text>
-              {(['category', 'item'] as const).map((opt) => {
-                const sel = by === opt;
-                return (
-                  <TouchableOpacity
-                    key={opt}
-                    onPress={() => setBy(opt)}
-                    accessibilityLabel={`Group by ${opt}`}
-                    style={{
-                      paddingHorizontal: 10, paddingVertical: 4,
-                      borderWidth: 1, borderColor: sel ? C.accent : C.border,
-                      backgroundColor: sel ? C.accentBg : C.panel,
-                      borderRadius: 3,
-                    }}
-                  >
-                    <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{opt}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {isVariance ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <View style={{ gap: 3 }}>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>prior EOD</Text>
+                    {editing === 'from' ? (
+                      <TextInput
+                        autoFocus
+                        value={draftFrom}
+                        onChangeText={setDraftFrom}
+                        onBlur={() => commitDateEdit('from', draftFrom)}
+                        onSubmitEditing={() => commitDateEdit('from', draftFrom)}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={C.fg3}
+                        maxLength={10}
+                        style={{
+                          fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                          backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                          paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                          ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                        }}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        accessibilityLabel="Edit prior EOD date"
+                        onPress={() => { setDraftFrom(dateRange.from); setEditing('from'); }}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                      >
+                        <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.from || 'YYYY-MM-DD'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, alignSelf: 'flex-end', paddingBottom: 4 }}>→</Text>
+                  <View style={{ gap: 3 }}>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>current EOD</Text>
+                    {editing === 'to' ? (
+                      <TextInput
+                        autoFocus
+                        value={draftTo}
+                        onChangeText={setDraftTo}
+                        onBlur={() => commitDateEdit('to', draftTo)}
+                        onSubmitEditing={() => commitDateEdit('to', draftTo)}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={C.fg3}
+                        maxLength={10}
+                        style={{
+                          fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                          backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                          paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                          ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                        }}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        accessibilityLabel="Edit current EOD date"
+                        onPress={() => { setDraftTo(dateRange.to); setEditing('to'); }}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                      >
+                        <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.to || 'YYYY-MM-DD'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+                {varianceBlocked ? (
+                  <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.danger }}>
+                    Not enough EOD history — submit at least two EODs to compute variance.
+                  </Text>
+                ) : (
+                  <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                    Pick two submitted-EOD dates. Defaults to the most-recent two.
+                  </Text>
+                )}
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>range</Text>
+                  {/* From cell */}
+                  {editing === 'from' ? (
+                    <TextInput
+                      autoFocus
+                      value={draftFrom}
+                      onChangeText={setDraftFrom}
+                      onBlur={() => commitDateEdit('from', draftFrom)}
+                      onSubmitEditing={() => commitDateEdit('from', draftFrom)}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={C.fg3}
+                      maxLength={10}
+                      style={{
+                        fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                        backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                        paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                        ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                      }}
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      accessibilityLabel="Edit from date"
+                      onPress={() => { setDraftFrom(dateRange.from); setEditing('from'); }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.from}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+                  {/* To cell */}
+                  {editing === 'to' ? (
+                    <TextInput
+                      autoFocus
+                      value={draftTo}
+                      onChangeText={setDraftTo}
+                      onBlur={() => commitDateEdit('to', draftTo)}
+                      onSubmitEditing={() => commitDateEdit('to', draftTo)}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={C.fg3}
+                      maxLength={10}
+                      style={{
+                        fontFamily: mono(500), fontSize: 11.5, color: C.fg,
+                        backgroundColor: C.panel, borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+                        paddingHorizontal: 8, paddingVertical: 4, minWidth: 110,
+                        ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                      }}
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      accessibilityLabel="Edit to date"
+                      onPress={() => { setDraftTo(dateRange.to); setEditing('to'); }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.border, borderRadius: 4, backgroundColor: C.panel }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg }}>{dateRange.to}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {/* Preset chips */}
+                <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                  {PRESETS.map((p) => {
+                    const sel = dateRange.range === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => onPickPreset(p.id)}
+                        accessibilityLabel={`Preset ${p.label}`}
+                        style={{
+                          paddingHorizontal: 9, paddingVertical: 4,
+                          borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                          backgroundColor: sel ? C.accentBg : C.panel,
+                          borderRadius: 3,
+                        }}
+                      >
+                        <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{p.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {/* by: toggle */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>by</Text>
+                  {(['category', 'item'] as const).map((opt) => {
+                    const sel = by === opt;
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => setBy(opt)}
+                        accessibilityLabel={`Group by ${opt}`}
+                        style={{
+                          paddingHorizontal: 10, paddingVertical: 4,
+                          borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                          backgroundColor: sel ? C.accentBg : C.panel,
+                          borderRadius: 3,
+                        }}
+                      >
+                        <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </View>
 
           {/* Name input */}
@@ -424,8 +559,17 @@ export const NewReportModal: React.FC<Props> = ({
             <TouchableOpacity onPress={onClose} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.border }}>
               <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>CANCEL</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onCreate} style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, backgroundColor: C.accent }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>CREATE  ⏎</Text>
+            <TouchableOpacity
+              onPress={onCreate}
+              accessibilityLabel="Create report"
+              style={{
+                paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm,
+                backgroundColor: C.accent,
+                borderWidth: 1, borderColor: C.accent,
+                ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.accentFg }}>CREATE  ⏎</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
