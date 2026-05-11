@@ -3,6 +3,7 @@ import { View, Text, ScrollView, FlatList, TouchableOpacity, TextInput, Platform
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
+import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
 import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
@@ -56,6 +57,14 @@ function localDayIso(d: Date): string {
 // - No per-row variance pill (kept simple; we surface a footer-level total)
 export default function EODCountSection() {
   const C = useCmdColors();
+  const isPhone = useIsPhone();
+  // Phone: drop the 240px week rail (worksheet would otherwise get ~150px on a
+  // ~390px viewport, clipping inputs and wrapping item names letter-by-letter).
+  // The week is rendered as a horizontal day-strip above the TabStrip instead.
+  const cellW = isPhone ? 56 : 80;
+  const inputW = isPhone ? 48 : 70;
+  const rowGap = isPhone ? 8 : 14;
+  const rowPadH = isPhone ? 12 : 22;
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
@@ -384,7 +393,9 @@ export default function EODCountSection() {
 
   return (
     <>
-      {/* Week sidebar */}
+      {/* Week sidebar — hidden on phone; replaced by horizontal day-strip
+          rendered above the TabStrip inside the worksheet below. */}
+      {!isPhone && (
       <View
         style={{
           width: 240,
@@ -462,9 +473,58 @@ export default function EODCountSection() {
           </Text>
         </View>
       </View>
+      )}
 
       {/* Worksheet */}
       <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+        {isPhone && (
+          <View style={{ borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 6 }}
+            >
+              {week.map((d) => {
+                const isSel = d.iso === selectedIso;
+                const dotColor =
+                  d.status === 'today' ? C.accent
+                  : d.status === 'submitted' ? C.ok
+                  : d.status === 'late' ? C.warn
+                  : C.fg3;
+                const isRest = d.status === 'rest';
+                return (
+                  <TouchableOpacity
+                    key={d.iso}
+                    onPress={() => setSelectedIso(d.iso)}
+                    activeOpacity={0.85}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: CmdRadius.sm,
+                      borderWidth: 1,
+                      borderColor: isSel ? C.accent : C.border,
+                      backgroundColor: isSel ? C.accentBg : 'transparent',
+                      opacity: isRest ? 0.55 : 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 7,
+                    }}
+                  >
+                    <View style={{ width: 6, height: 6, borderRadius: 99, backgroundColor: dotColor }} />
+                    <View>
+                      <Text style={{ fontFamily: sans(isSel ? 700 : 600), fontSize: 11, color: C.fg }}>
+                        {d.day.slice(0, 3)}
+                      </Text>
+                      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, fontVariant: ['tabular-nums'] }}>
+                        {d.date}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
         <TabStrip
           tabs={[
             { id: 'count.tsx',    label: 'count.tsx' },
@@ -535,9 +595,13 @@ export default function EODCountSection() {
           <VarianceLogTab />
         ) : (<>
         {/* Sticky filter chrome */}
-        <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
-          {/* Vendor tabs */}
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: rowPadH, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
+          {/* Vendor tabs — phone: horizontal scroll (10 vendors otherwise wrap
+              into 10 rows of pills, eating ~350px of vertical space before any
+              item is visible). Desktop keeps wrap behavior. */}
+          {(() => {
+          const vendorPillsChildren = (
+            <>
             {vendorTabs.map((v) => {
               const sel = v.id === selectedVendorId;
               // A vendor pill counts as "scheduled for today" only when the
@@ -573,7 +637,7 @@ export default function EODCountSection() {
                     <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.bg : C.fg2 }}>
                       {v.name.toUpperCase()} ({v.count})
                     </Text>
-                    {v.orderCutoffTime ? (
+                    {!isPhone && v.orderCutoffTime ? (
                       <Text style={{ fontFamily: mono(400), fontSize: 10, color: sel ? C.bg : C.fg3, opacity: 0.7 }}>
                         · cutoff {v.orderCutoffTime}
                       </Text>
@@ -664,35 +728,64 @@ export default function EODCountSection() {
                 </Text>
               </TouchableOpacity>
             ) : null}
-          </View>
+            </>
+          );
+          return isPhone ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ flexDirection: 'row', gap: 6, alignItems: 'center', paddingRight: 12 }}
+            >
+              {vendorPillsChildren}
+            </ScrollView>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {vendorPillsChildren}
+            </View>
+          );
+          })()}
           {/* Divider between vendor pills and category chips */}
           <View style={{ height: 1, backgroundColor: C.border, borderStyle: 'dashed', borderTopWidth: 1, borderTopColor: C.border, opacity: 0.7 }} />
-          {/* Category chips */}
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            {categories.map((c) => {
-              const sel = c.id === selectedCategory;
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  onPress={() => setSelectedCategory(c.id)}
-                  style={{
-                    paddingHorizontal: 11,
-                    paddingVertical: 5,
-                    borderRadius: 99,
-                    borderWidth: 1,
-                    borderColor: sel ? C.accent : C.border,
-                    backgroundColor: sel ? C.accentBg : C.panel,
-                  }}
-                >
-                  <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.accent : C.fg2 }}>
-                    {c.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {/* Category chips — phone: horizontal scroll (same rationale as
+              vendor pills above). */}
+          {(() => {
+          const categoryChipsChildren = categories.map((c) => {
+            const sel = c.id === selectedCategory;
+            return (
+              <TouchableOpacity
+                key={c.id}
+                onPress={() => setSelectedCategory(c.id)}
+                style={{
+                  paddingHorizontal: 11,
+                  paddingVertical: 5,
+                  borderRadius: 99,
+                  borderWidth: 1,
+                  borderColor: sel ? C.accent : C.border,
+                  backgroundColor: sel ? C.accentBg : C.panel,
+                }}
+              >
+                <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.accent : C.fg2 }}>
+                  {c.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          });
+          return isPhone ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ flexDirection: 'row', gap: 6, alignItems: 'center', paddingRight: 12 }}
+            >
+              {categoryChipsChildren}
+            </ScrollView>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              {categoryChipsChildren}
+            </View>
+          );
+          })()}
           {/* Status line */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: isPhone ? 6 : 10, flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
             <StatusDot status={countedNum === total ? 'ok' : countedNum > 0 ? 'low' : 'info'} />
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
               {countedNum} of {total} items counted
@@ -701,7 +794,7 @@ export default function EODCountSection() {
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg2 }}>
               vendor: {vendorTabs.find((v) => v.id === selectedVendorId)?.name?.toUpperCase() || '—'}
             </Text>
-            <View style={{ flex: 1 }} />
+            {!isPhone && <View style={{ flex: 1 }} />}
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
               counter: <Text style={{ color: C.fg }}>{currentUser?.name?.toLowerCase().replace(/\s+/g, '.') || 'guest'}</Text>
             </Text>
@@ -709,13 +802,13 @@ export default function EODCountSection() {
         </View>
 
         {/* Item list */}
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 8, paddingBottom: 80 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: rowPadH, paddingTop: 8, paddingBottom: 80 }}>
           {/* Column header */}
-          <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: 14 }}>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>item · pack</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'center' }]}>box/case</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'center' }]}>count</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 180 }]}>note</Text>
+          <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: rowGap }}>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>item · pack</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>box/case</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>count</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>note</Text>
           </View>
           {grouped.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
@@ -747,13 +840,13 @@ export default function EODCountSection() {
                         flexDirection: 'row',
                         alignItems: 'center',
                         paddingVertical: 10,
-                        gap: 14,
+                        gap: rowGap,
                         borderTopWidth: i === 0 ? 0 : 1,
                         borderTopColor: C.border,
                         borderStyle: 'dashed',
                       }}
                     >
-                      <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
                         <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg, letterSpacing: -0.1 }}>
                           {it.name}
                         </Text>
@@ -766,7 +859,7 @@ export default function EODCountSection() {
                           on REST days. Both cases collapse to "show the cell
                           but don't accept input"; rest gets a 0.5 opacity
                           consistent with the no-case-info treatment. */}
-                      <View style={{ width: 80, alignItems: 'center' }}>
+                      <View style={{ width: cellW, alignItems: 'center' }}>
                         <TextInput
                           ref={(r) => {
                             if (hasCase) caseInputRefs.current[it.id] = r;
@@ -778,7 +871,7 @@ export default function EODCountSection() {
                           placeholderTextColor={C.fg3}
                           keyboardType="numeric"
                           style={{
-                            width: 70,
+                            width: inputW,
                             height: 30,
                             textAlign: 'center',
                             fontFamily: mono(600),
@@ -797,7 +890,7 @@ export default function EODCountSection() {
                         </Text>
                       </View>
                       {/* Loose units input */}
-                      <View style={{ width: 80, alignItems: 'center' }}>
+                      <View style={{ width: cellW, alignItems: 'center' }}>
                         <TextInput
                           ref={(r) => {
                             if (!hasCase) caseInputRefs.current[it.id] = r;
@@ -809,7 +902,7 @@ export default function EODCountSection() {
                           placeholderTextColor={C.fg3}
                           keyboardType="numeric"
                           style={{
-                            width: 70,
+                            width: inputW,
                             height: 30,
                             textAlign: 'center',
                             fontFamily: mono(600),
@@ -834,7 +927,7 @@ export default function EODCountSection() {
                         placeholder="Note…"
                         placeholderTextColor={C.fg3}
                         style={{
-                          width: 180,
+                          ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
                           height: 30,
                           paddingHorizontal: 10,
                           fontFamily: mono(400),
@@ -862,11 +955,12 @@ export default function EODCountSection() {
             backgroundColor: C.panel,
             borderTopWidth: 1,
             borderTopColor: C.border,
-            paddingHorizontal: 22,
+            paddingHorizontal: rowPadH,
             paddingVertical: 10,
             flexDirection: 'row',
-            alignItems: 'center',
-            gap: 14,
+            alignItems: isPhone ? 'flex-start' : 'center',
+            flexWrap: isPhone ? 'wrap' : 'nowrap',
+            gap: isPhone ? 8 : 14,
           }}
         >
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: countedNum === total && total > 0 ? C.ok : C.warn }}>
