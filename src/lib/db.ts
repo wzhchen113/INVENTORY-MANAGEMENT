@@ -5,6 +5,7 @@ import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
   SidebarLayoutOverride, POSImport, Brand, User,
+  InventoryCount, InventoryCountKind, InventoryCountSummary,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -603,6 +604,177 @@ export async function fetchRecentEodDates(
     return [];
   }
   return (data || []).map((r: any) => r.date as string);
+}
+
+// ─── INVENTORY COUNTS (Spec 019) ────────────────────────────────────────
+// Any-time inventory count — parallel to eod_submissions. The migration
+// (`supabase/migrations/20260513000000_inventory_counts.sql`) defines the
+// `inventory_counts` + `inventory_count_entries` tables and the
+// `submit_inventory_count(...)` SECURITY INVOKER RPC.
+//
+// Signatures here match the architect's design in spec 019 §5 verbatim so
+// the section component compiles against the same contract whether the
+// migration has landed yet or not. Bodies route through supabase.rpc /
+// supabase.from with the snake_case → camelCase mapping the rest of this
+// file uses.
+//
+// `current_stock` is intentionally NOT updated by this path — spot counts
+// are advisory historical snapshots only (spec 019 Q2 default).
+
+/**
+ * Submit a non-EOD inventory count for the active store. Mints nothing
+ * server-side beyond the parent row + the kept-non-blank entries.
+ * `client_uuid` is the caller-minted idempotency key (mirrors
+ * `staff_submit_eod`). On a duplicate `client_uuid` the RPC returns
+ * `conflict: true` with the existing `count_id` rather than inserting a
+ * second row.
+ *
+ * The RPC enforces:
+ *  - caller can see `storeId` via `auth_can_see_store`
+ *  - `kind` ∈ { spot, open, mid_shift, close } (rejects 'eod')
+ *  - `entries` array has ≥ 1 element AND ≥ 1 non-blank kept row
+ *  - each entry's `itemId` belongs to `storeId`
+ *  - per-entry counted quantities are non-negative
+ *
+ * Throws on any of those — the store action wraps in `notifyBackendError`.
+ */
+export async function submitInventoryCount(input: {
+  storeId: string;
+  kind: InventoryCountKind;
+  countedAt: string;             // ISO; server-side defaults to now() if null
+  status?: 'draft' | 'submitted';
+  entries: Array<{
+    itemId: string;
+    actualRemaining?: number | null;
+    actualRemainingCases?: number | null;
+    actualRemainingEach?: number | null;
+    unit?: string | null;
+    notes?: string | null;
+  }>;
+  notes?: string | null;
+  clientUuid: string;            // caller mints via crypto.randomUUID()
+}): Promise<{ countId: string; conflict: boolean; entryIds: string[] }> {
+  const { data, error } = await supabase.rpc('submit_inventory_count', {
+    p_client_uuid: input.clientUuid,
+    p_store_id:    input.storeId,
+    p_kind:        input.kind,
+    p_counted_at:  input.countedAt || null,
+    p_status:      input.status || 'submitted',
+    p_entries:     input.entries.map((e) => ({
+      item_id: e.itemId,
+      actual_remaining: e.actualRemaining ?? null,
+      actual_remaining_cases: e.actualRemainingCases ?? null,
+      actual_remaining_each: e.actualRemainingEach ?? null,
+      unit: e.unit ?? null,
+      notes: e.notes ?? null,
+    })),
+    p_notes: input.notes ?? null,
+  });
+  if (error) {
+    console.warn('[Supabase] submitInventoryCount:', error.message, error);
+    throw error;
+  }
+  const result = (data || {}) as { count_id?: string; conflict?: boolean; entry_ids?: string[] };
+  return {
+    countId: result.count_id || '',
+    conflict: !!result.conflict,
+    entryIds: result.entry_ids || [],
+  };
+}
+
+/**
+ * Last N inventory counts for a store, descending by counted_at. Used by
+ * the InventoryCountSection's "Recent counts" panel. Mirrors the shape of
+ * `fetchRecentEODSubmissions` but with the `kind` discriminator and a
+ * derived `itemCount` from a count-aggregate embed.
+ */
+export async function fetchRecentInventoryCounts(
+  storeId: string,
+  limit: number = 10,
+): Promise<InventoryCountSummary[]> {
+  const { data, error } = await supabase
+    .from('inventory_counts')
+    .select(`
+      id, store_id, kind, counted_at, submitted_by, submitted_at, status, notes,
+      submitter:profiles!submitted_by(name),
+      inventory_count_entries(count)
+    `)
+    .eq('store_id', storeId)
+    .order('counted_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('[Supabase] fetchRecentInventoryCounts:', error.message);
+    return [];
+  }
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    storeId: row.store_id,
+    kind: row.kind as InventoryCountKind,
+    countedAt: row.counted_at,
+    submittedBy: row.submitted_by,
+    submitterName: row.submitter?.name || undefined,
+    submittedAt: row.submitted_at,
+    status: row.status,
+    // PostgREST's `inventory_count_entries(count)` aggregate returns either
+    // `[{ count: N }]` or a numeric — handle both defensively.
+    itemCount: Array.isArray(row.inventory_count_entries)
+      ? Number(row.inventory_count_entries[0]?.count ?? 0)
+      : Number(row.inventory_count_entries?.count ?? 0),
+    notes: row.notes || null,
+  }));
+}
+
+/**
+ * Full detail for one inventory count (parent + entries with item names
+ * hydrated via the catalog join). Returns null if the count doesn't
+ * exist or RLS hides it from this caller.
+ */
+export async function fetchInventoryCount(
+  countId: string,
+): Promise<InventoryCount | null> {
+  const { data, error } = await supabase
+    .from('inventory_counts')
+    .select(`
+      id, store_id, kind, counted_at, submitted_by, submitted_at, status, notes, client_uuid, created_at,
+      submitter:profiles!submitted_by(name),
+      inventory_count_entries(
+        id, count_id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, unit, notes, created_at,
+        item:inventory_items(catalog:catalog_ingredients(name, unit))
+      )
+    `)
+    .eq('id', countId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[Supabase] fetchInventoryCount:', error.message);
+    return null;
+  }
+  if (!data) return null;
+  const row: any = data;
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    kind: row.kind as InventoryCountKind,
+    countedAt: row.counted_at,
+    submittedBy: row.submitted_by,
+    submitterName: row.submitter?.name || undefined,
+    submittedAt: row.submitted_at,
+    status: row.status,
+    clientUuid: row.client_uuid || null,
+    notes: row.notes || null,
+    createdAt: row.created_at,
+    entries: (row.inventory_count_entries || []).map((e: any) => ({
+      id: e.id,
+      countId: e.count_id,
+      itemId: e.item_id,
+      itemName: e.item?.catalog?.name || '',
+      actualRemaining: e.actual_remaining != null ? Number(e.actual_remaining) : null,
+      actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
+      actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
+      unit: e.unit || e.item?.catalog?.unit || null,
+      notes: e.notes || null,
+      createdAt: e.created_at,
+    })),
+  };
 }
 
 // Spec 009 §5/D2 — cross-store POS imports fan-out for the All-Stores

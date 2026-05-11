@@ -6,7 +6,7 @@ import {
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
-  Brand,
+  Brand, InventoryCountKind,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -200,6 +200,40 @@ interface StoreActions {
 
   // EOD
   submitEOD: (submission: Omit<EODSubmission, 'id'>) => void;
+
+  /**
+   * Spec 019 — submit an any-time inventory count. Parallel to submitEOD;
+   * does NOT touch eod_submissions and does NOT update inventory_items.
+   * current_stock (advisory snapshot per spec Q2). No persistent slice —
+   * the section component owns the recent-counts fetch via `db.ts`.
+   *
+   * Mints the `client_uuid` internally via crypto.randomUUID() so retries
+   * (re-clicks of Submit) flow through the RPC's idempotency check rather
+   * than producing duplicate rows. On error: `notifyBackendError`. On a
+   * conflict (same UUID re-submitted) the helper still resolves with
+   * `conflict: true` and the caller toasts "Already submitted" rather than
+   * "Count submitted".
+   */
+  submitInventoryCount: (input: {
+    storeId: string;
+    kind: InventoryCountKind;
+    countedAt: string;
+    status?: 'draft' | 'submitted';
+    entries: Array<{
+      itemId: string;
+      actualRemaining?: number | null;
+      actualRemainingCases?: number | null;
+      actualRemainingEach?: number | null;
+      unit?: string | null;
+      notes?: string | null;
+    }>;
+    notes?: string | null;
+    /** Caller-minted idempotency key — one UUID per submit-button press.
+     *  A retry from the caller passing the same UUID returns the
+     *  existing row with `conflict: true` instead of inserting a duplicate.
+     *  See architect §6 + §10. */
+    clientUuid: string;
+  }) => Promise<{ countId: string; conflict: boolean } | null>;
 
   // Vendors
   addVendor: (vendor: Omit<Vendor, 'id'>) => void;
@@ -1383,6 +1417,38 @@ export const useStore = create<FullStore>((set, get) => ({
         p_exclude_user_id: submission.submittedByUserId || null,
       })
     ).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
+  },
+
+  // Spec 019 — Any-time inventory count. No persistent slice mutation;
+  // the section component fetches counts on demand via db.fetchRecent…
+  // and db.fetchInventoryCount, mirroring how `loadLatestRun` keeps the
+  // boot payload bounded.
+  submitInventoryCount: async (input) => {
+    const storeId = input.storeId || get().currentStore?.id;
+    if (!storeId || storeId === '__all__') {
+      const e = new Error('No active store');
+      notifyBackendError('Submit inventory count', e);
+      return null;
+    }
+    // The caller (the section) mints the `client_uuid` ONCE per submit-
+    // button press and passes it here. A retry from the section with the
+    // same UUID flows through the RPC's idempotency check rather than
+    // producing a duplicate row. Architect §6 + §10.
+    try {
+      const result = await db.submitInventoryCount({
+        storeId,
+        kind: input.kind,
+        countedAt: input.countedAt,
+        status: input.status,
+        entries: input.entries,
+        notes: input.notes ?? null,
+        clientUuid: input.clientUuid,
+      });
+      return { countId: result.countId, conflict: result.conflict };
+    } catch (e: any) {
+      notifyBackendError('Submit inventory count', e);
+      return null;
+    }
   },
 
   // Vendors — brand-level after the catalog refactor.

@@ -241,6 +241,55 @@ export interface EODSubmission {
   entries: EODEntry[];
 }
 
+// ─── Spec 019: Any-time inventory count ─────────────────────────────
+// New `inventory_counts` table is additive — it does NOT collapse the
+// existing EOD path (eod_submissions). The 'eod' kind is intentionally
+// excluded from this client union; EOD continues to flow through
+// staff_submit_eod / submitEODCount. See spec 019 §Data model AC.
+export type InventoryCountKind = 'spot' | 'open' | 'mid_shift' | 'close';
+
+export interface InventoryCountEntry {
+  id: string;
+  countId: string;
+  itemId: string;
+  itemName: string;                      // hydrated via catalog join
+  actualRemaining: number | null;
+  actualRemainingCases?: number | null;
+  actualRemainingEach?: number | null;
+  unit?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface InventoryCount {
+  id: string;
+  storeId: string;
+  kind: InventoryCountKind;
+  countedAt: string;
+  submittedBy: string | null;
+  submitterName?: string;                // hydrated via profiles join
+  submittedAt: string;
+  status: 'draft' | 'submitted';
+  clientUuid?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  entries: InventoryCountEntry[];        // populated by fetchInventoryCount only
+}
+
+// List-row shape — no entries, includes derived itemCount.
+export interface InventoryCountSummary {
+  id: string;
+  storeId: string;
+  kind: InventoryCountKind;
+  countedAt: string;
+  submittedBy: string | null;
+  submitterName?: string;
+  submittedAt: string;
+  status: 'draft' | 'submitted';
+  itemCount: number;
+  notes?: string | null;
+}
+
 export interface Vendor {
   id: string;
   /** Brand-scoped after catalog refactor. */

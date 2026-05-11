@@ -160,6 +160,7 @@ const SCREEN_ENTRIES: Array<{ name: string; label: string }> = [
   { name: 'Dashboard',       label: 'Dashboard' },
   { name: 'Inventory',       label: 'Inventory' },
   { name: 'EODCount',        label: 'EOD count' },
+  { name: 'InventoryCount',  label: 'Inventory count' },
   { name: 'WasteLog',        label: 'Waste log' },
   { name: 'Receiving',       label: 'Receiving' },
   { name: 'PurchaseOrders',  label: 'Purchase orders' },
@@ -1036,6 +1037,9 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
           { id: 'Dashboard',       label: 'Dashboard' },
           { id: 'EODCount',        label: 'EOD count' },
+          // Spec 019 — sibling of "EOD count" per Q5 default. EOD entry
+          // is unchanged; this one routes to InventoryCountSection.
+          { id: 'InventoryCount',  label: 'Inventory count' },
           { id: 'WasteLog',        label: 'Waste log' },
           { id: 'Receiving',       label: 'Receiving' },
         ],

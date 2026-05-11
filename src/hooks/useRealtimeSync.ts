@@ -34,6 +34,11 @@ export function useRealtimeSync(
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waste_log', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'eod_submissions', filter: `store_id=eq.${storeId}` }, onSync)
+      // Spec 019 — inventory_counts intentionally NOT on this channel.
+      // The section owns its own per-store subscription (architect §7
+      // Option A), and the global `onSync` would otherwise trigger a
+      // no-op `loadFromSupabase` on every count insert (no store slice
+      // consumes counts).
       .subscribe();
 
     const brandChannel = brandId
