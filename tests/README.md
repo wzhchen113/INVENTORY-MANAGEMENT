@@ -1,0 +1,398 @@
+# Tests
+
+Canonical docs for the test-framework infrastructure landed in
+[spec 022](../specs/022-test-framework-intro/spec.md). Three independent
+tracks, each covering a different layer:
+
+| Track | What it covers                                            | Runner               | Where tests live                          |
+| ----- | --------------------------------------------------------- | -------------------- | ----------------------------------------- |
+| 1     | JS / TS unit + component (React Native) tests             | jest (jest-expo)     | colocated `*.test.ts(x)` next to source   |
+| 2     | Postgres RPC + RLS + trigger correctness                  | psql + pgTAP         | `supabase/tests/*.test.sql`               |
+| 3     | End-to-end RPC / edge-function shell smokes              | bash + curl + jq     | `scripts/smoke-*.sh`                      |
+
+Tracks 1 and 2 run in CI on every push and pull-request
+([`.github/workflows/test.yml`](../.github/workflows/test.yml)). Track 3 is
+manual-run only in v1, matching the existing `scripts/smoke-edge.sh`
+posture.
+
+## TL;DR — how to run each track locally
+
+```bash
+# Track 1 — jest (no docker required)
+npm test
+
+# Track 2 — DB tests (requires `npm run dev:db` running)
+npm run test:db
+
+# Track 3 — shell smokes (requires `npm run dev:db` running)
+npm run test:smoke              # runs smoke-edge.sh and smoke-rpc.sh
+
+# Everything jest + DB:
+npm run test:all
+```
+
+There is also a typecheck-only pass for tests (jest itself catches type
+errors via babel-jest at runtime; this script is for editor + on-demand
+verification):
+
+```bash
+npm run typecheck:test
+```
+
+## Hybrid mocking strategy (spec 022 Q6 = D)
+
+The rule across the three tracks:
+
+| Tier                                  | Boundary for stubbing                          | Rationale                                                                                                                |
+| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Track 1 unit tests (`src/utils/...`)  | Mock at the **module under test's collaborators**, not at `db.ts` (units rarely touch DB). | Keeps unit tests truly unit-scoped.                                                                                       |
+| Track 1 component tests               | Mock at the **`src/lib/db.ts` boundary**.       | One layer up from `supabase.ts` and one layer down from the screen. Re-implementing the Supabase client in a stub is the anti-pattern. |
+| Track 2 DB tests                      | **No mocks.** Real local Supabase via `docker exec supabase_db_imr-inventory psql`.        | DB tests exist to catch RLS / trigger / RPC drift; mocking would undo the whole point.                                    |
+| Track 3 shell smokes                  | **No mocks.** Real local stack via curl.        | Same as Track 2 — smoke-tests are end-to-end by definition.                                                               |
+
+Concrete example for a component test (target: a screen or component
+that loads data via `db.fetchInventory(...)`):
+
+```ts
+// src/screens/cmd/sections/InventorySection.test.tsx
+jest.mock('@/lib/db', () => ({
+  fetchInventory: jest.fn().mockResolvedValue([
+    { id: 'i1', name: 'Mocked Item', /* ... */ },
+  ]),
+}));
+
+import { render, waitFor, screen } from '@testing-library/react-native';
+import { InventorySection } from './InventorySection';
+
+test('renders the inventory list', async () => {
+  render(<InventorySection storeId="00000000-0000-0000-0000-000000000001" />);
+  await waitFor(() => {
+    expect(screen.getByText('Mocked Item')).toBeOnTheScreen();
+  });
+});
+```
+
+**Do NOT** mock `src/lib/supabase.ts` for component tests — that's the
+layer the architect rejected, because every component test would then
+have to re-implement chained-builder semantics (`.from().select().eq()...`)
+in the stub. The `src/lib/db.ts` boundary is one layer up and presents
+a small set of named functions that are trivial to stub.
+
+### Transitive store-import gotcha
+
+If your component pulls a theme hook (e.g. `useColors()` /
+`useCmdColors()` from [`src/theme/colors.ts`](../src/theme/colors.ts))
+that *reads from `src/store/useStore.ts`*, the entire store import
+graph — including `src/lib/db.ts` → `src/lib/supabase.ts` — comes along
+for the ride. `src/lib/supabase.ts` crashes at import time when
+`EXPO_PUBLIC_SUPABASE_URL` is unset (jest runs without `.env`).
+
+**Fix**: mock the theme hook in the test file rather than fighting the
+chain. CLAUDE.md forbids refactoring `useStore.ts` for testability and
+the Spec 022 anti-pattern table forbids mocking `supabase.ts` directly.
+The theme module is the cleanest cut point:
+
+```ts
+// src/components/cmd/StatusPill.test.tsx
+jest.mock('../../theme/colors', () => ({
+  useCmdColors: () => ({
+    ok: '#3B6D11', okBg: '#EAF3DE',
+    warn: '#854F0B', warnBg: '#FAEEDA',
+    danger: '#791F1F', dangerBg: '#FCEBEB',
+    info: '#185FA5', infoBg: '#E6F1FB',
+  }),
+  CmdRadius: { xs: 3, sm: 4, md: 5, lg: 6 },
+}));
+```
+
+Only re-export the keys + helpers the component under test actually
+reads. If a future refactor moves theming into a provider-backed
+context, this mock collapses to wrapping `render()` with the provider
+and the per-test stub goes away.
+
+## Track 1 — jest (JS / TS)
+
+Layout (hybrid colocation, spec 022 Q3 = C):
+
+```
+src/
+  utils/
+    relativeTime.ts
+    relativeTime.test.ts            ← lives next to the function it tests
+  components/
+    cmd/
+      StatusPill.tsx
+      StatusPill.test.tsx           ← lives next to the component it tests
+```
+
+Two jest **projects** are configured in [`jest.config.js`](../jest.config.js):
+
+- **unit** — `testEnvironment: 'node'`, picks up `src/utils/**/*.test.ts`,
+  `src/lib/**/*.test.ts`, `src/store/**/*.test.ts`, `src/hooks/**/*.test.ts`.
+  Fast — no DOM / RN bridging.
+- **component** — `testEnvironment: 'jsdom'`, picks up
+  `src/components/**/*.test.tsx`, `src/screens/**/*.test.tsx`. Slower but
+  RN-aware via the `jest-expo` preset.
+
+Platform-specific filename suffixes (`.web.test.tsx` / `.native.test.tsx`)
+are honoured by the `jest-expo` preset's default resolver. v1 does not
+ship a platform-specific example; the convention is documented for future
+use only.
+
+### How to add a new jest test
+
+1. Create the file next to the source: `Foo.tsx` → `Foo.test.tsx`.
+2. Import the symbol(s) under test by either relative path or the `@/`
+   alias; both work via `moduleNameMapper` in `jest.config.js`.
+3. If the source touches `react-native-toast-message` or
+   `@react-native-async-storage/async-storage`, do nothing special — the
+   global setup in [`tests/jest.setup.ts`](./jest.setup.ts) stubs both.
+4. If the source touches `src/lib/db.ts`, mock at that boundary in the
+   test file — see the hybrid-mocking example above.
+
+### When NOT to add a jest test
+
+- Logic that's purely a DB constraint, trigger, or RLS policy → Track 2.
+- Behaviour that requires the real edge runtime → Track 3.
+- Visual / layout regression — out of scope in v1, deferred to a future
+  spec.
+
+### Troubleshooting
+
+- **"Unexpected token 'export'" or "Cannot use import statement outside a
+  module"** from inside a `react-native-*` or `expo-*` dep: add that
+  package to `RN_TRANSPILE_DEPS` in [`jest.config.js`](../jest.config.js).
+  The list is the **allow-list** of node_modules that jest IS allowed to
+  transform; jest's default is to skip all of `node_modules/`.
+- **Peer-dep resolution warning on `@testing-library/react-native`**: the
+  v13 major lines up with React 19; v12 peers on React 18 and will
+  warn/fail. If `npm install` refuses to resolve v13, run it once with
+  `--legacy-peer-deps`. Subsequent installs are clean.
+- **Test runs hang inside `react-native-reanimated`**: reanimated needs
+  its own jest mock; if a future test touches a reanimated-driven
+  component, add the package's official mock to `tests/jest.setup.ts`.
+  Not needed for the v1 example tests.
+
+## Track 2 — Supabase DB tests (pgTAP)
+
+Test files live under [`supabase/tests/`](../supabase/tests/) with the
+naming pattern `<descriptive-name>.test.sql`. Two example tests ship in
+v1:
+
+- [`report_run_cogs.test.sql`](../supabase/tests/report_run_cogs.test.sql)
+  — proves the auth gate (42501 for a foreign store) and the envelope
+  shape (`{ kpis, columns, rows, series }`).
+- [`inventory_counts_set_submitted_by.test.sql`](../supabase/tests/inventory_counts_set_submitted_by.test.sql)
+  — proves the BEFORE INSERT/UPDATE trigger that closes the
+  attribution-forgery vector on `inventory_counts.submitted_by` (spec
+  019 round-2).
+
+### Hermetic isolation pattern (spec 022 §5)
+
+Each `.sql` file owns its own transaction frame plus pgTAP `plan(N) ...
+finish()`:
+
+```sql
+begin;
+create extension if not exists pgtap;
+select plan(N);
+
+-- ─── fixtures ──────────────────────────────────────────────────
+-- ... lookup seed UUIDs by stable names (NOT hardcoded UUIDs that
+-- drift when the seed gets refreshed), set JWT claims via
+-- set_config('request.jwt.claims', ...).
+
+-- ─── assertions ────────────────────────────────────────────────
+select is(actual, expected, 'description');
+select throws_ok(query, sqlstate, message_substring, 'description');
+
+select * from finish();
+rollback;
+```
+
+Notes:
+
+- `plan(N)` is non-optional. A file that runs fewer or more assertions
+  than declared **fails** — this is what catches silently-dropped
+  assertions.
+- The rollback is the absolute reset. The 286 KB seed is the substrate;
+  tests never seed their own data when an equivalent row already exists.
+- For RLS-touching tests, the JWT claim shape is:
+  ```sql
+  select set_config(
+    'request.jwt.claims',
+    jsonb_build_object(
+      'sub', '<user-uuid>',
+      'role', 'authenticated',
+      'app_metadata', jsonb_build_object('role', 'user')  -- or 'admin' / 'master'
+    )::text,
+    true
+  );
+  ```
+  The `auth.uid()` reads `sub`; `auth_is_admin()` reads
+  `app_metadata.role`. `set_config(..., true)` is transaction-local so
+  the rollback cleans it up too.
+
+### Running
+
+```bash
+npm run dev:db                          # boot the local stack first
+npm run test:db                         # walks supabase/tests/*.test.sql
+
+# Or run one file:
+bash scripts/test-db.sh supabase/tests/report_run_cogs.test.sql
+```
+
+[`scripts/test-db.sh`](../scripts/test-db.sh) shells out to `docker exec
+supabase_db_imr-inventory psql -f -` for each file. The wrapper parses
+pgTAP's TAP output and counts passes / fails per file.
+
+### Divergence from the architect's prescribed shape
+
+The spec's `## Backend Architecture` §4 names `pg_prove` as the runner.
+The local Supabase Postgres image as of 2026-05 ships the `pgtap`
+extension SQL functions but does **not** ship the `pg_prove` shell binary
+(verified via `command -v pg_prove`). Rather than install pg_prove or
+fall back to `supabase test db` (which architect §4 explicitly rejected),
+[`scripts/test-db.sh`](../scripts/test-db.sh) uses raw `psql -f` and
+inspects pgTAP's own TAP output (`ok N`, `not ok N`, `# Looks like you
+failed`). Same hermetic isolation, no new binary required. If a future
+Supabase image bump ships pg_prove, the wrapper can be simplified to the
+two-line `docker exec ... pg_prove ...` form architect §4 sketched.
+
+### pgTAP install path
+
+pgTAP 1.3.3 ships with the local Supabase Postgres image (verified
+2026-05-13). Each test file's first line is `create extension if not
+exists pgtap;` — cheap when already installed, self-healing when not. No
+migration adds the extension because we don't want the testing extension
+leaking into prod.
+
+Sanity check the extension is available:
+
+```bash
+docker exec supabase_db_imr-inventory \
+  psql -U postgres -d postgres \
+  -c "create extension if not exists pgtap; \
+      select extversion from pg_extension where extname='pgtap';"
+```
+
+### How to add a new DB test
+
+1. Pick a name: `supabase/tests/<short-thing-being-asserted>.test.sql`.
+2. Frame the file with the `begin; ... finish(); rollback;` shape above.
+3. Look up seed data by **name**, not hardcoded UUID
+   (`select id from public.stores where name = 'Frederick' limit 1`).
+   Seeds get refreshed; UUIDs drift.
+4. Stash multi-statement values via `set_config('test.<key>', ..., true)`
+   and read back with `current_setting('test.<key>', true)`. The
+   transaction-local flag (third arg `true`) means rollback cleans these
+   too.
+5. If the assertion is about RLS / triggers, set
+   `request.jwt.claims` to the appropriate user (see the shape above).
+6. Run locally before opening the PR:
+   `npm run test:db`.
+
+### When NOT to add a DB test
+
+- Logic that's purely TypeScript-side aggregation in `src/lib/db.ts` →
+  Track 1 unit test, with the network mocked.
+- Edge-function behaviour (Deno) → Track 3 smoke for now.
+
+### Risks
+
+The `supabase_db_imr-inventory` container name is the spec 022 default
+because that's the project_id in
+[`supabase/config.toml`](../supabase/config.toml). If a contributor
+locally overrides the project_id, override `CONTAINER=` when invoking
+the script:
+
+```bash
+CONTAINER=supabase_db_some-other-name npm run test:db
+```
+
+## Track 3 — Shell smokes
+
+Manual-run scripts under `scripts/smoke-*.sh`. v1 ships two:
+
+- [`scripts/smoke-edge.sh`](../scripts/smoke-edge.sh) — the original; CORS
+  + JWT + happy-path checks for `fetch-breadbot-sales` edge function.
+- [`scripts/smoke-rpc.sh`](../scripts/smoke-rpc.sh) — Spec 022 example;
+  smokes `report_run('stub', ...)` against the local stack. Picks `stub`
+  over `cogs` because the stub envelope is independent of seed data and
+  therefore stable across seed refreshes.
+
+```bash
+npm run test:smoke         # runs both
+bash scripts/smoke-rpc.sh  # just the new one
+```
+
+Each script accepts `SUPABASE_URL=` to point at a remote stack.
+`smoke-rpc.sh` also accepts `ADMIN_TOKEN=` to skip the login round-trip
+(useful when iterating against prod with a cached session).
+
+### Track 3 troubleshooting — local edge runtime bind-mount
+
+Copied verbatim from CLAUDE.md so smoke-script failures don't get
+misdiagnosed:
+
+> `supabase start` (via `npm run dev:db`) bind-mounts
+> `<cwd>/supabase/functions/` into `supabase_edge_runtime_imr-inventory`
+> at *container creation* time, not at every restart. If the stack was
+> first booted from a since-deleted directory (e.g., a
+> `.claude/worktrees/<name>/` worktree), the mount stays pinned there
+> even after you `cd` back to the repo root and `docker restart`.
+> Symptom: `pwa-catalog` and other edge functions return `503
+> BOOT_ERROR` locally with otherwise unexplained "function source not
+> found" errors in the runtime logs.
+>
+> **Sanity check before debugging an edge function locally:**
+>
+> `docker inspect supabase_edge_runtime_imr-inventory --format
+> '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' | grep functions`
+>
+> should print a path under the active repo root. If it points at
+> `.claude/worktrees/` or any other stale path, run `npx supabase stop
+> --no-backup && npm run dev:db` from the repo root to force a clean
+> re-bind. Same shape as the realtime gotcha — `docker restart` alone
+> won't help.
+
+If a future smoke / DB test touches `supabase_realtime` publication
+membership, also see CLAUDE.md > Realtime publication gotcha.
+
+## CI
+
+[`.github/workflows/test.yml`](../.github/workflows/test.yml) runs on
+every push and every pull-request. Two jobs:
+
+- **`jest`** — `actions/setup-node@v4` with node 20, `npm ci`, `npm test
+  -- --ci`. Fails on any failing test.
+- **`db`** — `supabase/setup-cli@v1`, `supabase start`, `npm run
+  test:db`. The full local stack (~60-90s cold boot) is required because
+  DB tests use `auth.uid()` through real JWT claims — a bare Postgres
+  service container does not expose `auth.*`. The DB job is NOT a
+  required status check in v1; tighten once stability is observed.
+
+Track 3 is intentionally not wired into CI in v1 (per spec AC).
+
+## First follow-up coverage targets (spec 022 §8)
+
+When the retroactive-coverage spec lands, the *first* targets are the
+five Criticals from specs 016 / 018 / 019 / 020 / 021:
+
+| Spec | Critical                                                          | Track 2 test target                                          |
+| ---- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| 016  | Reports dispatcher auth gate (`report_run` 42501 on foreign store) | Already partially covered by `report_run_cogs.test.sql`; add a dispatcher-level test that exercises every `when` arm. |
+| 018  | Variance template auth gate + missing-cost flagging                | New `report_run_variance.test.sql`.                          |
+| 019  | `inventory_counts` consistency triggers (submitted_by override, cross-store item_id, append-only UPDATE/DELETE deny). | `inventory_counts_set_submitted_by.test.sql` covers the override case; add a sibling for the cross-store item_id reject and an UPDATE-denied / DELETE-denied test. |
+| 020  | Per-vendor EOD consistency triggers                               | New `eod_submissions_consistency.test.sql`.                 |
+| 021  | MIN-DOW lateral-subquery RLS                                       | New `order_schedule_min_dow.test.sql`.                       |
+
+Track 1 first targets:
+
+- `src/utils/convertToItemUnit.ts` — replace the existing
+  `scripts/test-unit-conversion.ts` with a proper jest test. Deletion of
+  the legacy script is a one-line follow-up; spec 022 explicitly does
+  NOT do it.
+- `src/lib/db.ts` mapper functions — start with `mapItem` (the
+  snake_case → camelCase pivot).

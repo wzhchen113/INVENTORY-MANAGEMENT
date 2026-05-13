@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "tests/**/*.ts"
+  ],
+  // Base tsconfig.json excludes `**/*.test.ts(x)` and `tests/**/*` so
+  // those files never enter the runtime bundle's type graph. This file
+  // is the inverse — it ONLY checks those files. Empty exclude is
+  // intentional: it overrides base's exclude entirely so the selective
+  // `include` above is what scopes the check.
+  "exclude": []
+}

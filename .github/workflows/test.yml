@@ -1,0 +1,78 @@
+# .github/workflows/test.yml — Spec 022 (test framework intro).
+#
+# Two jobs:
+#   1. jest — Track 1 (JS/TS unit + component tests via jest-expo).
+#   2. db   — Track 2 (Supabase DB tests via psql + pgTAP).
+#
+# Track 3 (shell smokes under scripts/smoke-*.sh) is NOT wired in here
+# per spec AC — smoke scripts stay manual-run in v1 to match the
+# existing smoke-edge.sh posture.
+#
+# Architect's design (spec 022 §6): the `db` job boots the full local
+# Supabase stack via `supabase/setup-cli@v1` + `supabase start` because
+# DB tests touch `auth.uid()` which a bare Postgres service container
+# does not expose. ~60-90s cold-boot is acceptable for the v1 cadence.
+
+name: test
+
+on:
+  push:
+  pull_request:
+
+# Least-privilege default. Neither job needs to write anything — they
+# only read source + run tests. Closes security-auditor M1.
+permissions:
+  contents: read
+
+jobs:
+  jest:
+    name: Track 1 — jest-expo
+    runs-on: ubuntu-latest
+    # Without a job-level timeout the run defaults to 6 hours, so any
+    # hung worker (transformIgnorePatterns regression, etc.) burns CI
+    # minutes for hours. Closes code-reviewer S2 + test-engineer.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run jest
+        run: npm test -- --ci
+
+  db:
+    name: Track 2 — Supabase DB tests
+    runs-on: ubuntu-latest
+    # `supabase start` cold-boot is ~60-90s; tests themselves are fast.
+    # 20 min covers boot variance + a generous test-runtime budget.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase stack
+        # Brings up Postgres + Auth + Realtime + ... so tests can use
+        # auth.uid() via JWT claim injection.
+        run: supabase start
+
+      - name: Run DB tests
+        # The wrapper script discovers .test.sql files under
+        # supabase/tests/ and runs each through `docker exec ... psql -f`.
+        # Container name defaults to `supabase_db_<project_id>`, matching
+        # what `supabase start` brings up.
+        run: npm run test:db
+
+      - name: Stop Supabase stack
+        if: always()
+        run: supabase stop --no-backup

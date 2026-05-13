@@ -74,7 +74,7 @@ scripts/                      # one-off ts-node + curl smoke scripts (no test ru
 - [src/hooks/useRole.ts](src/hooks/useRole.ts) hardcodes `'admin'`.
 
 **Gaps and unknowns**
-- **No test framework.** No jest/vitest, no `*.test.*` files. Only [scripts/test-unit-conversion.ts](scripts/test-unit-conversion.ts) (one-off ts-node) and [scripts/smoke-edge.sh](scripts/smoke-edge.sh) (curl smoke test).
+- **Test framework.** See [tests/README.md](tests/README.md) — three tracks (jest, pgTAP DB tests, shell smokes). v1 ships infra + 1-2 example tests per track; retroactive coverage of past Criticals is a follow-up.
 - **No CI workflow on disk.** [README.md](README.md) references `.github/workflows/db-migrations-applied.yml` but no `.github/` directory exists in the repo.
 - **Empty placeholders.** [.claude/agents/_archive/](.claude/agents/_archive/), [specs/](specs/), and [.claude/worktrees/](.claude/worktrees/) are all empty.
 - **Possibly-stale legacy data layer.** [db.json](db.json) (json-server seed), [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts), and the `npm run db` script in [package.json](package.json) reference an abandoned data layer.
