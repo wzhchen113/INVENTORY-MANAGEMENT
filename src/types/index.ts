@@ -449,6 +449,15 @@ export interface AppState {
    * NOT populated by `loadFromSupabase` to keep boot payload bounded.
    */
   reportRuns: Record<string, ReportRun>;
+  /**
+   * Spec 021 — last fetched reorder-list envelope for the current store.
+   * `null` until ReorderSection opens and triggers
+   * `loadReorderSuggestions`. Cleared (not refreshed) by
+   * `loadFromSupabase` so the section stays the lazy-load entry point.
+   */
+  reorderPayload: ReorderPayload | null;
+  reorderLoading: boolean;
+  reorderError: string | null;
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
@@ -550,6 +559,82 @@ export interface ReportRun {
   errorMessage: string | null;
   ranAt: string;
   ranBy: string | null;
+}
+
+/**
+ * Spec 021 — per-vendor reorder suggestion. `'eod'` means the vendor's
+ * `on_hand` came from today's EOD `actual_remaining` (authoritative);
+ * `'stock'` means it fell back to `inventory_items.current_stock`
+ * (last-known snapshot — manager hasn't counted this vendor yet).
+ */
+export type OnHandSource = 'eod' | 'stock';
+
+/**
+ * Spec 021 — one line in a reorder vendor card. `pendingPoQty` is the
+ * "inbound" segment of the `on hand | inbound | par → order` breakdown.
+ * v1 always returns 0 (see spec §1 — `po_items` isn't a real write
+ * target yet); the column exists so the v2 swap is transparent.
+ *
+ * `flags` is a lowercase-token string array surfaced as icons next to
+ * the item name. Known tokens:
+ *   - `'no_par'`           — par_level NULL or 0
+ *   - `'no_usage_rate'`    — usage_per_portion NULL or 0
+ *   - `'eod_missing_for_item'` — vendor is EOD-sourced but THIS item's
+ *     EOD entry is missing (fell back to current_stock for this row
+ *     only). Vendor-level `onHandSource` stays `'eod'`.
+ *   - `'truncated'`        — recipe-graph depth cap hit during forecast.
+ */
+export interface ReorderItem {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  onHand: number;
+  pendingPoQty: number;
+  parLevel: number;
+  usageForecasted: number;
+  parReplacement: number;
+  suggestedQty: number;
+  costPerUnit: number;
+  estimatedCost: number;
+  flags: string[];
+}
+
+/**
+ * Spec 021 — one vendor's reorder card. `scheduleKnown=false` means the
+ * vendor has no `order_schedule` row; the RPC falls back to a 7-day
+ * default and surfaces a `_warnings` entry. The UI badges this so the
+ * manager knows the cadence is an assumption.
+ */
+export interface ReorderVendor {
+  vendorId: string;
+  vendorName: string;
+  scheduleKnown: boolean;
+  nextDeliveryDate: string;       // YYYY-MM-DD
+  daysUntilNextDelivery: number;
+  onHandSource: OnHandSource;
+  eodSubmittedAt: string | null;  // ISO-8601 or null
+  items: ReorderItem[];
+  vendorTotalCost: number;
+}
+
+/**
+ * Spec 021 — payload returned by `report_reorder_list(uuid, jsonb)`.
+ * `vendors` is already filtered: vendors with zero suggested items are
+ * dropped server-side. KPIs reflect only the surfaced vendors.
+ * `warnings` is non-fatal — currently used for vendors without an
+ * `order_schedule` row (one warning per such vendor).
+ */
+export interface ReorderPayload {
+  asOfDate: string;
+  vendors: ReorderVendor[];
+  kpis: {
+    vendorCount: number;
+    itemCount: number;
+    totalEstimatedCost: number;
+    eodSourcedVendorCount: number;
+    stockFallbackVendorCount: number;
+  };
+  warnings: Array<{ code: string; message: string }>;
 }
 
 export interface AppNotification {

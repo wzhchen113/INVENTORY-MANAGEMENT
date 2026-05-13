@@ -167,6 +167,7 @@ const SCREEN_ENTRIES: Array<{ name: string; label: string }> = [
   { name: 'Vendors',         label: 'Vendors' },
   { name: 'Recipes',         label: 'Recipes' },
   { name: 'Restock',         label: 'Restock' },
+  { name: 'Reorder',         label: 'Reorder' },
   { name: 'Reconciliation',  label: 'Reconciliation' },
   { name: 'POSImports',      label: 'POS imports' },
   { name: 'AuditLog',        label: 'Audit log' },
@@ -1054,6 +1055,10 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'Recipes',         label: 'Menu items / BOM' },
           { id: 'PrepRecipes',     label: 'Prep recipes' },
           { id: 'Restock',         label: 'Restock' },
+          // Spec 021 — vendor-grouped reorder list sibling to Restock.
+          // Restock is store-wide-by-category; Reorder is
+          // vendor-grouped-for-delivery-day. Different mental models.
+          { id: 'Reorder',         label: 'Reorder' },
         ],
       },
       {

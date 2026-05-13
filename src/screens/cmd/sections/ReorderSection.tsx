@@ -1,0 +1,562 @@
+import React from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { useCmdColors, CmdRadius } from '../../../theme/colors';
+import { sans, mono, Type } from '../../../theme/typography';
+import { useStore } from '../../../store/useStore';
+import { TabStrip } from '../../../components/cmd/TabStrip';
+import { StatCard } from '../../../components/cmd/StatCard';
+import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { ReorderVendor, ReorderItem } from '../../../types';
+
+// Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
+// (which is store-wide-by-category). This screen groups by vendor with
+// a per-vendor "next delivery" header and an inline `on hand | inbound
+// | par → order` breakdown per item, sourced from a server-side RPC
+// (`report_reorder_list`).
+//
+// v1 contract notes (carried from the spec's §0 + §1):
+//   - `pending_po_qty` is always 0 server-side; the column / "inbound"
+//     segment of the breakdown still renders so the v2 swap is
+//     transparent.
+//   - "Create PO" button is DISABLED with a tooltip — the underlying
+//     po_items write path doesn't exist yet (architect's §10).
+//   - Vendors with zero suggested items are filtered out server-side;
+//     a true empty state means either no EOD has been done, every
+//     active item is at par, or the store has no active vendors at all.
+
+const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
+
+function formatQty(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  // Match the units / variance runners' shape: drop trailing zeros but
+  // keep up to 2 decimals.
+  const rounded = Math.round(n * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function formatMoney(n: number): string {
+  return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+}
+
+// Inline breakdown line per the spec's A3 format:
+// `on hand: 4 | inbound: 0 | par: 12 → order: 8`. Mono, fg2 with the
+// `order:` segment bolded in fg so the math is glanceable.
+function BreakdownLine({ item }: { item: ReorderItem }) {
+  const C = useCmdColors();
+  const seg = (label: string, value: string) => (
+    <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, fontVariant: ['tabular-nums'] }}>
+      <Text style={{ color: C.fg3 }}>{label}:</Text> {value}
+    </Text>
+  );
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+      {seg('on hand', `${formatQty(item.onHand)} ${item.unit}`.trim())}
+      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>|</Text>
+      {seg('inbound', `${formatQty(item.pendingPoQty)} ${item.unit}`.trim())}
+      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>|</Text>
+      {seg('par', `${formatQty(item.parLevel)} ${item.unit}`.trim())}
+      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
+      <Text style={{ fontFamily: mono(700), fontSize: 11.5, color: C.fg, fontVariant: ['tabular-nums'] }}>
+        order: {formatQty(item.suggestedQty)} {item.unit}
+      </Text>
+    </View>
+  );
+}
+
+// Per-vendor source / schedule badge. Three shapes:
+//   - `EOD` (accent green)         — fresh count today
+//   - `STOCK FALLBACK` (warn)      — using current_stock, no EOD today
+//   - `SCHEDULE UNKNOWN` (warn)    — 7-day default delivery cadence
+function Badge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: 'accent' | 'warn' | 'fg3';
+}) {
+  const C = useCmdColors();
+  const bg = tone === 'accent' ? C.accentBg : tone === 'warn' ? C.warnBg : 'transparent';
+  const fg = tone === 'accent' ? C.accent : tone === 'warn' ? C.warn : C.fg3;
+  const border = tone === 'fg3' ? C.border : 'transparent';
+  return (
+    <View
+      style={{
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: CmdRadius.sm,
+        backgroundColor: bg,
+        borderWidth: border === 'transparent' ? 0 : 1,
+        borderColor: border,
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: mono(700),
+          fontSize: 9.5,
+          letterSpacing: 0.5,
+          color: fg,
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// Per-item flag chip — renders the lowercase tokens from the RPC's
+// `flags` array as compact one-letter mono pills. Same precedence as
+// the variance runner's truncated marker.
+function FlagChip({ token }: { token: string }) {
+  const C = useCmdColors();
+  const map: Record<string, { label: string; tone: 'warn' | 'fg3' }> = {
+    no_par: { label: 'NO PAR', tone: 'warn' },
+    no_usage_rate: { label: 'NO USAGE', tone: 'fg3' },
+    eod_missing_for_item: { label: 'EOD MISS', tone: 'warn' },
+    truncated: { label: 'TRUNC', tone: 'fg3' },
+  };
+  const entry = map[token];
+  if (!entry) {
+    // Forward-compat — render unknown tokens raw rather than dropping
+    // them. Lets backend v2 add flags without churning the section.
+    return (
+      <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontFamily: mono(600), fontSize: 9, color: C.fg3 }}>{token}</Text>
+      </View>
+    );
+  }
+  const bg = entry.tone === 'warn' ? C.warnBg : 'transparent';
+  const fg = entry.tone === 'warn' ? C.warn : C.fg3;
+  return (
+    <View
+      style={{
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 3,
+        backgroundColor: bg,
+        borderWidth: entry.tone === 'fg3' ? 1 : 0,
+        borderColor: C.border,
+      }}
+    >
+      <Text style={{ fontFamily: mono(600), fontSize: 9, color: fg, letterSpacing: 0.3 }}>{entry.label}</Text>
+    </View>
+  );
+}
+
+// "Create PO" is deferred to v2 (spec 022 — see architect's §10).
+// v1 ships a disabled button with a hover-tooltip explainer so the
+// affordance is visible but unclickable. The tooltip uses Web's
+// native `title` for now (matches the lightweight pattern already in
+// use elsewhere in Cmd UI) and falls back to a static label on native.
+function DisabledCreatePoButton() {
+  const C = useCmdColors();
+  const tooltip = 'Coming soon — manual PO entry only for now (po_items write path lands in spec 022).';
+  const webTitleProps =
+    Platform.OS === 'web' ? ({ accessibilityLabel: tooltip, title: tooltip } as any) : { accessibilityLabel: tooltip };
+  return (
+    <View
+      {...webTitleProps}
+      style={{
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: CmdRadius.sm,
+        borderWidth: 1,
+        borderColor: C.border,
+        backgroundColor: 'transparent',
+        opacity: 0.55,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.3 }}>+ CREATE PO</Text>
+      <Text style={{ fontFamily: mono(600), fontSize: 9, color: C.fg3, letterSpacing: 0.4 }}>· COMING SOON</Text>
+    </View>
+  );
+}
+
+// Renders a single vendor's reorder card.
+function VendorCard({ vendor }: { vendor: ReorderVendor }) {
+  const C = useCmdColors();
+
+  // Source vs schedule badges are ORTHOGONAL — render both side-by-side.
+  // Earlier the `SCHEDULE UNKNOWN` badge masked the EOD/STOCK source
+  // badge entirely; a vendor with a fresh EOD count but no order_schedule
+  // row would show only `SCHEDULE UNKNOWN`, hiding that its on-hand
+  // numbers are authoritative. The on-hand-source badge is always
+  // emitted; the schedule badge is only emitted when scheduleKnown is
+  // false. The `7-DAY DEFAULT` badge a few lines down stays as its own
+  // chip too (same pattern).
+  const sourceBadgeEl =
+    vendor.onHandSource === 'eod'
+      ? <Badge label="EOD" tone="accent" />
+      : <Badge label="STOCK FALLBACK" tone="warn" />;
+  const scheduleBadgeEl = vendor.scheduleKnown
+    ? null
+    : <Badge label="SCHEDULE UNKNOWN" tone="warn" />;
+
+  // Days-until label. 0 = today, 1 = tomorrow, else "in N days".
+  const daysLabel =
+    vendor.daysUntilNextDelivery === 0
+      ? 'today'
+      : vendor.daysUntilNextDelivery === 1
+        ? 'tomorrow'
+        : `in ${vendor.daysUntilNextDelivery} days`;
+
+  const itemTotal = vendor.items.reduce((acc, i) => acc + i.suggestedQty, 0);
+
+  return (
+    <View
+      style={{
+        backgroundColor: C.panel,
+        borderRadius: CmdRadius.lg,
+        borderWidth: 1,
+        borderColor: C.border,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Vendor header */}
+      <View
+        style={{
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+          gap: 8,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <Text style={[Type.h2, { color: C.fg }]}>{vendor.vendorName || 'unnamed vendor'}</Text>
+          {/* On-hand-source badge — always rendered (orthogonal to schedule). */}
+          {sourceBadgeEl}
+          {/* Schedule badge — only when scheduleKnown=false. */}
+          {scheduleBadgeEl}
+          {vendor.scheduleKnown ? null : (
+            <Badge label="7-DAY DEFAULT" tone="fg3" />
+          )}
+          <View style={{ flex: 1 }} />
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+            {shortId(vendor.vendorId)}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+            <Text style={{ color: C.fg3 }}>next delivery:</Text>{' '}
+            <Text style={{ color: C.fg, fontWeight: '600' }}>
+              {vendor.nextDeliveryDate || '—'}
+            </Text>{' '}
+            <Text style={{ color: C.fg3 }}>({daysLabel})</Text>
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+            <Text style={{ color: C.fg3 }}>items:</Text>{' '}
+            <Text style={{ color: C.fg, fontWeight: '600' }}>{vendor.items.length}</Text>
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+            <Text style={{ color: C.fg3 }}>total qty:</Text>{' '}
+            <Text style={{ color: C.fg, fontWeight: '600' }}>{formatQty(itemTotal)}</Text>
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+            <Text style={{ color: C.fg3 }}>est cost:</Text>{' '}
+            <Text style={{ color: C.fg, fontWeight: '600' }}>{formatMoney(vendor.vendorTotalCost)}</Text>
+          </Text>
+        </View>
+      </View>
+
+      {/* Column header strip */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+          gap: 10,
+          backgroundColor: C.bg,
+        }}
+      >
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>item</Text>
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>on hand</Text>
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>inbound</Text>
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 60, textAlign: 'right' }]}>par</Text>
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>suggested</Text>
+        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>est $</Text>
+      </View>
+
+      {/* Items */}
+      {vendor.items.map((item, i) => (
+        <View
+          key={item.itemId}
+          style={{
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderTopWidth: i === 0 ? 0 : 1,
+            borderTopColor: C.border,
+            gap: 6,
+          }}
+        >
+          {/* Top row: name + numeric columns */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }} numberOfLines={1}>
+                {item.itemName}
+              </Text>
+              {item.flags.map((f) => (
+                <FlagChip key={f} token={f} />
+              ))}
+            </View>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+              {formatQty(item.onHand)} {item.unit}
+            </Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+              {formatQty(item.pendingPoQty)} {item.unit}
+            </Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 60, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+              {formatQty(item.parLevel)}
+            </Text>
+            <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+              {formatQty(item.suggestedQty)} {item.unit}
+            </Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+              {formatMoney(item.estimatedCost)}
+            </Text>
+          </View>
+          {/* Inline breakdown line — same data, glanceable shape */}
+          <View style={{ paddingLeft: 2 }}>
+            <BreakdownLine item={item} />
+          </View>
+        </View>
+      ))}
+
+      {/* Footer */}
+      <View
+        style={{
+          paddingVertical: 10,
+          paddingHorizontal: 16,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          backgroundColor: C.bg,
+        }}
+      >
+        <SectionCaption tone="fg2" size={10}>
+          {vendor.items.length} item{vendor.items.length === 1 ? '' : 's'} · {formatMoney(vendor.vendorTotalCost)}
+        </SectionCaption>
+        {vendor.eodSubmittedAt ? (
+          <>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+              eod counted: {new Date(vendor.eodSubmittedAt).toLocaleString()}
+            </Text>
+          </>
+        ) : null}
+        <View style={{ flex: 1 }} />
+        <DisabledCreatePoButton />
+      </View>
+    </View>
+  );
+}
+
+export default function ReorderSection() {
+  const C = useCmdColors();
+  const currentStore = useStore((s) => s.currentStore);
+  const reorderPayload = useStore((s) => s.reorderPayload);
+  const reorderLoading = useStore((s) => s.reorderLoading);
+  const reorderError = useStore((s) => s.reorderError);
+  const loadReorderSuggestions = useStore((s) => s.loadReorderSuggestions);
+
+  const [tabId, setTabId] = React.useState('reorder.tsx');
+
+  // Lazy-load on mount + when the store changes. Mirrors REPORTS-1's
+  // `loadLatestRun` pattern in ReportsSection — the section is the
+  // entry point, the global `loadFromSupabase` doesn't pre-populate
+  // this payload so boot stays bounded.
+  React.useEffect(() => {
+    if (!currentStore?.id) return;
+    loadReorderSuggestions();
+  }, [currentStore.id, loadReorderSuggestions]);
+
+  const vendors = reorderPayload?.vendors ?? [];
+  const kpis = reorderPayload?.kpis ?? {
+    vendorCount: 0,
+    itemCount: 0,
+    totalEstimatedCost: 0,
+    eodSourcedVendorCount: 0,
+    stockFallbackVendorCount: 0,
+  };
+
+  const refresh = React.useCallback(() => {
+    loadReorderSuggestions();
+  }, [loadReorderSuggestions]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+      <TabStrip
+        tabs={[
+          { id: 'reorder.tsx', label: 'reorder.tsx' },
+        ]}
+        activeId={tabId}
+        onChange={setTabId}
+        rightSlot={
+          <TouchableOpacity
+            onPress={refresh}
+            disabled={reorderLoading}
+            style={{
+              paddingVertical: 4,
+              paddingHorizontal: 10,
+              borderWidth: 1,
+              borderColor: C.borderStrong,
+              borderRadius: CmdRadius.sm,
+              opacity: reorderLoading ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
+              {reorderLoading ? 'LOADING…' : 'REFRESH'}
+            </Text>
+          </TouchableOpacity>
+        }
+      />
+
+      <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 80 }}>
+        {/* Hero */}
+        <View>
+          <Text style={[Type.h1, { color: C.fg }]}>Reorder</Text>
+          <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+            Per-vendor delivery list. On-hand uses today's EOD count when available
+            (fallback: last-known stock). Suggested qty = max(par_replacement,
+            usage_forecasted), accounting for inbound POs.
+          </Text>
+          {reorderPayload?.asOfDate ? (
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 4 }}>
+              as of {reorderPayload.asOfDate}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Stat strip */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <StatCard label="Vendors" value={String(kpis.vendorCount)} sub="suggesting today" />
+          <StatCard label="Items" value={String(kpis.itemCount)} sub="below par or forecast" />
+          <StatCard label="Est. total" value={formatMoney(kpis.totalEstimatedCost)} sub="at current cost" />
+          <StatCard
+            label="On-hand source"
+            value={`${kpis.eodSourcedVendorCount} EOD`}
+            sub={`${kpis.stockFallbackVendorCount} stock fallback`}
+          />
+        </View>
+
+        {/* Warnings (vendor-without-schedule etc.) */}
+        {reorderPayload?.warnings && reorderPayload.warnings.length > 0 ? (
+          <View
+            style={{
+              backgroundColor: C.warnBg,
+              borderRadius: CmdRadius.lg,
+              borderWidth: 1,
+              borderColor: C.warn,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              gap: 4,
+            }}
+          >
+            <SectionCaption tone="fg2" size={10}>
+              warnings · {reorderPayload.warnings.length}
+            </SectionCaption>
+            {reorderPayload.warnings.map((w, idx) => (
+              <Text key={`${w.code}-${idx}`} style={{ fontFamily: mono(400), fontSize: 11, color: C.warn }}>
+                · {w.message || w.code}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Error pane */}
+        {reorderError ? (
+          <View
+            style={{
+              backgroundColor: C.dangerBg,
+              borderRadius: CmdRadius.lg,
+              borderWidth: 1,
+              borderColor: C.danger,
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              gap: 4,
+            }}
+          >
+            <SectionCaption tone="fg2" size={10}>
+              load failed
+            </SectionCaption>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.danger }}>{reorderError}</Text>
+            <TouchableOpacity
+              onPress={refresh}
+              style={{
+                marginTop: 6,
+                alignSelf: 'flex-start',
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderWidth: 1,
+                borderColor: C.danger,
+                borderRadius: CmdRadius.sm,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.danger }}>RETRY</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {/* Empty state */}
+        {!reorderLoading && !reorderError && vendors.length === 0 ? (
+          <View
+            style={{
+              backgroundColor: C.panel,
+              borderRadius: CmdRadius.lg,
+              borderWidth: 1,
+              borderColor: C.border,
+              paddingVertical: 36,
+              paddingHorizontal: 22,
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>
+              NO REORDER SUGGESTIONS
+            </Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 480 }}>
+              No reorder suggestions for this store today. Could be: no EOD counts done yet,
+              all items at par, or no active vendors.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Initial loading state — no payload yet */}
+        {reorderLoading && !reorderPayload ? (
+          <View
+            style={{
+              backgroundColor: C.panel,
+              borderRadius: CmdRadius.lg,
+              borderWidth: 1,
+              borderColor: C.border,
+              paddingVertical: 36,
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>LOADING…</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+              fetching reorder suggestions
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Per-vendor cards */}
+        {vendors.map((v) => (
+          <VendorCard key={v.vendorId} vendor={v} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}

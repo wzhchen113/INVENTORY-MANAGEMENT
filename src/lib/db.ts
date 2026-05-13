@@ -6,6 +6,7 @@ import {
   Vendor, AuditEvent, Store, IngredientConversion,
   SidebarLayoutOverride, POSImport, Brand, User,
   InventoryCount, InventoryCountKind, InventoryCountSummary,
+  ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -1999,6 +2000,96 @@ export async function fetchLatestRun(args: {
   }
   if (!data || data.length === 0) return null;
   return mapReportRunRow(data[0]);
+}
+
+// ─── REORDER LIST (Spec 021) ────────────────────────────────────────────
+/**
+ * Spec 021 — vendor-grouped reorder suggestions for `storeId`. Calls the
+ * server-side `report_reorder_list(p_store_id, p_params)` RPC, which
+ * joins eod_submissions + eod_entries + inventory_items +
+ * catalog_ingredients + vendors + order_schedule + POS/recipe usage and
+ * returns one envelope per call. See spec 021 §5 for the SQL shape.
+ *
+ * `asOfDate` — optional YYYY-MM-DD override (the A7 date picker). When
+ * omitted, the RPC defaults to the server's `current_date` (UTC). The
+ * frontend should pass the store-local "today" string to avoid the
+ * UTC-vs-store-tz edge case (same caveat as the variance/cogs runners).
+ *
+ * Errors bubble up; callers wrap with `notifyBackendError` (or in this
+ * spec's case the store slice swallows to `reorderError` for the UI to
+ * render a non-toast error pane).
+ */
+export async function fetchReorderSuggestions(
+  storeId: string,
+  asOfDate?: string,
+): Promise<ReorderPayload> {
+  const params: Record<string, unknown> = {};
+  if (asOfDate) params.as_of_date = asOfDate;
+
+  const { data, error } = await supabase.rpc('report_reorder_list', {
+    p_store_id: storeId,
+    p_params: params,
+  });
+
+  if (error) {
+    // Don't swallow — caller decides whether to surface as a toast or an
+    // in-section error pane. Matches the reports trilogy pattern.
+    throw error;
+  }
+
+  const envelope = (data || {}) as any;
+  const vendors: ReorderVendor[] = Array.isArray(envelope.vendors)
+    ? envelope.vendors.map((v: any) => mapReorderVendor(v))
+    : [];
+  const kpis = envelope.kpis || {};
+  return {
+    asOfDate: envelope.as_of_date || asOfDate || '',
+    vendors,
+    kpis: {
+      vendorCount: Number(kpis.vendor_count ?? 0),
+      itemCount: Number(kpis.item_count ?? 0),
+      totalEstimatedCost: Number(kpis.total_estimated_cost ?? 0),
+      eodSourcedVendorCount: Number(kpis.eod_sourced_vendor_count ?? 0),
+      stockFallbackVendorCount: Number(kpis.stock_fallback_vendor_count ?? 0),
+    },
+    warnings: Array.isArray(envelope._warnings)
+      ? envelope._warnings.map((w: any) => ({
+          code: String(w?.code ?? ''),
+          message: String(w?.message ?? ''),
+        }))
+      : [],
+  };
+}
+
+function mapReorderVendor(v: any): ReorderVendor {
+  const items: ReorderItem[] = Array.isArray(v?.items)
+    ? v.items.map((it: any) => ({
+        itemId: String(it?.item_id ?? ''),
+        itemName: String(it?.item_name ?? ''),
+        unit: String(it?.unit ?? ''),
+        onHand: Number(it?.on_hand ?? 0),
+        pendingPoQty: Number(it?.pending_po_qty ?? 0),
+        parLevel: Number(it?.par_level ?? 0),
+        usageForecasted: Number(it?.usage_forecasted ?? 0),
+        parReplacement: Number(it?.par_replacement ?? 0),
+        suggestedQty: Number(it?.suggested_qty ?? 0),
+        costPerUnit: Number(it?.cost_per_unit ?? 0),
+        estimatedCost: Number(it?.estimated_cost ?? 0),
+        flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
+      }))
+    : [];
+  const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';
+  return {
+    vendorId: String(v?.vendor_id ?? ''),
+    vendorName: String(v?.vendor_name ?? ''),
+    scheduleKnown: Boolean(v?.schedule_known ?? false),
+    nextDeliveryDate: String(v?.next_delivery_date ?? ''),
+    daysUntilNextDelivery: Number(v?.days_until_next_delivery ?? 0),
+    onHandSource: source,
+    eodSubmittedAt: v?.eod_submitted_at ? String(v.eod_submitted_at) : null,
+    items,
+    vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
+  };
 }
 
 // ─── BRAND + CATALOG ────────────────────────────────────────────────────

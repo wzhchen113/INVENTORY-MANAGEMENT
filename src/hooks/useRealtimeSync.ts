@@ -34,6 +34,12 @@ export function useRealtimeSync(
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waste_log', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'eod_submissions', filter: `store_id=eq.${storeId}` }, onSync)
+      // Spec 021 — purchase_orders feeds the Reorder section's
+      // `pending_po_qty` column. v1 always returns 0 since `po_items`
+      // isn't a real write target yet (see spec 021 §1), but the
+      // subscription is wired so v2's swap-in is transparent: a sent /
+      // received PO will refresh the reorder list without a UI change.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders', filter: `store_id=eq.${storeId}` }, onSync)
       // Spec 019 — inventory_counts intentionally NOT on this channel.
       // The section owns its own per-store subscription (architect §7
       // Option A), and the global `onSync` would otherwise trigger a

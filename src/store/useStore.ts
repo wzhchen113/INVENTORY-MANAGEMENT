@@ -6,7 +6,7 @@ import {
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
-  Brand, InventoryCountKind,
+  Brand, InventoryCountKind, ReorderPayload,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -338,6 +338,18 @@ interface StoreActions {
    */
   loadLatestRun: (definitionId: string) => Promise<void>;
 
+  /**
+   * Spec 021 — lazy-load the reorder-list envelope for the current
+   * store. Fires the `report_reorder_list` RPC, writes loading/error
+   * around the call, and stores the resulting payload in
+   * `reorderPayload`. No optimistic behavior — this is a pure read.
+   *
+   * Errors surface to `reorderError` (rendered in-section as a panel,
+   * not a toast — matches the reports detail-frame pattern). A console
+   * warning is still emitted for the dev console.
+   */
+  loadReorderSuggestions: (asOfDate?: string) => Promise<void>;
+
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
@@ -401,6 +413,14 @@ export const useStore = create<FullStore>((set, get) => ({
   // Spec 016 — most-recent run per definitionId. Lazy-loaded; not
   // populated by loadFromSupabase (see `loadLatestRun`).
   reportRuns: {} as Record<string, ReportRun>,
+  // Spec 021 — reorder-list envelope. Lazy-loaded on ReorderSection
+  // mount; not populated by `loadFromSupabase`. The slice IS cleared
+  // by `loadFromSupabase` (which fires on store switch via
+  // `setCurrentStore`) so the section's mount-effect pulls fresh data
+  // for the new store instead of flashing the previous store's cards.
+  reorderPayload: null as ReorderPayload | null,
+  reorderLoading: false,
+  reorderError: null as string | null,
   // Spec 012b — super-admin brand context. NULL = "All brands" mode,
   // hidden for non-super-admin (the picker doesn't render).
   currentBrandId: null,
@@ -864,6 +884,13 @@ export const useStore = create<FullStore>((set, get) => ({
           Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
           ...(data.orderSchedule || {}),
         },
+        // Spec 021 — clear the reorder envelope on store switch so the
+        // section's mount-effect pulls fresh data for the new store
+        // instead of briefly showing the previous store's vendor cards.
+        // The section will re-fetch via its useEffect on currentStore.id.
+        reorderPayload: null,
+        reorderLoading: false,
+        reorderError: null,
       });
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
@@ -2026,6 +2053,25 @@ export const useStore = create<FullStore>((set, get) => ({
       }
     } catch (e: any) {
       console.warn('[Supabase] loadLatestRun:', e?.message || e);
+    }
+  },
+
+  // Spec 021 — lazy-load the reorder envelope for currentStore. Reads via
+  // `db.fetchReorderSuggestions` which calls the `report_reorder_list`
+  // RPC. Error path mirrors `loadLatestRun` (console.warn + in-state
+  // error) — surfacing as a toast on a section open would be noisy, so
+  // the section renders its own error pane.
+  loadReorderSuggestions: async (asOfDate) => {
+    const storeId = get().currentStore?.id;
+    if (!storeId) return;
+    set({ reorderLoading: true, reorderError: null });
+    try {
+      const payload = await db.fetchReorderSuggestions(storeId, asOfDate);
+      set({ reorderPayload: payload, reorderLoading: false, reorderError: null });
+    } catch (e: any) {
+      const message = e?.message || String(e);
+      console.warn('[Supabase] loadReorderSuggestions:', message);
+      set({ reorderLoading: false, reorderError: message });
     }
   },
 
