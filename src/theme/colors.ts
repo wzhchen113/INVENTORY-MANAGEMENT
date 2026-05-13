@@ -1,4 +1,5 @@
 // src/theme/colors.ts
+import { Platform } from 'react-native';
 import { useStore } from '../store/useStore';
 
 // ── Light palette ────────────────────────────────────────────
@@ -141,22 +142,35 @@ export const FontSize = {
   xxxl: 28,
 };
 
-export const Shadow = {
-  sm: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  md: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-};
+// Platform-aware shadow tokens. On web, react-native-web has deprecated the
+// individual `shadow*` style props in favour of the CSS `boxShadow` shorthand
+// — emitting them produces a deprecation warning per render. On native,
+// `shadowColor`/`shadowOffset`/`shadowOpacity`/`shadowRadius` + `elevation`
+// are still the canonical pattern. Branch by platform so each side gets the
+// idiomatic shape and consumers (...spreading Shadow.sm / Shadow.md) don't
+// have to change.
+export const Shadow =
+  Platform.OS === 'web'
+    ? {
+        sm: { boxShadow: '0 1px 2px rgba(0,0,0,0.05)' } as const,
+        md: { boxShadow: '0 2px 6px rgba(0,0,0,0.08)' } as const,
+      }
+    : {
+        sm: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        },
+        md: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 6,
+          elevation: 3,
+        },
+      };
 
 // ── Command palette (C direction) ────────────────────────────
 // Separate from LightColors/DarkColors so existing screens stay unchanged.

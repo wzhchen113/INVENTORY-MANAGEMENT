@@ -197,8 +197,10 @@ export const StockHistoryChart: React.FC<Props> = ({
       {/* Hover tooltip — web only, absolutely positioned over the SVG */}
       {showHover ? (
         <View
-          pointerEvents="none"
+          // pointerEvents moved into style — the `pointerEvents` prop was
+          // deprecated by RN-Web in favour of the style equivalent.
           style={{
+            pointerEvents: 'none',
             position: 'absolute',
             left: Math.min(Math.max(xAt(hoveredIdx!) - 50, 0), width - 100),
             top: Math.max(yAt(hoverValue) - 36, 0),

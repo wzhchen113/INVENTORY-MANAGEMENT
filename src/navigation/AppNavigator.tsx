@@ -658,7 +658,7 @@ function TabNavigator() {
     <Tab.Navigator
       key={storeId}
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+        headerStyle: { backgroundColor: C.bgPrimary, ...(Platform.OS === 'web' ? {} : { elevation: 0, shadowOpacity: 0 }) } as any,
         headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
         headerTintColor: C.textPrimary,
         headerRight: () => <HeaderRight />,
@@ -733,7 +733,7 @@ function AppStackNavigator() {
   useJsonServerSync();
 
   const dynamicHeaderOptions = {
-    headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+    headerStyle: { backgroundColor: C.bgPrimary, ...(Platform.OS === 'web' ? {} : { elevation: 0, shadowOpacity: 0 }) } as any,
     headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
     headerTintColor: C.textPrimary,
     headerRight: () => <HeaderRight />,
@@ -768,7 +768,7 @@ function MasterNavigator() {
   const C = useColors();
   return (
     <AppStack.Navigator screenOptions={{
-      headerStyle: { backgroundColor: C.bgPrimary, elevation: 0, shadowOpacity: 0 } as any,
+      headerStyle: { backgroundColor: C.bgPrimary, ...(Platform.OS === 'web' ? {} : { elevation: 0, shadowOpacity: 0 }) } as any,
       headerTitleStyle: { fontSize: FontSize.base, fontWeight: '500' as const, color: C.textPrimary },
       headerTintColor: C.textPrimary,
       headerRight: () => <HeaderRight />,
@@ -849,8 +849,10 @@ const styles = StyleSheet.create({
   storeDropdown: {
     backgroundColor: Colors.bgPrimary, borderRadius: Radius.xl,
     padding: Spacing.lg, maxWidth: 360,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+    // RN-Web deprecated shadow* in favour of CSS boxShadow; native still uses shadow*.
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 4px 12px rgba(0,0,0,0.15)' } as any
+      : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 }),
   },
   storeDropdownTitle: {
     fontSize: FontSize.xs, fontWeight: '600', color: Colors.textTertiary,
@@ -873,7 +875,9 @@ const styles = StyleSheet.create({
   loadingBox: {
     paddingHorizontal: 32, paddingVertical: 24, borderRadius: Radius.lg,
     alignItems: 'center' as const, gap: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 2px 8px rgba(0,0,0,0.15)' } as any
+      : { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5 }),
   },
   loadingText: { fontSize: FontSize.sm, fontWeight: '500' as const },
 });
@@ -892,11 +896,9 @@ const sidebarStyles = StyleSheet.create({
   panel: {
     width: SIDEBAR_WIDTH,
     backgroundColor: Colors.bgPrimary,
-    shadowColor: '#000',
-    shadowOffset: { width: -2, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 10,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '-2px 0 12px rgba(0,0,0,0.15)' } as any
+      : { shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 10 }),
   },
   header: {
     flexDirection: 'row',

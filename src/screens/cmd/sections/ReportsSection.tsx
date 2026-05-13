@@ -64,8 +64,14 @@ export default function ReportsSection() {
   // user toggling between two open tabs (mental model) sees their state.
   const [overrides, setOverrides] = React.useState<Map<string, OverrideState>>(() => new Map());
 
-  const savedReports = useStore((s) => s.savedReports || []);
-  const reportRuns = useStore((s) => s.reportRuns || {});
+  // Direct slice reads. The store's initial state guarantees these are
+  // always defined ([] and {}). The `|| []` / `|| {}` fallback used to be
+  // here was both dead AND created a fresh literal reference each render —
+  // Zustand sees a new ref and notifies all subscribers, which can cascade
+  // into a "Maximum update depth exceeded" loop if any consumer's deps
+  // include the selected value.
+  const savedReports = useStore((s) => s.savedReports);
+  const reportRuns = useStore((s) => s.reportRuns);
   const currentStore = useStore((s) => s.currentStore);
   const deleteReportDefinition = useStore((s) => s.deleteReportDefinition);
   const runReport = useStore((s) => s.runReport);
