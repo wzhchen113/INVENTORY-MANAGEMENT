@@ -6,6 +6,7 @@
 //     "client_uuid":   "uuid",         // staff app generates per attempt
 //     "store_id":      "uuid",
 //     "date":          "YYYY-MM-DD",
+//     "vendor_id":     "uuid",         // spec 020 — per-vendor partitioning, required
 //     "submitted_by":  "staff:user-id", // identity claim (string)
 //     "submitted_at":  "ISO8601?",
 //     "status":        "submitted" | "draft",
@@ -59,6 +60,7 @@ interface Body {
   client_uuid?: string;
   store_id?: string;
   date?: string;
+  vendor_id?: string;
   submitted_by?: string;
   submitted_at?: string;
   status?: "submitted" | "draft";
@@ -68,6 +70,13 @@ interface Body {
 function validate(b: Body): string | null {
   if (!b.store_id) return "store_id required";
   if (!b.date) return "date required (YYYY-MM-DD)";
+  // Spec 020 — staff_submit_eod is now a 7-arg overload that requires
+  // p_vendor_id (NOT NULL enforced inside the RPC body). The legacy
+  // 6-arg signature is a fail-loud RAISE since 20260514120010, so a
+  // pre-update sibling-app POST that omits vendor_id would 500 inside
+  // the RPC; reject at the edge so the staff app gets a clean 400 with
+  // an actionable message instead.
+  if (!b.vendor_id) return "vendor_id required (spec 020 per-vendor partitioning)";
   if (!b.submitted_by) return "submitted_by required";
   if (b.status && b.status !== "submitted" && b.status !== "draft") return "status must be 'submitted' or 'draft'";
   if (!Array.isArray(b.entries) || b.entries.length === 0) return "entries[] required (>= 1 row)";
@@ -104,7 +113,8 @@ Deno.serve(async (req: Request) => {
   const { data: store } = await admin.from("stores").select("id").eq("id", body.store_id!).maybeSingle();
   if (!store) return json({ error: "store not found" }, 404);
 
-  // Call the transactional RPC.
+  // Call the transactional RPC. Spec 020 adds p_vendor_id, dispatching
+  // to the 7-arg overload by arg count. Function name is unchanged.
   const { data, error } = await admin.rpc("staff_submit_eod", {
     p_client_uuid: body.client_uuid || null,
     p_store_id: body.store_id,
@@ -112,6 +122,7 @@ Deno.serve(async (req: Request) => {
     p_submitted_by: body.submitted_by,
     p_status: body.status || "submitted",
     p_entries: body.entries,
+    p_vendor_id: body.vendor_id,
   });
 
   if (error) {

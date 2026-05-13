@@ -512,10 +512,20 @@ export default function EODCountScreen() {
     }
 
     const confirmSubmit = async () => {
+      // Spec 020 made `vendorId` required on `EODSubmission`. This legacy
+      // AppNavigator screen has no per-vendor UI; the empty-string stub
+      // satisfies TS but will trip the DB's NOT NULL constraint on
+      // `eod_submissions.vendor_id` at runtime if anyone hits this code
+      // path. Cmd UI's `EODCountSection` is the primary surface and
+      // carries a real vendorId; per CLAUDE.md "Legacy admin screens",
+      // this file is on a deprecation timer (EXPO_PUBLIC_NEW_UI default-on
+      // next month) so a transitional patch beats retiring the screen
+      // inside this spec.
       const submission = {
         date: todayISO,
         storeId: currentStore.id,
         storeName: currentStore.name,
+        vendorId: '',
         submittedBy: currentUser?.name || '',
         submittedByUserId: currentUser?.id || '',
         timestamp: new Date().toISOString(),
@@ -656,10 +666,16 @@ export default function EODCountScreen() {
     // pre-edit row. The upsert on submitEODCount updates the same parent row
     // (keyed on store_id + date) and replaces eod_entries wholesale.
     if (!currentStore || !currentUser) return;
+    // Spec 020 vendorId-required stub — see confirmSubmit (~line 514) for
+    // the deprecation rationale. Reuses the existing submission's
+    // `vendorId` if present so an EDIT path that originated under spec 020
+    // (Cmd UI) carries the real vendor through; falls back to '' for
+    // pre-spec-020 rows so the legacy screen at least compiles.
     const submission = {
       date: myTodaySubmission.date,
       storeId: currentStore.id,
       storeName: currentStore.name,
+      vendorId: (myTodaySubmission as any).vendorId || '',
       submittedBy: currentUser.name || '',
       submittedByUserId: currentUser.id || '',
       timestamp: now,

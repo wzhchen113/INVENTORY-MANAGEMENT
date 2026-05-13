@@ -15,7 +15,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { AddCountModal } from '../../../components/cmd/AddCountModal';
 import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorScheduleModal';
-import { EODEntry } from '../../../types';
+import { EODEntry, EODSubmission } from '../../../types';
 
 type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
 
@@ -80,10 +80,35 @@ export default function EODCountSection() {
   const [selectedIso, setSelectedIso] = React.useState<string>(() => localDayIso(new Date()));
   const [selectedVendorId, setSelectedVendorId] = React.useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
-  const [caseCounts, setCaseCounts] = React.useState<Record<string, string>>({});
-  const [unitCounts, setUnitCounts] = React.useState<Record<string, string>>({});
-  const [notes, setNotes] = React.useState<Record<string, string>>({});
+  // Spec 020 Q4 — per-vendor draft state. Switching vendor tabs preserves
+  // typed-but-unsubmitted values for the session. Keyed by vendorId →
+  // itemId → text. Refresh discards (no autosave).
+  const [caseCountsByVendor, setCaseCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
+  const [unitCountsByVendor, setUnitCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
+  const [notesByVendor, setNotesByVendor] = React.useState<Record<string, Record<string, string>>>({});
+  // Vendors the user has tapped EDIT on. Once in this set the inputs unlock
+  // even though the server has a submitted row for the vendor; submitting
+  // overwrites and removes the vendor from this set.
+  const [editingVendorIds, setEditingVendorIds] = React.useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = React.useState(false);
+
+  // Per-vendor accessors so the rest of the section can read/write a single
+  // "current vendor's" map without re-typing the spread dance everywhere.
+  const caseCounts = selectedVendorId ? (caseCountsByVendor[selectedVendorId] || {}) : {};
+  const unitCounts = selectedVendorId ? (unitCountsByVendor[selectedVendorId] || {}) : {};
+  const notes      = selectedVendorId ? (notesByVendor[selectedVendorId]      || {}) : {};
+  const setCaseCounts = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
+    if (!selectedVendorId) return;
+    setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
+  }, [selectedVendorId]);
+  const setUnitCounts = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
+    if (!selectedVendorId) return;
+    setUnitCountsByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
+  }, [selectedVendorId]);
+  const setNotes = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
+    if (!selectedVendorId) return;
+    setNotesByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
+  }, [selectedVendorId]);
   const [tabId, setTabId] = React.useState('count.tsx');
   const [addCountOpen, setAddCountOpen] = React.useState(false);
   const [addVendorOpen, setAddVendorOpen] = React.useState(false);
@@ -136,6 +161,10 @@ export default function EODCountSection() {
   }, [pendingFocusItem]);
 
   // ── Week sidebar data ───────────────────────────────────────
+  // Spec 020: a single day can now have N submissions (one per vendor).
+  // Aggregate counted across vendor submissions and pick the "worst" status
+  // — draft beats submitted, late beats nothing — so the day-cell glyph
+  // surfaces the issue rather than the optimistic latest.
   const week: DayCell[] = React.useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -147,14 +176,23 @@ export default function EODCountSection() {
       const iso = localDayIso(d);
       const monthDay = `${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
       const dayName = DAY_NAMES[d.getDay()];
-      const sub = eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === iso);
-      const counted = sub?.entries?.length ?? 0;
+      const daySubs = eodSubmissions.filter((s) => s.storeId === currentStore.id && s.date === iso);
+      const counted = daySubs.reduce((acc, s) => acc + (s.entries?.length || 0), 0);
       const total = inventory.filter((it) => it.storeId === currentStore.id).length;
+      // Day-level status:
+      //   - any draft → 'draft'
+      //   - else any submitted with counted < total → 'late' (until counted >= total)
+      //   - any submitted with counted >= total → 'submitted'
+      //   - none → 'rest' (or 'today' on today)
+      const anyDraft = daySubs.some((s) => s.status === 'draft');
+      const anySubmitted = daySubs.some((s) => s.status === 'submitted');
       let status: DayStatus = 'rest';
       if (iso === todayIso) {
-        status = sub?.status === 'draft' ? 'draft' : 'today';
-      } else if (sub) {
-        status = sub.status === 'draft' ? 'draft' : (counted >= total ? 'submitted' : 'late');
+        status = anyDraft ? 'draft' : 'today';
+      } else if (anyDraft) {
+        status = 'draft';
+      } else if (anySubmitted) {
+        status = counted >= total ? 'submitted' : 'late';
       }
       out.push({ day: dayName, date: monthDay, iso, status, counted, total, vendors: 'all vendors' });
     }
@@ -219,6 +257,94 @@ export default function EODCountSection() {
     return storeInventory.filter((i) => i.vendorId === selectedVendorId);
   }, [storeInventory, selectedVendorId]);
 
+  // Spec 020 — vendors already submitted for the selected date at the
+  // current store. Drives the per-tab "✓ SUBMITTED" indicator + the lock /
+  // EDIT affordance below. Filters out any submission row whose vendorId
+  // is falsy defensively (impossible after migration's NOT NULL enforcement,
+  // but covers stale local seed data and the unlikely realtime race).
+  const submittedVendorIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of eodSubmissions) {
+      if (!s.vendorId) continue;
+      if (s.storeId !== currentStore.id) continue;
+      if (s.date !== selectedIso) continue;
+      if (s.status !== 'submitted') continue;
+      ids.add(s.vendorId);
+    }
+    return ids;
+  }, [eodSubmissions, currentStore.id, selectedIso]);
+
+  // Convenience flags for the currently-active vendor.
+  const isCurrentVendorSubmitted = !!selectedVendorId && submittedVendorIds.has(selectedVendorId);
+  const isCurrentVendorEditing   = !!selectedVendorId && editingVendorIds.has(selectedVendorId);
+  // Inputs read-only when vendor is submitted AND not in EDIT mode. The
+  // existing isRestDay gate composes with this (added in render below).
+  const isVendorLocked = isCurrentVendorSubmitted && !isCurrentVendorEditing;
+
+  // Submission for the currently-selected (vendor, date) — used both for the
+  // EDIT pre-fill and as a fallback to render counts read-only while locked.
+  const currentVendorSubmission = React.useMemo(() => {
+    if (!selectedVendorId) return null;
+    return eodSubmissions.find(
+      (s) =>
+        s.storeId === currentStore.id &&
+        s.date === selectedIso &&
+        s.vendorId === selectedVendorId,
+    ) || null;
+  }, [eodSubmissions, currentStore.id, selectedIso, selectedVendorId]);
+
+  // Spec 020 §9.4 — enter EDIT mode. Inputs unlock, pre-fill from the
+  // existing submission's entries. Spread order: user-typed values WIN over
+  // server-loaded pre-fills (Q4 — typed-but-unsubmitted survives tab
+  // switches, even when re-entering EDIT). If the test-engineer reviewer
+  // prefers server-wins it's a spread flip.
+  const onEditCurrentVendor = React.useCallback(() => {
+    if (!selectedVendorId || !currentVendorSubmission) return;
+    const vid = selectedVendorId;
+    const sub = currentVendorSubmission;
+    setEditingVendorIds((prev) => {
+      if (prev.has(vid)) return prev;
+      const next = new Set(prev);
+      next.add(vid);
+      return next;
+    });
+    setCaseCountsByVendor((p) => ({
+      ...p,
+      [vid]: {
+        ...Object.fromEntries(
+          (sub.entries || []).map((e) => [
+            e.itemId,
+            e.actualRemainingCases != null ? String(e.actualRemainingCases) : '',
+          ]),
+        ),
+        ...(p[vid] || {}),
+      },
+    }));
+    setUnitCountsByVendor((p) => ({
+      ...p,
+      [vid]: {
+        ...Object.fromEntries(
+          (sub.entries || []).map((e) => [
+            e.itemId,
+            e.actualRemainingEach != null
+              ? String(e.actualRemainingEach)
+              : e.actualRemaining != null
+              ? String(e.actualRemaining)
+              : '',
+          ]),
+        ),
+        ...(p[vid] || {}),
+      },
+    }));
+    setNotesByVendor((p) => ({
+      ...p,
+      [vid]: {
+        ...Object.fromEntries((sub.entries || []).map((e) => [e.itemId, e.notes || ''])),
+        ...(p[vid] || {}),
+      },
+    }));
+  }, [selectedVendorId, currentVendorSubmission]);
+
   // Category chips — derived from this vendor's items
   const categories = React.useMemo(() => {
     const cats = new Map<string, number>();
@@ -272,9 +398,17 @@ export default function EODCountSection() {
 
   // Build the submission payload from current entered items. Returns null if
   // no qty was entered (avoids empty-submit DB writes).
+  // Spec 020: includes vendorId + vendorName so the per-vendor RPC and the
+  // store's merge lookup partition correctly. The TODO call out below tracks
+  // the type widening backend-dev is shipping in src/types/index.ts.
   const buildSubmission = (status: 'draft' | 'submitted') => {
     const enteredItems = filteredItems.filter((i) => hasEntry(i.id));
     if (enteredItems.length === 0) return null;
+    if (!selectedVendorId) return null;
+    const vendorName =
+      vendorTabs.find((v) => v.id === selectedVendorId)?.name ||
+      vendors.find((v) => v.id === selectedVendorId)?.name ||
+      '';
     const now = new Date().toISOString();
     const entries: Omit<EODEntry, 'id'>[] = enteredItems.map((i) => {
       const cRaw = parseFloat(caseCounts[i.id] || '');
@@ -297,10 +431,15 @@ export default function EODCountSection() {
         notes: notes[i.id] || '',
       };
     });
-    return {
+    // Spec 020: vendorId is required on EODSubmission; vendorName is hydrated
+    // client-side for display. submitEOD's local merge + submitEODCount's
+    // PostgREST upsert both partition on (storeId, date, vendorId).
+    const submission: Omit<EODSubmission, 'id'> = {
       date: selectedIso,
       storeId: currentStore.id,
       storeName: currentStore.name,
+      vendorId: selectedVendorId,
+      vendorName,
       submittedBy: currentUser?.name || 'unknown',
       submittedByUserId: currentUser?.id || '',
       timestamp: now,
@@ -308,6 +447,7 @@ export default function EODCountSection() {
       status,
       entries: entries as EODEntry[],
     };
+    return submission;
   };
 
   const onSaveDraft = async () => {
@@ -341,13 +481,32 @@ export default function EODCountSection() {
       Toast.show({ type: 'error', text1: 'Enter at least one count' });
       return;
     }
+    if (!selectedVendorId) {
+      // Defensive — vendorTabs effect should always seat a vendor; bail to
+      // avoid sending a vendor-less submission to the per-vendor RPC.
+      Toast.show({ type: 'error', text1: 'Pick a vendor before submitting' });
+      return;
+    }
     setSubmitting(true);
     submitEOD(submission);
-    setCaseCounts({});
-    setUnitCounts({});
-    setNotes({});
     try {
       await submitEODCount(submission);
+      // Spec 020: clear only THIS vendor's draft after submit; other vendors'
+      // typed-but-unsaved drafts survive (Q4). Also drop EDIT mode for the
+      // vendor so it relocks to the read-only view. Moved inside the try
+      // (post-await) per code-reviewer S1 — clearing before the cloud write
+      // dropped the user's typed values on cloud failure, which is the worst
+      // possible UX for the escape-hatch path where the items aren't on the
+      // server-rendered list yet.
+      setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
+      setUnitCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
+      setNotesByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
+      setEditingVendorIds((prev) => {
+        if (!prev.has(selectedVendorId)) return prev;
+        const next = new Set(prev);
+        next.delete(selectedVendorId);
+        return next;
+      });
       Toast.show({ type: 'success', text1: 'Count submitted', text2: `${submission.itemCount} items · ${selectedIso}` });
     } catch (e: any) {
       console.warn('[EOD] cloud save failed:', e?.message || e);
@@ -549,42 +708,74 @@ export default function EODCountSection() {
                   </Text>
                 </View>
               ) : null}
-              <TouchableOpacity
-                onPress={() => setAddCountOpen(true)}
-                disabled={isRestDay}
-                style={{
-                  paddingVertical: 4, paddingHorizontal: 10,
-                  borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
-                  opacity: isRestDay ? 0.4 : 1,
-                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
-                }}
-              >
-                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>+ COUNT</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={onSaveDraft}
-                disabled={submitting || isRestDay}
-                style={{
-                  paddingVertical: 4, paddingHorizontal: 10,
-                  borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
-                  opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
-                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
-                }}
-              >
-                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={onSubmit}
-                disabled={submitting || isRestDay}
-                style={{
-                  paddingVertical: 4, paddingHorizontal: 10,
-                  backgroundColor: C.accent, borderRadius: CmdRadius.sm,
-                  opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
-                  ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
-                }}
-              >
-                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>SUBMIT COUNT</Text>
-              </TouchableOpacity>
+              {/* Spec 020 — when the selected vendor is submitted-and-locked,
+                  hide + COUNT / SAVE DRAFT / SUBMIT and show EDIT instead.
+                  The locked-vendor SUBMITTED chip echoes the per-tab indicator
+                  so the user sees a matching signal at the worksheet head. */}
+              {isVendorLocked ? (
+                <>
+                  <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.okBg, borderWidth: 1, borderColor: C.ok }}>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.5 }}>
+                      SUBMITTED · LOCKED
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={onEditCurrentVendor}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit this vendor's submitted count"
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 12,
+                      borderWidth: 1, borderColor: C.fg, borderRadius: CmdRadius.sm,
+                      backgroundColor: C.panel,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg, letterSpacing: 0.5 }}>
+                      EDIT
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setAddCountOpen(true)}
+                    disabled={isRestDay}
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 10,
+                      borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
+                      opacity: isRestDay ? 0.4 : 1,
+                      ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>+ COUNT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={onSaveDraft}
+                    disabled={submitting || isRestDay}
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 10,
+                      borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm,
+                      opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
+                      ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={onSubmit}
+                    disabled={submitting || isRestDay}
+                    style={{
+                      paddingVertical: 4, paddingHorizontal: 10,
+                      backgroundColor: C.accent, borderRadius: CmdRadius.sm,
+                      opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
+                      ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>
+                      {isCurrentVendorEditing ? 'UPDATE COUNT' : 'SUBMIT COUNT'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           }
         />
@@ -612,6 +803,12 @@ export default function EODCountSection() {
               // day's schedule, since otherwise removeOrderScheduleEntry is
               // a no-op for the user's view.
               const isScheduledToday = scheduleConfigured && dayScheduledVendorIds.has(v.id);
+              // Spec 020 — submitted indicator on the vendor chip. Server
+              // state, computed once per (date, store). Editing a previously-
+              // submitted vendor still shows the ✓ since the submission
+              // exists; only successful unsubmit (not supported in this spec)
+              // would drop it.
+              const isSubmittedHere = submittedVendorIds.has(v.id);
               return (
                 <View
                   key={v.id}
@@ -620,7 +817,7 @@ export default function EODCountSection() {
                     alignItems: 'center',
                     borderRadius: CmdRadius.md,
                     borderWidth: 1,
-                    borderColor: sel ? C.fg : C.border,
+                    borderColor: sel ? C.fg : (isSubmittedHere ? C.ok : C.border),
                     backgroundColor: sel ? C.fg : C.panel,
                   }}
                 >
@@ -634,6 +831,18 @@ export default function EODCountSection() {
                       gap: 8,
                     }}
                   >
+                    {isSubmittedHere ? (
+                      <Text
+                        accessibilityLabel="submitted"
+                        style={{
+                          fontFamily: mono(700),
+                          fontSize: 11,
+                          color: sel ? C.bg : C.ok,
+                        }}
+                      >
+                        ✓
+                      </Text>
+                    ) : null}
                     <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.bg : C.fg2 }}>
                       {v.name.toUpperCase()} ({v.count})
                     </Text>
@@ -803,6 +1012,55 @@ export default function EODCountSection() {
 
         {/* Item list */}
         <ScrollView contentContainerStyle={{ paddingHorizontal: rowPadH, paddingTop: 8, paddingBottom: 80 }}>
+          {/* Spec 020 — inline lock banner. Sits between the filter chrome
+              and the table to explain why inputs are read-only. Echoes the
+              SUBMITTED · LOCKED chip in the rightSlot. */}
+          {isVendorLocked ? (
+            <View
+              style={{
+                marginTop: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: C.okBg,
+                borderWidth: 1,
+                borderColor: C.ok,
+                borderRadius: CmdRadius.sm,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.ok, letterSpacing: 0.5 }}>
+                ✓ SUBMITTED
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1 }}>
+                This vendor's EOD is submitted for {selectedIso}. Click EDIT to amend the count.
+              </Text>
+            </View>
+          ) : null}
+          {isCurrentVendorEditing ? (
+            <View
+              style={{
+                marginTop: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: C.accentBg,
+                borderWidth: 1,
+                borderColor: C.accent,
+                borderRadius: CmdRadius.sm,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.5 }}>
+                EDITING
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1 }}>
+                Amending submitted count. Press UPDATE COUNT to overwrite the prior submission.
+              </Text>
+            </View>
+          ) : null}
           {/* Column header */}
           <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: rowGap }}>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>item · pack</Text>
@@ -827,12 +1085,36 @@ export default function EODCountSection() {
                   </Text>
                 </View>
                 {items.map((it, i) => {
-                  const cVal = caseCounts[it.id] || '';
-                  const uVal = unitCounts[it.id] || '';
+                  // Spec 020 — when the vendor is locked (submitted, not in
+                  // EDIT mode), display the prior submission's values rather
+                  // than the (empty) draft map. EDIT seeds the draft from
+                  // these values up-front, so once unlocked the user sees
+                  // the same numbers and can amend them.
+                  const submittedEntry = isVendorLocked
+                    ? currentVendorSubmission?.entries.find((e) => e.itemId === it.id)
+                    : null;
+                  const cVal = isVendorLocked
+                    ? submittedEntry?.actualRemainingCases != null
+                      ? String(submittedEntry.actualRemainingCases)
+                      : ''
+                    : caseCounts[it.id] || '';
+                  const uVal = isVendorLocked
+                    ? submittedEntry?.actualRemainingEach != null
+                      ? String(submittedEntry.actualRemainingEach)
+                      : submittedEntry?.actualRemaining != null
+                      ? String(submittedEntry.actualRemaining)
+                      : ''
+                    : unitCounts[it.id] || '';
+                  const nVal = isVendorLocked
+                    ? submittedEntry?.notes || ''
+                    : notes[it.id] || '';
                   const cFocused = cVal.trim() !== '';
                   const uFocused = uVal.trim() !== '';
                   const hasCase = (it.caseQty || 0) > 1;
                   const total = itemTotal(it);
+                  // Composed editable gate. Inputs disable on REST days OR
+                  // when the vendor is submitted-and-not-in-EDIT-mode.
+                  const inputsDisabled = isRestDay || isVendorLocked;
                   return (
                     <View
                       key={it.id}
@@ -856,16 +1138,17 @@ export default function EODCountSection() {
                         </Text>
                       </View>
                       {/* BOX/CASE input — disabled when item has no case info, or
-                          on REST days. Both cases collapse to "show the cell
-                          but don't accept input"; rest gets a 0.5 opacity
-                          consistent with the no-case-info treatment. */}
+                          on REST days, or when this vendor is locked. All three
+                          collapse to "show the cell but don't accept input";
+                          rest/lock get a 0.5 opacity consistent with the
+                          no-case-info treatment. */}
                       <View style={{ width: cellW, alignItems: 'center' }}>
                         <TextInput
                           ref={(r) => {
                             if (hasCase) caseInputRefs.current[it.id] = r;
                           }}
                           value={hasCase ? cVal : ''}
-                          editable={hasCase && !isRestDay}
+                          editable={hasCase && !inputsDisabled}
                           onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
                           placeholder={hasCase ? '0' : '—'}
                           placeholderTextColor={C.fg3}
@@ -881,7 +1164,7 @@ export default function EODCountSection() {
                             borderWidth: 1,
                             borderColor: cFocused ? C.accent : C.border,
                             borderRadius: CmdRadius.sm,
-                            opacity: !hasCase || isRestDay ? 0.5 : 1,
+                            opacity: !hasCase || inputsDisabled ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                           }}
                         />
@@ -896,7 +1179,7 @@ export default function EODCountSection() {
                             if (!hasCase) caseInputRefs.current[it.id] = r;
                           }}
                           value={uVal}
-                          editable={!isRestDay}
+                          editable={!inputsDisabled}
                           onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
                           placeholder="0"
                           placeholderTextColor={C.fg3}
@@ -912,7 +1195,7 @@ export default function EODCountSection() {
                             borderWidth: 1,
                             borderColor: uFocused ? C.accent : C.border,
                             borderRadius: CmdRadius.sm,
-                            opacity: isRestDay ? 0.5 : 1,
+                            opacity: inputsDisabled ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                           }}
                         />
@@ -921,8 +1204,8 @@ export default function EODCountSection() {
                         </Text>
                       </View>
                       <TextInput
-                        value={notes[it.id] || ''}
-                        editable={!isRestDay}
+                        value={nVal}
+                        editable={!inputsDisabled}
                         onChangeText={(text) => setNotes((p) => ({ ...p, [it.id]: text }))}
                         placeholder="Note…"
                         placeholderTextColor={C.fg3}
@@ -937,7 +1220,7 @@ export default function EODCountSection() {
                           borderWidth: 1,
                           borderColor: C.border,
                           borderRadius: CmdRadius.sm,
-                          opacity: isRestDay ? 0.5 : 1,
+                          opacity: inputsDisabled ? 0.5 : 1,
                           ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
                         }}
                       />
@@ -1019,9 +1302,15 @@ export default function EODCountSection() {
 }
 
 // ─── history.tsx — submitted counts (90d) ──────────────────────────────
+// Spec 020: history now renders one row per (date, vendor) submission, not
+// per date. The VENDOR column is hydrated client-side from useStore.vendors
+// keyed on each submission's vendorId. Sort: date DESC, then vendor ASC by
+// hydrated name. Legacy rows pre-migration that arrive without a vendorId
+// still render — their VENDOR cell shows "—".
 function EODHistoryTab() {
   const C = useCmdColors();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
+  const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
 
   const ninetyDaysAgo = React.useMemo(() => {
@@ -1030,16 +1319,38 @@ function EODHistoryTab() {
     return localDayIso(d);
   }, []);
 
-  const submissions = React.useMemo(
-    () =>
-      eodSubmissions
-        .filter((s) => s.storeId === currentStore.id && s.date >= ninetyDaysAgo)
-        .slice()
-        .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [eodSubmissions, currentStore.id, ninetyDaysAgo],
-  );
+  // Pre-hydrate vendor lookup so the sort comparator has names available
+  // without re-scanning the vendors array per pair-compare. Map is keyed
+  // by vendorId, value is the display name (or '' if no vendor row found).
+  const vendorNameById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const v of vendors) m.set(v.id, v.name);
+    return m;
+  }, [vendors]);
 
-  const onTimeCount = submissions.filter((s) => s.status === 'submitted').length;
+  // Build the row set + sort.
+  const submissions = React.useMemo(() => {
+    const rows = eodSubmissions
+      .filter((s) => s.storeId === currentStore.id && s.date >= ninetyDaysAgo)
+      .map((s) => {
+        const vid = s.vendorId;
+        const vname = vid ? (vendorNameById.get(vid) || s.vendorName || '') : (s.vendorName || '');
+        return { sub: s, vendorId: vid || '', vendorName: vname };
+      });
+    rows.sort((a, b) => {
+      // Date DESC first
+      if (a.sub.date !== b.sub.date) return a.sub.date < b.sub.date ? 1 : -1;
+      // Then vendor name ASC (case-insensitive); empty vendor name sorts last
+      const an = (a.vendorName || '~').toLowerCase();
+      const bn = (b.vendorName || '~').toLowerCase();
+      if (an !== bn) return an < bn ? -1 : 1;
+      // Stable tiebreaker on submission id
+      return a.sub.id < b.sub.id ? -1 : 1;
+    });
+    return rows;
+  }, [eodSubmissions, currentStore.id, ninetyDaysAgo, vendorNameById]);
+
+  const onTimeCount = submissions.filter((r) => r.sub.status === 'submitted').length;
   const onTimePct = submissions.length === 0 ? 100 : Math.round((onTimeCount * 100) / submissions.length);
 
   return (
@@ -1047,14 +1358,14 @@ function EODHistoryTab() {
       <View>
         <Text style={[Type.h1, { color: C.fg }]}>EOD count · history</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          90-day rolling history. Click a row to view the frozen snapshot read-only.
+          90-day rolling history. One row per vendor submission. Click a row to view the frozen snapshot read-only.
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <StatCard label="Submissions" value={String(submissions.length)} sub="last 90 days" />
         <StatCard label="On-time %" value={`${onTimePct}%`} sub="vs deadline" />
-        <StatCard label="Items / count" value={submissions.length === 0 ? '—' : String(Math.round(submissions.reduce((s, c) => s + (c.itemCount || c.entries?.length || 0), 0) / submissions.length))} sub="avg" />
-        <StatCard label="Last submitted" value={submissions[0] ? submissions[0].date.slice(5) : '—'} sub={submissions[0] ? new Date(submissions[0].timestamp).toTimeString().slice(0, 5) : '—'} />
+        <StatCard label="Items / count" value={submissions.length === 0 ? '—' : String(Math.round(submissions.reduce((s, c) => s + (c.sub.itemCount || c.sub.entries?.length || 0), 0) / submissions.length))} sub="avg" />
+        <StatCard label="Last submitted" value={submissions[0] ? submissions[0].sub.date.slice(5) : '—'} sub={submissions[0] ? new Date(submissions[0].sub.timestamp).toTimeString().slice(0, 5) : '—'} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -1070,17 +1381,22 @@ function EODHistoryTab() {
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 100 }}>date</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>time</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 160 }}>vendor</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>submitted by</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>items</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>status</Text>
             </View>
-            {submissions.map((sub, i) => {
+            {submissions.map((row, i) => {
+              const sub = row.sub;
               const tone = sub.status === 'draft' ? 'warn' : 'ok';
               return (
                 <View key={sub.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border }}>
                   <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 100 }}>{sub.date}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 70 }}>
                     {new Date(sub.timestamp).toTimeString().slice(0, 5)}
+                  </Text>
+                  <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg, width: 160 }} numberOfLines={1}>
+                    {row.vendorName || '—'}
                   </Text>
                   <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, flex: 1 }} numberOfLines={1}>{sub.submittedBy || '—'}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{sub.itemCount || sub.entries?.length || 0}</Text>
@@ -1102,6 +1418,11 @@ function EODHistoryTab() {
 }
 
 // ─── variance.log — counted vs expected diff per item ──────────────────
+// Spec 020 §9.6: today's count is now N submissions (one per submitted
+// vendor). Aggregate by SUMming actual_remaining per itemId across all of
+// today's submissions, matching the server-side variance template's anchor
+// math (architect §4 / Q3). This client view is advisory; the variance
+// report (REPORTS-3) is authoritative.
 function VarianceLogTab() {
   const C = useCmdColors();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
@@ -1109,19 +1430,33 @@ function VarianceLogTab() {
   const currentStore = useStore((s) => s.currentStore);
 
   const todayStr = localDayIso(new Date());
-  const todaySub = React.useMemo(
-    () => eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === todayStr),
+  // Replace single-row find() with filter() — post-spec-020 there can be
+  // multiple submissions for the same (store, date).
+  const todaySubs = React.useMemo(
+    () =>
+      eodSubmissions.filter(
+        (s) => s.storeId === currentStore.id && s.date === todayStr && s.status === 'submitted',
+      ),
     [eodSubmissions, currentStore.id, todayStr],
   );
 
   const variances = React.useMemo(() => {
-    if (!todaySub?.entries) return [];
-    return todaySub.entries
-      .map((entry) => {
-        const item = inventory.find((i) => i.id === entry.itemId);
+    if (todaySubs.length === 0) return [];
+    // SUM-aggregate per itemId across all of today's vendor submissions.
+    // Same item appearing under two vendors on one date adds. Matches the
+    // server-side report_run_variance refactor.
+    const byItem = new Map<string, number>();
+    for (const sub of todaySubs) {
+      for (const e of sub.entries || []) {
+        if (e.actualRemaining == null) continue;
+        byItem.set(e.itemId, (byItem.get(e.itemId) || 0) + Number(e.actualRemaining));
+      }
+    }
+    return Array.from(byItem.entries())
+      .map(([itemId, counted]) => {
+        const item = inventory.find((i) => i.id === itemId);
         if (!item) return null;
         const expected = item.parLevel || 0; // par as proxy when no expected stock signal
-        const counted = entry.actualRemaining;
         const delta = counted - expected;
         const cost = item.costPerUnit || 0;
         const deltaCost = delta * cost;
@@ -1133,7 +1468,7 @@ function VarianceLogTab() {
         return { itemName: item.name, unit: item.unit, expected, counted, delta, deltaCost, tag };
       })
       .filter(Boolean) as Array<{ itemName: string; unit: string; expected: number; counted: number; delta: number; deltaCost: number; tag: 'SHRINK' | 'MINOR' | 'OK' | 'FAVORABLE' }>;
-  }, [todaySub, inventory]);
+  }, [todaySubs, inventory]);
 
   const sorted = React.useMemo(
     () => variances.slice().sort((a, b) => Math.abs(b.deltaCost) - Math.abs(a.deltaCost)),
@@ -1154,7 +1489,7 @@ function VarianceLogTab() {
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Items counted" value={String(sorted.length)} sub={todaySub ? `today's count` : 'no count submitted'} />
+        <StatCard label="Items counted" value={String(sorted.length)} sub={todaySubs.length > 0 ? `today's count · ${todaySubs.length} ${todaySubs.length === 1 ? 'vendor' : 'vendors'}` : 'no count submitted'} />
         <StatCard label="Net Δ$" value={`${sumDelta >= 0 ? '+' : '−'}$${Math.abs(sumDelta).toFixed(0)}`} sub="vs par × cost" />
         <StatCard label="SHRINK" value={String(shrinkCount)} sub="≥ $25 loss" />
         <StatCard label="MINOR" value={String(minorCount)} sub="≥ 5% off" />

@@ -341,17 +341,24 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
 // the call site still hides them from the user but developers can see the
 // real reason (RLS, unique-key mismatch, network) in the browser console.
 export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Promise<string> {
+  // Spec 020 — vendor_id is required and partitions the (store_id, date)
+  // unique key. The Cmd UI's admin-JWT path stays on direct PostgREST
+  // (RPC is gated to service_role and used by the staff-app Edge Function);
+  // the upsert ON CONFLICT uses the new (store_id, date, vendor_id) unique
+  // so two vendors on one date coexist and the EDIT path on the same
+  // vendor preserves the eod_submissions.id.
   const { data, error } = await supabase
     .from('eod_submissions')
     .upsert(
       {
         store_id: submission.storeId,
         date: new Date(submission.date).toISOString().split('T')[0],
+        vendor_id: submission.vendorId,
         submitted_by: submission.submittedByUserId,
         status: submission.status || 'submitted',
         submitted_at: new Date().toISOString(),
       },
-      { onConflict: 'store_id,date' }
+      { onConflict: 'store_id,date,vendor_id' }
     )
     .select()
     .single();
@@ -383,12 +390,16 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
       throw ins.error;
     }
 
-    // Update eod_remaining on each item
+    // Update eod_remaining on each item — vendor-scoped per Q6. Items
+    // belonging to a different vendor (e.g. via the unscheduled-item
+    // escape hatch) still get an eod_entries row above but the inventory
+    // mutation is skipped to mirror the RPC's behavior.
     for (const entry of submission.entries) {
       const upd = await supabase
         .from('inventory_items')
         .update({ eod_remaining: entry.actualRemaining, last_updated_by: submission.submittedByUserId })
-        .eq('id', entry.itemId);
+        .eq('id', entry.itemId)
+        .eq('vendor_id', submission.vendorId);
       if (upd.error) {
         console.warn('[Supabase] submitEODCount update item:', entry.itemId, upd.error.message);
         // Don't throw — parent + entries already landed, item-level eod_remaining
@@ -417,7 +428,7 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
   const { data, error } = await supabase
     .from('eod_submissions')
     .select(`
-      id, store_id, date, status, submitted_at, submitted_by,
+      id, store_id, date, vendor_id, status, submitted_at, submitted_by,
       submitter:profiles!submitted_by(name),
       eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
                   item:inventory_items(catalog:catalog_ingredients(name, unit)))
@@ -428,6 +439,8 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
   return (data || []).map((row: any) => ({
     id: row.id,
     storeId: row.store_id,
+    // Spec 020 — vendor_id is server-side; vendorName hydrates client-side.
+    vendorId: row.vendor_id,
     date: row.date,
     status: row.status,
     itemCount: (row.eod_entries || []).length,
@@ -463,7 +476,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
 
   const { data, error } = await supabase
     .from('eod_submissions')
-    .select(`id, store_id, date, submitted_by, submitted_at, status,
+    .select(`id, store_id, date, vendor_id, submitted_by, submitted_at, status,
              submitter:profiles!submitted_by(name),
              eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
                          item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
@@ -476,6 +489,8 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
     id: row.id,
     storeId: row.store_id,
     storeName: '', // filled downstream if needed
+    // Spec 020 — vendor_id is server-side; vendorName hydrates client-side.
+    vendorId: row.vendor_id,
     date: row.date,
     submittedBy: row.submitter?.name || '',
     submittedByUserId: row.submitted_by,
@@ -537,7 +552,7 @@ export async function fetchEodSubmissionsForStores(
   if (storeIds.length === 0) return [];
   const { data, error } = await supabase
     .from('eod_submissions')
-    .select(`id, store_id, date, submitted_by, submitted_at, status,
+    .select(`id, store_id, date, vendor_id, submitted_by, submitted_at, status,
              submitter:profiles!submitted_by(name),
              eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
                          item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
@@ -552,6 +567,8 @@ export async function fetchEodSubmissionsForStores(
     id: row.id,
     storeId: row.store_id,
     storeName: '', // backfilled by caller against useStore.stores if needed
+    // Spec 020 — vendor_id is server-side; vendorName hydrates client-side.
+    vendorId: row.vendor_id,
     date: row.date,
     submittedBy: row.submitter?.name || '',
     submittedByUserId: row.submitted_by,
@@ -577,12 +594,20 @@ export async function fetchEodSubmissionsForStores(
 }
 
 /**
- * Spec 018 (REPORTS-3) — most-recent `limit` submitted EOD dates for
- * `storeId`, descending. Used by NewReportModal to seed the Prior EOD /
+ * Spec 018 (REPORTS-3) — most-recent `limit` submitted EOD DISTINCT dates
+ * for `storeId`, descending. Used by NewReportModal to seed the Prior EOD /
  * Current EOD inputs when picking the variance template. Returns
  * `string[]` of ISO dates (YYYY-MM-DD); `[]` on error or empty (RLS
  * denial, network issue, or store has no submissions). No camelCase
  * mapping needed — the column is `date` on both sides.
+ *
+ * Spec 020: `eod_submissions` is partitioned per-vendor now, so a single
+ * day produces N rows. We DEDUPE in JS via `Set` and only then slice to
+ * `limit`. Without this, two same-day vendor submissions feed the variance
+ * modal `{ from: '2026-05-12', to: '2026-05-12' }`, which then RAISEs
+ * `22023` ("from must be < to") in `report_run_variance`. Over-fetch one
+ * extra distinct day's worth of rows so the post-dedupe slice still has
+ * enough material to fill the modal's prior/current pair.
  *
  * RLS: `eod_submissions` is per-store via `auth_can_see_store(store_id)`
  * from `20260504173035_per_store_rls_hardening.sql:46-61`, so a caller
@@ -592,18 +617,22 @@ export async function fetchRecentEodDates(
   storeId: string,
   limit: number = 2,
 ): Promise<string[]> {
+  // Fetch extra rows so the dedupe still has enough distinct dates after
+  // collapsing same-day vendor partitions. 16 covers up to 8 vendors-per-day
+  // for a 2-day window in the worst realistic case.
+  const fetchLimit = Math.max(limit * 8, 16);
   const { data, error } = await supabase
     .from('eod_submissions')
     .select('date')
     .eq('store_id', storeId)
     .eq('status', 'submitted')
     .order('date', { ascending: false })
-    .limit(limit);
+    .limit(fetchLimit);
   if (error) {
     console.warn('[Supabase] fetchRecentEodDates:', error.message);
     return [];
   }
-  return (data || []).map((r: any) => r.date as string);
+  return [...new Set((data || []).map((r: any) => r.date as string))].slice(0, limit);
 }
 
 // ─── INVENTORY COUNTS (Spec 019) ────────────────────────────────────────

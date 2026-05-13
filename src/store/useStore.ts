@@ -1329,13 +1329,18 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // EOD
   submitEOD: (submission) => {
-    // Existing-merge lookup is store+date scoped (no user) to mirror the
-    // DB's UNIQUE (store_id, date) — admins editing a regular user's count
-    // should update the same local row, not append a parallel one.
+    // Spec 020: per-vendor partitioning. Merge lookup is now scoped on
+    // (storeId, date, vendorId) to mirror the new DB UNIQUE (store_id, date,
+    // vendor_id). Two same-day submissions for DIFFERENT vendors create two
+    // separate rows; an EDIT on the SAME vendor still merges into the same
+    // row.
+    const subVendorId = submission.vendorId;
+    const subVendorName = submission.vendorName;
     const existing = get().eodSubmissions.find(
       (s) =>
         s.storeId === submission.storeId &&
-        s.date === submission.date
+        s.date === submission.date &&
+        s.vendorId === subVendorId
     );
 
     if (existing) {
@@ -1360,32 +1365,64 @@ export const useStore = create<FullStore>((set, get) => ({
     }
 
     submission.entries.forEach((entry) => {
-      set((s) => ({
-        inventory: s.inventory.map((item) =>
-          item.id === entry.itemId
-            ? {
-                ...item,
-                // EOD count is the authoritative re-measurement of the shelf,
-                // so reset currentStock too. Without this, dashboard tiles
-                // (inventory value, low/out-of-stock, stock alerts) keep
-                // showing pre-count zeros — see DashboardScreen `inventoryValue`.
-                currentStock: entry.actualRemaining,
-                eodRemaining: entry.actualRemaining,
-                lastUpdatedBy: entry.submittedBy,
-                lastUpdatedAt: entry.timestamp,
-              }
-            : item
-        ),
-      }));
-      // Persist the recalibration so it survives reload. Mirrors the
-      // adjustStock action's db.adjustItemStock call (line ~325 above).
-      db
-        .adjustItemStock(
-          entry.itemId,
-          entry.actualRemaining,
-          entry.submittedByUserId || get().currentUser?.id || '',
-        )
-        .catch((e: any) => console.warn('[Supabase]', e?.message || e));
+      // Spec 020 Q6: vendor-scoped current_stock writes. A vendor's EOD only
+      // mutates inventory items belonging to that vendor. Items counted via
+      // the unscheduled-item escape hatch (their vendorId !== submission's
+      // vendorId, OR the item has null vendorId) still produce eod_entries
+      // (via db.submitEODCount) and an audit row (below), but their
+      // inventory_items.current_stock is NOT touched here. The previous
+      // guard short-circuited true for null-vendor items, bypassing the
+      // vendor filter and letting the admin-JWT db.adjustItemStock path
+      // overwrite escape-hatch stock — code-reviewer round-2 C2 catch.
+      // Strict equality preserves the RPC's `where vendor_id = p_vendor_id`
+      // semantics (no UPDATE fires when the item's vendor differs from
+      // the submission's vendor, including null-vendor items).
+      const item = get().inventory.find((i) => i.id === entry.itemId);
+      const itemMatchesSubmittedVendor = item?.vendorId === subVendorId;
+
+      if (itemMatchesSubmittedVendor) {
+        set((s) => ({
+          inventory: s.inventory.map((it) =>
+            it.id === entry.itemId
+              ? {
+                  ...it,
+                  // EOD count is the authoritative re-measurement of the shelf,
+                  // so reset currentStock too. Without this, dashboard tiles
+                  // (inventory value, low/out-of-stock, stock alerts) keep
+                  // showing pre-count zeros — see DashboardScreen `inventoryValue`.
+                  currentStock: entry.actualRemaining,
+                  eodRemaining: entry.actualRemaining,
+                  lastUpdatedBy: entry.submittedBy,
+                  lastUpdatedAt: entry.timestamp,
+                }
+              : it
+          ),
+        }));
+        // Persist the recalibration so it survives reload. Mirrors the
+        // adjustStock action's db.adjustItemStock call (line ~325 above).
+        // Only fires for items matching the submitted vendor — escape-hatch
+        // items keep their server-side current_stock untouched per Q6.
+        db
+          .adjustItemStock(
+            entry.itemId,
+            entry.actualRemaining,
+            entry.submittedByUserId || get().currentUser?.id || '',
+          )
+          .catch((e: any) => console.warn('[Supabase]', e?.message || e));
+      }
+      // Audit row fires regardless of vendor match so the count is always
+      // traceable. The prefix uses the action verb ("Count updated" /
+      // "Remaining count submitted") so the audit feed reads naturally
+      // in the Cmd UI's authed-user path. The staff-app RPC's audit row
+      // uses `<submitted_by> · vendor: <name>` (no verb prefix) because
+      // p_submitted_by is already the display name and the audit table is
+      // read in plain SQL by ops/admin tools. Both paths share the
+      // ` · vendor: <name>` suffix so parsers that split on " · vendor: "
+      // get consistent vendor identification across paths.
+      const detailBase = existing ? 'Count updated' : 'Remaining count submitted';
+      const detail = subVendorName
+        ? `${detailBase} · vendor: ${subVendorName}`
+        : detailBase;
       get().addAuditEvent({
         timestamp: entry.timestamp,
         userId: entry.submittedByUserId,
@@ -1394,7 +1431,7 @@ export const useStore = create<FullStore>((set, get) => ({
         storeId: submission.storeId,
         storeName: submission.storeName,
         action: 'EOD entry',
-        detail: existing ? 'Count updated' : 'Remaining count submitted',
+        detail,
         itemRef: entry.itemName,
         value: `${entry.actualRemaining} ${entry.unit}`,
       });
@@ -1404,7 +1441,8 @@ export const useStore = create<FullStore>((set, get) => ({
     // of this store. In-app only; push/email stays scoped to the reminder cron.
     const submitterName = submission.submittedBy || get().currentUser?.name || 'someone';
     const verb = existing ? 'edited' : 'submitted';
-    const msg = `${submitterName} ${verb} today's EOD count for ${submission.storeName}`;
+    const vendorSuffix = subVendorName ? ` (${subVendorName})` : '';
+    const msg = `${submitterName} ${verb} today's EOD count${vendorSuffix} for ${submission.storeName}`;
     const { supabase } = require('../lib/supabase');
     // supabase-js v2 builders (rpc, from().update(), etc.) are thenable but
     // DON'T expose `.catch` — chaining it throws TypeError synchronously and

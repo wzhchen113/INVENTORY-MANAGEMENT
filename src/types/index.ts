@@ -233,6 +233,13 @@ export interface EODSubmission {
   date: string;
   storeId: string;
   storeName: string;
+  // Spec 020 — per-vendor partitioning. `vendor_id NOT NULL` on
+  // eod_submissions; populated post-migration via mode backfill across
+  // each submission's eod_entries. New submissions always carry the
+  // selected vendor id. `vendorName` is hydrated client-side from
+  // useStore.vendors for display (server payload doesn't join the name).
+  vendorId: string;
+  vendorName?: string;
   submittedBy: string;
   submittedByUserId: string;
   timestamp: string;
