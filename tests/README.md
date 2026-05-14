@@ -31,7 +31,7 @@ npm test
 npm run test:db
 
 # Track 3 — shell smokes (requires `npm run dev:db` running)
-npm run test:smoke              # runs smoke-edge.sh and smoke-rpc.sh
+npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh
 
 # Everything jest + DB:
 npm run test:all
@@ -351,7 +351,7 @@ CONTAINER=supabase_db_some-other-name npm run test:db
 
 ## Track 3 — Shell smokes
 
-Manual-run scripts under `scripts/smoke-*.sh`. v1 ships two:
+Manual-run scripts under `scripts/smoke-*.sh`. v1 ships three:
 
 - [`scripts/smoke-edge.sh`](../scripts/smoke-edge.sh) — the original; CORS
   + JWT + happy-path checks for `fetch-breadbot-sales` edge function.
@@ -359,15 +359,23 @@ Manual-run scripts under `scripts/smoke-*.sh`. v1 ships two:
   smokes `report_run('stub', ...)` against the local stack. Picks `stub`
   over `cogs` because the stub envelope is independent of seed data and
   therefore stable across seed refreshes.
+- [`scripts/smoke-edge-roles.sh`](../scripts/smoke-edge-roles.sh) — Spec
+  027; smokes the `send-invite-email` role gate with four arms (CORS
+  preflight, no-auth 401, admin JWT, super_admin promoted JWT). Refuses
+  to run against a non-local `SUPABASE_URL` because Arm 4 mutates state
+  (`admin@local.test` → super_admin, reverted via EXIT trap).
 
 ```bash
-npm run test:smoke         # runs both
-bash scripts/smoke-rpc.sh  # just the new one
+npm run test:smoke               # runs all three
+bash scripts/smoke-rpc.sh        # one of them
+bash scripts/smoke-edge-roles.sh # the role-gate smoke
 ```
 
 Each script accepts `SUPABASE_URL=` to point at a remote stack.
 `smoke-rpc.sh` also accepts `ADMIN_TOKEN=` to skip the login round-trip
 (useful when iterating against prod with a cached session).
+`smoke-edge-roles.sh` accepts `ADMIN_BEARER=` and `SUPER_ADMIN_BEARER=`
+to skip its login round-trips, plus `ADMIN_EMAIL=` / `ADMIN_PASSWORD=`.
 
 ### Track 3 troubleshooting — local edge runtime bind-mount
 

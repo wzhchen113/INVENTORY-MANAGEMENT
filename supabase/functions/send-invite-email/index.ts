@@ -13,7 +13,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const ADMIN_ROLES = new Set(["admin", "master"]);
+// Mirror of `public.auth_is_privileged()` on the edge-function side.
+// Must include `super_admin` so role-broadened RLS callers (spec 026
+// Track A) don't get 403'd at the edge layer. Reference shape:
+// `supabase/functions/delete-user/index.ts:19`.
+const ADMIN_ROLES = new Set(["admin", "master", "super_admin"]);
 
 async function requireAdminCaller(authHeader: string | null) {
   if (!authHeader?.startsWith("Bearer ")) return { error: "missing bearer token", status: 401 };

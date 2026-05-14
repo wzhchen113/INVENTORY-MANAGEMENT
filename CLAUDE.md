@@ -58,6 +58,7 @@ scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runn
 - **Theming.** Token files under [src/theme/](src/theme/) with separate Light/Dark/Cmd palettes; hooks `useColors()` / `useCmdColors()`. Dark-mode pref cached in localStorage / AsyncStorage and synced to `profiles.dark_mode`.
 - **Cross-platform confirm.** [src/utils/confirmAction.ts](src/utils/confirmAction.ts) routes to `window.confirm` on web vs `Alert.alert` on native.
 - **Edge function auth split.** JWT-protected by default; `staff-*` and `pwa-catalog` set `verify_jwt = false` and validate a service-token bearer themselves — [supabase/config.toml:381](supabase/config.toml).
+- **Edge function role gates mirror `auth_is_privileged()`.** Edge functions that gate on caller role must define `const ADMIN_ROLES = new Set(["admin", "master", "super_admin"]);` and check membership in `requireAdminCaller()`. The set mirrors `public.auth_is_privileged()` (admin OR super-admin) on the DB side. Reference shape: [supabase/functions/delete-user/index.ts:19](supabase/functions/delete-user/index.ts). Spec 026 broadened DB policies and spec 027 closed the edge-function parity gap; a tenth omission is a regression.
 - **Imports.** `@/*` alias is configured but rarely used; the codebase mostly uses relative imports — inconsistent.
 
 ## Current state

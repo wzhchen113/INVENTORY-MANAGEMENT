@@ -46,6 +46,7 @@ These are the concrete checks that map to this codebase. Treat deviation as a re
 - Every new function in [supabase/functions/](supabase/functions/) MUST have a corresponding `[functions.<name>]` entry in [supabase/config.toml](supabase/config.toml) declaring its `verify_jwt` setting (the split is at [supabase/config.toml:381](supabase/config.toml:381)).
 - If `verify_jwt = false` (the `staff-*` and `pwa-catalog` pattern), the function MUST validate a service-token bearer itself. Constant-time comparison preferred; never log the token. A `verify_jwt = false` function that doesn't check a bearer is **Critical**.
 - If `verify_jwt = true`, the function still needs to enforce its own role checks for admin-only operations — JWT validation alone doesn't authorize.
+- Audit edge-function role gates for `super_admin` inclusion. If the function does its own role-band check (`app_metadata.role` compared against an `ADMIN_ROLES` Set, or `profiles.role` compared similarly), verify the Set includes `super_admin`. The omission is the spec-026 / spec-027 pattern — `public.auth_is_privileged()` on the DB side is the canonical mirror (admin OR master OR super-admin). A new role-gated edge function whose `ADMIN_ROLES` Set lacks `super_admin` is **High** (silent privilege-denial for super-admins; not critical-because-it-doesn't-grant-extra-access but does break legitimate flows). Reference correct shape: `supabase/functions/delete-user/index.ts:19`.
 
 ### Secrets
 

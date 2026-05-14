@@ -15,7 +15,7 @@
     "dev:functions": "supabase functions serve --env-file ./supabase/functions/.env.local",
     "test": "jest",
     "test:db": "bash scripts/test-db.sh",
-    "test:smoke": "bash scripts/smoke-edge.sh && bash scripts/smoke-rpc.sh",
+    "test:smoke": "bash scripts/smoke-edge.sh && bash scripts/smoke-rpc.sh && bash scripts/smoke-edge-roles.sh",
     "test:all": "npm test && npm run test:db",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
