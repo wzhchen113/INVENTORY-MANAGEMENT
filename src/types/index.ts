@@ -85,7 +85,7 @@ export interface InventoryItem {
   vendorId: string;
   vendorName: string;
   usagePerPortion: number;
-  expiryDate?: string;
+  expiryDate?: string | null;
   lastUpdatedBy: string;
   lastUpdatedAt: string;
   eodRemaining: number;
@@ -384,6 +384,7 @@ export type AuditAction =
   | 'POS import'
   | 'Waste log'
   | 'User invite'
+  | 'User deleted'
   | 'Recipe saved'
   | 'Recipe deleted'
   | 'Prep recipe saved'
@@ -414,6 +415,14 @@ export interface OrderSchedule {
 export interface OrderSubmission {
   id: string;
   storeId: string;
+  /**
+   * Spec 024 — hydrated client-side from `useStore.stores` in
+   * `loadFromSupabase` so broadcast-notification builders + selectors
+   * that compare against currentStore.name still match. Optional
+   * because legacy callers (e.g. `OrdersScreen`) construct submissions
+   * without it; the hydration backfills.
+   */
+  storeName?: string;
   day: string;
   date: string;
   vendorName: string;
@@ -471,6 +480,13 @@ export interface AppState {
    */
   sidebarLayoutOverride: SidebarLayoutOverride | null;
   notifications: AppNotification[];
+  /**
+   * Spec 024 — gate for the "loading…" splash during `loadFromSupabase`.
+   * The useStore initial-state literal sets this to `false`; the action
+   * flips it `true` on entry and back to `false` in the `finally`. Not
+   * optional — readers (legacy `AppNavigator`) assume the field exists.
+   */
+  storeLoading: boolean;
   /**
    * Per-item unit-conversion rows used to bridge recipe units (oz, fl_oz,
    * ea, ...) to the inventory item's tracking unit (cases, bags, ...).

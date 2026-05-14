@@ -920,7 +920,7 @@ export const useStore = create<FullStore>((set, get) => ({
   // Inventory
   addItem: (item) => {
     const tempId = makeId('i', ++itemCounter);
-    const newItem: InventoryItem = { casePrice: 0, caseQty: 1, subUnitSize: 1, subUnitUnit: '', ...item, id: tempId };
+    const newItem: InventoryItem = { ...item, id: tempId };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
     // Swap temp id for server-assigned UUID once insert resolves so an
     // immediate edit/delete after create hits the real row.

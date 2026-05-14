@@ -1,0 +1,23 @@
+## Code review for spec 024
+
+### Critical
+
+None.
+
+### Should-fix
+
+- `src/lib/db.ts:2775` — `expiryDate` mapper uses `|| ''` fallback, but `InventoryItem.expiryDate` is now typed `string | null` (spec 024 item #9). The `|| ''` means the field lands as `''` (empty string) for DB-null rows, not `null` — so the field is never actually `null` at runtime via the fetch path, only via the `IngredientFormDrawer`'s write path. This is a pre-existing inconsistency that the type widening now makes visible: consumers expecting `null` to signal "no expiry" will never see it from fetched data. `db.ts:2775` should be `expiryDate: row.expiry_date ?? null` to deliver the intended `string | null` semantics. (This is a `db.ts` edit, which spec 024's §Backend Architecture explicitly noted requires no `db.ts` change — but the reasoning there was that the mapper "already handles `null` correctly"; the read-path mapper at line 2775 does not.)
+
+- `src/components/cmd/StockHistoryChart.tsx:186–190` — the `{...({ ... } as object)}` cast resolves the immediate TS error but `as object` is the most aggressive widening possible — it strips all type information from the spread. This is functionally equivalent to `as any` for the spread target. The architect's original design said to remove the directives because the underlying type error self-resolved; the dev's impl notes reveal one directive was masking a live error (TS2339 on `onMouseEnter`). The correct fix for that live error would be a narrow interface (`interface SvgWebProps { onMouseEnter?: () => void; onMouseLeave?: () => void; }`) cast as `as SvgWebProps`, which preserves the handler types and still satisfies JSX's props check without `as object`. As written, a future rename of the handler keys in the object literal would produce no TS diagnostic. This does not violate AC5 (no suppression directives), but it's a weaker fix than the spec's intent.
+
+### Nits
+
+- `src/types/index.ts:418–424` — the JSDoc on `storeName?: string` references `useStore.stores` in `loadFromSupabase` by text. Referring to a concrete implementation detail in a type's doc comment creates drift risk (if `loadFromSupabase` is renamed the comment silently becomes wrong). The comment's useful content is the optionality rationale; the internal-plumbing reference is noise. Consider trimming to: "Optional — legacy callers construct submissions without it; hydration in `loadFromSupabase` backfills from the `stores` slice."
+
+- `src/types/index.ts:483–489` — the JSDoc on `storeLoading` calls out legacy `AppNavigator` as a reader ("Not optional — readers (legacy `AppNavigator`) assume the field exists"). Per CLAUDE.md the legacy screens are on a deletion timer. The comment is accurate now but will be misleading once `AppNavigator` is removed in spec 025's cleanup. Consider softer wording: "Not optional — the initial-state literal always sets it to `false`; all consumers can assume the field is present."
+
+- `.github/workflows/test.yml:59–78` — the `typecheck` job has no `needs:` declaration, so it runs in parallel with `jest` and `db`. This is correct and matches the architect's design. However the header comment at lines 3–14 describes the three jobs as "1. jest, 2. typecheck, 3. db" which implies sequential ordering. The comment is accurate about intent (fail-fast order) but the actual YAML runs all three in parallel. Minor: either drop the numbering from the header comment or add a note that the jobs run concurrently.
+
+- `src/lib/webPush.ts:182` — `function urlBase64ToUint8Array(base64: string): BufferSource` — the return type `BufferSource` is technically correct (it's the accepted type at the call site), but the function body still constructs and returns a `Uint8Array`. A future reader of this function in isolation will be confused by the declared return type diverging from the constructed value. A narrow cast at the return site (`return arr as BufferSource`) or an intermediate annotation would make the intent clearer without changing the external contract.
+
+- `src/screens/cmd/InventoryDesktopLayout.tsx:577` — `series.every((v) => v === 0)` uses strict equality. Now that `series` is typed `Array<number | null>`, an all-`null` series (all weeks with no recorded data) returns `false` from this check (because `null !== 0`), so the "no recipe usage recorded" placeholder would NOT render for an all-null series — it would attempt to render the chart with all-null data. This is a pre-existing logic gap that the spec 024 bonus fix did not address. Not a regression introduced by this spec, but the null-coalescing changes immediately adjacent to this line make it more visible. Flag as out-of-scope; worth a follow-up issue.

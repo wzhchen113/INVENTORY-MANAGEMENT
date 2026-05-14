@@ -10,10 +10,14 @@ tracks, each covering a different layer:
 | 2     | Postgres RPC + RLS + trigger correctness                  | psql + pgTAP         | `supabase/tests/*.test.sql`               |
 | 3     | End-to-end RPC / edge-function shell smokes              | bash + curl + jq     | `scripts/smoke-*.sh`                      |
 
-Tracks 1 and 2 run in CI on every push and pull-request
-([`.github/workflows/test.yml`](../.github/workflows/test.yml)). Track 3 is
-manual-run only in v1, matching the existing `scripts/smoke-edge.sh`
-posture.
+Tracks 1 and 2 plus a Track-1a typecheck gate run in CI on every push
+and pull-request
+([`.github/workflows/test.yml`](../.github/workflows/test.yml)). The
+typecheck job (spec 024) runs `npm run typecheck:test` and gates on the
+test-reachable subset of the non-legacy graph (see spec 024 §Q5a
+corollary for the AC3-coverage gap; the base `tsc --noEmit` gate is
+deferred to spec 025). Track 3 is manual-run only in v1, matching the
+existing `scripts/smoke-edge.sh` posture.
 
 ## TL;DR — how to run each track locally
 
@@ -31,9 +35,9 @@ npm run test:smoke              # runs smoke-edge.sh and smoke-rpc.sh
 npm run test:all
 ```
 
-There is also a typecheck-only pass for tests (jest itself catches type
-errors via babel-jest at runtime; this script is for editor + on-demand
-verification):
+There is also a typecheck-only pass for tests. Spec 024 promoted this
+from an editor-convenience script to a required CI gate (Track 1a above);
+the same `npm run typecheck:test` invocation runs locally and in CI:
 
 ```bash
 npm run typecheck:test
@@ -381,10 +385,16 @@ membership, also see CLAUDE.md > Realtime publication gotcha.
 ## CI
 
 [`.github/workflows/test.yml`](../.github/workflows/test.yml) runs on
-every push and every pull-request. Two jobs:
+every push and every pull-request. Three jobs:
 
 - **`jest`** — `actions/setup-node@v4` with node 20, `npm ci`, `npm test
   -- --ci`. Fails on any failing test.
+- **`typecheck`** (spec 024) — `actions/setup-node@v4` with node 20,
+  `npm ci`, `npm run typecheck:test`. Gates on the test-reachable subset
+  of the non-legacy graph (`tsc --noEmit -p tsconfig.test.json`). Per
+  spec 024 §Q5a corollary, this does NOT cover the four Cmd UI component
+  files surfaced only by base `tsc --noEmit`; that gate lands in spec
+  025.
 - **`db`** — `supabase/setup-cli@v1`, `supabase start`, `npm run
   test:db`. The full local stack (~60-90s cold boot) is required because
   DB tests use `auth.uid()` through real JWT claims — a bare Postgres

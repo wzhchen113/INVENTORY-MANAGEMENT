@@ -547,8 +547,14 @@ function UsageTab({ item }: { item: any }) {
 
   const series: Array<number | null> = weekly?.weeklyAmounts ?? [];
   const lastWk = series.length > 0 ? series[series.length - 1] : 0;
-  const peakWk = series.length > 0 ? Math.max(...series) : 0;
-  const sum28d = series.slice(-4).reduce((s, v) => s + (v ?? 0), 0);
+  // Spec 024 — coalesce nulls to 0 before reducing/maxing. The `null`
+  // entries in `series` render as polyline gaps in StockHistoryChart;
+  // for the aggregate stats below, an unrecorded week reads as zero
+  // (matches the existing `v ?? 0` pattern at the sum28d reducer).
+  const peakWk = series.length > 0 ? Math.max(...series.map((v) => v ?? 0)) : 0;
+  const sum28d = series
+    .slice(-4)
+    .reduce<number>((s, v) => s + (v ?? 0), 0);
 
   // Build x-axis week labels (W-7 ... W0)
   const xAxis = React.useMemo(

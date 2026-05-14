@@ -178,10 +178,16 @@ export const StockHistoryChart: React.FC<Props> = ({
                   cy={yAt(v)}
                   r={9}
                   fill="transparent"
-                  // @ts-expect-error react-native-svg-web forwards DOM events
-                  onMouseEnter={() => setHoveredIdx(i)}
-                  // @ts-expect-error
-                  onMouseLeave={() => setHoveredIdx((h) => (h === i ? null : h))}
+                  // react-native-svg-web forwards DOM events on web. The
+                  // `react-native-svg` Circle types don't model these
+                  // handlers, so spread them through a typed cast — runtime
+                  // behavior is unchanged (this branch is gated by
+                  // `Platform.OS === 'web'`).
+                  {...({
+                    onMouseEnter: () => setHoveredIdx(i),
+                    onMouseLeave: () =>
+                      setHoveredIdx((h) => (h === i ? null : h)),
+                  } as object)}
                 />
               ) : null}
               <Circle

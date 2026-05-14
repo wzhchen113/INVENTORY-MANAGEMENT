@@ -1,8 +1,17 @@
-# .github/workflows/test.yml — Spec 022 (test framework intro).
+# .github/workflows/test.yml — Spec 022 (test framework intro)
+# + Spec 024 (typecheck:test gate).
 #
-# Two jobs:
-#   1. jest — Track 1 (JS/TS unit + component tests via jest-expo).
-#   2. db   — Track 2 (Supabase DB tests via psql + pgTAP).
+# Three jobs:
+#   1. jest      — Track 1 (JS/TS unit + component tests via jest-expo).
+#   2. typecheck — Track 1a (Spec 024) — `tsc --noEmit -p
+#                  tsconfig.test.json`. Gates the test-reachable slice
+#                  of the non-legacy graph; per Spec 024 §Q5a corollary,
+#                  this does NOT cover the four Cmd UI component files
+#                  (BrandPicker / TitleBar / IngredientFormDrawer /
+#                  StockHistoryChart) — those are verified manually at
+#                  PR time and will land under spec 025's base
+#                  `tsc --noEmit` gate.
+#   3. db        — Track 2 (Supabase DB tests via psql + pgTAP).
 #
 # Track 3 (shell smokes under scripts/smoke-*.sh) is NOT wired in here
 # per spec AC — smoke scripts stay manual-run in v1 to match the
@@ -46,6 +55,27 @@ jobs:
 
       - name: Run jest
         run: npm test -- --ci
+
+  typecheck:
+    name: Track 1a — typecheck (test graph)
+    runs-on: ubuntu-latest
+    # Typecheck on the test-reachable slice. Cold-start is faster than
+    # jest's; 10 minutes is generous.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (test config + transitively-reached non-legacy graph)
+        run: npm run typecheck:test
 
   db:
     name: Track 2 — Supabase DB tests
