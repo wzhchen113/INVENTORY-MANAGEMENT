@@ -1075,6 +1075,15 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'DBInspector',     label: 'DB inspector' },
         ],
       },
+      // Spec 025 §2.E — Admin group at the END of the tree, immediately
+      // before the super-admin-gated Tenancy group. Visible to ALL
+      // admins (per-row gating lives inside UsersSection itself).
+      {
+        label: 'Admin',
+        items: [
+          { id: 'Users', label: 'Users & access' },
+        ],
+      },
     ];
     if (isSuperAdmin) {
       groups.push({

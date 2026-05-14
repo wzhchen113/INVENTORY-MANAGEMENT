@@ -43,6 +43,7 @@ import POSImportsSection from './sections/POSImportsSection';
 import AuditLogSection from './sections/AuditLogSection';
 import ReportsSection from './sections/ReportsSection';
 import BrandsSection from './sections/BrandsSection';
+import UsersSection from './sections/UsersSection';
 
 // Spec 011 — body-only. The chrome (TitleBar / Sidebar / hamburger drawer
 // / footer slots / Spec-008 edit-mode handlers) lives in
@@ -180,6 +181,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <AuditLogSection />
         ) : section === 'Reports' ? (
           <ReportsSection />
+        ) : section === 'Users' ? (
+          <UsersSection />
         ) : section === 'Brands' ? (
           <BrandsSection />
         ) : section !== 'Inventory' ? (

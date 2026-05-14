@@ -1,12 +1,14 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import Papa from 'papaparse';
+import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
-import { ReorderVendor, ReorderItem } from '../../../types';
+import { ReorderVendor, ReorderItem, ReorderPayload, Store } from '../../../types';
 
 // Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
 // (which is store-wide-by-category). This screen groups by vendor with
@@ -362,6 +364,199 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
   );
 }
 
+// ─── Spec 025 §3 — CSV/PDF export ───────────────────────────────────
+// Web-only export per spec 025 AC4/AC5. Native port (expo-file-system
+// + expo-sharing) is a separate spec when EAS native readiness lands.
+
+function slugifyStore(name: string): string {
+  return name.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60) || 'store';
+}
+
+function todayLocalIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
+  if (Platform.OS !== 'web') return;
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke so the browser has a chance to commit the download.
+  setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
+
+// Spec 025 AC4 — one CSV covering all vendors. Column order is fixed
+// via `Papa.unparse(rows, { columns })` so accidental row-field changes
+// don't reshape the header.
+function buildReorderCsv(payload: ReorderPayload): string {
+  const columns = [
+    'Vendor',
+    'Item Name',
+    'On Hand',
+    'Pending PO',
+    'Par Level',
+    'Suggested Qty',
+    'Unit',
+    'Est. Cost',
+    'Flags',
+    'EOD Counted At',
+  ];
+  const rows: Record<string, string | number>[] = [];
+  for (const vendor of payload.vendors) {
+    for (const item of vendor.items) {
+      rows.push({
+        'Vendor': vendor.vendorName,
+        'Item Name': item.itemName,
+        'On Hand': item.onHand,
+        'Pending PO': item.pendingPoQty,
+        'Par Level': item.parLevel,
+        'Suggested Qty': item.suggestedQty,
+        'Unit': item.unit,
+        // No `$` — CSV stays numeric-friendly for spreadsheet sums.
+        'Est. Cost': item.estimatedCost.toFixed(2),
+        'Flags': (item.flags || []).join(', '),
+        'EOD Counted At': vendor.eodSubmittedAt || '',
+      });
+    }
+  }
+  return Papa.unparse(rows, { columns });
+}
+
+async function handleCsvExport(payload: ReorderPayload, store: Store): Promise<void> {
+  try {
+    const csv = buildReorderCsv(payload);
+    const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
+    const filename = `IMR_Reorder_${slugifyStore(store.name)}_${date}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    triggerDownload(blob, filename);
+    Toast.show({
+      type: 'success',
+      text1: 'CSV exported',
+      text2: filename,
+      visibilityTime: 3000,
+    });
+  } catch (e: any) {
+    console.warn('[ReorderSection] CSV export failed:', e?.message || e);
+    Toast.show({
+      type: 'error',
+      text1: 'CSV export failed',
+      text2: e?.message || 'Unable to build the CSV file',
+      visibilityTime: 4000,
+    });
+  }
+}
+
+// Spec 025 AC5 — jsPDF + jspdf-autotable dynamic-imported per legacy
+// pattern so the bundle stays lean for users who never click "PDF".
+async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<void> {
+  try {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableMod: any = await import('jspdf-autotable');
+    const autoTable = autoTableMod.default || autoTableMod;
+
+    const doc = new jsPDF({ unit: 'pt' });
+    const margin = 40;
+    const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
+
+    // Header section (manual draw).
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text('I.M.R', margin, margin);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(12);
+    doc.text('Per-Vendor Reorder Suggestions', margin, margin + 18);
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(`Store: ${store.name}  |  As of: ${date}`, margin, margin + 34);
+    doc.setTextColor(0);
+
+    let cursorY = margin + 56;
+
+    // Per-vendor block: one autoTable per vendor.
+    for (const vendor of payload.vendors) {
+      // Sub-header text row.
+      const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
+      const daysLabel =
+        vendor.daysUntilNextDelivery === 0
+          ? 'today'
+          : vendor.daysUntilNextDelivery === 1
+            ? 'tomorrow'
+            : `in ${vendor.daysUntilNextDelivery} days`;
+      const subHeader = `${vendor.vendorName || 'unnamed vendor'}  ·  Source: ${sourceLabel}  ·  Next delivery: ${vendor.nextDeliveryDate || '—'} (${daysLabel})`;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(subHeader, margin, cursorY);
+      cursorY += 6;
+
+      autoTable(doc, {
+        startY: cursorY + 8,
+        head: [['Item', 'On Hand', 'Pending', 'Par', 'Suggested', 'Unit', 'Est. Cost']],
+        body: vendor.items.map((item) => [
+          item.itemName,
+          formatQty(item.onHand),
+          formatQty(item.pendingPoQty),
+          formatQty(item.parLevel),
+          formatQty(item.suggestedQty),
+          item.unit,
+          `$${item.estimatedCost.toFixed(2)}`,
+        ]),
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [26, 26, 24], textColor: 255, fontStyle: 'bold' },
+        columnStyles: {
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right', fontStyle: 'bold' },
+          6: { halign: 'right' },
+        },
+        margin: { left: margin, right: margin },
+      });
+
+      // `autoTable` records its end Y on `doc.lastAutoTable.finalY`.
+      const finalY = ((doc as unknown) as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+      cursorY = (typeof finalY === 'number' ? finalY : cursorY) + 28;
+    }
+
+    // Footer (last page).
+    const totalItems = payload.kpis.itemCount;
+    const totalCost = payload.kpis.totalEstimatedCost;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`Total items: ${totalItems}  |  Est. total: $${totalCost.toFixed(2)}`, margin, cursorY);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(140);
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.text(
+      'Generated by I.M.R — Inventory Management for Restaurant',
+      margin,
+      pageHeight - 24,
+    );
+
+    const filename = `IMR_Reorder_${slugifyStore(store.name)}_${date}.pdf`;
+    doc.save(filename);
+    Toast.show({
+      type: 'success',
+      text1: 'PDF exported',
+      text2: filename,
+      visibilityTime: 3000,
+    });
+  } catch (e: any) {
+    console.warn('[ReorderSection] PDF export failed:', e?.message || e);
+    Toast.show({
+      type: 'error',
+      text1: 'PDF export failed',
+      text2: e?.message || 'Unable to build the PDF file',
+      visibilityTime: 4000,
+    });
+  }
+}
+
 export default function ReorderSection() {
   const C = useCmdColors();
   const currentStore = useStore((s) => s.currentStore);
@@ -394,6 +589,26 @@ export default function ReorderSection() {
     loadReorderSuggestions();
   }, [loadReorderSuggestions]);
 
+  // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when
+  // there is no usable data: vendor list empty, initial load in flight,
+  // or an error pane is being shown.
+  const showExport =
+    Platform.OS === 'web' &&
+    !!reorderPayload &&
+    reorderPayload.vendors.length > 0 &&
+    !reorderError &&
+    !(reorderLoading && !reorderPayload);
+
+  const onCsvPress = React.useCallback(() => {
+    if (!reorderPayload || !currentStore) return;
+    void handleCsvExport(reorderPayload, currentStore);
+  }, [reorderPayload, currentStore]);
+
+  const onPdfPress = React.useCallback(() => {
+    if (!reorderPayload || !currentStore) return;
+    void handlePdfExport(reorderPayload, currentStore);
+  }, [reorderPayload, currentStore]);
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
@@ -403,22 +618,58 @@ export default function ReorderSection() {
         activeId={tabId}
         onChange={setTabId}
         rightSlot={
-          <TouchableOpacity
-            onPress={refresh}
-            disabled={reorderLoading}
-            style={{
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              borderWidth: 1,
-              borderColor: C.borderStrong,
-              borderRadius: CmdRadius.sm,
-              opacity: reorderLoading ? 0.5 : 1,
-            }}
-          >
-            <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
-              {reorderLoading ? 'LOADING…' : 'REFRESH'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            {showExport ? (
+              <>
+                <TouchableOpacity
+                  onPress={onCsvPress}
+                  accessibilityRole="button"
+                  accessibilityLabel="Export CSV"
+                  style={{
+                    paddingVertical: 4,
+                    paddingHorizontal: 10,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                    borderRadius: CmdRadius.sm,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>CSV</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onPdfPress}
+                  accessibilityRole="button"
+                  accessibilityLabel="Export PDF"
+                  style={{
+                    paddingVertical: 4,
+                    paddingHorizontal: 10,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                    borderRadius: CmdRadius.sm,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>PDF</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+            <TouchableOpacity
+              onPress={refresh}
+              disabled={reorderLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh reorder list"
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderWidth: 1,
+                borderColor: C.borderStrong,
+                borderRadius: CmdRadius.sm,
+                opacity: reorderLoading ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
+                {reorderLoading ? 'LOADING…' : 'REFRESH'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         }
       />
 

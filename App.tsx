@@ -6,13 +6,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import AppNavigator from './src/navigation/AppNavigator';
-import { useColors, useCmdColors } from './src/theme/colors';
+import { useCmdColors } from './src/theme/colors';
 import { useStore, ACTIVE_BRAND_KEY } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
-import { NEW_UI } from './src/lib/featureFlags';
 import CmdNavigator from './src/navigation/CmdNavigator';
 import { useFonts } from 'expo-font';
 import {
@@ -122,12 +120,10 @@ if (Platform.OS !== 'web') {
 }
 
 export default function App() {
-  const C = useColors();
   const Cmd = useCmdColors();
-  // Under NEW_UI=true, use the Command palette's `bg` for the html/body
-  // background so overscroll on web matches the new chrome instead of
-  // the legacy bgTertiary tone.
-  const bodyBg = NEW_UI ? Cmd.bg : C.bgTertiary;
+  // Use the Command palette's `bg` for the html/body background so
+  // overscroll on web matches the Cmd UI chrome.
+  const bodyBg = Cmd.bg;
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
   const hydrateSidebarLayoutOverride = useStore((s) => s.hydrateSidebarLayoutOverride);
@@ -222,7 +218,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: bodyBg }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        {NEW_UI ? <CmdNavigator /> : <AppNavigator />}
+        <CmdNavigator />
         <Toast />
       </SafeAreaProvider>
     </GestureHandlerRootView>

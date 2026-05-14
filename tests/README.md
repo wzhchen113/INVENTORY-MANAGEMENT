@@ -10,13 +10,15 @@ tracks, each covering a different layer:
 | 2     | Postgres RPC + RLS + trigger correctness                  | psql + pgTAP         | `supabase/tests/*.test.sql`               |
 | 3     | End-to-end RPC / edge-function shell smokes              | bash + curl + jq     | `scripts/smoke-*.sh`                      |
 
-Tracks 1 and 2 plus a Track-1a typecheck gate run in CI on every push
-and pull-request
+Tracks 1 and 2 plus the Track-1a and Track-1b typecheck gates run in CI
+on every push and pull-request
 ([`.github/workflows/test.yml`](../.github/workflows/test.yml)). The
-typecheck job (spec 024) runs `npm run typecheck:test` and gates on the
-test-reachable subset of the non-legacy graph (see spec 024 §Q5a
-corollary for the AC3-coverage gap; the base `tsc --noEmit` gate is
-deferred to spec 025). Track 3 is manual-run only in v1, matching the
+Track-1a typecheck job (spec 024) runs `npm run typecheck:test` and
+gates on the test-reachable subset of the active graph. The Track-1b
+typecheck job (spec 025) runs `npm run typecheck` against the base
+tsconfig and gates on the full active app graph — closing the spec 024
+§Q5a corollary coverage gap on the four Cmd UI component files surfaced
+only by the base graph. Track 3 is manual-run only in v1, matching the
 existing `scripts/smoke-edge.sh` posture.
 
 ## TL;DR — how to run each track locally
@@ -42,6 +44,20 @@ the same `npm run typecheck:test` invocation runs locally and in CI:
 ```bash
 npm run typecheck:test
 ```
+
+Spec 025 added a sibling `typecheck` script that runs against the base
+tsconfig (Track 1b — the full active app graph, excludes
+`supabase/functions/**`, `scripts/**`, and the test exclusions inherited
+from Track 1a). Run locally before opening a PR:
+
+```bash
+npm run typecheck
+```
+
+The two scripts cover overlapping but distinct slices: `typecheck:test`
+includes `tsconfig.test.json`'s test-only types (jest globals, etc.)
+and rebases the include array to the test-reachable files; `typecheck`
+runs the production-shaped graph excluding tests entirely.
 
 ## Hybrid mocking strategy (spec 022 Q6 = D)
 
@@ -385,16 +401,21 @@ membership, also see CLAUDE.md > Realtime publication gotcha.
 ## CI
 
 [`.github/workflows/test.yml`](../.github/workflows/test.yml) runs on
-every push and every pull-request. Three jobs:
+every push and every pull-request. Four jobs:
 
 - **`jest`** — `actions/setup-node@v4` with node 20, `npm ci`, `npm test
   -- --ci`. Fails on any failing test.
-- **`typecheck`** (spec 024) — `actions/setup-node@v4` with node 20,
-  `npm ci`, `npm run typecheck:test`. Gates on the test-reachable subset
-  of the non-legacy graph (`tsc --noEmit -p tsconfig.test.json`). Per
-  spec 024 §Q5a corollary, this does NOT cover the four Cmd UI component
-  files surfaced only by base `tsc --noEmit`; that gate lands in spec
-  025.
+- **`typecheck`** (spec 024 — Track 1a) — `actions/setup-node@v4` with
+  node 20, `npm ci`, `npm run typecheck:test`. Gates on the
+  test-reachable subset of the active graph (`tsc --noEmit -p
+  tsconfig.test.json`).
+- **`typecheck-base`** (spec 025 — Track 1b) — `actions/setup-node@v4`
+  with node 20, `npm ci`, `npm run typecheck`. Gates on the full active
+  app graph (`tsc --noEmit` against the base tsconfig). Exclusion set:
+  `supabase/functions/**` (Deno-runtime URL imports), `scripts/**`
+  (one-off ts-node), `**/*.test.ts(x)` + `tests/**` (covered by Track
+  1a). Closes the spec 024 §Q5a corollary gap on the four Cmd UI
+  component files surfaced only by the base graph.
 - **`db`** — `supabase/setup-cli@v1`, `supabase start`, `npm run
   test:db`. The full local stack (~60-90s cold boot) is required because
   DB tests use `auth.uid()` through real JWT claims — a bare Postgres

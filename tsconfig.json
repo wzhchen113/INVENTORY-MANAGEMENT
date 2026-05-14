@@ -7,5 +7,11 @@
       "@/*": ["src/*"]
     }
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "tests/**/*"]
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "tests/**/*",
+    "supabase/functions/**",
+    "scripts/**"
+  ]
 }

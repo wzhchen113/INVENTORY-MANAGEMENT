@@ -202,28 +202,6 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
   }
 }
 
-/**
- * @deprecated Spec 012b — positional shim kept exclusively so the legacy
- * AdminScreens.tsx mega-screen keeps compiling after inviteUser switched
- * to an options-object signature. Forwards to the new form with
- * brandId=null. Do NOT use from new code; new admin invitations flow
- * through the Cmd UI's InviteAdminDrawer which sets brand_id explicitly.
- *
- * The legacy AdminScreens.tsx is frozen pending removal once the new
- * UI becomes default; per CLAUDE.md "Legacy admin screens", agents must
- * NOT add new functionality there. This shim is a build-keep-green
- * refactor, not new functionality.
- */
-export async function inviteUserLegacy(
-  email: string,
-  name: string,
-  role: 'admin' | 'user',
-  storeIds: string[],
-  storeNames?: string,
-): Promise<{ error: string | null }> {
-  return inviteUser({ email, name, role, storeIds, storeNames, brandId: null });
-}
-
 /** Register an invited user (creates Supabase auth account + profile) */
 export async function registerInvitedUser(
   email: string,
@@ -412,5 +390,27 @@ export async function deleteUser(userId: string): Promise<{ error: string | null
     return { error: null };
   } catch (e: any) {
     return { error: e.message || 'Failed to delete user' };
+  }
+}
+
+/**
+ * Spec 025 §2.B — Trigger Supabase's built-in password-reset email for an
+ * arbitrary user (admin tool, called from UsersSection). Uses the
+ * project-level GoTrue mailer template — no edge function involved.
+ *
+ * Server-side this is gated by Supabase's GoTrue policy (the caller must
+ * hold a valid session). Client-side the UsersSection enforces the role
+ * gates from AC25 (master can reset anyone except master itself; admin
+ * can reset only `user`-role rows).
+ *
+ * Return shape matches deleteUser for symmetry at the call site.
+ */
+export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) return { error: error.message };
+    return { error: null };
+  } catch (e: any) {
+    return { error: e.message || 'Failed to send password reset email' };
   }
 }

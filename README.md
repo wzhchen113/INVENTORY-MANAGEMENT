@@ -20,20 +20,16 @@ This repo is the **admin app** — one of three clients that talk to a shared Su
 | Language | TypeScript |
 | State | Zustand |
 | Backend | Supabase — Postgres 17 + Auth + Realtime + Edge Functions (Deno 2) |
-| Routing | React Navigation 6 (legacy UI) + custom desktop layout (Cmd UI) |
+| Routing | React Navigation 6 + custom desktop layout (Cmd UI) |
 | CSV | PapaParse |
 | Charts | `react-native-chart-kit` + custom SVG (`StockHistoryChart`) |
 | Notifications | `expo-notifications` + push subscriptions on Supabase |
 
 ---
 
-## Two UIs in one app
+## UI
 
-The whole UI tree forks at `App.tsx` based on the `EXPO_PUBLIC_NEW_UI` env flag (read at build time via [`src/lib/featureFlags.ts`](src/lib/featureFlags.ts)).
-
-### Cmd theme (`EXPO_PUBLIC_NEW_UI=true`)
-
-The default for desktop web. Single-screen layout with a left sidebar of 14 sections, a ⌘K command palette, and right-anchored form drawers for create / edit. Renders the full desktop UI at ≥1100 px; below that, [`CmdNavigator`](src/navigation/CmdNavigator.tsx) falls back to a native-style mobile stack (`InventoryListScreen` → `ItemDetailScreen`).
+Single-screen Cmd UI layout with a left sidebar of sections, a ⌘K command palette, and right-anchored form drawers for create / edit. Renders the full desktop UI at ≥1100 px; below that, [`CmdNavigator`](src/navigation/CmdNavigator.tsx) falls back to a native-style mobile stack (`InventoryListScreen` → `ItemDetailScreen`).
 
 Sections live in [`src/screens/cmd/sections/`](src/screens/cmd/sections/):
 
@@ -52,6 +48,7 @@ ReconciliationSection    — POS-expected vs EOD-counted variance
 POSImportsSection        — CSV upload + recipe-based stock adjustment
 AuditLogSection          — timestamped event stream, filterable
 ReportsSection           — saved report definitions
+UsersSection             — invite, role management, password reset, delete
 ```
 
 Form drawers in [`src/components/cmd/`](src/components/cmd/):
@@ -59,11 +56,8 @@ Form drawers in [`src/components/cmd/`](src/components/cmd/):
 - `VendorFormDrawer` — vendors
 - `RecipeFormDrawer` — menu recipes (with raw-ingredient picker + prep-item editor)
 - `PrepRecipeFormDrawer` — prep recipes (with raw|prep type pill per row)
+- `InviteAdminDrawer`, `InviteUserDrawer`
 - `AddCountModal`, `UploadCsvModal`, `RunImportModal`, `NewReportModal`, `ExportCsvDrawer`, `MobileNavDrawer`
-
-### Legacy UI (`EXPO_PUBLIC_NEW_UI=false`)
-
-[`AppNavigator`](src/navigation/AppNavigator.tsx) — drawer + bottom tabs + stack. Kept as a fallback for older mobile flows; everything in it is also reachable from the Cmd theme.
 
 ---
 
@@ -100,41 +94,39 @@ Brand-shared tables (recipes, prep_recipes, vendors, catalog_ingredients) are re
 ## Project structure
 
 ```
-App.tsx                              # entry — forks on EXPO_PUBLIC_NEW_UI
+App.tsx                              # entry — renders CmdNavigator
 src/
   lib/
-    featureFlags.ts                  # NEW_UI flag definition
     supabase.ts                      # client init
     auth.ts                          # session management
     db.ts                            # all PostgREST + RPC calls
     cmdSelectors.ts                  # useStockSeries, useRecipesUsingItem, etc.
     paletteAction.ts                 # ⌘K palette → section bridge
   navigation/
-    AppNavigator.tsx                 # legacy drawer + tabs
     CmdNavigator.tsx                 # Cmd theme router (desktop ≥1100px)
   screens/
     cmd/
       InventoryDesktopLayout.tsx     # Cmd desktop shell
       InventoryListScreen.tsx        # Cmd mobile list
       ItemDetailScreen.tsx           # Cmd mobile detail
-      sections/*.tsx                 # 14 desktop sections
-    *.tsx                            # legacy screens
+      sections/*.tsx                 # desktop sections
     DBInspectorScreen.tsx            # admin probe + dedup tools
+    LoginScreen.tsx, RegisterScreen.tsx
   components/cmd/                    # Cmd UI components
   hooks/useRole.ts                   # role gate (currently always 'admin')
   store/useStore.ts                  # Zustand store with optimistic + revert-on-error
-  theme/                             # design tokens for both UIs
+  theme/                             # design tokens
   types/index.ts                     # domain models
   utils/
     confirmAction.ts                 # cross-platform confirm (web → window.confirm)
     usageCalculations.ts             # weekly usage trends, recipe cost math
 supabase/
-  migrations/*.sql                   # 29 timestamped migrations
-  functions/                         # 10 edge functions
-  seed.sql                           # mirrored from prod 2026-05-02
+  migrations/*.sql                   # timestamped migrations
+  functions/                         # edge functions
+  seed.sql                           # mirrored from prod
   config.toml                        # local stack + per-function verify_jwt
 .github/workflows/
-  test.yml                           # CI: jest + DB pgTAP (spec 022)
+  test.yml                           # CI: jest + typecheck + DB pgTAP (spec 022/024/025)
 ```
 
 ---
@@ -221,7 +213,7 @@ User onboarding:
 
 ## CI
 
-[`.github/workflows/test.yml`](.github/workflows/test.yml) runs on every push and pull request. Two jobs: jest (Track 1) and DB pgTAP (Track 2). See [`tests/README.md`](tests/README.md#ci) for the full breakdown.
+[`.github/workflows/test.yml`](.github/workflows/test.yml) runs on every push and pull request. Four jobs: jest (Track 1), test-graph typecheck (Track 1a), base typecheck (Track 1b), and DB pgTAP (Track 2). See [`tests/README.md`](tests/README.md#ci) for the full breakdown.
 
 Schema-deploy gating (migration sync between local and prod) is currently manual — push migrations from a clean `main` via `supabase db push --linked`.
 
