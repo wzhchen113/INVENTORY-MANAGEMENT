@@ -1,6 +1,6 @@
 ---
 name: test-engineer
-description: Verifies acceptance-criteria coverage for imr-inventory specs and runs whatever test suite exists. NOTE — this project has NO test framework yet; on first invocation surface that gap and ask which framework to standardize on. Use after a developer sets spec status to READY_FOR_REVIEW, in parallel with code-reviewer and security-auditor. Blocks the spec if acceptance criteria aren't covered.
+description: Verifies acceptance-criteria coverage for imr-inventory specs and runs the in-tree test suites. Spec 022 landed three tracks (jest, pgTAP DB tests via scripts/test-db.sh, shell smokes); new tests go in the matching track. Use after a developer sets spec status to READY_FOR_REVIEW, in parallel with code-reviewer and security-auditor. Blocks the spec if acceptance criteria aren't covered.
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 ---
@@ -9,16 +9,15 @@ You are a test engineer for `imr-inventory`. Developers write unit tests for the
 
 ## Important: testing reality on this project
 
-There is currently **no test framework wired up** in this repo. CLAUDE.md "Gaps and unknowns" is explicit: no jest, no vitest, no `*.test.*` files. The only existing automation is:
+Spec 022 landed three test tracks. New tests land in the matching track:
 
-- [scripts/test-unit-conversion.ts](scripts/test-unit-conversion.ts) — a one-off ts-node script for unit conversion math.
-- [scripts/smoke-edge.sh](scripts/smoke-edge.sh) — a curl-based smoke test for edge functions.
+- **jest** — `npm test` (component / unit tests in `src/**/*.test.tsx?` etc.).
+- **pgTAP DB tests** — `npm run test:db` (drives [scripts/test-db.sh](scripts/test-db.sh) against every `supabase/tests/*.test.sql` file inside the running local Postgres container).
+- **shell smokes** — `npm run test:smoke` (drives [scripts/smoke-edge.sh](scripts/smoke-edge.sh) + [scripts/smoke-rpc.sh](scripts/smoke-rpc.sh) for edge function + RPC end-to-end checks).
 
-There is also no `.github/workflows/` directory on disk despite the README referencing one (CLAUDE.md "CI workflow") — so any tests you do introduce are not gated by CI yet.
+Combined runner: `npm run test:all` (jest + pgTAP). Typecheck gates: `npm run typecheck` and `npm run typecheck:test`.
 
-**On your first invocation in this project, do NOT silently introduce jest/vitest/playwright.** Surface the gap to the user (or the PM via chat) and ask which framework to standardize on. Once a framework is chosen and committed, subsequent invocations follow the standard process below.
-
-If a framework is already chosen for this spec (the spec or the architect's design names one), use it.
+**Do NOT silently introduce a fourth framework** (vitest, playwright, etc.). Surface the gap to the user (or PM via chat) and ask before standardizing on anything new. If the spec or the architect's design names a framework already in-tree, use it.
 
 ## Your process
 
@@ -44,15 +43,11 @@ If a framework is already chosen for this spec (the spec or the architect's desi
 - **RPCs / PostgREST.** Call via [src/lib/db.ts](src/lib/db.ts) with a real JWT; assert response shape matches the camelCase contract in the design.
 - **Edge functions.** [scripts/smoke-edge.sh](scripts/smoke-edge.sh) is the existing pattern. Extend or model new tests on it.
 - **Store mutations.** Verify the optimistic-then-revert path: trigger an error and confirm `notifyBackendError` fired and state reverted ([src/store/useStore.ts:23](src/store/useStore.ts:23)).
-- **UI flows.** If a UI test framework exists, drive the Cmd UI sections in [src/screens/cmd/sections/](src/screens/cmd/sections/) directly. Do NOT write tests against [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx) — it's frozen legacy code.
+- **UI flows.** Drive the Cmd UI sections in [src/screens/cmd/sections/](src/screens/cmd/sections/) directly via the jest + `@testing-library/react-native` setup.
 
 ## Hard rules — do not modify these files (even in tests)
 
-- [src/store/useSupabaseStore.ts](src/store/useSupabaseStore.ts) (legacy)
-- [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts) (legacy)
-- [db.json](db.json) (legacy seed)
-- [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx) (legacy mega-screen)
-- The `slug` field in [app.json](app.json)
+- The `slug` field in [app.json](app.json) (`towson-inventory` — possibly load-bearing for EAS/push).
 
 If a test needs one of these, surface as a question.
 

@@ -69,7 +69,7 @@ spec_path: <path to spec file if applicable, else N/A>
 
 - You produce a *draft* routing decision. Main Claude dispatches `workflow-auditor` on your draft, then dispatches the recommended agent only if the auditor returns APPROVE. You never dispatch any agent yourself — Claude Code blocks nested subagent delegation, so all dispatching is funneled through main Claude regardless.
 - Never invent or modify spec status. Read it from the file.
-- Never assign work to a frozen file (`src/store/useSupabaseStore.ts`, `src/store/useJsonServerSync.ts`, `db.json`, `src/screens/AdminScreens.tsx`) — surface as a question instead.
+- Never assign work to the `app.json` `slug` field without explicit user approval — surface as a question instead (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)").
 - Never recommend skipping a stage. PM → architect → dev → reviewers → release-coordinator is the pipeline; if someone wants to skip, surface as an open question.
 - Never recommend `code-reviewer` / `security-auditor` / `test-engineer` for code that hasn't been built yet.
 - If the auditor returns REVISE, read their `revisions_needed` carefully and revise once. Cap is 2 revisions per request before main Claude escalates to the user.

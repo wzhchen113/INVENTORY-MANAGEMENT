@@ -33,13 +33,12 @@ These are concrete patterns from CLAUDE.md. Treat deviation as a real finding.
 - **Inline color literals.** Hex codes or named colors hardcoded in components instead of `useColors()` / `useCmdColors()` tokens from [src/theme/](src/theme/).
 - **`window.confirm` or `Alert.alert` called directly** instead of [src/utils/confirmAction.ts](src/utils/confirmAction.ts).
 - **Web-only APIs without a `Platform.OS === 'web'` guard.** Anything from `window`, `document`, `navigator`, or [src/lib/webPush.ts](src/lib/webPush.ts) reachable on native is a finding.
-- **New code added to [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx).** That file is frozen for new functionality (CLAUDE.md "Legacy admin screens"). If a developer extended it, that's Critical — flag and recommend moving the change to `src/screens/cmd/sections/`.
-- **Edits to legacy data-layer files** ([src/store/useSupabaseStore.ts](src/store/useSupabaseStore.ts), [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts), [db.json](db.json), or the `npm run db` script): Critical (CLAUDE.md "Data layer (active vs. legacy)").
+- **Direct edits to files deleted in spec 025** (`AdminScreens.tsx`, `AppNavigator.tsx`, `featureFlags.ts`, `useSupabaseStore.ts`, `useJsonServerSync.ts`, `db.json`, `src/lib/api.ts`): Critical — the files are gone, the edit is a re-creation of legacy code.
 - **Changes to `app.json` `slug`** without explicit user approval: Critical (CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)").
 - **Custom `current_setting('jwt...')` SQL** instead of using the `auth_is_admin()` / `auth_can_see_store()` helpers.
-- **Reintroduction of json-server / `db.json` patterns** in new code.
+- **Reintroduction of json-server or `db.json` patterns** in new code (both deleted in spec 025; re-introduction is Critical).
 - **New realtime channels** that don't follow the `store-{id}` / `brand-{id}` naming convention from [src/hooks/useRealtimeSync.ts](src/hooks/useRealtimeSync.ts).
-- **Test files outside the existing pattern.** There is no test framework yet. New `*.test.ts` files appearing without a corresponding framework setup are a finding — coordinate with test-engineer.
+- **Test files outside the established pattern.** Spec 022 landed jest + pgTAP + shell-smoke infra (three tracks: `npm test`, `npm run test:db`, `npm run test:smoke`). New test files must follow one of those three tracks; ad-hoc `*.test.*` files outside that pattern are a finding — coordinate with test-engineer.
 
 ## What NOT to do
 

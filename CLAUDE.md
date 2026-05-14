@@ -11,7 +11,7 @@ Admin web/native app for the 2AM PROJECT restaurant brand — inventory, recipes
 - TypeScript 5.3 strict — [tsconfig.json](tsconfig.json)
 - Metro + Babel with `@/*` → `src/*` alias — [babel.config.js](babel.config.js), [metro.config.js](metro.config.js), [tsconfig.json:7](tsconfig.json)
 - State: Zustand 4.5, single store at [src/store/useStore.ts](src/store/useStore.ts) (~51 KB)
-- Routing: React Navigation 6 + custom desktop "Cmd" shell — [src/navigation/CmdNavigator.tsx](src/navigation/CmdNavigator.tsx), [src/navigation/AppNavigator.tsx](src/navigation/AppNavigator.tsx)
+- Routing: React Navigation 6 + custom desktop "Cmd" shell — [src/navigation/CmdNavigator.tsx](src/navigation/CmdNavigator.tsx)
 - CSV (PapaParse), charts (react-native-chart-kit + custom SVG), jsPDF export, expo-notifications + custom web-push at [src/lib/webPush.ts](src/lib/webPush.ts)
 
 **Backend**
@@ -31,28 +31,26 @@ Admin web/native app for the 2AM PROJECT restaurant brand — inventory, recipes
 ## Project structure
 
 ```
-App.tsx                       # Root; flips between legacy and Cmd UI based on flag
+App.tsx                       # Root; mounts CmdNavigator.
 src/
-  navigation/                 # AppNavigator (legacy) + CmdNavigator (new desktop shell)
+  navigation/                 # CmdNavigator (desktop shell)
   screens/
-    cmd/sections/             # 14 desktop Cmd UI sections (current target)
-    AdminScreens.tsx          # 104 KB legacy mega-screen (see Current state)
-    InventoryListScreen / ItemDetailScreen  # mobile fallback under 1100 px
-  store/                      # Zustand stores (see Open questions re: duplicates)
-  lib/                        # db.ts (PostgREST/RPC), featureFlags.ts, webPush.ts, ...
+    cmd/sections/             # Desktop Cmd UI sections (current target)
+  store/                      # Zustand store (useStore.ts)
+  lib/                        # db.ts (PostgREST/RPC), webPush.ts, ...
   hooks/                      # useRealtimeSync, useRole, useColors, ...
   theme/                      # Light/Dark/Cmd palettes + token files
   utils/                      # confirmAction.ts (cross-platform), helpers
 supabase/
-  migrations/                 # 30 SQL migrations
+  migrations/                 # SQL migrations
   functions/                  # 10 Deno edge functions
   config.toml                 # per-function verify_jwt settings
-scripts/                      # one-off ts-node + curl smoke scripts (no test runner)
+scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runner at scripts/test-db.sh
 ```
 
 ## Conventions already in use
 
-- **UI fork via env flag.** [App.tsx:117](App.tsx) selects `CmdNavigator` vs `AppNavigator` based on `EXPO_PUBLIC_NEW_UI` ([src/lib/featureFlags.ts:5](src/lib/featureFlags.ts)). Cmd UI is the active development target; legacy screens still ship.
+- **Cmd UI is the only client.** [App.tsx](App.tsx) mounts `CmdNavigator` unconditionally. Spec 025 deleted the legacy `AppNavigator`, `featureFlags.ts`, and the `EXPO_PUBLIC_NEW_UI` flag-gated fork.
 - **DB access centralized.** All PostgREST/RPC traffic flows through [src/lib/db.ts](src/lib/db.ts) (~64 KB single file). snake_case → camelCase via local `mapItem`-style helpers.
 - **Optimistic-then-revert + toast.** Backend errors surfaced via `notifyBackendError` ([src/store/useStore.ts:23](src/store/useStore.ts)) — `console.warn` + `react-native-toast-message`.
 - **Realtime sync.** Debounced 400 ms reload across two channels (`store-{id}` + `brand-{id}`) — [src/hooks/useRealtimeSync.ts](src/hooks/useRealtimeSync.ts), wired from [src/navigation/CmdNavigator.tsx:87](src/navigation/CmdNavigator.tsx).
@@ -77,9 +75,6 @@ scripts/                      # one-off ts-node + curl smoke scripts (no test ru
 - **Test framework.** See [tests/README.md](tests/README.md) — three tracks (jest, pgTAP DB tests, shell smokes). v1 ships infra + 1-2 example tests per track; retroactive coverage of past Criticals is a follow-up.
 - **No CI workflow on disk.** [README.md](README.md) references `.github/workflows/db-migrations-applied.yml` but no `.github/` directory exists in the repo.
 - **Empty placeholders.** [.claude/agents/_archive/](.claude/agents/_archive/), [specs/](specs/), and [.claude/worktrees/](.claude/worktrees/) are all empty.
-- **Possibly-stale legacy data layer.** [db.json](db.json) (json-server seed), [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts), and the `npm run db` script in [package.json](package.json) reference an abandoned data layer.
-- **Two coexisting stores.** [src/store/useStore.ts](src/store/useStore.ts) (51 KB, live) and [src/store/useSupabaseStore.ts](src/store/useSupabaseStore.ts) (15 KB) — relationship unclear.
-- **Large legacy file.** [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx) is 104 KB single-file (legacy UI). Flagged for size, not a defect.
 - **Identity drift.** [app.json](app.json) `slug` is `towson-inventory` while [package.json](package.json) name and brand are `imr-inventory` / "2AM PROJECT".
 - **Stray asset.** `2AM_Project_Menu_Ingredients.xlsx` (19 KB) sits at repo root, not referenced by code.
 
@@ -201,13 +196,7 @@ The `.github/workflows/db-migrations-applied.yml` workflow referenced in README 
 ### Data layer (active vs. legacy)
 **Active:** Supabase is the data layer. `src/store/useStore.ts` is the current store.
 
-**Legacy — do not modify:**
-- `src/store/useSupabaseStore.ts`
-- `src/store/useJsonServerSync.ts`
-- `db.json`
-- The `npm run db` script in `package.json`
-
-These are kept for reference only and will be deleted after the project is complete. Agents should never modify these files. New features go in `useStore.ts`.
+**Historical note:** Spec 025 deleted the legacy data layer (`useSupabaseStore.ts`, `useJsonServerSync.ts`, `db.json`, and the `npm run db` script). They no longer exist in the repo. Spec 026 then removed the orphaned `json-server` devDependency. New features go in `useStore.ts`.
 
 ### Codebase-auditor agent
 One-time use. Moved to `.claude/agents/_archive/` immediately after this CLAUDE.md was committed.
@@ -217,9 +206,7 @@ One-time use. Moved to `.claude/agents/_archive/` immediately after this CLAUDE.
 - `.claude/worktrees/` — auto-managed by Claude Code when worktree mode is enabled. Currently we work directly on `main`. This directory should be in `.gitignore` and agents should never commit anything inside it.
 
 ### Legacy admin screens
-`src/screens/AdminScreens.tsx` (104 KB) is legacy. It will be removed when `EXPO_PUBLIC_NEW_UI` becomes default — target: next month, when the new UI directory stabilizes.
-
-**Agents must NOT add new functionality to this file.** New admin screens go in the new UI directory. If a task seems to require modifying `AdminScreens.tsx`, surface as a question first.
+**Historical note:** `AdminScreens.tsx` was deleted in spec 025. The Cmd UI sections under `src/screens/cmd/sections/` are the only admin surface.
 
 ### Repo-root spreadsheet
 `2AM_Project_Menu_Ingredients.xlsx` is an outdated reference document from before the inventory database existed. To be moved to `/docs/archive/` or removed in a future cleanup pass. Not used by code. Agents should not modify it.

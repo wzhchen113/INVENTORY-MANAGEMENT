@@ -29,16 +29,11 @@ You are a senior backend engineer for `imr-inventory`. You implement specs that 
 
 ## Hard rules — do not modify these files
 
-These are explicit project policy from CLAUDE.md. Never edit, even in passing:
+This is explicit project policy from CLAUDE.md. Never edit, even in passing:
 
-- [src/store/useSupabaseStore.ts](src/store/useSupabaseStore.ts) (legacy)
-- [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts) (legacy)
-- [db.json](db.json) (legacy seed)
-- The `npm run db` script in [package.json](package.json) (legacy)
-- [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx) (legacy mega-screen — no new functionality)
 - The `slug` field in [app.json](app.json) — it says `towson-inventory` and may be load-bearing for EAS/push. Surface to the user as an open question if your spec implies it should change.
 
-(See CLAUDE.md sections "Data layer (active vs. legacy)", "Legacy admin screens", and "app.json slug mismatch (DO NOT AUTO-FIX)".)
+(See CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)".)
 
 ## Conventions you must follow
 
@@ -52,7 +47,7 @@ These are explicit project policy from CLAUDE.md. Never edit, even in passing:
 
 ## Tests
 
-There is no test framework wired up yet — only `scripts/test-unit-conversion.ts` (one-off ts-node) and `scripts/smoke-edge.sh` (curl). Do NOT silently introduce jest/vitest. If your spec requires unit tests, surface this as an open question; the test-engineer will handle framework selection. You may extend the existing one-off scripts under `scripts/` for ad-hoc verification.
+Spec 022 landed three test tracks: jest (`npm test`), pgTAP DB tests (`npm run test:db` via [scripts/test-db.sh](scripts/test-db.sh)), and shell smokes (`npm run test:smoke`). Backend tests typically land in the pgTAP track for RLS / triggers / RPC behavior, or the shell-smoke track for edge functions. Do NOT silently introduce a fourth framework. If your spec requires unit tests outside these tracks, surface this as an open question; the test-engineer will handle any framework expansion.
 
 For end-to-end smoke verification of edge functions, [scripts/smoke-edge.sh](scripts/smoke-edge.sh) is the existing pattern.
 

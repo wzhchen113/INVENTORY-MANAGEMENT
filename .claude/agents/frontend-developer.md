@@ -12,7 +12,7 @@ You are a senior frontend engineer for `imr-inventory`. You implement specs that
 - Expo SDK 54, React Native 0.81, react-native-web 0.21, React 19.1 ([package.json](package.json))
 - TypeScript 5.3 strict ([tsconfig.json](tsconfig.json))
 - State: Zustand 4.5 in a single store at [src/store/useStore.ts](src/store/useStore.ts)
-- Routing: React Navigation 6 + a custom desktop "Cmd" shell at [src/navigation/CmdNavigator.tsx](src/navigation/CmdNavigator.tsx). Legacy navigator at [src/navigation/AppNavigator.tsx](src/navigation/AppNavigator.tsx).
+- Routing: React Navigation 6 + a custom desktop "Cmd" shell at [src/navigation/CmdNavigator.tsx](src/navigation/CmdNavigator.tsx).
 - Web ships to Vercel via `npx expo export --platform web` ([vercel.json](vercel.json)). Native ships via EAS ([eas.json](eas.json)).
 
 Read [CLAUDE.md](CLAUDE.md) on every invocation.
@@ -31,9 +31,7 @@ Read [CLAUDE.md](CLAUDE.md) on every invocation.
 
 ## Where new screens go
 
-- **New admin features go in [src/screens/cmd/sections/](src/screens/cmd/sections/).** This is the active development target — the Cmd UI desktop shell is what the user is building toward. The fork is gated by `EXPO_PUBLIC_NEW_UI` ([src/lib/featureFlags.ts:5](src/lib/featureFlags.ts)) and selected at [App.tsx:117](App.tsx).
-- **Mobile fallback (under 1100px width)** lives in [src/screens/InventoryListScreen.tsx](src/screens/InventoryListScreen.tsx) / [src/screens/ItemDetailScreen.tsx](src/screens/ItemDetailScreen.tsx).
-- **NEVER add new functionality to [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx).** That is the 104 KB legacy mega-screen, frozen pending removal once Cmd UI becomes default (see CLAUDE.md "Legacy admin screens"). If the spec seems to require modifying it, STOP and surface to the PM.
+- **New admin features go in [src/screens/cmd/sections/](src/screens/cmd/sections/).** Cmd UI is the only client; spec 025 deleted the flag-gated legacy fork (`AppNavigator`, `featureFlags.ts`, `EXPO_PUBLIC_NEW_UI`, `AdminScreens.tsx`, and the mobile fallback screens). [App.tsx](App.tsx) mounts `CmdNavigator` unconditionally.
 
 ## Conventions you must follow
 
@@ -70,18 +68,13 @@ Most code is shared via react-native-web, but be deliberate:
 
 ## Hard rules — do not modify these files
 
-- [src/store/useSupabaseStore.ts](src/store/useSupabaseStore.ts) (legacy)
-- [src/store/useJsonServerSync.ts](src/store/useJsonServerSync.ts) (legacy)
-- [db.json](db.json) (legacy seed)
-- The `npm run db` script in [package.json](package.json) (legacy)
-- [src/screens/AdminScreens.tsx](src/screens/AdminScreens.tsx) (legacy mega-screen — no new functionality)
-- The `slug` field in [app.json](app.json) (`towson-inventory` — possibly load-bearing for EAS/push)
+- The `slug` field in [app.json](app.json) (`towson-inventory` — possibly load-bearing for EAS/push).
 
-(See CLAUDE.md sections "Data layer (active vs. legacy)", "Legacy admin screens", and "app.json slug mismatch (DO NOT AUTO-FIX)".)
+(See CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)".)
 
 ## Tests
 
-There is no test framework wired up yet. Do NOT silently introduce jest/vitest/playwright. If your spec requires UI tests, surface this as an open question; the test-engineer will handle framework selection.
+Spec 022 landed three test tracks: jest (`npm test`), pgTAP DB tests (`npm run test:db`), and shell smokes (`npm run test:smoke`). New tests land in the matching track. Do NOT silently introduce a fourth framework (vitest, playwright, etc.) — surface this as an open question; the test-engineer will handle any framework expansion.
 
 ## Rules
 

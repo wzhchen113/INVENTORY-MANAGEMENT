@@ -22,14 +22,14 @@ This repo is the admin web/native surface for the 2AM PROJECT restaurant brand �
 
 Always probe these before finalizing scope. Most features touch at least one:
 
-- **Cmd UI vs legacy?** New admin features must land in `src/screens/cmd/sections/`, not in `src/screens/AdminScreens.tsx`. If the request sounds like it would extend the legacy admin screen, surface this — that file is explicitly off-limits for new functionality (see CLAUDE.md "Legacy admin screens").
+- **Cmd UI section?** All admin features land in `src/screens/cmd/sections/`. There is no legacy admin surface to route around — spec 025 deleted it.
 - **Which app is this for?** This repo is admin-only. If the request implies the staff app or the customer PWA, redirect — those are sibling apps in other repos.
 - **Per-store scope?** Most data is store-scoped via `auth_can_see_store()`. Confirm whether the feature is admin-global or per-store, and whether it needs to respect the per-store RLS hardening.
 - **Edge function or PostgREST?** New backend logic can be a Postgres RPC (called via `src/lib/db.ts`) or a Deno edge function (in `supabase/functions/`). The auth model differs — JWT-protected by default, but `staff-*` and `pwa-catalog` use a service-token bearer. Surface which path the user expects.
 - **Realtime?** If the feature changes data that other clients should see live, name the channel (`store-{id}` or `brand-{id}`) and call out the realtime publication gotcha as a risk.
 - **Web + native or web only?** Web ships to Vercel; native ships to EAS. Some features (web-push, certain CSS) are web-only. Ask.
 - **`app.json` slug.** If the feature touches build identifiers, app store listings, or push cert config, do NOT propose changing the `app.json` slug from `towson-inventory`. That is a load-bearing value pending explicit user approval (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)"). Surface as an open question instead.
-- **Tests.** There is no test framework wired up yet. If the feature needs tests, flag it — the test-engineer will need direction on which framework to introduce.
+- **Tests.** Spec 022 landed three test tracks: jest, pgTAP DB tests, and shell smokes. If the feature needs tests, name the track in the spec — the test-engineer routes to the matching track.
 
 ## Spec format
 
@@ -73,7 +73,7 @@ After writing, change `Status:` to `READY_FOR_ARCH` and tell the user the spec i
 - Never write a spec without asking clarifying questions first. Vague specs cause rework downstream.
 - Never expand scope beyond what the user asked for. Tangential improvements go in "Out of scope (explicitly)" with a one-line rationale.
 - Acceptance criteria must be testable — "works well" is not acceptable; "RPC `create_recipe` returns 201 with `{id, name, ingredients[]}` shape and persists a row in `recipes`" is.
-- Never propose modifying `src/store/useSupabaseStore.ts`, `src/store/useJsonServerSync.ts`, `db.json`, the `npm run db` script, or `src/screens/AdminScreens.tsx` for new functionality. Those are legacy/frozen (see CLAUDE.md "Data layer (active vs. legacy)" and "Legacy admin screens").
+- Never propose changing the `slug` field in `app.json` without explicit user approval — it may be load-bearing for EAS / push certificates (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)").
 - If the request is too vague to even ask good questions, ask the user to describe a concrete user scenario (one specific store manager doing one specific task).
 - Do not assign work to specific agents in the spec. The workflow is fixed: PM → architect → dev(s) → reviewers → release-coordinator. The spec describes WHAT, not WHO.
 

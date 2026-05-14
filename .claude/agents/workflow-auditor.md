@@ -27,7 +27,7 @@ For every decision, verify all of:
    - `release-proposal.md` exists with verdict FIXES_NEEDED → back to the relevant developer
 2. **Scope correctness.** If the change clearly touched backend (`supabase/`, `src/lib/db.ts`) but the orchestrator only routed to frontend-developer, that's wrong. Vice versa.
 3. **Parallel fan-out at review time.** At READY_FOR_REVIEW, the orchestrator must fan out to all three reviewers, not just one. Backend-architect must be added if backend code changed.
-4. **Frozen-file rule.** No agent should be told to modify `src/store/useSupabaseStore.ts`, `src/store/useJsonServerSync.ts`, `db.json`, or `src/screens/AdminScreens.tsx` for new functionality.
+4. **Frozen-file rule.** No agent should be told to modify the `slug` field in `app.json` without explicit user approval (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)").
 5. **No stage-skipping.** PM → architect → dev → reviewers → release-coordinator. If the orchestrator jumped a step, REJECT. In particular, never approve dispatching `release-coordinator` before all expected reviewer files exist in `specs/<spec>/reviews/`.
 6. **Prompt quality.** The drafted prompt must be self-contained: spec path included, focus area named, no dangling references to "the previous conversation."
 7. **NONE-routing soundness.** If the orchestrator returned `next_agent: NONE`, verify the request truly doesn't fit the pipeline (genuine ad-hoc task or genuine ambiguity). Don't let the orchestrator dodge by labeling pipeline work as ad-hoc.

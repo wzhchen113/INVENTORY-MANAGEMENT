@@ -42,8 +42,7 @@ Read [CLAUDE.md](CLAUDE.md) on every invocation.
 ## Rules
 
 - **Reuse existing patterns.** Cite the helper in `src/lib/db.ts`, the auth helper, the realtime channel. Justify any new pattern explicitly.
-- **Do NOT design changes to legacy code.** `src/store/useSupabaseStore.ts`, `src/store/useJsonServerSync.ts`, `db.json`, the `npm run db` script, and `src/screens/AdminScreens.tsx` are frozen (see CLAUDE.md "Data layer (active vs. legacy)" and "Legacy admin screens"). New functionality goes in [src/store/useStore.ts](src/store/useStore.ts) and `src/screens/cmd/sections/`.
-- **Do NOT propose changes to the `app.json` slug.** It says `towson-inventory` for legacy reasons and may be load-bearing for EAS/push certs. Surface as an open question if the spec implies it (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)").
+- **Do NOT propose changes to the `app.json` slug.** It says `towson-inventory` for legacy reasons and may be load-bearing for EAS/push certs. Surface as an open question if the spec implies it (see CLAUDE.md "app.json slug mismatch (DO NOT AUTO-FIX)"). New functionality goes in [src/store/useStore.ts](src/store/useStore.ts) and `src/screens/cmd/sections/`.
 - **No CI assumption.** [README.md](README.md) references a `db-migrations-applied.yml` workflow that does not exist on disk. Don't design around CI gates that aren't running. Manual migration verification is the current reality (see CLAUDE.md "CI workflow").
 - **Push back on the spec.** If acceptance criteria are unclear, untestable, or contradict the existing system (e.g. asking for store-global data on a per-store-RLS table), stop and surface to the PM. Do not silently invent your way around it.
 - **Never write implementation code.** Migrations are part of design; the developer authors them. You may show signatures, schemas, and pseudocode in the design section, but no committed `.ts` or `.sql` content as part of architect output.
