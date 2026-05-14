@@ -7,6 +7,7 @@ import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
 import { inviteUser } from '../../lib/auth';
+import { useIsMaster } from '../../hooks/useRole';
 
 interface Props {
   visible: boolean;
@@ -46,11 +47,12 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
   const isPhone = useIsPhone();
   const stores = useStore((s) => s.stores);
   const brand = useStore((s) => s.brand);
-  const currentUser = useStore((s) => s.currentUser);
 
-  // Spec 025 §2.G.1 — `isMaster` predicate generalized to also accept
-  // super_admin so super-admins keep their implicit visibility.
-  const isMaster = currentUser?.role === 'master' || currentUser?.role === 'super_admin';
+  // Spec 029 — shared hook (replaces the inline `isMaster` predicate
+  // previously derived from `currentUser.role`). Same gate semantics:
+  // master + super_admin together unlock the admin/user role picker
+  // below; non-master admins are hard-locked to role='user'.
+  const isMaster = useIsMaster();
 
   const [values, setValues] = React.useState<FormValues>(blank);
   const [submitting, setSubmitting] = React.useState(false);
@@ -60,13 +62,14 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
     setValues({
       email: '',
       name: '',
-      // Non-master admins can only invite store users (matches legacy
-      // gate at AdminScreens.tsx:1604).
-      role: isMaster ? 'user' : 'user',
+      // Spec 029 — both master and non-master admins default new invites
+      // to `role='user'`; master can switch to admin via the role picker
+      // below (non-master admins do not see the picker at all).
+      role: 'user',
       storeIds: [],
     });
     setSubmitting(false);
-  }, [visible, isMaster]);
+  }, [visible]);
 
   // For role='admin' invitations we need a brandId. The current brand
   // comes from useStore.brand?.id.

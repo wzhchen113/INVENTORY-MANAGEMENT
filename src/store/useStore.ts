@@ -146,8 +146,11 @@ interface StoreActions {
   /** Spec 012c (Q-ARCH-1) — irreversibly delete a profile + auth user.
    *  NO optimistic mutation. Wraps the existing auth.deleteUser edge
    *  function call. On success, drops the row from any cached members
-   *  lists. On error, notifyBackendError. */
-  deleteProfile: (profileId: string) => Promise<boolean>;
+   *  lists. On error, notifyBackendError. Spec 029 — pass
+   *  `{ silent: true }` to suppress the success info-toast (e.g. when
+   *  the caller is already toasting itself, as in the self-delete flow).
+   *  The error path always toasts via notifyBackendError regardless. */
+  deleteProfile: (profileId: string, opts?: { silent?: boolean }) => Promise<boolean>;
 
   // Inventory
   addItem: (item: Omit<InventoryItem, 'id'>) => void;
@@ -786,7 +789,7 @@ export const useStore = create<FullStore>((set, get) => ({
     }
   },
 
-  deleteProfile: async (profileId) => {
+  deleteProfile: async (profileId, opts) => {
     if (!profileId) return false;
     try {
       const { deleteUser } = await import('../lib/auth');
@@ -802,12 +805,18 @@ export const useStore = create<FullStore>((set, get) => ({
         next[bid] = list.filter((u) => u.id !== profileId);
       }
       set({ brandAdminsByBrandId: next });
-      Toast.show({
-        type: 'info',
-        text1: 'Profile deleted',
-        text2: 'Both profile row and auth user have been removed.',
-        visibilityTime: 4000,
-      });
+      // Spec 029 — `silent: true` (used by the self-delete branch in
+      // UsersSection, which fires its own success toast) suppresses
+      // this info-toast. Default + non-silent calls preserve the
+      // existing 'Profile deleted' info-toast UX.
+      if (!opts?.silent) {
+        Toast.show({
+          type: 'info',
+          text1: 'Profile deleted',
+          text2: 'Both profile row and auth user have been removed.',
+          visibilityTime: 4000,
+        });
+      }
       return true;
     } catch (e: any) {
       notifyBackendError('Delete profile', e);

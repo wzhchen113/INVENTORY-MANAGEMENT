@@ -10,6 +10,7 @@ import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { InviteUserDrawer } from '../../../components/cmd/InviteUserDrawer';
 import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
 import { User } from '../../../types';
+import { useIsMaster } from '../../../hooks/useRole';
 
 // Spec 025 §2 — admin-global users surface. Replaces the legacy
 // UsersScreen from AdminScreens.tsx (master role + admin role + store
@@ -17,15 +18,6 @@ import { User } from '../../../types';
 // fetchAllUsers; mutations refetch on success. No realtime channel
 // (PM Background §13 — user/invite changes are rare enough that
 // on-mount + post-action fetch is sufficient).
-
-// Spec 025 §2.G.1 — `isMaster` predicate is generalized to also accept
-// `super_admin` so super-admins keep their implicit "treated as master"
-// permissions on this section (mirrors the legacy
-// `isMaster = currentUser?.role === 'master'` gate but additive).
-function useIsMaster(): boolean {
-  const role = useStore((s) => s.currentUser?.role);
-  return role === 'master' || role === 'super_admin';
-}
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 6) : id;
@@ -111,7 +103,7 @@ export default function UsersSection() {
     const target = deleteTarget;
     if (!target) return;
     const isSelf = target.id === currentUser?.id;
-    const ok = await deleteProfile(target.id);
+    const ok = await deleteProfile(target.id, isSelf ? { silent: true } : undefined);
     if (!ok) return;
     setDeleteTarget(null);
     if (isSelf) {
