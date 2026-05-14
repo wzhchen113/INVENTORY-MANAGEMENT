@@ -61,7 +61,6 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
-    "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^13.0.0",
     "@types/jest": "^29.5.12",
     "@types/papaparse": "^5.3.14",

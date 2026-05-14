@@ -76,10 +76,11 @@ module.exports = {
         '<rootDir>/src/components/**/*.test.tsx',
         '<rootDir>/src/screens/**/*.test.tsx',
       ],
-      setupFilesAfterEnv: [
-        '<rootDir>/tests/jest.setup.ts',
-        '@testing-library/jest-native/extend-expect',
-      ],
+      // @testing-library/jest-native/extend-expect was removed in spec
+      // 023 / B1 — neither shipped test file used jest-native-specific
+      // matchers (verified at architecture time), and v12.4+ of
+      // @testing-library/react-native provides the built-in matchers
+      // we actually use.
     },
   ],
   // Stale worktree dirs under `.claude/worktrees/` may carry a duplicate

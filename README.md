@@ -134,7 +134,7 @@ supabase/
   seed.sql                           # mirrored from prod 2026-05-02
   config.toml                        # local stack + per-function verify_jwt
 .github/workflows/
-  db-migrations-applied.yml          # CI deploy-gate (see below)
+  test.yml                           # CI: jest + DB pgTAP (spec 022)
 ```
 
 ---
@@ -219,19 +219,11 @@ User onboarding:
 
 ---
 
-## CI deploy-gate
+## CI
 
-[`.github/workflows/db-migrations-applied.yml`](.github/workflows/db-migrations-applied.yml) runs on every push to `main`. It calls `supabase migration list --linked` against the prod project and fails if any local migration in `supabase/migrations/` is unapplied on prod.
+[`.github/workflows/test.yml`](.github/workflows/test.yml) runs on every push and pull request. Two jobs: jest (Track 1) and DB pgTAP (Track 2). See [`tests/README.md`](tests/README.md#ci) for the full breakdown.
 
-The gate **does not auto-apply migrations**. Schema changes need a human in the loop. When the gate goes red, the on-call runs:
-
-```bash
-supabase db push --linked
-```
-
-from a clean checkout of `main`. Requires `SUPABASE_ACCESS_TOKEN` set in repo secrets.
-
-> If the workflow file is missing on a fresh clone, it's because the OAuth scope used to push it lacked the `workflow` permission. Push it manually with a token that has it, or via the GitHub UI.
+Schema-deploy gating (migration sync between local and prod) is currently manual — push migrations from a clean `main` via `supabase db push --linked`.
 
 ---
 

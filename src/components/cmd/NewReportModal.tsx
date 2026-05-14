@@ -7,8 +7,10 @@ import { useStore } from '../../store/useStore';
 import { ReportDefinition } from '../../types';
 import { TEMPLATES, defaultReportName, findTemplate, Template } from '../../screens/cmd/sections/reports/templates';
 // Spec 018 (REPORTS-3) — variance template seeds the prior/current EOD
-// inputs from the most-recent two submitted EODs.
-import { fetchRecentEodDates } from '../../lib/db';
+// inputs from the most-recent two submitted EODs. Spec 023 / B4 extracted
+// the helper into a standalone module so it can be unit-tested with the
+// db.ts-boundary mock pattern — see `src/utils/seedVarianceDates.test.ts`.
+import { seedVarianceDates } from '../../utils/seedVarianceDates';
 // Spec 018 round-2 — date helpers extracted to a shared module now that
 // the shape is proven across REPORTS-2 / REPORTS-3.
 import { PresetId, isISODate, computePreset } from '../../utils/reportDates';
@@ -54,26 +56,11 @@ const PRESETS: Array<{ id: PresetId; label: string }> = [
 ];
 
 // Spec 018 (REPORTS-3) — variance seeds default anchor pair from the most-
-// recent two submitted EODs. When the helper returns < 2 dates (a fresh
-// store) we leave the inputs blank — per spec line 263, the danger hint is
-// the sufficient UX affordance; the user can still save the definition and
-// pressing RUN will surface the RPC's `P0002` error through the standard
-// sanitized toast path. The helper already swallows network/RLS errors to
-// `[]` so a thrown error here is genuinely unexpected — we treat it the
-// same as the empty-history path.
-async function seedVarianceDates(storeId: string): Promise<{ from: string; to: string; eodCount: number }> {
-  try {
-    const dates = await fetchRecentEodDates(storeId, 2);
-    if (Array.isArray(dates) && dates.length >= 2) {
-      // Helper returns descending: index 0 is most-recent (current anchor),
-      // index 1 is second-most-recent (prior anchor).
-      return { from: dates[1], to: dates[0], eodCount: dates.length };
-    }
-    return { from: '', to: '', eodCount: Array.isArray(dates) ? dates.length : 0 };
-  } catch {
-    return { from: '', to: '', eodCount: 0 };
-  }
-}
+// recent two submitted EODs. The seedVarianceDates helper was extracted to
+// `src/utils/seedVarianceDates.ts` in spec 023 / B4 to serve as the canonical
+// db.ts-boundary mock proof point; the inline implementation lived here
+// originally. Behavior contract preserved verbatim — see the new module
+// for the contract spec and the colocated test.
 
 export const NewReportModal: React.FC<Props> = ({
   visible,

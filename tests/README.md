@@ -87,10 +87,30 @@ graph — including `src/lib/db.ts` → `src/lib/supabase.ts` — comes along
 for the ride. `src/lib/supabase.ts` crashes at import time when
 `EXPO_PUBLIC_SUPABASE_URL` is unset (jest runs without `.env`).
 
-**Fix**: mock the theme hook in the test file rather than fighting the
-chain. CLAUDE.md forbids refactoring `useStore.ts` for testability and
-the Spec 022 anti-pattern table forbids mocking `supabase.ts` directly.
-The theme module is the cleanest cut point:
+**Decision tree — first thing to try when adding a component test** (spec 023 / B5):
+
+1. **Prefer extracting the testable logic OUT of the component** so the
+   store-import chain is never imported. This is the cleanest cut and
+   produces a unit test that runs in the `node` env (no jsdom +
+   RN-bridging overhead). Canonical example:
+   [`src/utils/seedVarianceDates.test.ts`](../src/utils/seedVarianceDates.test.ts)
+   — the helper was carved out of
+   [`src/components/cmd/NewReportModal.tsx`](../src/components/cmd/NewReportModal.tsx)
+   in spec 023 / B4 specifically to serve as the wired reference example
+   of the [`src/lib/db.ts`-boundary mock pattern](#hybrid-mocking-strategy-spec-022-q6--d).
+2. **If extraction isn't possible**, mock the theme hook at the test
+   level. Canonical example:
+   [`src/components/cmd/StatusPill.test.tsx`](../src/components/cmd/StatusPill.test.tsx)
+   — see snippet below.
+3. **If a future spec introduces a `<ThemeProvider>`**, the mock
+   collapses to wrapping `render()` with the provider and the per-test
+   stub goes away. Not on disk yet; documented for the future architect
+   so the option doesn't get forgotten.
+
+**Fix (option 2 above) — mock the theme hook in the test file** rather
+than fighting the chain. CLAUDE.md forbids refactoring `useStore.ts`
+for testability and the Spec 022 anti-pattern table forbids mocking
+`supabase.ts` directly. The theme module is the cleanest cut point:
 
 ```ts
 // src/components/cmd/StatusPill.test.tsx
@@ -106,9 +126,7 @@ jest.mock('../../theme/colors', () => ({
 ```
 
 Only re-export the keys + helpers the component under test actually
-reads. If a future refactor moves theming into a provider-backed
-context, this mock collapses to wrapping `render()` with the provider
-and the per-test stub goes away.
+reads.
 
 ## Track 1 — jest (JS / TS)
 
@@ -375,20 +393,19 @@ every push and every pull-request. Two jobs:
 
 Track 3 is intentionally not wired into CI in v1 (per spec AC).
 
-## First follow-up coverage targets (spec 022 §8)
+## Retroactive coverage status (spec 023)
 
-When the retroactive-coverage spec lands, the *first* targets are the
-five Criticals from specs 016 / 018 / 019 / 020 / 021:
+The retroactive Critical-coverage gap from spec 022 §8 has been closed
+by [spec 023](../specs/023-retro-test-coverage/spec.md). All 11
+retroactive tests live under [`supabase/tests/`](../supabase/tests/) —
+one `.test.sql` file per Critical, cited at the top of each file. Names
+mirror the spec line; new tests follow the same hermetic-isolation
+pattern documented above.
 
-| Spec | Critical                                                          | Track 2 test target                                          |
-| ---- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| 016  | Reports dispatcher auth gate (`report_run` 42501 on foreign store) | Already partially covered by `report_run_cogs.test.sql`; add a dispatcher-level test that exercises every `when` arm. |
-| 018  | Variance template auth gate + missing-cost flagging                | New `report_run_variance.test.sql`.                          |
-| 019  | `inventory_counts` consistency triggers (submitted_by override, cross-store item_id, append-only UPDATE/DELETE deny). | `inventory_counts_set_submitted_by.test.sql` covers the override case; add a sibling for the cross-store item_id reject and an UPDATE-denied / DELETE-denied test. |
-| 020  | Per-vendor EOD consistency triggers                               | New `eod_submissions_consistency.test.sql`.                 |
-| 021  | MIN-DOW lateral-subquery RLS                                       | New `order_schedule_min_dow.test.sql`.                       |
+Future retroactive gaps land as their own specs; this section is the
+landing page for "where is the test that pins X?".
 
-Track 1 first targets:
+## First follow-up Track 1 targets
 
 - `src/utils/convertToItemUnit.ts` — replace the existing
   `scripts/test-unit-conversion.ts` with a proper jest test. Deletion of
