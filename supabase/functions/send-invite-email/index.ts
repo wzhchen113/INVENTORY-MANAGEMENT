@@ -34,6 +34,16 @@ async function requireAdminCaller(authHeader: string | null) {
   return { status: 200 };
 }
 
+// Spec 028: HTML-escape caller-controlled interpolations into the
+// email body template literal below. Inlined per spec 028 §3 (not
+// shared via _shared/) because supabase functions deploy <name>
+// ships one function at a time and a shared module is invisible
+// drift surface. Byte-identical mirror at src/utils/escapeHtml.ts.
+function escapeHtml(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -71,7 +81,7 @@ Deno.serve(async (req: Request) => {
           from: "I.M.R Inventory <onboarding@resend.dev>",
           to: [email],
           subject: "You're invited to I.M.R — Inventory Management for Restaurant",
-          html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:40px 20px"><div style="background:#1A1A18;border-radius:12px;padding:32px;text-align:center;margin-bottom:24px"><h1 style="color:#FFF;font-size:28px;margin:0;letter-spacing:1px">I.M.R</h1><p style="color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:14px">Inventory Management for Restaurant</p></div><h2 style="color:#1A1A18;font-size:20px">Welcome, ${name}!</h2><p style="color:#6B6A65;font-size:15px;line-height:1.6">You've been invited to join <strong>I.M.R</strong> as a <strong>${role}</strong>${storeNames ? ` with access to <strong>${storeNames}</strong>` : ""}.</p><p style="color:#6B6A65;font-size:15px;line-height:1.6">Click the button below to create your account:</p><div style="text-align:center;margin:32px 0"><a href="${registerUrl}" style="background:#1A1A18;color:#FFF;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;display:inline-block">Create your account</a></div><p style="color:#9B9A95;font-size:13px;text-align:center">This invitation expires in <strong>${expiresText}</strong>.</p><hr style="border:none;border-top:1px solid #EEEDE8;margin:32px 0"/><p style="color:#9B9A95;font-size:12px;text-align:center">I.M.R — Inventory Management for Restaurant</p></div>`,
+          html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:40px 20px"><div style="background:#1A1A18;border-radius:12px;padding:32px;text-align:center;margin-bottom:24px"><h1 style="color:#FFF;font-size:28px;margin:0;letter-spacing:1px">I.M.R</h1><p style="color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:14px">Inventory Management for Restaurant</p></div><h2 style="color:#1A1A18;font-size:20px">Welcome, ${escapeHtml(name)}!</h2><p style="color:#6B6A65;font-size:15px;line-height:1.6">You've been invited to join <strong>I.M.R</strong> as a <strong>${escapeHtml(role)}</strong>${storeNames ? ` with access to <strong>${escapeHtml(storeNames)}</strong>` : ""}.</p><p style="color:#6B6A65;font-size:15px;line-height:1.6">Click the button below to create your account:</p><div style="text-align:center;margin:32px 0"><a href="${escapeHtml(registerUrl)}" style="background:#1A1A18;color:#FFF;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;display:inline-block">Create your account</a></div><p style="color:#9B9A95;font-size:13px;text-align:center">This invitation expires in <strong>${escapeHtml(expiresText)}</strong>.</p><hr style="border:none;border-top:1px solid #EEEDE8;margin:32px 0"/><p style="color:#9B9A95;font-size:12px;text-align:center">I.M.R — Inventory Management for Restaurant</p></div>`,
         }),
       });
 

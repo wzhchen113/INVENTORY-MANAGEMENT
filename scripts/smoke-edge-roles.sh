@@ -251,6 +251,58 @@ if [[ -n "${SUPER_ADMIN_BEARER}" ]]; then
   fi
 fi
 
+################################################################################
+# Arm 5 — Response body does NOT echo unescaped <script> markup. Spec 028.
+#
+# Defense-in-depth check that the function's JSON response path does not
+# reflect unsanitized caller input back. The primary attack surface (the
+# rendered HTML email body) is covered by:
+#   - Track C jest tests on src/utils/escapeHtml.ts
+#   - Manual CT6 gate (developer runs one curl + one docker-logs-grep)
+# This arm catches the secondary case: the function 4xx'ing with an
+# error message that echoes the literal tag.
+#
+# Reuses Arm 3's $ADMIN_BEARER. SKIPs if Arm 3 could not mint a token.
+# Best-effort cleanup deletes the auth.users row created via the
+# auth.admin.inviteUserByEmail fallback (no RESEND_API_KEY locally).
+################################################################################
+step "Arm 5: response body does not echo unescaped <script> markup (spec 028)"
+if [[ -z "${ADMIN_BEARER}" ]]; then
+  skip "escape-test arm" "no ADMIN_BEARER (no local stack?)"
+else
+  ESCAPE_EMAIL="escape-test-${RANDOM}@local.test"
+  PAYLOAD=$(printf '{"email":"%s","name":"<script>x</script>","role":"user","storeNames":""}' "$ESCAPE_EMAIL")
+  RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${ADMIN_BEARER}" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    "$FN_URL")
+  CODE=$(printf '%s' "$RESPONSE" | tail -1)
+  BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+
+  # Pass conditions:
+  # - HTTP status is 200 (Resend fallthrough → Supabase Auth invite, success
+  #   on fresh email) OR 4xx (validation or rate-limit; both legitimate
+  #   non-crash exits).
+  # - Response body does NOT contain literal "<script>" (case-insensitive).
+  if [[ "$CODE" == "200" || "$CODE" =~ ^4[0-9][0-9]$ ]]; then
+    if printf '%s' "$BODY" | grep -qi '<script>'; then
+      fail "response body echoed unescaped <script> markup: ${BODY:0:200}"
+    else
+      pass "response body does not reflect unescaped tag (HTTP ${CODE})"
+    fi
+  else
+    fail "unexpected ${CODE}: ${BODY:0:200}"
+  fi
+
+  # Best-effort cleanup: delete the auth.users row we may have created
+  # via the auth.admin.inviteUserByEmail fallback. Local-only.
+  docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -c \
+    "delete from auth.users where email='${ESCAPE_EMAIL}';" \
+    >/dev/null 2>&1 || true
+fi
+
 printf '\n'
 if [[ $FAILED -eq 0 ]]; then
   printf '\033[32m✓ all checks passed\033[0m\n'
