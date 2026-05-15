@@ -32,12 +32,13 @@ import { ReportDetailFrame } from './reports/ReportDetailFrame';
 interface OverrideState {
   range?: { range: string; from: string; to: string };
   // Spec 034 — `waste` runs admit a third grouping `'reason'`.
-  // Spec 035 — `vendor` adds `'vendor'`. COGS continues to ignore
-  // unknown values if a user somehow saved them on a COGS definition
-  // — the RPC coerces unknown `by:` values to its own default.
-  // Keeping the union wide here avoids per-template override-state
-  // shapes.
-  by?: 'reason' | 'vendor' | 'category' | 'item';
+  // Spec 035 — `vendor` adds `'vendor'`.
+  // Spec 036 — `velocity` adds `'recipe'`. COGS and other templates
+  // continue to ignore unknown values if a user somehow saved them on
+  // a non-velocity definition — the RPC coerces unknown `by:` values
+  // to its own default. Keeping the union wide here avoids
+  // per-template override-state shapes.
+  by?: 'reason' | 'vendor' | 'recipe' | 'category' | 'item';
 }
 
 export default function ReportsSection() {
@@ -174,7 +175,7 @@ export default function ReportsSection() {
       return next;
     });
   };
-  const setOverrideBy = (by: 'reason' | 'vendor' | 'category' | 'item') => {
+  const setOverrideBy = (by: 'reason' | 'vendor' | 'recipe' | 'category' | 'item') => {
     if (!selectedDefinitionId) return;
     setOverrides((prev) => {
       const next = new Map(prev);

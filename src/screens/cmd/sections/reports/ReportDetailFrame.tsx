@@ -53,13 +53,14 @@ export interface ReportDetailFrameProps {
    * pattern as `onRangeChange`.
    *
    * Spec 034 — `'reason'` admitted for the `waste` template.
-   * Spec 035 — `'vendor'` admitted for the `vendor` template. COGS
-   * continues to ignore unknown values if a user somehow saved them
-   * on a COGS definition (forward-compat: the RPC coerces unknown
-   * values to its own default).
+   * Spec 035 — `'vendor'` admitted for the `vendor` template.
+   * Spec 036 — `'recipe'` admitted for the `velocity` template. COGS
+   * and other templates continue to ignore unknown values if a user
+   * somehow saved them on a non-velocity definition (forward-compat:
+   * the RPC coerces unknown values to its own default).
    */
-  overrideBy?: 'reason' | 'vendor' | 'category' | 'item' | null;
-  onByChange?: (by: 'reason' | 'vendor' | 'category' | 'item') => void;
+  overrideBy?: 'reason' | 'vendor' | 'recipe' | 'category' | 'item' | null;
+  onByChange?: (by: 'reason' | 'vendor' | 'recipe' | 'category' | 'item') => void;
   /**
    * Spec 017 — reset both overrides back to the definition's saved
    * params. Wired by `ReportsSection`; the chips show a small `reset`
@@ -183,14 +184,16 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
     ? (definition.params!['to'] as string)
     : null;
   // Spec 034 — admit `'reason'` for the waste template.
-  // Spec 035 — admit `'vendor'` for the vendor template. The narrow
+  // Spec 035 — admit `'vendor'` for the vendor template.
+  // Spec 036 — admit `'recipe'` for the velocity template. The narrow
   // ternary preserves the legacy two-option behaviour for COGS (any
   // value other than 'item' coerces to 'category').
   const rawSavedBy = definition.params?.['by'];
-  const savedBy: 'reason' | 'vendor' | 'category' | 'item' =
+  const savedBy: 'reason' | 'vendor' | 'recipe' | 'category' | 'item' =
     rawSavedBy === 'item'   ? 'item'   :
     rawSavedBy === 'reason' ? 'reason' :
     rawSavedBy === 'vendor' ? 'vendor' :
+    rawSavedBy === 'recipe' ? 'recipe' :
     'category';
 
   // Effective values = override if present, else saved. The chips render
@@ -198,7 +201,7 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
   const effectiveRange = overrideRange?.range ?? savedRange ?? 'last_30d';
   const effectiveFrom = overrideRange?.from ?? savedFrom ?? '';
   const effectiveTo = overrideRange?.to ?? savedTo ?? '';
-  const effectiveBy: 'reason' | 'vendor' | 'category' | 'item' = overrideBy ?? savedBy;
+  const effectiveBy: 'reason' | 'vendor' | 'recipe' | 'category' | 'item' = overrideBy ?? savedBy;
 
   const rangeOverridden = overrideRange != null && (
     overrideRange.range !== (savedRange ?? '') ||
@@ -254,7 +257,7 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
     setEditingDate(null);
   };
 
-  const onPickBy = (b: 'reason' | 'vendor' | 'category' | 'item') => {
+  const onPickBy = (b: 'reason' | 'vendor' | 'recipe' | 'category' | 'item') => {
     if (!onByChange) return;
     onByChange(b);
     setOpenMenu(null);
@@ -265,10 +268,15 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
   // generic template-options registry refactor until a fourth axis lands).
   // Spec 035 — vendor gets its own three-option list (`vendor`,
   // `category`, `item`).
-  const byOpts: ReadonlyArray<'reason' | 'vendor' | 'category' | 'item'> =
-    definition.templateId === 'waste'  ? (['reason', 'category', 'item'] as const) :
-    definition.templateId === 'vendor' ? (['vendor', 'category', 'item'] as const) :
-                                          (['category', 'item'] as const);
+  // Spec 036 — velocity gets its own two-option list (`recipe`, `category`).
+  // At five live templates this ternary is the complexity ceiling — promote
+  // to a templates.ts byOptions field in the next velocity-shaped template's
+  // spec (see architect §A0 #4 deferral).
+  const byOpts: ReadonlyArray<'reason' | 'vendor' | 'recipe' | 'category' | 'item'> =
+    definition.templateId === 'waste'    ? (['reason', 'category', 'item'] as const) :
+    definition.templateId === 'vendor'   ? (['vendor', 'category', 'item'] as const) :
+    definition.templateId === 'velocity' ? (['recipe', 'category'] as const)         :
+                                            (['category', 'item'] as const);
 
   return (
     <ScrollView
@@ -657,10 +665,11 @@ const RangePopover: React.FC<{
 
 const ByPopover: React.FC<{
   C: ReturnType<typeof useCmdColors>;
-  effective: 'reason' | 'vendor' | 'category' | 'item';
-  /** Spec 034 / 035 — per-template option list (waste / vendor show three; COGS shows two). */
-  options: ReadonlyArray<'reason' | 'vendor' | 'category' | 'item'>;
-  onPick: (b: 'reason' | 'vendor' | 'category' | 'item') => void;
+  effective: 'reason' | 'vendor' | 'recipe' | 'category' | 'item';
+  /** Spec 034 / 035 / 036 — per-template option list (waste / vendor show three;
+   *  velocity shows two; COGS shows two). */
+  options: ReadonlyArray<'reason' | 'vendor' | 'recipe' | 'category' | 'item'>;
+  onPick: (b: 'reason' | 'vendor' | 'recipe' | 'category' | 'item') => void;
   onClose: () => void;
 }> = ({ C, effective, options, onPick, onClose }) => (
   <View

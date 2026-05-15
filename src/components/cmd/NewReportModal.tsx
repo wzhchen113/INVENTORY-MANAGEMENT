@@ -72,20 +72,26 @@ const PRESETS: Array<{ id: PresetId; label: string }> = [
 // and the `'vendor'` value joins the ByOption union. The COGS RPC silently
 // coerces unknown by-values to its default, so the union is purely a
 // TypeScript-side ergonomic concern — no saved-definition migration needed.
-type ByOption = 'reason' | 'vendor' | 'category' | 'item';
+// Spec 036 — velocity adds a fourth entry (`['recipe', 'category']`) and
+// the `'recipe'` value joins the ByOption union. Same forward-compat
+// rationale as vendor.
+type ByOption = 'reason' | 'vendor' | 'recipe' | 'category' | 'item';
 const BY_OPTIONS: Record<string, ReadonlyArray<ByOption>> = {
-  cogs:   ['category', 'item'] as const,
-  waste:  ['reason', 'category', 'item'] as const,
-  vendor: ['vendor', 'category', 'item'] as const,
+  cogs:     ['category', 'item'] as const,
+  waste:    ['reason', 'category', 'item'] as const,
+  vendor:   ['vendor', 'category', 'item'] as const,
+  velocity: ['recipe', 'category'] as const,
 };
 const DEFAULT_BY_OPTIONS: ReadonlyArray<ByOption> = ['category', 'item'] as const;
 
 function defaultByForTemplate(templateId: string): ByOption {
   // Waste defaults to 'reason' (catalog tile advertises "by reason & category");
-  // vendor defaults to 'vendor' (the obvious default for spend reports).
+  // vendor defaults to 'vendor' (the obvious default for spend reports);
+  // velocity defaults to 'recipe' (managers think "which menu items are selling").
   // All other live non-variance templates default to 'category' (COGS precedent).
-  if (templateId === 'waste')  return 'reason';
-  if (templateId === 'vendor') return 'vendor';
+  if (templateId === 'waste')    return 'reason';
+  if (templateId === 'vendor')   return 'vendor';
+  if (templateId === 'velocity') return 'recipe';
   return 'category';
 }
 
@@ -121,7 +127,7 @@ export const NewReportModal: React.FC<Props> = ({
   // Code-reviewer spec 034 S1 — initialize via defaultByForTemplate(initialPicked)
   // so the first paint shows the correct chip (e.g. 'reason' for waste pre-seed).
   // The visible-true effect below still re-keys on subsequent template switches.
-  const [by, setBy] = React.useState<'reason' | 'vendor' | 'category' | 'item'>(defaultByForTemplate(initialPicked));
+  const [by, setBy] = React.useState<'reason' | 'vendor' | 'recipe' | 'category' | 'item'>(defaultByForTemplate(initialPicked));
   // Manual-edit affordance: each cell flips to an editable TextInput on tap.
   // We track per-field edit state so tapping `from` doesn't also open `to`.
   const [editing, setEditing] = React.useState<'from' | 'to' | null>(null);
