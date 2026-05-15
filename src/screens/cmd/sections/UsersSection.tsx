@@ -67,6 +67,16 @@ export default function UsersSection() {
   // Non-master admins do not see other master/super_admin rows. Master
   // sees everyone. Mirrors legacy AdminScreens.tsx:1386.
   const rawUsers = users || [];
+  // Spec 031 — derive last-of-role counts from the same fetched users
+  // array. The server is the authoritative gate (delete-user edge fn
+  // calls public.assert_not_last_of_role); this is a UX hint that hides
+  // the DELETE button when the server would refuse. Counts derive from
+  // rawUsers (the full fetched set), NOT visibleUsers, so the count
+  // matches what the server sees for the caller's brand scope.
+  const lastOfRole = {
+    super_admin: rawUsers.filter((u) => u.role === 'super_admin').length <= 1,
+    master:      rawUsers.filter((u) => u.role === 'master').length <= 1,
+  };
   const visibleUsers = isMaster
     ? rawUsers
     : rawUsers.filter((u) => u.role !== 'master' && u.role !== 'super_admin');
@@ -206,6 +216,7 @@ export default function UsersSection() {
                 isMaster={isMaster}
                 currentUserId={currentUser?.id || ''}
                 stores={stores}
+                lastOfRole={lastOfRole}
                 onDelete={() => setDeleteTarget(u)}
                 onResetPassword={() => handleSendReset(u)}
               />
@@ -246,27 +257,35 @@ export default function UsersSection() {
 
 // ─── User row ───────────────────────────────────────────────────────
 function UserRow({
-  user, isFirst, isMaster, currentUserId, stores, onDelete, onResetPassword,
+  user, isFirst, isMaster, currentUserId, stores, lastOfRole, onDelete, onResetPassword,
 }: {
   user: User;
   isFirst: boolean;
   isMaster: boolean;
   currentUserId: string;
   stores: ReturnType<typeof useStore.getState>['stores'];
+  lastOfRole: { super_admin: boolean; master: boolean };
   onDelete: () => void;
   onResetPassword: () => void;
 }) {
   const C = useCmdColors();
   const isSelf = !!currentUserId && user.id === currentUserId;
 
-  // Spec 025 AC24 — delete gates (updated in spec 030 to strip self-delete):
+  // Spec 025 AC24 — delete gates (updated in spec 030 to strip self-delete,
+  // spec 031 to suppress last-of-role):
   //   - Master / super_admin: can delete anyone except self.
   //   - Non-master admin: can delete `user` rows. Cannot delete self
   //     (the `delete-user` edge function rejects self-delete with HTTP
   //     400 — surface no affordance) or other admins / master.
-  const canDelete = isMaster
+  //   - Spec 031: also suppress DELETE on the last super_admin / master
+  //     (would otherwise hit a server HTTP 400 from
+  //     public.assert_not_last_of_role). Server is authoritative; this
+  //     is a UX hint, not security.
+  const canDelete = (isMaster
     ? !isSelf
-    : !isSelf && user.role !== 'admin' && user.role !== 'master' && user.role !== 'super_admin';
+    : !isSelf && user.role !== 'admin' && user.role !== 'master' && user.role !== 'super_admin')
+    && !(user.role === 'super_admin' && lastOfRole.super_admin)
+    && !(user.role === 'master'      && lastOfRole.master);
 
   // Spec 025 AC25 — password-reset gates:
   //   - Master / super_admin: can reset anyone EXCEPT master/super_admin

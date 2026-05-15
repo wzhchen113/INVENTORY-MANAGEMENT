@@ -65,6 +65,43 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Spec 031 — last-of-role guard. Refuse deletion if the target is
+    // the only remaining super_admin or master. The guard sits BEFORE
+    // any side-effect deletes so a refusal is atomic — no partial
+    // cleanup on the target's row. The SQL helper
+    // public.assert_not_last_of_role() is the single source of truth
+    // (also exercised by supabase/tests/delete_last_privileged_guard.test.sql).
+    //
+    // Auth-only user (no profiles row) → guard no-ops; the existing
+    // delete sequence handles cleanup of user_stores / invitations /
+    // auth.users as before.
+    const { data: targetProfile, error: lookupError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (lookupError) {
+      return new Response(JSON.stringify({ error: lookupError.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (targetProfile?.role) {
+      const { error: guardError } = await supabase.rpc("assert_not_last_of_role", {
+        target_user_id: userId,
+        target_role: targetProfile.role,
+      });
+      if (guardError) {
+        const status = guardError.code === "P0001" ? 400 : 500;
+        return new Response(JSON.stringify({ error: guardError.message }), {
+          status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     await supabase.from("user_stores").delete().eq("user_id", userId);
     await supabase.from("profiles").delete().eq("id", userId);
     await supabase.from("invitations").delete().eq("profile_id", userId);

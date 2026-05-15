@@ -303,6 +303,83 @@ else
     >/dev/null 2>&1 || true
 fi
 
+################################################################################
+# Arm 6 — last-super-admin delete refusal. Spec 031.
+#
+# Reuses Arm 4's super_admin promotion (PROMOTED=1 and SUPER_ADMIN_BEARER set).
+# After Arm 4 runs, admin@local.test is the sole super_admin row in profiles.
+# This arm POSTs delete-user with the promoted user as both caller and target —
+# the function should refuse with HTTP 400 AND no state mutation should occur.
+#
+# Either refusal string is acceptable (spec AC line 182-189):
+#   - "cannot delete self" (the self-delete refusal at line 59-64) — fires
+#     FIRST per the design at §4 ordering, so this is what we expect in
+#     practice.
+#   - "cannot delete the last super_admin" (the new last-of-role refusal at
+#     P0001 → HTTP 400) — would fire if a future dev reorders the checks.
+#
+# State-mutation invariant: re-query super_admin count after the refused
+# call. Must still be 1. If it changed, the function partial-deleted before
+# refusing — that's a FAIL.
+################################################################################
+step "Arm 6: last-super-admin delete refusal (spec 031)"
+DELETE_USER_URL="${SUPABASE_URL}/functions/v1/delete-user"
+
+if [[ "$PROMOTED" != "1" ]]; then
+  skip "last-super-admin arm" "Arm 4 super_admin promotion did not run"
+elif [[ -z "${SUPER_ADMIN_BEARER}" ]]; then
+  skip "last-super-admin arm" "no SUPER_ADMIN_BEARER (Arm 4 login failed?)"
+else
+  SA_COUNT=$(docker exec -i supabase_db_imr-inventory psql -tA \
+    -U postgres -d postgres \
+    -c "select count(*) from public.profiles where role='super_admin';" \
+    2>/dev/null | tr -d ' ')
+  if [[ "$SA_COUNT" != "1" ]]; then
+    skip "last-super-admin arm" "super_admin count is ${SA_COUNT:-?} (need exactly 1 for this arm)"
+  else
+    pass "pre-check: exactly one super_admin row in profiles"
+
+    ADMIN_UID=$(docker exec -i supabase_db_imr-inventory psql -tA \
+      -U postgres -d postgres \
+      -c "select id from auth.users where email='${ADMIN_EMAIL}' limit 1;" \
+      2>/dev/null | tr -d ' ')
+
+    if [[ -z "$ADMIN_UID" ]]; then
+      fail "could not resolve admin uid for ${ADMIN_EMAIL}"
+    else
+      RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+        -H "apikey: ${SUPABASE_ANON_KEY}" \
+        -H "Authorization: Bearer ${SUPER_ADMIN_BEARER}" \
+        -H "Content-Type: application/json" \
+        -d "{\"userId\":\"${ADMIN_UID}\"}" \
+        "$DELETE_USER_URL")
+      CODE=$(printf '%s' "$RESPONSE" | tail -1)
+      BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+
+      if [[ "$CODE" == "400" ]]; then
+        if printf '%s' "$BODY" | grep -qE '"error":"cannot delete (self|the last super_admin)"'; then
+          pass "delete-user refused (HTTP 400, $BODY)"
+        else
+          fail "expected refusal string ('cannot delete self' or 'cannot delete the last super_admin'), got: ${BODY:0:200}"
+        fi
+      else
+        fail "expected 400, got $CODE: ${BODY:0:200}"
+      fi
+
+      # State-mutation invariant: super_admin count must still be 1.
+      POST_SA_COUNT=$(docker exec -i supabase_db_imr-inventory psql -tA \
+        -U postgres -d postgres \
+        -c "select count(*) from public.profiles where role='super_admin';" \
+        2>/dev/null | tr -d ' ')
+      if [[ "$POST_SA_COUNT" == "1" ]]; then
+        pass "post-check: super_admin count unchanged (still 1) — function did not partial-delete"
+      else
+        fail "post-check: super_admin count changed to ${POST_SA_COUNT:-?} (expected 1) — function partial-deleted before refusing"
+      fi
+    fi
+  fi
+fi
+
 printf '\n'
 if [[ $FAILED -eq 0 ]]; then
   printf '\033[32m✓ all checks passed\033[0m\n'
