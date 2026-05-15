@@ -154,6 +154,14 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
   // since variance is the only template that interprets the date pair
   // this way for now.
   const isVariance = definition.templateId === 'variance';
+  // Spec 037 — custom reports hide all three header chips (range / by /
+  // reset). The saved SQL is rendered as a read-only code-pre block
+  // above the result body so the operator sees "what was actually run."
+  // Truncation hint paints above the table when `output._truncated`.
+  const isCustom = definition.templateId === 'custom';
+  const savedSql = typeof definition.params?.['sql'] === 'string'
+    ? (definition.params!['sql'] as string)
+    : '';
 
   const isNotImplemented =
     latestRun?.output?._status === 'not_implemented';
@@ -366,21 +374,26 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
 
-          {/* range chip */}
-          <ChipButton
-            C={C}
-            label={
-              isVariance
-                ? varianceRangeLabel(effectiveFrom, effectiveTo)
-                : `range: ${rangeLabel(effectiveRange, effectiveFrom, effectiveTo)}`
-            }
-            overridden={rangeOverridden}
-            interactive={rangeInteractive}
-            onPress={() => { setOpenMenu((m) => (m === 'range' ? null : 'range')); }}
-          />
+          {/* range chip — hidden for custom per Spec 037 (no date-range
+              semantics; saved SQL is the source of truth). */}
+          {isCustom ? null : (
+            <ChipButton
+              C={C}
+              label={
+                isVariance
+                  ? varianceRangeLabel(effectiveFrom, effectiveTo)
+                  : `range: ${rangeLabel(effectiveRange, effectiveFrom, effectiveTo)}`
+              }
+              overridden={rangeOverridden}
+              interactive={rangeInteractive}
+              onPress={() => { setOpenMenu((m) => (m === 'range' ? null : 'range')); }}
+            />
+          )}
 
-          {/* by chip — hidden for variance per Spec 018. */}
-          {isVariance ? null : (
+          {/* by chip — hidden for variance per Spec 018 and for custom
+              per Spec 037 (custom has no by-axis; the output columns are
+              determined by the user's SELECT). */}
+          {isVariance || isCustom ? null : (
             <>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
               <ChipButton
@@ -393,7 +406,9 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
             </>
           )}
 
-          {anyOverride && onResetOverrides ? (
+          {/* reset link — hidden for custom per Spec 037 (no overrides
+              apply; nothing to reset). */}
+          {isCustom ? null : (anyOverride && onResetOverrides ? (
             <>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
               <TouchableOpacity
@@ -404,7 +419,7 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
                 <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: C.accent }}>reset</Text>
               </TouchableOpacity>
             </>
-          ) : null}
+          ) : null)}
 
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
@@ -438,6 +453,44 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
         ) : null}
       </View>
 
+      {/* Spec 037 — read-only saved-SQL block for custom reports. Sits
+          between the header chip row and the body so the operator sees
+          "what was actually run" without re-opening the modal. Styled
+          like a code-pre block to make the role obvious. */}
+      {isCustom ? (
+        <View
+          style={{
+            backgroundColor: C.panel2,
+            borderWidth: 1,
+            borderColor: C.border,
+            borderRadius: CmdRadius.sm,
+            padding: 12,
+            gap: 6,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: mono(700),
+              fontSize: 9.5,
+              color: C.fg3,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}
+          >
+            sql
+          </Text>
+          <Text
+            style={{
+              fontFamily: mono(400),
+              fontSize: 11.5,
+              color: C.fg,
+            }}
+          >
+            {savedSql || '(no SQL saved)'}
+          </Text>
+        </View>
+      ) : null}
+
       {/* ─── Body — branches ─────────────────────────────────────────── */}
       {!latestRun ? (
         <EmptyPanel
@@ -462,7 +515,7 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
           message="Waiting for the runner to return."
         />
       ) : (
-        <ResultBody C={C} output={latestRun.output} />
+        <ResultBody C={C} output={latestRun.output} isCustom={isCustom} />
       )}
     </ScrollView>
   );
@@ -838,7 +891,7 @@ const ErrorPanel: React.FC<SubProps & { message: string | null }> = ({ C, messag
 
 // ─── Result body — KPI strip + table + chart ─────────────────────────────
 
-const ResultBody: React.FC<SubProps & { output: ReportRunOutput | null }> = ({ C, output }) => {
+const ResultBody: React.FC<SubProps & { output: ReportRunOutput | null; isCustom?: boolean }> = ({ C, output, isCustom }) => {
   if (!output) {
     return (
       <EmptyPanel
@@ -855,10 +908,25 @@ const ResultBody: React.FC<SubProps & { output: ReportRunOutput | null }> = ({ C
     output.columns.length > 0 &&
     Array.isArray(output.rows);
   const hasSeries = Array.isArray(output.series) && output.series.length >= 2;
+  // Spec 037 — truncation hint paints above the table when the custom
+  // runner reports `_truncated: true`. Other runners do not emit this
+  // key; the optional `?.` chain leaves the hint hidden for them.
+  const isTruncated = isCustom === true && output._truncated === true;
 
   return (
     <>
       {hasKpis ? <KpiStrip C={C} kpis={output.kpis} /> : null}
+      {isTruncated ? (
+        <Text
+          style={{
+            fontFamily: mono(400),
+            fontSize: 11,
+            color: C.warn,
+          }}
+        >
+          Result truncated to 1000 rows. Tighten the WHERE clause or add a LIMIT to see different rows.
+        </Text>
+      ) : null}
       {hasTable ? <ResultTable C={C} columns={output.columns} rows={output.rows} /> : null}
       {hasSeries ? <ResultChart C={C} series={output.series!} /> : null}
       {!hasKpis && !hasTable && !hasSeries ? (

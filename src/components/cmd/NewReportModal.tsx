@@ -14,6 +14,9 @@ import { seedVarianceDates } from '../../utils/seedVarianceDates';
 // Spec 018 round-2 — date helpers extracted to a shared module now that
 // the shape is proven across REPORTS-2 / REPORTS-3.
 import { PresetId, isISODate, computePreset } from '../../utils/reportDates';
+// Spec 037 C3 — pure helper carved out of this file so the three-branch
+// params derivation (custom / variance / default) is unit-testable.
+import { buildReportParams } from '../../utils/reportParams';
 
 // Re-export so existing consumers that imported `Template` from this module
 // keep working. The single source of truth is reports/templates.ts.
@@ -120,6 +123,18 @@ export const NewReportModal: React.FC<Props> = ({
     from: initialPreset.from,
     to: initialPreset.to,
   });
+  // Spec 037 — custom-SQL textarea state. Cleared on each modal open and
+  // on each mid-modal template switch (symmetric with the variance /
+  // non-variance re-seed pattern). The textarea is only rendered when
+  // picked === 'custom'; SAVE-time validation rejects empty / whitespace
+  // before calling the store. Server is still the authority — no
+  // client-side SQL parsing (would create a false sense of security).
+  const [sql, setSql] = React.useState<string>('');
+  // Spec 037 — `sqlFocused` gates the plain-Enter "create" keyboard
+  // handler. When focused inside the SQL textarea, plain Enter inserts
+  // a newline (SQL is multiline-meaningful); Cmd-Enter / Ctrl-Enter
+  // still triggers create.
+  const [sqlFocused, setSqlFocused] = React.useState<boolean>(false);
   // Spec 034 — `waste` template adds a third by-mode `'reason'` to the
   // existing `'category' | 'item'` set used by COGS. The per-template
   // option list (BY_OPTIONS below) drives the chip strip; the default
@@ -160,6 +175,10 @@ export const NewReportModal: React.FC<Props> = ({
       setDraftFrom(fresh.from);
       setDraftTo(fresh.to);
       setEodCount(-1);
+      // Spec 037 — clear the SQL textarea on each open so a fresh
+      // modal doesn't carry stale text from a previous session.
+      setSql('');
+      setSqlFocused(false);
       // Spec 018 — variance pre-fills from the most-recent two EODs.
       if (initialPicked === 'variance' && currentStore?.id) {
         seedVarianceDates(currentStore.id).then(({ from, to, eodCount: n }) => {
@@ -209,6 +228,11 @@ export const NewReportModal: React.FC<Props> = ({
       // selected chip aligned with the per-template option list.
       setBy(defaultByForTemplate(picked));
     }
+    // Spec 037 — clear the SQL textarea whenever the picked template
+    // changes mid-modal (both directions: into and out of 'custom').
+    // Symmetric with the date / by-mode reset on non-variance branches.
+    setSql('');
+    setSqlFocused(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked, visible]);
 
@@ -255,34 +279,50 @@ export const NewReportModal: React.FC<Props> = ({
   // the RPC's `P0001`/`P0002` error via the sanitized toast path.
   const isVariance = picked === 'variance';
   const varianceBlocked = isVariance && eodCount >= 0 && eodCount < 2;
+  // Spec 037 — custom-SQL template branch gates the date/by-mode chips
+  // (hidden) and renders a multiline SQL textarea instead. Save-time
+  // validation forbids empty/whitespace SQL; the server is the
+  // authority on read-only / privileged / per-row semantics.
+  const isCustom = picked === 'custom';
 
   const onCreate = () => {
     if (!name.trim()) { Toast.show({ type: 'error', text1: 'Name required' }); return; }
-    if (!isISODate(dateRange.from) || !isISODate(dateRange.to)) {
-      Toast.show({ type: 'error', text1: 'Invalid date — must be YYYY-MM-DD' });
-      return;
+    // Spec 037 — custom-template SAVE validation. Empty / whitespace-only
+    // SQL is rejected client-side as a UX courtesy; the RPC also rejects
+    // with SQLSTATE 22023 as a server-side authority check.
+    if (isCustom) {
+      if (sql.trim() === '') {
+        Toast.show({ type: 'error', text1: 'SQL required' });
+        return;
+      }
+    } else {
+      if (!isISODate(dateRange.from) || !isISODate(dateRange.to)) {
+        Toast.show({ type: 'error', text1: 'Invalid date — must be YYYY-MM-DD' });
+        return;
+      }
+      if (dateRange.from > dateRange.to) {
+        Toast.show({ type: 'error', text1: 'from must be on or before to' });
+        return;
+      }
+      if (isVariance && dateRange.from === dateRange.to) {
+        Toast.show({ type: 'error', text1: 'Variance needs two distinct EOD dates' });
+        return;
+      }
     }
-    if (dateRange.from > dateRange.to) {
-      Toast.show({ type: 'error', text1: 'from must be on or before to' });
-      return;
-    }
-    if (isVariance && dateRange.from === dateRange.to) {
-      Toast.show({ type: 'error', text1: 'Variance needs two distinct EOD dates' });
-      return;
-    }
-    // Spec 017 — COGS params shape: { range, from, to, by }. `range` is
-    // informational (drives the chip label); `from`/`to` are authoritative.
-    // Spec 018 — variance params shape: { from, to }. Per Q3, reuse from/to
-    // keys (no anchor_from / anchor_to) but drop `range` and `by` since
-    // variance has no preset window and is inherently per-item.
-    const params: Record<string, unknown> = isVariance
-      ? { from: dateRange.from, to: dateRange.to }
-      : {
-          range: dateRange.range,
-          from:  dateRange.from,
-          to:    dateRange.to,
-          by,
-        };
+    // Spec 037 — pure-helper extraction. The three-branch derivation
+    // (custom / variance / default) lives in `src/utils/reportParams.ts`
+    // and is unit-tested in `reportParams.test.ts` (test-engineer
+    // spec 037 C3 coverage). Helper preserves the prior inline
+    // semantics byte-for-byte:
+    //   - 'custom'   → { sql: <trimmed sql> }
+    //   - 'variance' → { from, to } (spec 018 — no by-axis)
+    //   - default    → { range, from, to, by } (spec 017 COGS shape)
+    const params = buildReportParams({
+      templateId: picked,
+      sql,
+      dateRange,
+      by,
+    });
     addReportDefinition({
       storeId: currentStore.id,
       templateId: picked,
@@ -300,9 +340,12 @@ export const NewReportModal: React.FC<Props> = ({
     const handler = (e: KeyboardEvent) => {
       // Don't hijack Enter while a date cell is in edit mode — the user is
       // typing into it. ⌘⏎ still creates even from a focused TextInput.
+      // Spec 037 — same guard for the custom-SQL textarea: plain Enter
+      // inside the multiline textarea must insert a newline (SQL is
+      // multi-line-meaningful), but Cmd-Enter / Ctrl-Enter still creates.
       if (e.key === 'Escape') { onClose(); e.preventDefault(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { onCreate(); e.preventDefault(); }
-      else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && editing == null) {
+      else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && editing == null && !(isCustom && sqlFocused)) {
         // Plain Enter creates too — design says "↑↓ pick · ⏎ create"
         onCreate();
         e.preventDefault();
@@ -311,7 +354,7 @@ export const NewReportModal: React.FC<Props> = ({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, picked, name, dateRange, by, editing]);
+  }, [visible, picked, name, dateRange, by, editing, sql, sqlFocused, isCustom]);
 
   if (!visible) return null;
 
@@ -390,9 +433,40 @@ export const NewReportModal: React.FC<Props> = ({
               keeps the UI consistent across templates").
               Spec 018 — variance branches: relabel from/to cells as
               "Prior EOD" / "Current EOD", hide preset chips, hide by:
-              toggle (variance is inherently per-item). */}
+              toggle (variance is inherently per-item).
+              Spec 037 — custom branches: hide date cells / preset chips /
+              by toggle entirely; render a multiline SQL textarea instead
+              with a help-hint line documenting the runner's guards. */}
           <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border, gap: 10 }}>
-            {isVariance ? (
+            {isCustom ? (
+              <>
+                <View style={{ gap: 3 }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>sql</Text>
+                  <TextInput
+                    value={sql}
+                    onChangeText={setSql}
+                    onFocus={() => setSqlFocused(true)}
+                    onBlur={() => setSqlFocused(false)}
+                    accessibilityLabel="Custom SQL query"
+                    multiline
+                    numberOfLines={8}
+                    placeholder={'SELECT name, sum(amount) FROM public.po_items GROUP BY name LIMIT 100'}
+                    placeholderTextColor={C.fg3}
+                    style={{
+                      fontFamily: mono(500), fontSize: 12, color: C.fg,
+                      backgroundColor: C.panel, borderWidth: 1, borderColor: C.border, borderRadius: 4,
+                      paddingHorizontal: 10, paddingVertical: 8,
+                      minHeight: 8 * 16,
+                      textAlignVertical: 'top',
+                      ...(Platform.OS === 'web' ? ({ outlineStyle: 'none', resize: 'vertical' } as any) : {}),
+                    }}
+                  />
+                </View>
+                <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                  SELECT only · public.* tables · 8s timeout · max 1000 rows · RLS-filtered to your stores
+                </Text>
+              </>
+            ) : isVariance ? (
               <>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <View style={{ gap: 3 }}>

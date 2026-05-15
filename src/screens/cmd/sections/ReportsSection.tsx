@@ -235,11 +235,15 @@ export default function ReportsSection() {
   // Spec 018 — variance has no by-mode (per-item only); we gate the
   // overrideBy/onByChange props so the frame hides the `by:` chip and the
   // overrides map never gets a `by` key for a variance definition.
+  // Spec 037 — custom has neither range nor by-axis semantics; we gate
+  // BOTH override props off so the frame hides both chips AND the
+  // overrides Map never gets stale entries for a custom definition.
   const selectedTemplate = selectedDefinition
     ? findTemplate(selectedDefinition.templateId)
     : undefined;
   const selectedIsLive = selectedTemplate?.status === 'live';
-  const selectedSupportsBy = selectedIsLive && selectedTemplate?.id !== 'variance';
+  const selectedSupportsBy = selectedIsLive && selectedTemplate?.id !== 'variance' && selectedTemplate?.id !== 'custom';
+  const selectedSupportsRange = selectedIsLive && selectedTemplate?.id !== 'custom';
   const selectedOverride = selectedDefinitionId ? overrides.get(selectedDefinitionId) : undefined;
 
   return (
@@ -270,11 +274,11 @@ export default function ReportsSection() {
           onRun={onRun}
           onBack={onBack}
           running={running}
-          overrideRange={selectedIsLive ? (selectedOverride?.range ?? null) : null}
-          onRangeChange={selectedIsLive ? setOverrideRange : undefined}
+          overrideRange={selectedSupportsRange ? (selectedOverride?.range ?? null) : null}
+          onRangeChange={selectedSupportsRange ? setOverrideRange : undefined}
           overrideBy={selectedSupportsBy ? (selectedOverride?.by ?? null) : null}
           onByChange={selectedSupportsBy ? setOverrideBy : undefined}
-          onResetOverrides={selectedIsLive ? resetOverrides : undefined}
+          onResetOverrides={selectedSupportsRange ? resetOverrides : undefined}
         />
       ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 18 }}>

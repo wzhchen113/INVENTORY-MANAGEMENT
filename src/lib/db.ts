@@ -1923,6 +1923,13 @@ export async function runReport(args: {
     const rawMessage = rpcError.message || '';
     if (rawMessage.startsWith('Not authorized')) {
       errorMessage = rawMessage;
+    } else if (rawMessage.startsWith('Custom SQL')) {
+      // Spec 037 — the report_run_custom runner's sanitization wall
+      // already produces caller-safe strings (the seven §5 mapped
+      // messages plus the 'Custom SQL requires admin privilege' gate
+      // raise). Pass through verbatim so the user gets actionable
+      // feedback instead of the generic "Run failed" toast.
+      errorMessage = rawMessage;
     } else {
       console.warn('[Supabase] runReport RPC failed:', rpcError);
       errorMessage = 'Run failed — check server logs';

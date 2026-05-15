@@ -542,6 +542,11 @@ export interface ReportDefinition {
  * either an array or null. The `_status`/`_message` keys are
  * envelope metadata used by the dispatcher to flag templates whose
  * runner hasn't been wired yet.
+ *
+ * Spec 037 — the `report_run_custom` runner adds two optional metadata
+ * fields (`_truncated`, `_row_count`). Other runners do not emit them;
+ * the FE branches on `templateId === 'custom'` for any rendering that
+ * relies on these keys. Optional so other runners keep typechecking.
  */
 export interface ReportRunOutput {
   kpis: Array<{
@@ -558,6 +563,9 @@ export interface ReportRunOutput {
   series: Array<{ label: string; x: string; y: number }> | null;
   _status?: 'not_implemented';
   _message?: string;
+  // Spec 037 — custom-SQL runner only. Other runners do not emit these.
+  _truncated?: boolean;
+  _row_count?: number;
 }
 
 /**

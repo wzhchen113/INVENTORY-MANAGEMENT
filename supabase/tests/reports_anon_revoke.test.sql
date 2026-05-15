@@ -7,11 +7,11 @@
 -- `auth_can_see_store(store_id)`-alone-is-sufficient-for-writes lesson
 -- at GRANT time (before any RLS evaluation).
 --
--- 11 RPCs covered (all share the same end-state shape: anon → 42501).
+-- 12 RPCs covered (all share the same end-state shape: anon → 42501).
 -- (Header was stale at "8 RPCs covered" pre-spec-035 — spec 034 added
 -- the waste arm without bumping the comment; spec 035 fixed that and
--- added the vendor arm; spec 036 added the velocity arm. Net: comment
--- goes 8 → 11 across spec-034/035/036.)
+-- added the vendor arm; spec 036 added the velocity arm; spec 037 added
+-- the custom arm. Net: comment goes 8 → 12 across spec-034/035/036/037.)
 --   • report_run(text, uuid, jsonb)                — dispatcher
 --   • report_run_stub(uuid, jsonb)                 — spec 016
 --   • report_run_cogs(uuid, jsonb)                 — spec 017
@@ -19,6 +19,7 @@
 --   • report_run_waste(uuid, jsonb)                — spec 034
 --   • report_run_vendor(uuid, jsonb)               — spec 035
 --   • report_run_velocity(uuid, jsonb)             — spec 036
+--   • report_run_custom(uuid, jsonb)               — spec 037
 --   • report_reorder_list(uuid, jsonb)             — spec 021
 --   • submit_inventory_count(...)                  — spec 019
 --   • staff_submit_eod(...)                        — spec 020 (only
@@ -38,7 +39,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(11);
+select plan(12);
 
 -- ─── fixtures ──────────────────────────────────────────────────
 do $$
@@ -152,7 +153,22 @@ select throws_ok(
   'report_run_velocity denied to anon (42501 at GRANT time)'
 );
 
--- ─── (8) report_reorder_list: anon → 42501 ────────────────────
+-- ─── (8) report_run_custom: anon → 42501 ──────────────────────
+-- Spec 037 — same `revoke from public, anon; grant to authenticated`
+-- convention. Anon's call fails at GRANT time before either the
+-- auth_can_see_store check OR the auth_is_privileged() check inside
+-- the function body — the GRANT denial fires first.
+select throws_ok(
+  format(
+    $q$select public.report_run_custom(%L::uuid, '{}'::jsonb)$q$,
+    current_setting('test.frederick_id', true)
+  ),
+  '42501',
+  null,
+  'report_run_custom denied to anon (42501 at GRANT time)'
+);
+
+-- ─── (9) report_reorder_list: anon → 42501 ────────────────────
 select throws_ok(
   format(
     $q$select public.report_reorder_list(%L::uuid, '{}'::jsonb)$q$,
@@ -163,7 +179,7 @@ select throws_ok(
   'report_reorder_list denied to anon (42501 at GRANT time)'
 );
 
--- ─── (9) submit_inventory_count: anon → 42501 ─────────────────
+-- ─── (10) submit_inventory_count: anon → 42501 ────────────────
 -- 7-arg signature: (client_uuid, store_id, kind, counted_at, status,
 -- entries, notes). All-NULL args are fine — the GRANT denial fires
 -- before any param parsing.
@@ -179,7 +195,7 @@ select throws_ok(
   'submit_inventory_count denied to anon (42501 at GRANT time)'
 );
 
--- ─── (10) staff_submit_eod: anon → 42501 ──────────────────────
+-- ─── (11) staff_submit_eod: anon → 42501 ──────────────────────
 -- Only granted to service_role; anon's call fails at GRANT time. Same
 -- SQLSTATE as the other arms even though the underlying grant rule
 -- differs (`grant ... to service_role` vs `grant ... to authenticated`).
