@@ -21,7 +21,10 @@ export const TimezoneBar: React.FC = () => {
   const timezone = useStore((s) => s.timezone);
   const setTimezone = useStore((s) => s.setTimezone);
   const currentUser = useStore((s) => s.currentUser);
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master';
+  const isAdmin =
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'master' ||
+    currentUser?.role === 'super_admin';
 
   const [showModal, setShowModal] = useState(false);
   // Force a re-render every minute so the displayed time stays current

@@ -726,10 +726,12 @@ const StoreCol: React.FC<StoreColProps> = ({
   // Slug stub — Store has no slug field, derive from id (architect §5).
   const slug = (store.id || '').slice(0, 6).toLowerCase() || '—';
 
-  // Manager — first admin/master user with this store in their list.
+  // Manager — first admin/master/super_admin user with this store in their list.
   const manager =
     users.find(
-      (u) => (u.role === 'admin' || u.role === 'master') && u.stores.includes(store.id),
+      (u) =>
+        (u.role === 'admin' || u.role === 'master' || u.role === 'super_admin') &&
+        u.stores.includes(store.id),
     )?.name || '—';
 
   // lastSync — most recent audit event for this store.

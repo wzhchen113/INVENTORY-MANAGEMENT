@@ -5,7 +5,7 @@ import {
   Store, OrderSubmission, OrderSchedule, ItemStatus,
 } from '../types';
 import type { SidebarGroup } from './sidebarLayout';
-import { useIsSuperAdmin } from '../hooks/useRole';
+import { useIsSuperAdmin, useIsMaster } from '../hooks/useRole';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -1030,6 +1030,7 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
   // so applySidebarOverride from spec 008 has nothing to operate on for
   // non-super-admin users (the merge silently drops unknown ids).
   const isSuperAdmin = useIsSuperAdmin();
+  const isMaster = useIsMaster();
   return useMemo<SidebarGroup[]>(() => {
     const groups: SidebarGroup[] = [
       {
@@ -1075,16 +1076,20 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'DBInspector',     label: 'DB inspector' },
         ],
       },
-      // Spec 025 §2.E — Admin group at the END of the tree, immediately
-      // before the super-admin-gated Tenancy group. Visible to ALL
-      // admins (per-row gating lives inside UsersSection itself).
-      {
+    ];
+    // Spec 030 — gate the Admin group on master/super_admin. Non-master
+    // admins landed on a stripped-down UsersSection (Users & access is
+    // the only Admin-group item); hiding the entry entirely matches the
+    // spec 025 security-auditor M1 recommendation and mirrors the
+    // super-admin-gated Tenancy push below.
+    if (isMaster) {
+      groups.push({
         label: 'Admin',
         items: [
           { id: 'Users', label: 'Users & access' },
         ],
-      },
-    ];
+      });
+    }
     if (isSuperAdmin) {
       groups.push({
         label: 'Tenancy',
@@ -1094,6 +1099,6 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
       });
     }
     return groups;
-  }, [isSuperAdmin]);
+  }, [isSuperAdmin, isMaster]);
 }
 

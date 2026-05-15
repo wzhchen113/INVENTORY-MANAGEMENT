@@ -259,13 +259,14 @@ function UserRow({
   const C = useCmdColors();
   const isSelf = !!currentUserId && user.id === currentUserId;
 
-  // Spec 025 AC24 — delete gates:
+  // Spec 025 AC24 — delete gates (updated in spec 030 to strip self-delete):
   //   - Master / super_admin: can delete anyone except self.
-  //   - Non-master admin: can delete `user` rows, plus self. Cannot
-  //     delete other admins / master.
+  //   - Non-master admin: can delete `user` rows. Cannot delete self
+  //     (the `delete-user` edge function rejects self-delete with HTTP
+  //     400 — surface no affordance) or other admins / master.
   const canDelete = isMaster
     ? !isSelf
-    : isSelf || (user.role !== 'admin' && user.role !== 'master' && user.role !== 'super_admin');
+    : !isSelf && user.role !== 'admin' && user.role !== 'master' && user.role !== 'super_admin';
 
   // Spec 025 AC25 — password-reset gates:
   //   - Master / super_admin: can reset anyone EXCEPT master/super_admin
