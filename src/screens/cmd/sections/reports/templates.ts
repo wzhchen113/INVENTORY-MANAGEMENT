@@ -12,6 +12,7 @@
 // REPORTS-2 flipped `cogs` to 'live' (see `20260511120000_report_run_cogs.sql`).
 // REPORTS-3 flipped `variance` to 'live' (see `20260512120000_report_run_variance.sql`).
 // Spec 034 flipped `waste` to 'live' (see `20260514170000_report_run_waste.sql`).
+// Spec 035 flipped `vendor` to 'live' (see `20260514180000_report_run_vendor.sql`).
 
 import { ReportDefinition } from '../../../../types';
 
@@ -28,7 +29,7 @@ export const TEMPLATES: Template[] = [
   { id: 'variance', name: 'Variance',           sub: 'expected vs counted',         cols: 'item · expected · counted · Δ · $ impact', icon: 'Δ', status: 'live'    },
   { id: 'waste',    name: 'Waste cost',         sub: 'by reason & category',        cols: 'date · item · qty · reason · $cost',       icon: '⌫', status: 'live'    },
   { id: 'cogs',     name: 'COGS by category',   sub: 'over time',                   cols: 'date · category · revenue · cogs · margin', icon: '%', status: 'live'    },
-  { id: 'vendor',   name: 'Vendor performance', sub: 'on-time, fill-rate',          cols: 'vendor · orders · fill % · late · $',      icon: '⊡', status: 'preview' },
+  { id: 'vendor',   name: 'Vendor performance', sub: 'on-time, fill-rate',          cols: 'vendor · orders · fill % · late · $',      icon: '⊡', status: 'live'    },
   { id: 'velocity', name: 'Item velocity',      sub: 'turn rate per ingredient',    cols: 'item · usage/wk · turns · DOH',            icon: '≋', status: 'preview' },
   { id: 'custom',   name: 'Custom SQL',         sub: 'write your own',              cols: '-- SELECT … FROM inventory',               icon: '>', status: 'preview' },
 ];
