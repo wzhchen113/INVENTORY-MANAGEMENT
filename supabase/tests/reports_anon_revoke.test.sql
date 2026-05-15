@@ -7,11 +7,12 @@
 -- `auth_can_see_store(store_id)`-alone-is-sufficient-for-writes lesson
 -- at GRANT time (before any RLS evaluation).
 --
--- 7 RPCs covered (all share the same end-state shape: anon → 42501):
+-- 8 RPCs covered (all share the same end-state shape: anon → 42501):
 --   • report_run(text, uuid, jsonb)                — dispatcher
 --   • report_run_stub(uuid, jsonb)                 — spec 016
 --   • report_run_cogs(uuid, jsonb)                 — spec 017
 --   • report_run_variance(uuid, jsonb)             — spec 018
+--   • report_run_waste(uuid, jsonb)                — spec 034
 --   • report_reorder_list(uuid, jsonb)             — spec 021
 --   • submit_inventory_count(...)                  — spec 019
 --   • staff_submit_eod(...)                        — spec 020 (only
@@ -31,7 +32,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(8);
+select plan(9);
 
 -- ─── fixtures ──────────────────────────────────────────────────
 do $$
@@ -103,7 +104,21 @@ select throws_ok(
   'report_run_variance denied to anon (42501 at GRANT time)'
 );
 
--- ─── (5) report_reorder_list: anon → 42501 ────────────────────
+-- ─── (5) report_run_waste: anon → 42501 ───────────────────────
+-- Spec 034 — `revoke from public, anon; grant to authenticated`
+-- mirrors the spec 016 convention. Anon's call fails at GRANT time
+-- before the auth_can_see_store check inside the function body.
+select throws_ok(
+  format(
+    $q$select public.report_run_waste(%L::uuid, '{}'::jsonb)$q$,
+    current_setting('test.frederick_id', true)
+  ),
+  '42501',
+  null,
+  'report_run_waste denied to anon (42501 at GRANT time)'
+);
+
+-- ─── (6) report_reorder_list: anon → 42501 ────────────────────
 select throws_ok(
   format(
     $q$select public.report_reorder_list(%L::uuid, '{}'::jsonb)$q$,
@@ -114,7 +129,7 @@ select throws_ok(
   'report_reorder_list denied to anon (42501 at GRANT time)'
 );
 
--- ─── (6) submit_inventory_count: anon → 42501 ─────────────────
+-- ─── (7) submit_inventory_count: anon → 42501 ─────────────────
 -- 7-arg signature: (client_uuid, store_id, kind, counted_at, status,
 -- entries, notes). All-NULL args are fine — the GRANT denial fires
 -- before any param parsing.
@@ -130,9 +145,9 @@ select throws_ok(
   'submit_inventory_count denied to anon (42501 at GRANT time)'
 );
 
--- ─── (7) staff_submit_eod: anon → 42501 ───────────────────────
+-- ─── (8) staff_submit_eod: anon → 42501 ───────────────────────
 -- Only granted to service_role; anon's call fails at GRANT time. Same
--- SQLSTATE as the other six even though the underlying grant rule
+-- SQLSTATE as the other seven even though the underlying grant rule
 -- differs (`grant ... to service_role` vs `grant ... to authenticated`).
 select throws_ok(
   format(

@@ -526,6 +526,8 @@ export interface ReportDefinition {
    * missing keys, so this is what the modal SHOULD send):
    *  - `cogs` (Spec 017 / REPORTS-2): `{ range?: 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d', from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD', by?: 'category' | 'item' }`.
    *    `range` is informational (drives the chip label); `from`/`to` are authoritative.
+   *  - `waste` (Spec 034): `{ range?: 'last_30d' | 'this_month' | 'last_full_month' | 'last_90d', from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD', by?: 'reason' | 'category' | 'item' }`.
+   *    Same shape as cogs but with an extra `'reason'` value on the `by` axis.
    *  - Other templates: TBD per their own specs.
    */
   params?: Record<string, unknown>;

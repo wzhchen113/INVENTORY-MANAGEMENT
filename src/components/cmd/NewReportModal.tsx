@@ -62,6 +62,24 @@ const PRESETS: Array<{ id: PresetId; label: string }> = [
 // originally. Behavior contract preserved verbatim — see the new module
 // for the contract spec and the colocated test.
 
+// Spec 034 — per-template by-mode option lists. COGS keeps its existing
+// two-option set; waste advertises three (the catalog tile copy reads
+// "by reason & category"). Templates not in this map fall through to the
+// COGS default for forward-compat (variance is gated separately by
+// `isVariance` and never reads this map).
+type ByOption = 'reason' | 'category' | 'item';
+const BY_OPTIONS: Record<string, ReadonlyArray<ByOption>> = {
+  cogs:  ['category', 'item'] as const,
+  waste: ['reason', 'category', 'item'] as const,
+};
+const DEFAULT_BY_OPTIONS: ReadonlyArray<ByOption> = ['category', 'item'] as const;
+
+function defaultByForTemplate(templateId: string): ByOption {
+  // Waste defaults to 'reason' (catalog tile advertises "by reason & category");
+  // all other live non-variance templates default to 'category' (COGS precedent).
+  return templateId === 'waste' ? 'reason' : 'category';
+}
+
 export const NewReportModal: React.FC<Props> = ({
   visible,
   onClose,
@@ -87,7 +105,14 @@ export const NewReportModal: React.FC<Props> = ({
     from: initialPreset.from,
     to: initialPreset.to,
   });
-  const [by, setBy] = React.useState<'category' | 'item'>('category');
+  // Spec 034 — `waste` template adds a third by-mode `'reason'` to the
+  // existing `'category' | 'item'` set used by COGS. The per-template
+  // option list (BY_OPTIONS below) drives the chip strip; the default
+  // selected option is re-keyed on each modal open / template switch.
+  // Code-reviewer spec 034 S1 — initialize via defaultByForTemplate(initialPicked)
+  // so the first paint shows the correct chip (e.g. 'reason' for waste pre-seed).
+  // The visible-true effect below still re-keys on subsequent template switches.
+  const [by, setBy] = React.useState<'reason' | 'category' | 'item'>(defaultByForTemplate(initialPicked));
   // Manual-edit affordance: each cell flips to an editable TextInput on tap.
   // We track per-field edit state so tapping `from` doesn't also open `to`.
   const [editing, setEditing] = React.useState<'from' | 'to' | null>(null);
@@ -113,7 +138,9 @@ export const NewReportModal: React.FC<Props> = ({
       setFilter('');
       const fresh = computePreset('last_30d');
       setDateRange({ range: 'last_30d', from: fresh.from, to: fresh.to });
-      setBy('category');
+      // Spec 034 — per-template by-mode default (waste → 'reason';
+      // others → 'category', the COGS precedent).
+      setBy(defaultByForTemplate(initialPicked));
       setEditing(null);
       setDraftFrom(fresh.from);
       setDraftTo(fresh.to);
@@ -162,6 +189,10 @@ export const NewReportModal: React.FC<Props> = ({
       setDraftTo(fresh.to);
       setEodCount(-1);
       setEditing(null);
+      // Spec 034 — re-seed by-mode default when the user switches between
+      // non-variance live templates (e.g. COGS ↔ waste). Keeps the
+      // selected chip aligned with the per-template option list.
+      setBy(defaultByForTemplate(picked));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked, visible]);
@@ -500,10 +531,13 @@ export const NewReportModal: React.FC<Props> = ({
                     );
                   })}
                 </View>
-                {/* by: toggle */}
+                {/* by: toggle — Spec 034 — per-template option list. COGS
+                    keeps the historical two-option set; waste advertises
+                    three (reason / category / item). The default is set
+                    on modal open and on mid-modal template switch above. */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>by</Text>
-                  {(['category', 'item'] as const).map((opt) => {
+                  {(BY_OPTIONS[picked] ?? DEFAULT_BY_OPTIONS).map((opt) => {
                     const sel = by === opt;
                     return (
                       <TouchableOpacity
