@@ -188,6 +188,36 @@ use only.
 4. If the source touches `src/lib/db.ts`, mock at that boundary in the
    test file — see the hybrid-mocking example above.
 
+### Store-action tests (spec 033)
+
+Zustand store actions (`useStore`-slice mutations) get their own jest
+shape:
+
+- **State isolation.** Snapshot the initial store state at module-eval
+  via `const INITIAL_STATE = useStore.getState();` (captured AFTER
+  `jest.mock` hoists). Restore in `beforeEach` via
+  `useStore.setState(INITIAL_STATE, true)` — the `true` flag triggers a
+  full replace; without it Zustand merges nested objects and the reset
+  is partial.
+- **Mock boundaries.** Mock `../lib/supabase` to prevent the env-var
+  crash at module-eval (same shape `src/lib/auth.test.ts` uses). Mock
+  `../lib/db` with minimal stubs for whichever helpers the action under
+  test calls. Mock `../lib/auth` if the action dynamically imports it.
+- **Dynamic-import gotcha.** `useStore.deleteProfile` uses
+  `await import('../lib/auth')` so the auth module isn't pulled into
+  every consumer. `babel-preset-expo` preserves `import('x')`
+  expressions for Metro chunking, so jest's mock registry doesn't catch
+  them by default. The in-tree
+  [`tests/babel-jest-dynamic-import.js`](./babel-jest-dynamic-import.js)
+  transformer (wired in `jest.config.js`) rewrites literal-source
+  dynamic imports to `Promise.resolve(require('literal'))` so
+  `jest.mock` interception works. No new dev-dependency added.
+- **Reference example.**
+  [`src/store/useStore.test.ts`](../src/store/useStore.test.ts) — three
+  cases for `deleteProfile`'s silent-toast branch (default fires the
+  store toast, `{ silent: true }` suppresses it, error path still toasts
+  via `notifyBackendError`).
+
 ### When NOT to add a jest test
 
 - Logic that's purely a DB constraint, trigger, or RLS policy → Track 2.

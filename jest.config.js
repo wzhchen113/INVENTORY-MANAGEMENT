@@ -51,8 +51,18 @@ const baseProject = {
   transformIgnorePatterns,
   moduleNameMapper,
   setupFilesAfterEnv: ['<rootDir>/tests/jest.setup.ts'],
-  // jest-expo configures babel-jest via babel-preset-expo. Do not override
-  // `transform` here; doing so double-transforms TS and breaks the build.
+  // Spec 033 — `transform` points at a thin wrapper around babel-jest that
+  // rewrites `import('literal')` → `Promise.resolve(require('literal'))`
+  // so `jest.mock(...)` intercepts dynamic imports inside the module under
+  // test (notably `useStore.deleteProfile`'s dynamic `import('../lib/auth')`).
+  // The wrapper delegates the actual transform to babel-jest (which
+  // jest-expo's babel-preset-expo configures) — so there is no double-
+  // transform; this is the same babel-preset-expo path with one post-
+  // processing pass. See `tests/babel-jest-dynamic-import.js` for the
+  // rationale and the SAFETY NOTE.
+  transform: {
+    '^.+\\.[jt]sx?$': '<rootDir>/tests/babel-jest-dynamic-import.js',
+  },
 };
 
 module.exports = {

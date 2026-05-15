@@ -11,6 +11,7 @@ import { InviteUserDrawer } from '../../../components/cmd/InviteUserDrawer';
 import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
 import { User } from '../../../types';
 import { useIsMaster } from '../../../hooks/useRole';
+import { canDeleteUser, deriveLastOfRole } from '../../../utils/userPermissions';
 
 // Spec 025 §2 — admin-global users surface. Replaces the legacy
 // UsersScreen from AdminScreens.tsx (master role + admin role + store
@@ -73,10 +74,8 @@ export default function UsersSection() {
   // the DELETE button when the server would refuse. Counts derive from
   // rawUsers (the full fetched set), NOT visibleUsers, so the count
   // matches what the server sees for the caller's brand scope.
-  const lastOfRole = {
-    super_admin: rawUsers.filter((u) => u.role === 'super_admin').length <= 1,
-    master:      rawUsers.filter((u) => u.role === 'master').length <= 1,
-  };
+  // Spec 033 — extracted to `deriveLastOfRole` for unit-test coverage.
+  const lastOfRole = deriveLastOfRole(rawUsers);
   const visibleUsers = isMaster
     ? rawUsers
     : rawUsers.filter((u) => u.role !== 'master' && u.role !== 'super_admin');
@@ -281,11 +280,8 @@ function UserRow({
   //     (would otherwise hit a server HTTP 400 from
   //     public.assert_not_last_of_role). Server is authoritative; this
   //     is a UX hint, not security.
-  const canDelete = (isMaster
-    ? !isSelf
-    : !isSelf && user.role !== 'admin' && user.role !== 'master' && user.role !== 'super_admin')
-    && !(user.role === 'super_admin' && lastOfRole.super_admin)
-    && !(user.role === 'master'      && lastOfRole.master);
+  // Spec 033 — extracted to `canDeleteUser` for unit-test coverage.
+  const canDelete = canDeleteUser({ isMaster, isSelf, targetRole: user.role, lastOfRole });
 
   // Spec 025 AC25 — password-reset gates:
   //   - Master / super_admin: can reset anyone EXCEPT master/super_admin
