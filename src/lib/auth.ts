@@ -105,25 +105,75 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
   };
 }
 
-/** Helper: call a Supabase Edge Function */
-async function callEdgeFunction(fnName: string, body: Record<string, any>): Promise<void> {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) return;
+/**
+ * Call a Supabase Edge Function with the caller's session bearer.
+ *
+ * Always resolves; never throws. Errors are surfaced via the `error`
+ * field of the returned envelope:
+ *   - HTTP 2xx → { data: <parsed JSON body or null>, error: null }
+ *   - HTTP non-2xx with { error: "..." } body → { data: null, error: "..." }
+ *   - HTTP non-2xx with { message: "..." } body → { data: null, error: "..." }
+ *   - HTTP non-2xx with non-JSON body → { data: null, error: "HTTP <status>" }
+ *   - fetch rejection → { data: null, error: <e.message or "Network error"> }
+ *   - missing session → { data: null, error: "Not authenticated" }
+ *
+ * Some callers (inviteUser / registerInvitedUser) intentionally
+ * fire-and-forget this helper without awaiting — the email send is
+ * best-effort and not a load-bearing artifact. That pattern is
+ * preserved and the envelope is simply discarded by those callers.
+ */
+async function callEdgeFunction(
+  fnName: string,
+  body: Record<string, any>,
+): Promise<{ data: any; error: string | null }> {
+  // (a) Missing session — short-circuit, do NOT call fetch.
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { data: null, error: 'Not authenticated' };
 
-    const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-    await fetch(`${url}/functions/v1/${fnName}`, {
+  // (b) Network attempt. Catch only the fetch rejection; do NOT
+  //     swallow inside the response-parsing branches.
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  let response: Response;
+  try {
+    response = await fetch(`${url}/functions/v1/${fnName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
     });
-  } catch {
-    // Email is non-critical — don't block the invite flow
+  } catch (e: any) {
+    return { data: null, error: e?.message || 'Network error' };
   }
+
+  // (c) Body parse. Wrap in try/catch — non-JSON body must not throw
+  //     synchronously up to the caller.
+  let parsed: any = null;
+  try {
+    const text = await response.text();
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null; // text body, empty body, or malformed JSON
+  }
+
+  // (d) Status routing.
+  if (response.ok) {
+    return { data: parsed, error: null };
+  }
+
+  // (e) Non-2xx — pull the error string, falling back through the
+  //     three tiers documented in the JSDoc.
+  let error: string;
+  if (parsed && typeof parsed.error === 'string') {
+    error = parsed.error;
+  } else if (parsed && typeof parsed.message === 'string') {
+    error = parsed.message;
+  } else {
+    error = `HTTP ${response.status}`;
+  }
+  return { data: null, error };
 }
 
 /**
@@ -385,12 +435,8 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
 
 /** Delete a user fully (profile + store links + auth account via edge function) */
 export async function deleteUser(userId: string): Promise<{ error: string | null }> {
-  try {
-    await callEdgeFunction('delete-user', { userId });
-    return { error: null };
-  } catch (e: any) {
-    return { error: e.message || 'Failed to delete user' };
-  }
+  const { error } = await callEdgeFunction('delete-user', { userId });
+  return { error };
 }
 
 /**

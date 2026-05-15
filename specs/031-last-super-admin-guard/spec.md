@@ -884,6 +884,11 @@ modification: `deleteProfile` (which calls `deleteUser` in
 JSON response and passes it to `notifyBackendError`. The verbatim
 strings from §5 land in the toast.
 
+> (Update — spec 032 closed the silent-success gap surfaced by the
+> spec 031 code-reviewer S1 finding. Prior to spec 032,
+> `callEdgeFunction` swallowed non-2xx and the toast never fired.
+> Refer to spec 032 §"Caller chain audit" for the verified path.)
+
 ### 10. pgTAP test design
 
 **File:** `supabase/tests/delete_last_privileged_guard.test.sql` (new).
