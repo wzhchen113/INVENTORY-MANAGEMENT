@@ -16,6 +16,7 @@ import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { AddCountModal } from '../../../components/cmd/AddCountModal';
 import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorScheduleModal';
 import { EODEntry, EODSubmission } from '../../../types';
+import OrderScheduleSection from './OrderScheduleSection';
 
 type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
 
@@ -686,13 +687,14 @@ export default function EODCountSection() {
         )}
         <TabStrip
           tabs={[
-            { id: 'count.tsx',    label: 'count.tsx' },
-            { id: 'history.tsx',  label: 'history.tsx' },
-            { id: 'variance.log', label: 'variance.log' },
+            { id: 'count.tsx',      label: 'count.tsx' },
+            { id: 'history.tsx',    label: 'history.tsx' },
+            { id: 'variance.log',   label: 'variance.log' },
+            { id: 'order-schedule', label: 'Order Schedule' },
           ]}
           activeId={tabId}
           onChange={setTabId}
-          rightSlot={
+          rightSlot={tabId === 'order-schedule' ? undefined : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
                 {new Date().toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })}
@@ -777,13 +779,15 @@ export default function EODCountSection() {
                 </>
               )}
             </View>
-          }
+          )}
         />
 
         {tabId === 'history.tsx' ? (
           <EODHistoryTab />
         ) : tabId === 'variance.log' ? (
           <VarianceLogTab />
+        ) : tabId === 'order-schedule' ? (
+          <OrderScheduleSection />
         ) : (<>
         {/* Sticky filter chrome */}
         <View style={{ backgroundColor: C.panel, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: rowPadH, paddingTop: 12, paddingBottom: 10, gap: 10 }}>

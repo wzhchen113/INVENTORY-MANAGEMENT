@@ -1051,8 +1051,6 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
         items: [
           { id: 'PurchaseOrders',  label: 'Purchase orders' },
           { id: 'Vendors',         label: 'Vendors' },
-          { id: 'Categories',      label: 'Categories' },
-          { id: 'OrderSchedule',   label: 'Order schedule' },
           { id: 'Recipes',         label: 'Menu items / BOM' },
           { id: 'PrepRecipes',     label: 'Prep recipes' },
           { id: 'Restock',         label: 'Restock' },

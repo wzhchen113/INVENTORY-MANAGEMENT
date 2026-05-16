@@ -26,7 +26,6 @@ import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer'
 import { confirmAction } from '../../utils/confirmAction';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
-import OrderScheduleSection from './sections/OrderScheduleSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
 import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
@@ -90,7 +89,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   // names line up across rows).
   const [selectedName, setSelectedName] = React.useState<string | null>(null);
   const [tabId, setTabId]             = React.useState('detail.tsx');
-  const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog'>('per-store');
+  const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog' | 'categories'>('per-store');
 
   // Reset selection when the shell swaps us out of Inventory.
   React.useEffect(() => {
@@ -151,10 +150,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <DashboardSection />
         ) : section === 'Vendors' ? (
           <VendorsSection />
-        ) : section === 'Categories' ? (
-          <CategoriesSection />
-        ) : section === 'OrderSchedule' ? (
-          <OrderScheduleSection />
         ) : section === 'WasteLog' ? (
           <WasteLogSection />
         ) : section === 'EODCount' ? (
@@ -193,6 +188,21 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
               <ComingSoonPanel tabName={slugify(section)} />
             </View>
           </View>
+        ) : viewMode === 'categories' ? (
+          <View style={{ flex: 1, flexDirection: 'column', minHeight: 0 }}>
+            <TabStrip
+              tabs={[
+                { id: 'per-store',  label: 'items.tsv' },
+                { id: 'catalog',    label: 'catalog.tsv' },
+                { id: 'categories', label: 'categories' },
+              ]}
+              activeId={viewMode}
+              onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
+            />
+            <View style={{ flex: 1, minHeight: 0 }}>
+              <CategoriesSection />
+            </View>
+          </View>
         ) : viewMode === 'catalog' ? (
           <InventoryCatalogMode
             selectedName={selectedName}
@@ -200,11 +210,12 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
             topSlot={
               <TabStrip
                 tabs={[
-                  { id: 'per-store', label: 'items.tsv' },
-                  { id: 'catalog',   label: 'catalog.tsv' },
+                  { id: 'per-store',  label: 'items.tsv' },
+                  { id: 'catalog',    label: 'catalog.tsv' },
+                  { id: 'categories', label: 'categories' },
                 ]}
                 activeId={viewMode}
-                onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
+                onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
               />
             }
           />
@@ -222,11 +233,12 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
             >
               <TabStrip
                 tabs={[
-                  { id: 'per-store', label: 'items.tsv' },
-                  { id: 'catalog',   label: 'catalog.tsv' },
+                  { id: 'per-store',  label: 'items.tsv' },
+                  { id: 'catalog',    label: 'catalog.tsv' },
+                  { id: 'categories', label: 'categories' },
                 ]}
                 activeId={viewMode}
-                onChange={(id) => setViewMode(id as 'per-store' | 'catalog')}
+                onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
               />
               <View
                 style={{
