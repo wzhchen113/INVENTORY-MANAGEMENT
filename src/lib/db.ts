@@ -1276,6 +1276,29 @@ export async function saveSidebarLayout(
   if (error) throw error;
 }
 
+// ─── LOCALE (Spec 038) ─────────────────────────────────────────────────
+/**
+ * Spec 038: persist the user's preferred chrome language to
+ * `profiles.locale`. Throws on error so the store can revert the
+ * optimistic mutation per the notifyBackendError pattern.
+ *
+ * Gated by the existing "Users can update own profile" RLS policy on
+ * profiles (id = auth.uid()), so a cross-user write is silently 0 rows.
+ * Enum validity is enforced server-side by the `profiles_locale_check`
+ * CHECK constraint (en/es/zh-CN); the TS union here is the soft client
+ * guard. See specs/038-multi-language-support-p1-chrome.md §4.
+ */
+export async function saveLocale(
+  userId: string,
+  locale: 'en' | 'es' | 'zh-CN',
+): Promise<void> {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ locale })
+    .eq('id', userId);
+  if (error) throw error;
+}
+
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
 /**
  * Brand-level prep recipes after the catalog refactor. brandId param is

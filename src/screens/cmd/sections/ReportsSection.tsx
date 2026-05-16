@@ -9,6 +9,7 @@ import { relativeTime } from '../../../utils/relativeTime';
 import { ReportDefinition } from '../../../types';
 import { TEMPLATES, findTemplate, defaultReportName } from './reports/templates';
 import { ReportDetailFrame } from './reports/ReportDetailFrame';
+import { useT } from '../../../hooks/useT';
 
 // Spec 016 (REPORTS-1) — Reports section is a real runner foundation now.
 // Catalog tiles derive from `templates.ts` (single source of truth shared with
@@ -43,6 +44,7 @@ interface OverrideState {
 
 export default function ReportsSection() {
   const C = useCmdColors();
+  const T = useT();
   const [tabId, setTabId] = React.useState('library.tsx');
 
   // Section-local view state. `'list'` is the catalog + saved-reports grid;
@@ -283,7 +285,7 @@ export default function ReportsSection() {
       ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 18 }}>
         <View>
-          <Text style={[Type.h1, { color: C.fg }]}>Reports</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.reports.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
             Pick a template to save a report, or open a saved one to run it.
           </Text>

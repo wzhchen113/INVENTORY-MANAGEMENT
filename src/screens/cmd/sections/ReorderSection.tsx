@@ -9,6 +9,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store } from '../../../types';
+import { useT } from '../../../hooks/useT';
 
 // Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
 // (which is store-wide-by-category). This screen groups by vendor with
@@ -559,6 +560,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
 
 export default function ReorderSection() {
   const C = useCmdColors();
+  const T = useT();
   const currentStore = useStore((s) => s.currentStore);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const reorderLoading = useStore((s) => s.reorderLoading);
@@ -676,7 +678,7 @@ export default function ReorderSection() {
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 80 }}>
         {/* Hero */}
         <View>
-          <Text style={[Type.h1, { color: C.fg }]}>Reorder</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.reorder.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
             Per-vendor delivery list. On-hand uses today's EOD count when available
             (fallback: last-known stock). Suggested qty = max(par_replacement,

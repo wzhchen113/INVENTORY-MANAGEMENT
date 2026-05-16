@@ -5,6 +5,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { supabase } from '../../lib/supabase';
 import { useStore } from '../../store/useStore';
+import { useT } from '../../hooks/useT';
 
 interface Props {
   storeName: string;
@@ -30,6 +31,7 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 // setCurrentStore.
 export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandPicker }) => {
   const C = useCmdColors();
+  const T = useT();
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
@@ -89,7 +91,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
           <TouchableOpacity
             onPress={() => setStoreMenuOpen((o) => !o)}
             accessibilityRole="button"
-            accessibilityLabel="Switch store"
+            accessibilityLabel={T('chrome.switchStoreAria')}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -156,7 +158,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
               >
                 {accessibleStores.length === 0 ? (
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingHorizontal: 12, paddingVertical: 6 }}>
-                    no accessible stores
+                    {T('common.noResults')}
                   </Text>
                 ) : (
                   accessibleStores.map((s) => {
@@ -205,7 +207,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
           }}
         />
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-          {connected ? 'connected' : 'reconnecting'}
+          {connected ? T('chrome.connected') : T('chrome.reconnecting')}
         </Text>
       </View>
     </View>

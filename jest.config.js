@@ -76,6 +76,8 @@ module.exports = {
         '<rootDir>/src/lib/**/*.test.ts',
         '<rootDir>/src/store/**/*.test.ts',
         '<rootDir>/src/hooks/**/*.test.ts',
+        // Spec 038 — i18n catalog parity + t() fallback.
+        '<rootDir>/src/i18n/**/*.test.ts',
       ],
     },
     {

@@ -11,6 +11,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
 import type { InventoryCount, InventoryCountKind, InventoryCountSummary } from '../../../types';
+import { useT } from '../../../hooks/useT';
 
 // Spec 019 — Any-time inventory count
 //
@@ -71,6 +72,7 @@ function localInputToIso(local: string): string {
 
 export default function InventoryCountSection() {
   const C = useCmdColors();
+  const T = useT();
   const isPhone = useIsPhone();
   const cellW = isPhone ? 56 : 80;
   const inputW = isPhone ? 48 : 70;
@@ -830,10 +832,11 @@ function HistoryTab({
   onSelect: (id: string) => void;
 }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>Recent counts</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.inventoryCount.recentTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
           Last 10 inventory counts for this store. Click a row to view the read-only entry list.
         </Text>

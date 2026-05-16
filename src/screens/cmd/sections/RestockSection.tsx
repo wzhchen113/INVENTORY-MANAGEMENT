@@ -8,6 +8,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -35,6 +36,7 @@ interface SuggestedRow {
 // flow which is outside the cmd theme's surface-area.
 export default function RestockSection() {
   const C = useCmdColors();
+  const T = useT();
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
@@ -132,7 +134,7 @@ export default function RestockSection() {
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 80 }}>
         {/* Hero */}
         <View>
-          <Text style={[Type.h1, { color: C.fg }]}>Restock</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.restock.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
             Items below par. Suggested qty = gap × 1.2 safety margin, rounded up.
           </Text>

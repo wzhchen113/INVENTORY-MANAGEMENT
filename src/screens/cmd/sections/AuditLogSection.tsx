@@ -6,6 +6,7 @@ import { useStore } from '../../../store/useStore';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { Avatar } from '../../../components/cmd/Avatar';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { useT } from '../../../hooks/useT';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
 import { AuditAction, AuditEvent } from '../../../types';
 
@@ -59,6 +60,7 @@ function inferKind(e: AuditEvent): string {
 // from useStore.auditLog filtered to current store. Read-only.
 export default function AuditLogSection() {
   const C = useCmdColors();
+  const T = useT();
   const auditLog = useStore((s) => s.auditLog);
   const currentStore = useStore((s) => s.currentStore);
 
@@ -85,7 +87,7 @@ export default function AuditLogSection() {
         onChange={setTabId}
         rightSlot={
           <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-            <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT</Text>
+            <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('common.export').toUpperCase()}</Text>
           </View>
         }
       />
@@ -103,6 +105,7 @@ export default function AuditLogSection() {
 // ─── feed.tsx (existing) ──────────────────────────────────────────────
 function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: string }) {
   const C = useCmdColors();
+  const T = useT();
   const grouped = React.useMemo(() => {
     const map = new Map<string, AuditEvent[]>();
     for (const e of events) {
@@ -117,7 +120,7 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>Audit log</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.auditLog.title')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
           Append-only event stream. Every state change is recorded with actor, entity, before/after.
         </Text>

@@ -5,6 +5,7 @@ import {
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { PaletteEntry } from '../../lib/cmdSelectors';
+import { useT } from '../../hooks/useT';
 
 interface Props {
   visible: boolean;
@@ -27,6 +28,7 @@ export const CommandPalette: React.FC<Props> = ({
   scopeHint,
 }) => {
   const C = useCmdColors();
+  const T = useT();
   const [query, setQuery] = React.useState('');
   const [highlightedIdx, setHighlightedIdx] = React.useState(0);
 
@@ -106,7 +108,7 @@ export const CommandPalette: React.FC<Props> = ({
                 ref={inputRef as any}
                 value={query}
                 onChangeText={(v) => { setQuery(v); setHighlightedIdx(0); }}
-                placeholder="Type to search…"
+                placeholder={T('common.searchPlaceholder')}
                 placeholderTextColor={C.fg3}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -176,7 +178,7 @@ export const CommandPalette: React.FC<Props> = ({
             />
             {results.length === 0 ? (
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 16 }}>
-                No matches
+                {T('common.noResults')}
               </Text>
             ) : null}
           </View>

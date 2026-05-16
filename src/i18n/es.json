@@ -1,0 +1,416 @@
+{
+  "sidebar": {
+    "groups": {
+      "operations": "Operaciones",
+      "planning": "Planificación",
+      "insights": "Análisis",
+      "admin": "Administración",
+      "tenancy": "Tenencia"
+    },
+    "items": {
+      "inventory": "Inventario",
+      "dashboard": "Panel",
+      "eodCount": "Conteo de fin de día",
+      "inventoryCount": "Conteo de inventario",
+      "wasteLog": "Registro de mermas",
+      "receiving": "Recepción",
+      "purchaseOrders": "Órdenes de compra",
+      "vendors": "Proveedores",
+      "menuItemsBom": "Menú / BOM",
+      "prepRecipes": "Recetas de prep",
+      "restock": "Reabastecer",
+      "reorder": "Reordenar",
+      "reconciliation": "Conciliación",
+      "posImports": "Importes POS",
+      "auditLog": "Bitácora de auditoría",
+      "reports": "Informes",
+      "dbInspector": "Inspector de BD",
+      "usersAccess": "Usuarios y acceso",
+      "brands": "Marcas"
+    },
+    "actions": {
+      "resetConfirmTitle": "¿Restablecer barra lateral por defecto?",
+      "resetConfirmBody": "Esto borra todas tus personalizaciones.",
+      "collapseAria": "Contraer barra lateral",
+      "expandAria": "Expandir barra lateral",
+      "doneEditing": "Terminar edición de barra lateral",
+      "customize": "Personalizar diseño de barra lateral",
+      "resetAria": "Restablecer barra lateral por defecto",
+      "resetLabel": "restablecer por defecto",
+      "doneButton": "LISTO",
+      "goToAnything": "Ir a cualquier cosa…"
+    }
+  },
+  "chrome": {
+    "signOut": "cerrar sesión",
+    "signOutConfirm": "¿Cerrar sesión?",
+    "signOutBody": "Tendrás que iniciar sesión de nuevo.",
+    "signOutAria": "Cerrar sesión",
+    "eodFooter": "EOD {submittedCount}/{totalCount}",
+    "guest": "invitado",
+    "store": "tienda",
+    "switchStoreAria": "Cambiar tienda",
+    "themeToggle": {
+      "lightLabel": "☼ claro",
+      "darkLabel": "☾ oscuro",
+      "aria": "Cambiar tema"
+    },
+    "connected": "conectado",
+    "reconnecting": "reconectando",
+    "localeSwitcher": {
+      "aria": "Cambiar idioma",
+      "labels": {
+        "en": "EN",
+        "es": "ES",
+        "zh-CN": "中文"
+      }
+    }
+  },
+  "common": {
+    "save": "Guardar",
+    "saveDraft": "GUARDAR BORRADOR",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "deleteAria": "Eliminar",
+    "edit": "Editar",
+    "editAria": "Editar",
+    "close": "Cerrar",
+    "closeAria": "Cerrar",
+    "add": "Añadir",
+    "addNew": "Añadir nuevo",
+    "search": "Buscar",
+    "searchPlaceholder": "Buscar…",
+    "filter": "Filtrar",
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "submit": "Enviar",
+    "submitted": "Enviado",
+    "submittedToday": "Enviado hoy",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "done": "Listo",
+    "yes": "Sí",
+    "no": "No",
+    "ok": "OK",
+    "confirm": "Confirmar",
+    "actions": "Acciones",
+    "name": "Nombre",
+    "type": "Tipo",
+    "date": "Fecha",
+    "notes": "Notas",
+    "qty": "Cant.",
+    "unit": "Unidad",
+    "category": "Categoría",
+    "status": "Estado",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "noResults": "Sin resultados",
+    "empty": "Vacío",
+    "all": "Todos",
+    "none": "Ninguno",
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "thisWeek": "Esta semana",
+    "lastWeek": "Semana pasada",
+    "history": "Historial",
+    "details": "Detalles",
+    "preview": "Vista previa",
+    "export": "Exportar",
+    "import": "Importar",
+    "duplicate": "Duplicar",
+    "rename": "Renombrar",
+    "settings": "Ajustes",
+    "more": "Más",
+    "view": "Ver",
+    "open": "Abrir",
+    "selected": "Seleccionado",
+    "unselected": "No seleccionado",
+    "required": "Requerido",
+    "optional": "Opcional"
+  },
+  "toast": {
+    "savedDraft": "Borrador guardado",
+    "draftSaveFailed": "Error al guardar borrador",
+    "submitted": "Enviado",
+    "submitFailed": "Error al enviar",
+    "alreadySubmitted": "Ya fue enviado",
+    "actionFailed": "{action} falló",
+    "localeChangeFailed": "Error al guardar idioma",
+    "saveFailed": "Error al guardar",
+    "deleteFailed": "Error al eliminar",
+    "updateFailed": "Error al actualizar",
+    "createFailed": "Error al crear",
+    "loadFailed": "Error al cargar"
+  },
+  "section": {
+    "dashboard": {
+      "title": "Panel",
+      "attention": "Atención",
+      "cogs": "Costo de mercancía",
+      "foodCostHeatmap": "Costo de comida vs objetivo",
+      "noData": "Sin datos aún",
+      "topVariance": "Artículos con mayor variación"
+    },
+    "inventory": {
+      "title": "Inventario",
+      "tabs": {
+        "items": "Artículos",
+        "catalog": "Catálogo",
+        "categories": "Categorías",
+        "conversions": "Conversiones"
+      },
+      "emptyState": "Aún no hay artículos",
+      "addItem": "Añadir artículo",
+      "deleteItemConfirm": "¿Eliminar artículo?",
+      "deleteItemBody": "Esta acción no se puede deshacer.",
+      "currentStock": "Stock actual",
+      "parLevel": "Nivel par",
+      "costPerUnit": "Costo por unidad"
+    },
+    "eod": {
+      "title": "Conteo de fin de día",
+      "historyTitle": "Conteo de fin de día · historial",
+      "tabs": {
+        "count": "Conteo",
+        "review": "Revisión",
+        "history": "Historial"
+      },
+      "thisWeek": "Esta semana",
+      "noSubmissions": "Aún no hay envíos",
+      "saveDraft": "GUARDAR BORRADOR",
+      "draftSavedToast": "BORRADOR GUARDADO",
+      "draftSavedDetail": "{itemCount} de {totalItems} artículos · {time} · {user}",
+      "submit": "Enviar EOD",
+      "submitting": "Enviando…",
+      "submitCount": "ENVIAR CONTEO",
+      "updateCount": "ACTUALIZAR CONTEO",
+      "draftSaved": "Borrador guardado",
+      "submittedFor": "Enviado para {date}",
+      "enterAtLeastOne": "Ingresa al menos un conteo",
+      "pickVendor": "Selecciona un proveedor antes de enviar",
+      "countSubmitted": "Conteo enviado",
+      "countSubmittedDetail": "{itemCount} artículos · {date}",
+      "savedLocally": "Guardado solo local",
+      "cloudFailed": "Falló el guardado en la nube — revisa la conexión",
+      "submitted": "enviado",
+      "draft": "borrador",
+      "late": "tarde",
+      "today": "hoy",
+      "rest": "descanso",
+      "restDayLabel": "DÍA DE DESCANSO — SIN ENTRADA",
+      "submittedLocked": "ENVIADO · BLOQUEADO",
+      "editAria": "Editar conteo enviado de este proveedor",
+      "addCount": "+ CONTEO",
+      "edit": "EDITAR",
+      "weekTotal": "total semanal"
+    },
+    "inventoryCount": {
+      "title": "Conteo de inventario",
+      "recentTitle": "Conteos recientes",
+      "submit": "Enviar conteo",
+      "noRecent": "Sin conteos recientes"
+    },
+    "wasteLog": {
+      "title": "Registro de mermas",
+      "addEntry": "Registrar merma",
+      "reason": "Motivo",
+      "noEntries": "Sin mermas registradas",
+      "logged": "Merma registrada"
+    },
+    "receiving": {
+      "title": "Recepción",
+      "addReceipt": "Añadir recibo",
+      "noReceipts": "Aún no hay recibos"
+    },
+    "purchaseOrders": {
+      "title": "Órdenes de compra",
+      "scheduleTitle": "Programa de pedidos",
+      "noOrders": "Sin órdenes de compra"
+    },
+    "vendors": {
+      "title": "Proveedores",
+      "addVendor": "Añadir proveedor",
+      "noVendors": "Aún no hay proveedores",
+      "deleteVendorConfirm": "¿Eliminar proveedor?"
+    },
+    "recipes": {
+      "title": "Menú / BOM",
+      "addRecipe": "Añadir receta",
+      "noRecipes": "Aún no hay recetas",
+      "ingredients": "Ingredientes",
+      "totalCost": "Costo total",
+      "foodCostPct": "% de costo de comida",
+      "deleteRecipeConfirm": "¿Eliminar receta?"
+    },
+    "prepRecipes": {
+      "title": "Recetas de prep",
+      "addPrep": "Añadir prep",
+      "noPreps": "Aún no hay recetas de prep",
+      "deletePrepConfirm": "¿Eliminar receta de prep?"
+    },
+    "restock": {
+      "title": "Reabastecer",
+      "noSuggestions": "Sin necesidad de reabastecer"
+    },
+    "reorder": {
+      "title": "Reordenar",
+      "noSuggestions": "Sin sugerencias de reordenamiento",
+      "loading": "Cargando sugerencias de reordenamiento…",
+      "errorTitle": "No se pudo cargar la lista de reorden"
+    },
+    "reconciliation": {
+      "title": "Conciliación",
+      "tabs": {
+        "variance": "Variación",
+        "byCategory": "Por categoría",
+        "timeline": "Cronología"
+      },
+      "noVariance": "Sin variación"
+    },
+    "posImports": {
+      "title": "Importes POS",
+      "addImport": "Importar ventas",
+      "noImports": "Aún no hay importes POS"
+    },
+    "auditLog": {
+      "title": "Bitácora de auditoría",
+      "noEvents": "Sin eventos de auditoría"
+    },
+    "reports": {
+      "title": "Informes",
+      "saved": "Informes guardados",
+      "newReport": "Nuevo informe",
+      "runReport": "Ejecutar informe",
+      "running": "Ejecutando…",
+      "noRuns": "Aún no hay ejecuciones",
+      "noSavedReports": "Sin informes guardados"
+    },
+    "users": {
+      "title": "Usuarios y acceso",
+      "inviteUser": "Invitar usuario",
+      "noUsers": "Sin usuarios",
+      "deleteUserConfirm": "¿Eliminar usuario?",
+      "deleteUserBody": "El perfil y el acceso serán eliminados."
+    },
+    "brands": {
+      "title": "Marcas",
+      "addBrand": "Añadir marca",
+      "tabs": {
+        "list": "Lista",
+        "members": "Miembros",
+        "trash": "Papelera",
+        "audit": "Auditoría"
+      },
+      "noBrands": "Sin marcas",
+      "deleteBrandConfirm": "¿Eliminar marca?",
+      "restoreConfirm": "¿Restaurar marca?",
+      "purgeConfirm": "¿Purgar marca?",
+      "purgeBody": "Esta acción no se puede deshacer."
+    },
+    "categories": {
+      "title": "Categorías",
+      "ingredientCategories": "Categorías de ingredientes",
+      "recipeCategories": "Categorías de recetas",
+      "addCategory": "Añadir categoría",
+      "newCategoryButton": "+ NUEVA CATEGORÍA",
+      "newCategoryCaption": "+ nueva categoría",
+      "namePlaceholder": "ej. Proteína, Panadería, Secos",
+      "description": "Las categorías son las opciones del selector en el formulario de ingrediente. Renombrar una categoría se propaga a cada artículo de inventario que la usa.",
+      "active": "{count} activas",
+      "rowsCount": "{count} filas",
+      "emptyState": "aún no hay categorías — añade una arriba",
+      "items": "{count} artículos",
+      "saveButton": "GUARDAR",
+      "cancelButton": "CANCELAR",
+      "editButton": "EDITAR",
+      "deleteButton": "ELIMINAR",
+      "alreadyExists": "La categoría \"{name}\" ya existe.",
+      "cannotDeleteInUse": "No se puede eliminar \"{name}\" — usada por {count} artículos.",
+      "deleteConfirmTitle": "¿Eliminar la categoría \"{name}\"?",
+      "deleteConfirmBody": "Ningún artículo hace referencia a esta categoría. La eliminación se puede revertir volviendo a crear el mismo nombre.",
+      "added": "Categoría añadida",
+      "renamed": "Categoría renombrada",
+      "deleted": "Categoría eliminada",
+      "inUseToast": "Categoría en uso",
+      "inUseToastBody": "\"{name}\" está en {count} artículos — reasigna primero."
+    }
+  },
+  "tabStrip": {
+    "ariaTab": "Pestaña {label}",
+    "ariaSelected": "Seleccionado"
+  },
+  "modals": {
+    "uploadCsv": {
+      "title": "Subir CSV",
+      "selectFile": "Seleccionar archivo",
+      "preview": "Vista previa",
+      "import": "Importar"
+    },
+    "exportCsv": {
+      "title": "Exportar CSV",
+      "download": "Descargar"
+    },
+    "newReport": {
+      "title": "Nuevo informe"
+    },
+    "typeToConfirm": {
+      "placeholder": "Escribe para confirmar",
+      "instructionPrefix": "Escribe",
+      "instructionSuffix": "para confirmar"
+    },
+    "addCount": {
+      "title": "Añadir conteo",
+      "kind": "Tipo de conteo"
+    },
+    "expiringItems": {
+      "title": "Artículos por expirar"
+    },
+    "cascadePreview": {
+      "title": "Vista previa de cascada"
+    },
+    "recipePicker": {
+      "title": "Elegir una receta",
+      "searchPlaceholder": "Buscar recetas…"
+    },
+    "runImport": {
+      "title": "Ejecutar importación"
+    },
+    "fetchBreadbot": {
+      "title": "Obtener ventas de Breadbot"
+    },
+    "addVendorSchedule": {
+      "title": "Añadir proveedor al programa"
+    },
+    "inviteUser": {
+      "title": "Invitar usuario"
+    },
+    "inviteAdmin": {
+      "title": "Invitar administrador"
+    }
+  },
+  "drawers": {
+    "ingredient": "Ingrediente",
+    "recipe": "Receta",
+    "prepRecipe": "Receta de prep",
+    "vendor": "Proveedor",
+    "brand": "Marca",
+    "newPrefix": "Nuevo",
+    "editPrefix": "Editar"
+  },
+  "filterChip": {
+    "ariaPrefix": "Filtrar por"
+  },
+  "status": {
+    "good": "Bueno",
+    "low": "Bajo",
+    "out": "Agotado",
+    "expired": "Caducado"
+  },
+  "role": {
+    "user": "Usuario",
+    "admin": "Administrador",
+    "master": "Maestro",
+    "superAdmin": "Super administrador"
+  }
+}

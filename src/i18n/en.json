@@ -1,0 +1,416 @@
+{
+  "sidebar": {
+    "groups": {
+      "operations": "Operations",
+      "planning": "Planning",
+      "insights": "Insights",
+      "admin": "Admin",
+      "tenancy": "Tenancy"
+    },
+    "items": {
+      "inventory": "Inventory",
+      "dashboard": "Dashboard",
+      "eodCount": "EOD count",
+      "inventoryCount": "Inventory count",
+      "wasteLog": "Waste log",
+      "receiving": "Receiving",
+      "purchaseOrders": "Purchase orders",
+      "vendors": "Vendors",
+      "menuItemsBom": "Menu items / BOM",
+      "prepRecipes": "Prep recipes",
+      "restock": "Restock",
+      "reorder": "Reorder",
+      "reconciliation": "Reconciliation",
+      "posImports": "POS imports",
+      "auditLog": "Audit log",
+      "reports": "Reports",
+      "dbInspector": "DB inspector",
+      "usersAccess": "Users & access",
+      "brands": "Brands"
+    },
+    "actions": {
+      "resetConfirmTitle": "Reset sidebar to default?",
+      "resetConfirmBody": "This clears all your customizations.",
+      "collapseAria": "Collapse sidebar",
+      "expandAria": "Expand sidebar",
+      "doneEditing": "Done editing sidebar",
+      "customize": "Customize sidebar layout",
+      "resetAria": "Reset sidebar to default",
+      "resetLabel": "reset to default",
+      "doneButton": "DONE",
+      "goToAnything": "Go to anything…"
+    }
+  },
+  "chrome": {
+    "signOut": "sign out",
+    "signOutConfirm": "Sign out?",
+    "signOutBody": "You will need to sign back in.",
+    "signOutAria": "Sign out",
+    "eodFooter": "EOD {submittedCount}/{totalCount}",
+    "guest": "guest",
+    "store": "store",
+    "switchStoreAria": "Switch store",
+    "themeToggle": {
+      "lightLabel": "☼ light",
+      "darkLabel": "☾ dark",
+      "aria": "Toggle theme"
+    },
+    "connected": "connected",
+    "reconnecting": "reconnecting",
+    "localeSwitcher": {
+      "aria": "Change language",
+      "labels": {
+        "en": "EN",
+        "es": "ES",
+        "zh-CN": "中文"
+      }
+    }
+  },
+  "common": {
+    "save": "Save",
+    "saveDraft": "SAVE DRAFT",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleteAria": "Delete",
+    "edit": "Edit",
+    "editAria": "Edit",
+    "close": "Close",
+    "closeAria": "Close",
+    "add": "Add",
+    "addNew": "Add new",
+    "search": "Search",
+    "searchPlaceholder": "Search…",
+    "filter": "Filter",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "submit": "Submit",
+    "submitted": "Submitted",
+    "submittedToday": "Submitted today",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "done": "Done",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "confirm": "Confirm",
+    "actions": "Actions",
+    "name": "Name",
+    "type": "Type",
+    "date": "Date",
+    "notes": "Notes",
+    "qty": "Qty",
+    "unit": "Unit",
+    "category": "Category",
+    "status": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "noResults": "No results",
+    "empty": "Empty",
+    "all": "All",
+    "none": "None",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisWeek": "This week",
+    "lastWeek": "Last week",
+    "history": "History",
+    "details": "Details",
+    "preview": "Preview",
+    "export": "Export",
+    "import": "Import",
+    "duplicate": "Duplicate",
+    "rename": "Rename",
+    "settings": "Settings",
+    "more": "More",
+    "view": "View",
+    "open": "Open",
+    "selected": "Selected",
+    "unselected": "Unselected",
+    "required": "Required",
+    "optional": "Optional"
+  },
+  "toast": {
+    "savedDraft": "Draft saved",
+    "draftSaveFailed": "Save draft failed",
+    "submitted": "Submitted",
+    "submitFailed": "Submit failed",
+    "alreadySubmitted": "Already submitted",
+    "actionFailed": "{action} failed",
+    "localeChangeFailed": "Save language failed",
+    "saveFailed": "Save failed",
+    "deleteFailed": "Delete failed",
+    "updateFailed": "Update failed",
+    "createFailed": "Create failed",
+    "loadFailed": "Load failed"
+  },
+  "section": {
+    "dashboard": {
+      "title": "Dashboard",
+      "attention": "Attention",
+      "cogs": "Cost of Goods",
+      "foodCostHeatmap": "Food cost vs target",
+      "noData": "No data yet",
+      "topVariance": "Top variance items"
+    },
+    "inventory": {
+      "title": "Inventory",
+      "tabs": {
+        "items": "Items",
+        "catalog": "Catalog",
+        "categories": "Categories",
+        "conversions": "Conversions"
+      },
+      "emptyState": "No items yet",
+      "addItem": "Add item",
+      "deleteItemConfirm": "Delete item?",
+      "deleteItemBody": "This cannot be undone.",
+      "currentStock": "Current stock",
+      "parLevel": "Par level",
+      "costPerUnit": "Cost per unit"
+    },
+    "eod": {
+      "title": "EOD count",
+      "historyTitle": "EOD count · history",
+      "tabs": {
+        "count": "Count",
+        "review": "Review",
+        "history": "History"
+      },
+      "thisWeek": "This week",
+      "noSubmissions": "No submissions yet",
+      "saveDraft": "SAVE DRAFT",
+      "draftSavedToast": "DRAFT SAVED",
+      "draftSavedDetail": "{itemCount} of {totalItems} items · {time} · {user}",
+      "submit": "Submit EOD",
+      "submitting": "Submitting…",
+      "submitCount": "SUBMIT COUNT",
+      "updateCount": "UPDATE COUNT",
+      "draftSaved": "Draft saved",
+      "submittedFor": "Submitted for {date}",
+      "enterAtLeastOne": "Enter at least one count",
+      "pickVendor": "Pick a vendor before submitting",
+      "countSubmitted": "Count submitted",
+      "countSubmittedDetail": "{itemCount} items · {date}",
+      "savedLocally": "Saved locally only",
+      "cloudFailed": "Cloud save failed — check connection",
+      "submitted": "submitted",
+      "draft": "draft",
+      "late": "late",
+      "today": "today",
+      "rest": "rest",
+      "restDayLabel": "REST DAY — NO INPUT",
+      "submittedLocked": "SUBMITTED · LOCKED",
+      "editAria": "Edit this vendor's submitted count",
+      "addCount": "+ COUNT",
+      "edit": "EDIT",
+      "weekTotal": "week total"
+    },
+    "inventoryCount": {
+      "title": "Inventory count",
+      "recentTitle": "Recent counts",
+      "submit": "Submit count",
+      "noRecent": "No recent counts"
+    },
+    "wasteLog": {
+      "title": "Waste log",
+      "addEntry": "Log waste",
+      "reason": "Reason",
+      "noEntries": "No waste logged",
+      "logged": "Waste logged"
+    },
+    "receiving": {
+      "title": "Receiving",
+      "addReceipt": "Add receipt",
+      "noReceipts": "No receipts yet"
+    },
+    "purchaseOrders": {
+      "title": "Purchase orders",
+      "scheduleTitle": "Order schedule",
+      "noOrders": "No purchase orders"
+    },
+    "vendors": {
+      "title": "Vendors",
+      "addVendor": "Add vendor",
+      "noVendors": "No vendors yet",
+      "deleteVendorConfirm": "Delete vendor?"
+    },
+    "recipes": {
+      "title": "Menu items / BOM",
+      "addRecipe": "Add recipe",
+      "noRecipes": "No recipes yet",
+      "ingredients": "Ingredients",
+      "totalCost": "Total cost",
+      "foodCostPct": "Food cost %",
+      "deleteRecipeConfirm": "Delete recipe?"
+    },
+    "prepRecipes": {
+      "title": "Prep recipes",
+      "addPrep": "Add prep",
+      "noPreps": "No prep recipes yet",
+      "deletePrepConfirm": "Delete prep recipe?"
+    },
+    "restock": {
+      "title": "Restock",
+      "noSuggestions": "No restock needed"
+    },
+    "reorder": {
+      "title": "Reorder",
+      "noSuggestions": "No reorder suggestions",
+      "loading": "Loading reorder suggestions…",
+      "errorTitle": "Could not load reorder list"
+    },
+    "reconciliation": {
+      "title": "Reconciliation",
+      "tabs": {
+        "variance": "Variance",
+        "byCategory": "By category",
+        "timeline": "Timeline"
+      },
+      "noVariance": "No variance"
+    },
+    "posImports": {
+      "title": "POS imports",
+      "addImport": "Import sales",
+      "noImports": "No POS imports yet"
+    },
+    "auditLog": {
+      "title": "Audit log",
+      "noEvents": "No audit events"
+    },
+    "reports": {
+      "title": "Reports",
+      "saved": "Saved reports",
+      "newReport": "New report",
+      "runReport": "Run report",
+      "running": "Running…",
+      "noRuns": "No runs yet",
+      "noSavedReports": "No saved reports"
+    },
+    "users": {
+      "title": "Users & access",
+      "inviteUser": "Invite user",
+      "noUsers": "No users",
+      "deleteUserConfirm": "Delete user?",
+      "deleteUserBody": "Profile and login will be removed."
+    },
+    "brands": {
+      "title": "Brands",
+      "addBrand": "Add brand",
+      "tabs": {
+        "list": "List",
+        "members": "Members",
+        "trash": "Trash",
+        "audit": "Audit"
+      },
+      "noBrands": "No brands",
+      "deleteBrandConfirm": "Delete brand?",
+      "restoreConfirm": "Restore brand?",
+      "purgeConfirm": "Purge brand?",
+      "purgeBody": "This cannot be undone."
+    },
+    "categories": {
+      "title": "Categories",
+      "ingredientCategories": "Ingredient categories",
+      "recipeCategories": "Recipe categories",
+      "addCategory": "Add category",
+      "newCategoryButton": "+ NEW CATEGORY",
+      "newCategoryCaption": "+ new category",
+      "namePlaceholder": "e.g. Protein, Bakery, Dry goods",
+      "description": "Categories are the dropdown choices on the ingredient form. Renaming a category cascades to every inventory row that uses the old name.",
+      "active": "{count} active",
+      "rowsCount": "{count} rows",
+      "emptyState": "no categories yet — add one above",
+      "items": "{count} items",
+      "saveButton": "SAVE",
+      "cancelButton": "CANCEL",
+      "editButton": "EDIT",
+      "deleteButton": "DELETE",
+      "alreadyExists": "Category \"{name}\" already exists.",
+      "cannotDeleteInUse": "Cannot delete \"{name}\" — used by {count} items.",
+      "deleteConfirmTitle": "Delete category \"{name}\"?",
+      "deleteConfirmBody": "No items reference this category. The deletion is reversible by re-adding the same name.",
+      "added": "Category added",
+      "renamed": "Category renamed",
+      "deleted": "Category deleted",
+      "inUseToast": "Category in use",
+      "inUseToastBody": "\"{name}\" is on {count} items — reassign first."
+    }
+  },
+  "tabStrip": {
+    "ariaTab": "{label} tab",
+    "ariaSelected": "Selected"
+  },
+  "modals": {
+    "uploadCsv": {
+      "title": "Upload CSV",
+      "selectFile": "Select file",
+      "preview": "Preview",
+      "import": "Import"
+    },
+    "exportCsv": {
+      "title": "Export CSV",
+      "download": "Download"
+    },
+    "newReport": {
+      "title": "New report"
+    },
+    "typeToConfirm": {
+      "placeholder": "Type to confirm",
+      "instructionPrefix": "Type",
+      "instructionSuffix": "to confirm"
+    },
+    "addCount": {
+      "title": "Add count",
+      "kind": "Count kind"
+    },
+    "expiringItems": {
+      "title": "Items expiring soon"
+    },
+    "cascadePreview": {
+      "title": "Cascade preview"
+    },
+    "recipePicker": {
+      "title": "Pick a recipe",
+      "searchPlaceholder": "Search recipes…"
+    },
+    "runImport": {
+      "title": "Run import"
+    },
+    "fetchBreadbot": {
+      "title": "Fetch Breadbot sales"
+    },
+    "addVendorSchedule": {
+      "title": "Add vendor to schedule"
+    },
+    "inviteUser": {
+      "title": "Invite user"
+    },
+    "inviteAdmin": {
+      "title": "Invite admin"
+    }
+  },
+  "drawers": {
+    "ingredient": "Ingredient",
+    "recipe": "Recipe",
+    "prepRecipe": "Prep recipe",
+    "vendor": "Vendor",
+    "brand": "Brand",
+    "newPrefix": "New",
+    "editPrefix": "Edit"
+  },
+  "filterChip": {
+    "ariaPrefix": "Filter by"
+  },
+  "status": {
+    "good": "Good",
+    "low": "Low",
+    "out": "Out",
+    "expired": "Expired"
+  },
+  "role": {
+    "user": "User",
+    "admin": "Admin",
+    "master": "Master",
+    "superAdmin": "Super admin"
+  }
+}

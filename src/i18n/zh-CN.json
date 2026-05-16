@@ -1,0 +1,416 @@
+{
+  "sidebar": {
+    "groups": {
+      "operations": "运营",
+      "planning": "规划",
+      "insights": "分析",
+      "admin": "管理",
+      "tenancy": "租户"
+    },
+    "items": {
+      "inventory": "库存",
+      "dashboard": "仪表板",
+      "eodCount": "日终盘点",
+      "inventoryCount": "库存盘点",
+      "wasteLog": "损耗记录",
+      "receiving": "收货",
+      "purchaseOrders": "采购订单",
+      "vendors": "供应商",
+      "menuItemsBom": "菜品 / BOM",
+      "prepRecipes": "备菜配方",
+      "restock": "补货",
+      "reorder": "再订购",
+      "reconciliation": "对账",
+      "posImports": "POS 导入",
+      "auditLog": "审计日志",
+      "reports": "报表",
+      "dbInspector": "数据库检查器",
+      "usersAccess": "用户与权限",
+      "brands": "品牌"
+    },
+    "actions": {
+      "resetConfirmTitle": "重置侧边栏为默认?",
+      "resetConfirmBody": "这将清除你的所有自定义设置。",
+      "collapseAria": "收起侧边栏",
+      "expandAria": "展开侧边栏",
+      "doneEditing": "完成侧边栏编辑",
+      "customize": "自定义侧边栏布局",
+      "resetAria": "重置侧边栏为默认",
+      "resetLabel": "恢复默认",
+      "doneButton": "完成",
+      "goToAnything": "跳转到任意位置…"
+    }
+  },
+  "chrome": {
+    "signOut": "退出登录",
+    "signOutConfirm": "退出登录?",
+    "signOutBody": "你需要重新登录。",
+    "signOutAria": "退出登录",
+    "eodFooter": "EOD {submittedCount}/{totalCount}",
+    "guest": "访客",
+    "store": "门店",
+    "switchStoreAria": "切换门店",
+    "themeToggle": {
+      "lightLabel": "☼ 浅色",
+      "darkLabel": "☾ 深色",
+      "aria": "切换主题"
+    },
+    "connected": "已连接",
+    "reconnecting": "重连中",
+    "localeSwitcher": {
+      "aria": "切换语言",
+      "labels": {
+        "en": "EN",
+        "es": "ES",
+        "zh-CN": "中文"
+      }
+    }
+  },
+  "common": {
+    "save": "保存",
+    "saveDraft": "保存草稿",
+    "cancel": "取消",
+    "delete": "删除",
+    "deleteAria": "删除",
+    "edit": "编辑",
+    "editAria": "编辑",
+    "close": "关闭",
+    "closeAria": "关闭",
+    "add": "添加",
+    "addNew": "新增",
+    "search": "搜索",
+    "searchPlaceholder": "搜索…",
+    "filter": "筛选",
+    "loading": "加载中…",
+    "saving": "保存中…",
+    "submit": "提交",
+    "submitted": "已提交",
+    "submittedToday": "今日已提交",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "done": "完成",
+    "yes": "是",
+    "no": "否",
+    "ok": "确定",
+    "confirm": "确认",
+    "actions": "操作",
+    "name": "名称",
+    "type": "类型",
+    "date": "日期",
+    "notes": "备注",
+    "qty": "数量",
+    "unit": "单位",
+    "category": "分类",
+    "status": "状态",
+    "active": "活跃",
+    "inactive": "停用",
+    "noResults": "无结果",
+    "empty": "空",
+    "all": "全部",
+    "none": "无",
+    "today": "今天",
+    "yesterday": "昨天",
+    "thisWeek": "本周",
+    "lastWeek": "上周",
+    "history": "历史",
+    "details": "详情",
+    "preview": "预览",
+    "export": "导出",
+    "import": "导入",
+    "duplicate": "复制",
+    "rename": "重命名",
+    "settings": "设置",
+    "more": "更多",
+    "view": "查看",
+    "open": "打开",
+    "selected": "已选中",
+    "unselected": "未选中",
+    "required": "必填",
+    "optional": "可选"
+  },
+  "toast": {
+    "savedDraft": "草稿已保存",
+    "draftSaveFailed": "保存草稿失败",
+    "submitted": "已提交",
+    "submitFailed": "提交失败",
+    "alreadySubmitted": "已提交",
+    "actionFailed": "{action}失败",
+    "localeChangeFailed": "保存语言失败",
+    "saveFailed": "保存失败",
+    "deleteFailed": "删除失败",
+    "updateFailed": "更新失败",
+    "createFailed": "创建失败",
+    "loadFailed": "加载失败"
+  },
+  "section": {
+    "dashboard": {
+      "title": "仪表板",
+      "attention": "需关注",
+      "cogs": "销货成本",
+      "foodCostHeatmap": "食物成本 vs 目标",
+      "noData": "暂无数据",
+      "topVariance": "最大差异项"
+    },
+    "inventory": {
+      "title": "库存",
+      "tabs": {
+        "items": "项目",
+        "catalog": "目录",
+        "categories": "分类",
+        "conversions": "换算"
+      },
+      "emptyState": "暂无项目",
+      "addItem": "添加项目",
+      "deleteItemConfirm": "删除项目?",
+      "deleteItemBody": "此操作无法撤销。",
+      "currentStock": "当前库存",
+      "parLevel": "标准量",
+      "costPerUnit": "单位成本"
+    },
+    "eod": {
+      "title": "日终盘点",
+      "historyTitle": "日终盘点 · 历史",
+      "tabs": {
+        "count": "盘点",
+        "review": "复核",
+        "history": "历史"
+      },
+      "thisWeek": "本周",
+      "noSubmissions": "暂无提交",
+      "saveDraft": "保存草稿",
+      "draftSavedToast": "草稿已保存",
+      "draftSavedDetail": "{itemCount} / {totalItems} 项 · {time} · {user}",
+      "submit": "提交日终",
+      "submitting": "提交中…",
+      "submitCount": "提交盘点",
+      "updateCount": "更新盘点",
+      "draftSaved": "草稿已保存",
+      "submittedFor": "已提交 {date}",
+      "enterAtLeastOne": "至少输入一个计数",
+      "pickVendor": "提交前请选择供应商",
+      "countSubmitted": "盘点已提交",
+      "countSubmittedDetail": "{itemCount} 项 · {date}",
+      "savedLocally": "仅本地保存",
+      "cloudFailed": "云端保存失败 — 请检查网络",
+      "submitted": "已提交",
+      "draft": "草稿",
+      "late": "延迟",
+      "today": "今天",
+      "rest": "休息",
+      "restDayLabel": "休息日 — 不可输入",
+      "submittedLocked": "已提交 · 已锁定",
+      "editAria": "编辑此供应商的已提交盘点",
+      "addCount": "+ 计数",
+      "edit": "编辑",
+      "weekTotal": "本周合计"
+    },
+    "inventoryCount": {
+      "title": "库存盘点",
+      "recentTitle": "最近盘点",
+      "submit": "提交盘点",
+      "noRecent": "暂无最近盘点"
+    },
+    "wasteLog": {
+      "title": "损耗记录",
+      "addEntry": "记录损耗",
+      "reason": "原因",
+      "noEntries": "暂无损耗记录",
+      "logged": "已记录损耗"
+    },
+    "receiving": {
+      "title": "收货",
+      "addReceipt": "添加收据",
+      "noReceipts": "暂无收据"
+    },
+    "purchaseOrders": {
+      "title": "采购订单",
+      "scheduleTitle": "订货排程",
+      "noOrders": "暂无采购订单"
+    },
+    "vendors": {
+      "title": "供应商",
+      "addVendor": "添加供应商",
+      "noVendors": "暂无供应商",
+      "deleteVendorConfirm": "删除供应商?"
+    },
+    "recipes": {
+      "title": "菜品 / BOM",
+      "addRecipe": "添加配方",
+      "noRecipes": "暂无配方",
+      "ingredients": "原料",
+      "totalCost": "总成本",
+      "foodCostPct": "食物成本 %",
+      "deleteRecipeConfirm": "删除配方?"
+    },
+    "prepRecipes": {
+      "title": "备菜配方",
+      "addPrep": "添加备菜",
+      "noPreps": "暂无备菜配方",
+      "deletePrepConfirm": "删除备菜配方?"
+    },
+    "restock": {
+      "title": "补货",
+      "noSuggestions": "无需补货"
+    },
+    "reorder": {
+      "title": "再订购",
+      "noSuggestions": "暂无再订购建议",
+      "loading": "正在加载再订购建议…",
+      "errorTitle": "无法加载再订购列表"
+    },
+    "reconciliation": {
+      "title": "对账",
+      "tabs": {
+        "variance": "差异",
+        "byCategory": "按分类",
+        "timeline": "时间线"
+      },
+      "noVariance": "无差异"
+    },
+    "posImports": {
+      "title": "POS 导入",
+      "addImport": "导入销售",
+      "noImports": "暂无 POS 导入"
+    },
+    "auditLog": {
+      "title": "审计日志",
+      "noEvents": "暂无审计事件"
+    },
+    "reports": {
+      "title": "报表",
+      "saved": "已保存的报表",
+      "newReport": "新报表",
+      "runReport": "运行报表",
+      "running": "运行中…",
+      "noRuns": "暂无运行记录",
+      "noSavedReports": "暂无已保存的报表"
+    },
+    "users": {
+      "title": "用户与权限",
+      "inviteUser": "邀请用户",
+      "noUsers": "暂无用户",
+      "deleteUserConfirm": "删除用户?",
+      "deleteUserBody": "档案和登录账户将被移除。"
+    },
+    "brands": {
+      "title": "品牌",
+      "addBrand": "添加品牌",
+      "tabs": {
+        "list": "列表",
+        "members": "成员",
+        "trash": "回收站",
+        "audit": "审计"
+      },
+      "noBrands": "暂无品牌",
+      "deleteBrandConfirm": "删除品牌?",
+      "restoreConfirm": "恢复品牌?",
+      "purgeConfirm": "彻底清除品牌?",
+      "purgeBody": "此操作无法撤销。"
+    },
+    "categories": {
+      "title": "分类",
+      "ingredientCategories": "原料分类",
+      "recipeCategories": "配方分类",
+      "addCategory": "添加分类",
+      "newCategoryButton": "+ 新分类",
+      "newCategoryCaption": "+ 新分类",
+      "namePlaceholder": "例如:蛋白、烘焙、干货",
+      "description": "分类是原料表单中的下拉选项。重命名一个分类会自动同步到所有使用该旧名称的库存项。",
+      "active": "{count} 个活跃",
+      "rowsCount": "{count} 行",
+      "emptyState": "暂无分类 — 在上方添加",
+      "items": "{count} 项",
+      "saveButton": "保存",
+      "cancelButton": "取消",
+      "editButton": "编辑",
+      "deleteButton": "删除",
+      "alreadyExists": "分类 \"{name}\" 已存在。",
+      "cannotDeleteInUse": "无法删除 \"{name}\" — 被 {count} 个项目使用。",
+      "deleteConfirmTitle": "删除分类 \"{name}\"?",
+      "deleteConfirmBody": "没有项目引用此分类。可通过重新添加相同名称撤销删除。",
+      "added": "分类已添加",
+      "renamed": "分类已重命名",
+      "deleted": "分类已删除",
+      "inUseToast": "分类正在使用中",
+      "inUseToastBody": "\"{name}\" 出现在 {count} 个项目中 — 请先重新分配。"
+    }
+  },
+  "tabStrip": {
+    "ariaTab": "{label} 选项卡",
+    "ariaSelected": "已选中"
+  },
+  "modals": {
+    "uploadCsv": {
+      "title": "上传 CSV",
+      "selectFile": "选择文件",
+      "preview": "预览",
+      "import": "导入"
+    },
+    "exportCsv": {
+      "title": "导出 CSV",
+      "download": "下载"
+    },
+    "newReport": {
+      "title": "新报表"
+    },
+    "typeToConfirm": {
+      "placeholder": "输入以确认",
+      "instructionPrefix": "输入",
+      "instructionSuffix": "以确认"
+    },
+    "addCount": {
+      "title": "添加盘点",
+      "kind": "盘点类型"
+    },
+    "expiringItems": {
+      "title": "即将过期的项目"
+    },
+    "cascadePreview": {
+      "title": "级联预览"
+    },
+    "recipePicker": {
+      "title": "选择配方",
+      "searchPlaceholder": "搜索配方…"
+    },
+    "runImport": {
+      "title": "运行导入"
+    },
+    "fetchBreadbot": {
+      "title": "获取 Breadbot 销售"
+    },
+    "addVendorSchedule": {
+      "title": "将供应商加入排程"
+    },
+    "inviteUser": {
+      "title": "邀请用户"
+    },
+    "inviteAdmin": {
+      "title": "邀请管理员"
+    }
+  },
+  "drawers": {
+    "ingredient": "原料",
+    "recipe": "配方",
+    "prepRecipe": "备菜配方",
+    "vendor": "供应商",
+    "brand": "品牌",
+    "newPrefix": "新建",
+    "editPrefix": "编辑"
+  },
+  "filterChip": {
+    "ariaPrefix": "筛选条件"
+  },
+  "status": {
+    "good": "正常",
+    "low": "偏低",
+    "out": "缺货",
+    "expired": "已过期"
+  },
+  "role": {
+    "user": "用户",
+    "admin": "管理员",
+    "master": "主控",
+    "superAdmin": "超级管理员"
+  }
+}

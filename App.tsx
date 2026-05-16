@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCmdColors } from './src/theme/colors';
-import { useStore, ACTIVE_BRAND_KEY } from './src/store/useStore';
+import { useStore, ACTIVE_BRAND_KEY, LOCALE_KEY } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
@@ -64,6 +64,27 @@ async function readCachedDarkModeAsync(): Promise<boolean | null> {
     const v = await AsyncStorage.getItem(DARK_MODE_KEY);
     if (v === 'true') return true;
     if (v === 'false') return false;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+// Spec 038 — synchronous web-only locale restore. Mirrors
+// readCachedDarkModeSync. Returns null when no cached value (so a
+// fresh session falls through to the 'en' default).
+function readCachedLocaleSync(): 'en' | 'es' | 'zh-CN' | null {
+  if (Platform.OS !== 'web') return null;
+  try {
+    const v = window.localStorage.getItem(LOCALE_KEY);
+    if (v === 'en' || v === 'es' || v === 'zh-CN') return v;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+async function readCachedLocaleAsync(): Promise<'en' | 'es' | 'zh-CN' | null> {
+  if (Platform.OS === 'web') return readCachedLocaleSync();
+  try {
+    const v = await AsyncStorage.getItem(LOCALE_KEY);
+    if (v === 'en' || v === 'es' || v === 'zh-CN') return v;
   } catch { /* best-effort */ }
   return null;
 }
@@ -127,6 +148,7 @@ export default function App() {
   const login = useStore((s) => s.login);
   const setDarkMode = useStore((s) => s.setDarkMode);
   const hydrateSidebarLayoutOverride = useStore((s) => s.hydrateSidebarLayoutOverride);
+  const hydrateLocale = useStore((s) => s.hydrateLocale);
 
   // Hold first paint until Inter Tight + JetBrains Mono are registered, so
   // numeric values don't flash in the system font then snap to mono.
@@ -146,6 +168,11 @@ export default function App() {
   useLayoutEffect(() => {
     const cached = readCachedDarkModeSync();
     if (cached !== null) setDarkMode(cached);
+    // Spec 038 — synchronous locale restore (web). Mirrors the dark-mode
+    // shape so the user doesn't see a flash of English chrome on a
+    // Spanish/Chinese session reload.
+    const cachedLocale = readCachedLocaleSync();
+    if (cachedLocale !== null) hydrateLocale(cachedLocale);
   }, []);
 
   // Restore session on app start
@@ -157,6 +184,9 @@ export default function App() {
       if (Platform.OS !== 'web') {
         const cached = await readCachedDarkModeAsync();
         if (cached !== null) setDarkMode(cached);
+        // Spec 038 — native async locale restore.
+        const cachedLocale = await readCachedLocaleAsync();
+        if (cachedLocale !== null) hydrateLocale(cachedLocale);
       }
       const result = await getSession();
       if (result.user) {
@@ -172,6 +202,11 @@ export default function App() {
         // DB is the cross-device source of truth — overrides the cached value
         // if they differ. Only applies when the user is actually logged in.
         if (typeof result.darkMode === 'boolean') setDarkMode(result.darkMode);
+        // Spec 038 — DB-stored locale overrides the cached value if they
+        // differ. hydrateLocale is the no-persist setter (mirrors
+        // setDarkMode) so login doesn't round-trip the just-read value
+        // back to the column.
+        if (result.locale) hydrateLocale(result.locale);
         // Spec 008: hydrate the per-user sidebar override from
         // profiles.sidebar_layout. `null` = uncustomized; the hydrator
         // accepts null and stores it as the "use default" sentinel.

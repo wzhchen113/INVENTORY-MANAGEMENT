@@ -4,6 +4,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { AccentTile } from './AccentTile';
 import { TreeGroup, TreeItem } from './TreeGroup';
+import { useT } from '../../hooks/useT';
 
 export interface SidebarGroup {
   label: string;
@@ -62,6 +63,7 @@ export const Sidebar: React.FC<Props> = ({
   onToggleHide,
   onReset,
 }) => {
+  const T = useT();
   const C = useCmdColors();
 
   const itemsWithSelection = (items: TreeItem[]) =>
@@ -104,7 +106,7 @@ export const Sidebar: React.FC<Props> = ({
             <TouchableOpacity
               onPress={onToggleEditMode}
               accessibilityRole="button"
-              accessibilityLabel="Done editing sidebar"
+              accessibilityLabel={T('sidebar.actions.doneEditing')}
               style={{
                 paddingHorizontal: 8,
                 paddingVertical: 2,
@@ -114,13 +116,13 @@ export const Sidebar: React.FC<Props> = ({
                 backgroundColor: C.accentBg,
               }}
             >
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accent }}>DONE</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accent }}>{T('sidebar.actions.doneButton')}</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               onPress={onToggleEditMode}
               accessibilityRole="button"
-              accessibilityLabel="Customize sidebar layout"
+              accessibilityLabel={T('sidebar.actions.customize')}
               hitSlop={4}
               style={{
                 paddingHorizontal: 4,
@@ -164,7 +166,7 @@ export const Sidebar: React.FC<Props> = ({
             }}
           >
             <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg3 }}>⌘P</Text>
-            <Text style={{ fontFamily: sans(400), fontSize: 11, color: C.fg3 }}>Go to anything…</Text>
+            <Text style={{ fontFamily: sans(400), fontSize: 11, color: C.fg3 }}>{T('sidebar.actions.goToAnything')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -173,7 +175,7 @@ export const Sidebar: React.FC<Props> = ({
             onPress={onReset}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Reset sidebar to default"
+            accessibilityLabel={T('sidebar.actions.resetAria')}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -188,7 +190,7 @@ export const Sidebar: React.FC<Props> = ({
             }}
           >
             <Text style={{ fontFamily: mono(600), fontSize: 10, color: C.danger }}>
-              reset to default
+              {T('sidebar.actions.resetLabel')}
             </Text>
           </TouchableOpacity>
         </View>

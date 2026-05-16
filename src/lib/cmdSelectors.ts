@@ -6,6 +6,7 @@ import {
 } from '../types';
 import type { SidebarGroup } from './sidebarLayout';
 import { useIsSuperAdmin, useIsMaster } from '../hooks/useRole';
+import { useT } from '../hooks/useT';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -156,22 +157,28 @@ export type PaletteEntry = {
 };
 
 
-const SCREEN_ENTRIES: Array<{ name: string; label: string }> = [
-  { name: 'Dashboard',       label: 'Dashboard' },
-  { name: 'Inventory',       label: 'Inventory' },
-  { name: 'EODCount',        label: 'EOD count' },
-  { name: 'InventoryCount',  label: 'Inventory count' },
-  { name: 'WasteLog',        label: 'Waste log' },
-  { name: 'Receiving',       label: 'Receiving' },
-  { name: 'PurchaseOrders',  label: 'Purchase orders' },
-  { name: 'Vendors',         label: 'Vendors' },
-  { name: 'Recipes',         label: 'Recipes' },
-  { name: 'Restock',         label: 'Restock' },
-  { name: 'Reorder',         label: 'Reorder' },
-  { name: 'Reconciliation',  label: 'Reconciliation' },
-  { name: 'POSImports',      label: 'POS imports' },
-  { name: 'AuditLog',        label: 'Audit log' },
-  { name: 'Reports',         label: 'Reports' },
+// Spec 038 — translated at call time via the `tFn` (or `T`) argument
+// passed in by useCommandPaletteIndex. Keeps the pure function pure and
+// the static `name` keys stable across locales (they're load-bearing
+// route identifiers, not user-facing).
+const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string }> = [
+  { name: 'Dashboard',       labelKey: 'sidebar.items.dashboard' },
+  { name: 'Inventory',       labelKey: 'sidebar.items.inventory' },
+  { name: 'EODCount',        labelKey: 'sidebar.items.eodCount' },
+  { name: 'InventoryCount',  labelKey: 'sidebar.items.inventoryCount' },
+  { name: 'WasteLog',        labelKey: 'sidebar.items.wasteLog' },
+  { name: 'Receiving',       labelKey: 'sidebar.items.receiving' },
+  { name: 'PurchaseOrders',  labelKey: 'sidebar.items.purchaseOrders' },
+  { name: 'Vendors',         labelKey: 'sidebar.items.vendors' },
+  // Note: deliberately reuses the menuItemsBom key so the palette entry
+  // labels match the sidebar item label across all locales.
+  { name: 'Recipes',         labelKey: 'sidebar.items.menuItemsBom' },
+  { name: 'Restock',         labelKey: 'sidebar.items.restock' },
+  { name: 'Reorder',         labelKey: 'sidebar.items.reorder' },
+  { name: 'Reconciliation',  labelKey: 'sidebar.items.reconciliation' },
+  { name: 'POSImports',      labelKey: 'sidebar.items.posImports' },
+  { name: 'AuditLog',        labelKey: 'sidebar.items.auditLog' },
+  { name: 'Reports',         labelKey: 'sidebar.items.reports' },
 ];
 
 export function getCommandPaletteIndex(args: {
@@ -180,8 +187,13 @@ export function getCommandPaletteIndex(args: {
   prepRecipes: PrepRecipe[];
   vendors: Vendor[];
   auditLog: AuditEvent[];
+  /** Spec 038 — translator function. Optional so existing callers and
+   *  tests can pass an identity-like wrapper if they don't care about
+   *  locale (the only consumer in app is useCommandPaletteIndex below). */
+  t?: (key: string) => string;
 }): PaletteEntry[] {
-  const { inventory, recipes, prepRecipes, vendors, auditLog } = args;
+  const { inventory, recipes, prepRecipes, vendors, auditLog, t: tFn } = args;
+  const translate = tFn || ((key: string) => key);
   const out: PaletteEntry[] = [];
 
   for (const item of inventory) {
@@ -231,10 +243,10 @@ export function getCommandPaletteIndex(args: {
       scope: 'audit',
     });
   }
-  for (const screen of SCREEN_ENTRIES) {
+  for (const screen of SCREEN_ENTRIES_DEFS) {
     out.push({
       type: 'screen',
-      label: screen.label,
+      label: translate(screen.labelKey),
       id: `screen:${screen.name}`,
       route: { name: screen.name },
       scope: 'screens',
@@ -250,9 +262,10 @@ export function useCommandPaletteIndex(): PaletteEntry[] {
   const prepRecipes = useStore((s) => s.prepRecipes);
   const vendors     = useStore((s) => s.vendors);
   const auditLog    = useStore((s) => s.auditLog);
+  const T = useT();
   return useMemo(
-    () => getCommandPaletteIndex({ inventory, recipes, prepRecipes, vendors, auditLog }),
-    [inventory, recipes, prepRecipes, vendors, auditLog],
+    () => getCommandPaletteIndex({ inventory, recipes, prepRecipes, vendors, auditLog, t: T }),
+    [inventory, recipes, prepRecipes, vendors, auditLog, T],
   );
 }
 
@@ -1031,47 +1044,52 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
   // non-super-admin users (the merge silently drops unknown ids).
   const isSuperAdmin = useIsSuperAdmin();
   const isMaster = useIsMaster();
+  // Spec 038 — sidebar labels flow through t() so a Spanish/Chinese
+  // user sees translated group + item labels. T's identity changes on
+  // locale switch, so the useMemo below re-evaluates and the rendered
+  // Sidebar re-renders.
+  const T = useT();
   return useMemo<SidebarGroup[]>(() => {
     const groups: SidebarGroup[] = [
       {
-        label: 'Operations',
+        label: T('sidebar.groups.operations'),
         items: [
-          { id: 'Inventory',       label: 'Inventory',        kbd: '⌘I' },
-          { id: 'Dashboard',       label: 'Dashboard' },
-          { id: 'EODCount',        label: 'EOD count' },
+          { id: 'Inventory',       label: T('sidebar.items.inventory'),        kbd: '⌘I' },
+          { id: 'Dashboard',       label: T('sidebar.items.dashboard') },
+          { id: 'EODCount',        label: T('sidebar.items.eodCount') },
           // Spec 019 — sibling of "EOD count" per Q5 default. EOD entry
           // is unchanged; this one routes to InventoryCountSection.
-          { id: 'InventoryCount',  label: 'Inventory count' },
-          { id: 'WasteLog',        label: 'Waste log' },
-          { id: 'Receiving',       label: 'Receiving' },
+          { id: 'InventoryCount',  label: T('sidebar.items.inventoryCount') },
+          { id: 'WasteLog',        label: T('sidebar.items.wasteLog') },
+          { id: 'Receiving',       label: T('sidebar.items.receiving') },
         ],
       },
       {
-        label: 'Planning',
+        label: T('sidebar.groups.planning'),
         items: [
-          { id: 'PurchaseOrders',  label: 'Purchase orders' },
-          { id: 'Vendors',         label: 'Vendors' },
-          { id: 'Recipes',         label: 'Menu items / BOM' },
-          { id: 'PrepRecipes',     label: 'Prep recipes' },
-          { id: 'Restock',         label: 'Restock' },
+          { id: 'PurchaseOrders',  label: T('sidebar.items.purchaseOrders') },
+          { id: 'Vendors',         label: T('sidebar.items.vendors') },
+          { id: 'Recipes',         label: T('sidebar.items.menuItemsBom') },
+          { id: 'PrepRecipes',     label: T('sidebar.items.prepRecipes') },
+          { id: 'Restock',         label: T('sidebar.items.restock') },
           // Spec 021 — vendor-grouped reorder list sibling to Restock.
           // Restock is store-wide-by-category; Reorder is
           // vendor-grouped-for-delivery-day. Different mental models.
-          { id: 'Reorder',         label: 'Reorder' },
+          { id: 'Reorder',         label: T('sidebar.items.reorder') },
         ],
       },
       {
-        label: 'Insights',
+        label: T('sidebar.groups.insights'),
         items: [
-          { id: 'Reconciliation',  label: 'Reconciliation' },
-          { id: 'POSImports',      label: 'POS imports' },
-          { id: 'AuditLog',        label: 'Audit log' },
-          { id: 'Reports',         label: 'Reports' },
+          { id: 'Reconciliation',  label: T('sidebar.items.reconciliation') },
+          { id: 'POSImports',      label: T('sidebar.items.posImports') },
+          { id: 'AuditLog',        label: T('sidebar.items.auditLog') },
+          { id: 'Reports',         label: T('sidebar.items.reports') },
           // DBInspector is rendered by the legacy color palette and is
           // routed as a sibling stack screen rather than a section pane.
           // The shell attaches `onPress` since this selector is decoupled
           // from React Navigation.
-          { id: 'DBInspector',     label: 'DB inspector' },
+          { id: 'DBInspector',     label: T('sidebar.items.dbInspector') },
         ],
       },
     ];
@@ -1082,21 +1100,21 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
     // super-admin-gated Tenancy push below.
     if (isMaster) {
       groups.push({
-        label: 'Admin',
+        label: T('sidebar.groups.admin'),
         items: [
-          { id: 'Users', label: 'Users & access' },
+          { id: 'Users', label: T('sidebar.items.usersAccess') },
         ],
       });
     }
     if (isSuperAdmin) {
       groups.push({
-        label: 'Tenancy',
+        label: T('sidebar.groups.tenancy'),
         items: [
-          { id: 'Brands', label: 'Brands' },
+          { id: 'Brands', label: T('sidebar.items.brands') },
         ],
       });
     }
     return groups;
-  }, [isSuperAdmin, isMaster]);
+  }, [isSuperAdmin, isMaster, T]);
 }
 

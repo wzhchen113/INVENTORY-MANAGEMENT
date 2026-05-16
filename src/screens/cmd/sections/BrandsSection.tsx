@@ -17,6 +17,7 @@ import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal';
 import { confirmAction } from '../../../utils/confirmAction';
 import { Brand, User } from '../../../types';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const fmtDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : '—');
@@ -41,6 +42,7 @@ type ListTab = 'active' | 'trash';
 // Visible only when super-admin.
 export default function BrandsSection() {
   const C = useCmdColors();
+  const T = useT();
   const isSuperAdmin = useIsSuperAdmin();
   const isCompact = useIsCompact();
   const allStores = useStore((s) => s.stores);
@@ -369,6 +371,7 @@ function ListPane({
   onNew: () => void;
 }) {
   const C = useCmdColors();
+  const T = useT();
   const isCompact = useIsCompact();
   const visible = listTab === 'active' ? activeBrands : trashBrands;
   return (
@@ -394,7 +397,7 @@ function ListPane({
           justifyContent: 'space-between',
         }}
       >
-        <Text style={[Type.h2, { color: C.fg }]}>Brands</Text>
+        <Text style={[Type.h2, { color: C.fg }]}>{T('section.brands.title')}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
             {visible.length} {visible.length === 1 ? 'brand' : 'brands'}

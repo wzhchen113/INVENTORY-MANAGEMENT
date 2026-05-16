@@ -1,5 +1,7 @@
 // src/types/index.ts
 
+import type { Locale } from '../i18n';
+
 export type UserRole = 'super_admin' | 'master' | 'admin' | 'user';
 
 export interface User {
@@ -472,6 +474,15 @@ export interface AppState {
   orderSubmissions: OrderSubmission[];
   timezone: string;
   darkMode: boolean;
+  /**
+   * Spec 038: per-user preferred chrome language. One of 'en' | 'es' |
+   * 'zh-CN' (see `Locale` in `src/i18n/index.ts` — single source of
+   * truth). Hydrated at boot from localStorage / AsyncStorage (web
+   * synchronous, native async) and overridden after login by
+   * profiles.locale via hydrateLocale. The persisting setter is
+   * setLocale (writes through to profiles.locale via db.saveLocale).
+   */
+  locale: Locale;
   /**
    * Spec 008: per-user Cmd UI sidebar layout override. `null` means
    * uncustomized (the InventoryDesktopLayout hardcoded default groups

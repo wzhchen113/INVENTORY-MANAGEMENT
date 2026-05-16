@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import type { Locale } from '../i18n';
 
 // Surface a backend failure to the user instead of swallowing it in
 // console.warn. Used by the recipe + prep recipe CRUD paths to revert
@@ -40,6 +41,12 @@ const DARK_MODE_KEY = 'darkMode';
 // at login so a fresh session always starts in "All brands" mode.
 // Cleanup #9 — exported so App.tsx imports it instead of duplicating.
 export const ACTIVE_BRAND_KEY = 'imr.cmd.superAdmin.activeBrand';
+
+// Spec 038 — local cache key for the user's preferred chrome language.
+// Namespaced under `imr.*` like ACTIVE_BRAND_KEY rather than the bare
+// `'darkMode'` (legacy). Exported so App.tsx imports it instead of
+// duplicating the literal.
+export const LOCALE_KEY = 'imr.locale';
 
 // Fire-and-forget local cache so the boot-time hydrator in App.tsx can
 // restore the theme before the first paint, without waiting on Supabase.
@@ -70,6 +77,19 @@ function clearActiveBrandLocal() {
       window.localStorage.removeItem(ACTIVE_BRAND_KEY);
     } else {
       AsyncStorage.removeItem(ACTIVE_BRAND_KEY).catch(() => { /* best-effort */ });
+    }
+  } catch { /* best-effort */ }
+}
+
+// Spec 038 — local cache for the chrome language so the boot-time
+// hydrator in App.tsx can restore the locale before first paint
+// without waiting on Supabase. Mirrors persistDarkModeLocal.
+function persistLocaleLocal(value: Locale) {
+  try {
+    if (Platform.OS === 'web') {
+      window.localStorage.setItem(LOCALE_KEY, value);
+    } else {
+      AsyncStorage.setItem(LOCALE_KEY, value).catch(() => { /* best-effort */ });
     }
   } catch { /* best-effort */ }
 }
@@ -284,6 +304,19 @@ interface StoreActions {
    *  the cached / DB-stored preference. */
   setDarkMode: (value: boolean) => void;
 
+  // Spec 038 — chrome-language preference.
+  /**
+   * Persist the user's preferred chrome language to `profiles.locale`
+   * (and local storage). Optimistic-then-revert: local state + cache
+   * update first, DB write second; on backend error reverts and routes
+   * through `notifyBackendError`. Used by LocaleSwitcher's onPress.
+   */
+  setLocale: (value: Locale) => void;
+  /** Apply a locale value WITHOUT persisting — used at boot/login to
+   *  restore the cached / DB-stored preference. Mirrors `setDarkMode`
+   *  (no-persist hydrator). */
+  hydrateLocale: (value: Locale) => void;
+
   // Sidebar layout (Spec 008)
   /**
    * Apply a sidebar override value WITHOUT persisting — used at boot to
@@ -406,6 +439,11 @@ export const useStore = create<FullStore>((set, get) => ({
   orderSubmissions: [],
   timezone: 'America/New_York',
   darkMode: false,
+  // Spec 038 — preferred chrome language. Defaults to 'en'. Hydrated
+  // synchronously at boot from localStorage (web) / asynchronously from
+  // AsyncStorage (native) before the first render, then overridden by
+  // profiles.locale once the session restore completes in App.tsx.
+  locale: 'en' as Locale,
   // Spec 008: null = uncustomized. Hydrated from profiles.sidebar_layout
   // at login (App.tsx) and mutated by setSidebarLayoutOverride.
   sidebarLayoutOverride: null,
@@ -468,6 +506,15 @@ export const useStore = create<FullStore>((set, get) => ({
     // Spec 012b — drop super-admin brand context on logout.
     clearActiveBrandLocal();
     set({ currentBrandId: null, brandsList: [], brandStats: [], brandAdminsByBrandId: {}, brandDeletionLog: {} });
+    // Spec 038 — reset locale to 'en' so the next sign-in flow starts
+    // from English chrome until getSession() resolves and hydrateLocale
+    // re-applies the new user's preference. Avoids a flash of the
+    // previous user's locale on the login screen for shared machines.
+    // Persist locally too so a subsequent page reload before next sign-in
+    // doesn't restore the prior user's cached locale via
+    // readCachedLocaleSync (security-auditor Low).
+    set({ locale: 'en' });
+    persistLocaleLocal('en');
     import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     // Drop web-push subscription for this browser so the user doesn't keep
     // getting reminders for a store they no longer have access to.
@@ -1889,6 +1936,35 @@ export const useStore = create<FullStore>((set, get) => ({
 
   setDarkMode: (value) => {
     set({ darkMode: value });
+  },
+
+  // Spec 038 — chrome-language preference. Optimistic-then-revert via
+  // notifyBackendError per architect §5. Mirrors setSidebarLayoutOverride
+  // rather than the simpler toggleDarkMode pattern because language
+  // errors are more user-visible — a user toggling and getting silent
+  // failure would be confused on their next device.
+  setLocale: (next) => {
+    const prev = get().locale;
+    if (prev === next) return;
+    set({ locale: next });
+    // Persist locally (web localStorage / native AsyncStorage) for
+    // instant boot-time restore on the next reload.
+    persistLocaleLocal(next);
+    const userId = get().currentUser?.id;
+    // Not logged in (e.g. login screen) — local-only, no DB write.
+    if (!userId) return;
+    db.saveLocale(userId, next).catch((e: any) => {
+      set({ locale: prev });
+      notifyBackendError('Save language', e);
+    });
+  },
+
+  // Spec 038 — no-persist hydrator. Mirrors setDarkMode / hydrate-
+  // SidebarLayoutOverride. Used by App.tsx after getSession() returns
+  // to seed the store from the DB-stored value without round-tripping
+  // it back to the column.
+  hydrateLocale: (next) => {
+    set({ locale: next });
   },
 
   // Spec 008: no-persist hydrator. Mirrors setDarkMode — used by the

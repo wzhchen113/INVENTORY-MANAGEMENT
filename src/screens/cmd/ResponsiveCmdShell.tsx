@@ -15,8 +15,10 @@ import { MobileTopAppBar } from '../../components/cmd/MobileTopAppBar';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { TitleBar } from '../../components/cmd/TitleBar';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
+import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
 import { useIsSuperAdmin } from '../../hooks/useRole';
+import { useT } from '../../hooks/useT';
 import { confirmAction } from '../../utils/confirmAction';
 import InventoryDesktopLayout from './InventoryDesktopLayout';
 
@@ -67,6 +69,7 @@ interface Props {
 
 export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   const C = useCmdColors();
+  const T = useT();
   const nav = useNavigation<any>();
   const isPhone = useIsPhone();
   const isTablet = useIsTablet();
@@ -194,15 +197,15 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
 
   const handleReset = React.useCallback(() => {
     confirmAction(
-      'Reset sidebar to default?',
-      'This clears all your customizations.',
+      T('sidebar.actions.resetConfirmTitle'),
+      T('sidebar.actions.resetConfirmBody'),
       () => {
         setSidebarLayoutOverride(null);
         setDraftGroups(null);
         setSidebarEditMode(false);
       },
     );
-  }, [setSidebarLayoutOverride]);
+  }, [setSidebarLayoutOverride, T]);
 
   // ─── Palette-action bridge (shell-level: section swap only) ──────
   // The body handles selectedName + viewMode + eodFocusItemId. We only
@@ -230,12 +233,12 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   const sidebarFooterLeft = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <Text style={[Type.statusBar, { color: C.fg3 }]}>
-        ● {currentUser?.name || 'guest'}
+        ● {currentUser?.name || T('chrome.guest')}
       </Text>
       <TouchableOpacity
-        onPress={() => confirmAction('Sign out?', 'You will need to sign back in.', logout)}
+        onPress={() => confirmAction(T('chrome.signOutConfirm'), T('chrome.signOutBody'), logout)}
         accessibilityRole="button"
-        accessibilityLabel="Sign out"
+        accessibilityLabel={T('chrome.signOutAria')}
         style={{
           paddingHorizontal: 6,
           paddingVertical: 1,
@@ -244,28 +247,30 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           borderColor: C.border,
         }}
       >
-        <Text style={[Type.statusBar, { color: C.fg3 }]}>sign out</Text>
+        <Text style={[Type.statusBar, { color: C.fg3 }]}>{T('chrome.signOut')}</Text>
       </TouchableOpacity>
     </View>
   );
 
   const sidebarFooterRight = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <LocaleSwitcher />
       <ThemeToggle />
       <Text style={[Type.statusBar, { color: C.fg3 }]}>
-        EOD {submittedToday}/{stores.length}
+        {T('chrome.eodFooter', { submittedCount: submittedToday, totalCount: stores.length })}
       </Text>
     </View>
   );
 
-  // Rail footer: just the icon-row (theme toggle).
+  // Rail footer: just the icon-row (theme toggle + locale switcher).
   const railFooter = (
     <View style={{ alignItems: 'center', gap: 6 }}>
+      <LocaleSwitcher />
       <ThemeToggle />
       <TouchableOpacity
-        onPress={() => confirmAction('Sign out?', 'You will need to sign back in.', logout)}
+        onPress={() => confirmAction(T('chrome.signOutConfirm'), T('chrome.signOutBody'), logout)}
         accessibilityRole="button"
-        accessibilityLabel="Sign out"
+        accessibilityLabel={T('chrome.signOutAria')}
         hitSlop={6}
       >
         <Text style={[Type.statusBar, { color: C.fg3 }]}>↩</Text>
@@ -367,7 +372,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           paletteQuery={paletteQuery}
           onPaletteChange={setPaletteQuery}
           paletteResults={paletteResults}
-          subtitle={`${currentUser?.email || 'guest'} · v2.4`}
+          subtitle={`${currentUser?.email || T('chrome.guest')} · v2.4`}
           footerLeft={sidebarFooterLeft}
           footerRight={sidebarFooterRight}
         />
@@ -384,7 +389,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
         <TitleBar
-          storeName={currentStore?.name || 'store'}
+          storeName={currentStore?.name || T('chrome.store')}
           section={section}
           brandPicker={brandPickerSlot}
         />
@@ -414,7 +419,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
                   <TouchableOpacity
                     onPress={() => setTabletCollapsed(true)}
                     accessibilityRole="button"
-                    accessibilityLabel="Collapse sidebar"
+                    accessibilityLabel={T('sidebar.actions.collapseAria')}
                     hitSlop={4}
                     style={{
                       paddingHorizontal: 4,

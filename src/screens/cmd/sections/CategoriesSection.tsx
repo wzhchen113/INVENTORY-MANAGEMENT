@@ -6,6 +6,7 @@ import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { confirmAction } from '../../../utils/confirmAction';
+import { useT } from '../../../hooks/useT';
 
 // Cmd-styled admin section for `ingredient_categories` (global, no
 // brand-scoping today). Modeled on the legacy `IngredientsScreen.tsx`
@@ -15,6 +16,7 @@ import { confirmAction } from '../../../utils/confirmAction';
 // `deleteIngredientCategory`) — no duplicated CRUD.
 export default function CategoriesSection() {
   const C = useCmdColors();
+  const T = useT();
   const ingredientCategories  = useStore((s) => s.ingredientCategories);
   const inventory             = useStore((s) => s.inventory);
   const addIngredientCategory    = useStore((s) => s.addIngredientCategory);
@@ -48,12 +50,12 @@ export default function CategoriesSection() {
     const name = newName.trim();
     if (!name) return;
     if (ingredientCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-      setWarning(`Category "${name}" already exists.`);
+      setWarning(T('section.categories.alreadyExists', { name }));
       return;
     }
     setWarning('');
     addIngredientCategory(name);
-    Toast.show({ type: 'success', text1: 'Category added', text2: name });
+    Toast.show({ type: 'success', text1: T('section.categories.added'), text2: name });
     setNewName('');
   };
 
@@ -72,13 +74,13 @@ export default function CategoriesSection() {
     const next = editValue.trim();
     if (!next) return;
     if (next !== oldName && ingredientCategories.some((c) => c.toLowerCase() === next.toLowerCase())) {
-      setWarning(`Category "${next}" already exists.`);
+      setWarning(T('section.categories.alreadyExists', { name: next }));
       return;
     }
     setWarning('');
     if (next !== oldName) {
       updateIngredientCategory(oldName, next);
-      Toast.show({ type: 'success', text1: 'Category renamed', text2: `${oldName} → ${next}` });
+      Toast.show({ type: 'success', text1: T('section.categories.renamed'), text2: `${oldName} → ${next}` });
     }
     setEditingName(null);
     setEditValue('');
@@ -91,20 +93,20 @@ export default function CategoriesSection() {
       inventory.filter((i) => i.category === name).map((i) => i.name.toLowerCase()),
     ).size;
     if (inUseCount > 0) {
-      setWarning(`Cannot delete "${name}" — used by ${inUseCount} item${inUseCount === 1 ? '' : 's'}.`);
+      setWarning(T('section.categories.cannotDeleteInUse', { name, count: inUseCount }));
       Toast.show({
         type: 'error',
-        text1: 'Category in use',
-        text2: `"${name}" is on ${inUseCount} item${inUseCount === 1 ? '' : 's'} — reassign first.`,
+        text1: T('section.categories.inUseToast'),
+        text2: T('section.categories.inUseToastBody', { name, count: inUseCount }),
       });
       return;
     }
     confirmAction(
-      `Delete category "${name}"?`,
-      'No items reference this category. The deletion is reversible by re-adding the same name.',
+      T('section.categories.deleteConfirmTitle', { name }),
+      T('section.categories.deleteConfirmBody'),
       () => {
         deleteIngredientCategory(name);
-        Toast.show({ type: 'success', text1: 'Category deleted', text2: name });
+        Toast.show({ type: 'success', text1: T('section.categories.deleted'), text2: name });
       },
     );
   };
@@ -121,9 +123,9 @@ export default function CategoriesSection() {
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
-          <Text style={[Type.h2, { color: C.fg }]}>Ingredient categories</Text>
+          <Text style={[Type.h2, { color: C.fg }]}>{T('section.categories.ingredientCategories')}</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {sorted.length} active
+            {T('section.categories.active', { count: sorted.length })}
           </Text>
         </View>
       </View>
@@ -131,19 +133,18 @@ export default function CategoriesSection() {
       <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-            Categories are the dropdown choices on the ingredient form. Renaming a
-            category cascades to every inventory row that uses the old name.
+            {T('section.categories.description')}
           </Text>
         </View>
 
         {/* Add new category card */}
         <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 10 }}>
-          <SectionCaption tone="fg3" size={10.5}>+ new category</SectionCaption>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.categories.newCategoryCaption')}</SectionCaption>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TextInput
               value={newName}
               onChangeText={setNewName}
-              placeholder="e.g. Protein, Bakery, Dry goods"
+              placeholder={T('section.categories.namePlaceholder')}
               placeholderTextColor={C.fg3}
               onSubmitEditing={handleAdd}
               style={{
@@ -163,7 +164,7 @@ export default function CategoriesSection() {
                 opacity: newName.trim() ? 1 : 0.55,
               }}
             >
-              <Text style={{ fontFamily: mono(700), fontSize: 11, color: newName.trim() ? '#000' : C.fg3 }}>+ NEW CATEGORY</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: newName.trim() ? '#000' : C.fg3 }}>{T('section.categories.newCategoryButton')}</Text>
             </TouchableOpacity>
           </View>
           {warning ? (
@@ -177,11 +178,11 @@ export default function CategoriesSection() {
         <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
             <SectionCaption tone="fg3" size={10.5}>categories.tsv</SectionCaption>
-            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{sorted.length} {sorted.length === 1 ? 'row' : 'rows'}</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.categories.rowsCount', { count: sorted.length })}</Text>
           </View>
           {sorted.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no categories yet — add one above
+              {T('section.categories.emptyState')}
             </Text>
           ) : (
             sorted.map(({ name, count }, i) => {
@@ -211,22 +212,22 @@ export default function CategoriesSection() {
                     <Text style={{ flex: 1, fontFamily: sans(600), fontSize: 13, color: C.fg }}>{name}</Text>
                   )}
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 100, textAlign: 'right' }}>
-                    {count} {count === 1 ? 'item' : 'items'}
+                    {T('section.categories.items', { count })}
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 6, width: 130, justifyContent: 'flex-end' }}>
                     {isEditing ? (
                       <>
                         <TouchableOpacity onPress={() => saveEdit(name)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>SAVE</Text>
+                          <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>{T('section.categories.saveButton')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={cancelEdit} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>CANCEL</Text>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>{T('section.categories.cancelButton')}</Text>
                         </TouchableOpacity>
                       </>
                     ) : (
                       <>
                         <TouchableOpacity onPress={() => startEdit(name)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>EDIT</Text>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>{T('section.categories.editButton')}</Text>
                         </TouchableOpacity>
                         {/* DELETE is always enabled; the in-use check happens
                             inside `handleDelete` and surfaces a Toast +
@@ -241,7 +242,7 @@ export default function CategoriesSection() {
                             borderRadius: CmdRadius.sm,
                           }}
                         >
-                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.danger }}>DELETE</Text>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.danger }}>{T('section.categories.deleteButton')}</Text>
                         </TouchableOpacity>
                       </>
                     )}

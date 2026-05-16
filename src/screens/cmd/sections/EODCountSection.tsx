@@ -8,6 +8,7 @@ import { useStore } from '../../../store/useStore';
 import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { usePaletteAction } from '../../../lib/paletteAction';
+import { useT } from '../../../hooks/useT';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
 import { StatCard } from '../../../components/cmd/StatCard';
@@ -58,6 +59,7 @@ function localDayIso(d: Date): string {
 // - No per-row variance pill (kept simple; we surface a footer-level total)
 export default function EODCountSection() {
   const C = useCmdColors();
+  const T = useT();
   const isPhone = useIsPhone();
   // Phone: drop the 240px week rail (worksheet would otherwise get ~150px on a
   // ~390px viewport, clipping inputs and wrapping item names letter-by-letter).
@@ -454,7 +456,7 @@ export default function EODCountSection() {
   const onSaveDraft = async () => {
     const submission = buildSubmission('draft');
     if (!submission) {
-      Toast.show({ type: 'error', text1: 'Enter at least one count' });
+      Toast.show({ type: 'error', text1: T('section.eod.enterAtLeastOne') });
       return;
     }
     setSubmitting(true);
@@ -465,12 +467,17 @@ export default function EODCountSection() {
       const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       Toast.show({
         type: 'info',
-        text1: 'DRAFT SAVED',
-        text2: `${submission.itemCount} of ${filteredItems.length} items · ${time} · ${submitterShort}`,
+        text1: T('section.eod.draftSavedToast'),
+        text2: T('section.eod.draftSavedDetail', {
+          itemCount: submission.itemCount,
+          totalItems: filteredItems.length,
+          time,
+          user: submitterShort,
+        }),
       });
     } catch (e: any) {
       console.warn('[EOD] draft save failed:', e?.message || e);
-      Toast.show({ type: 'error', text1: 'Saved locally only', text2: 'Cloud save failed — check connection' });
+      Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
     } finally {
       setSubmitting(false);
     }
@@ -479,13 +486,13 @@ export default function EODCountSection() {
   const onSubmit = async () => {
     const submission = buildSubmission('submitted');
     if (!submission) {
-      Toast.show({ type: 'error', text1: 'Enter at least one count' });
+      Toast.show({ type: 'error', text1: T('section.eod.enterAtLeastOne') });
       return;
     }
     if (!selectedVendorId) {
       // Defensive — vendorTabs effect should always seat a vendor; bail to
       // avoid sending a vendor-less submission to the per-vendor RPC.
-      Toast.show({ type: 'error', text1: 'Pick a vendor before submitting' });
+      Toast.show({ type: 'error', text1: T('section.eod.pickVendor') });
       return;
     }
     setSubmitting(true);
@@ -508,10 +515,17 @@ export default function EODCountSection() {
         next.delete(selectedVendorId);
         return next;
       });
-      Toast.show({ type: 'success', text1: 'Count submitted', text2: `${submission.itemCount} items · ${selectedIso}` });
+      Toast.show({
+        type: 'success',
+        text1: T('section.eod.countSubmitted'),
+        text2: T('section.eod.countSubmittedDetail', {
+          itemCount: submission.itemCount,
+          date: selectedIso,
+        }),
+      });
     } catch (e: any) {
       console.warn('[EOD] cloud save failed:', e?.message || e);
-      Toast.show({ type: 'error', text1: 'Saved locally only', text2: 'Cloud save failed — check connection' });
+      Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
     } finally {
       setSubmitting(false);
     }
@@ -524,11 +538,11 @@ export default function EODCountSection() {
   })();
 
   const dayPillFor = (status: DayStatus): { fg: string; bg: string; label: string } => {
-    if (status === 'today')     return { fg: C.accent, bg: C.accentBg, label: 'today' };
-    if (status === 'submitted') return { fg: C.ok,     bg: C.okBg,     label: 'submitted' };
-    if (status === 'draft')     return { fg: C.info,   bg: C.infoBg,   label: 'draft' };
-    if (status === 'late')      return { fg: C.warn,   bg: C.warnBg,   label: 'late' };
-    return { fg: C.fg3, bg: C.panel2, label: 'rest' };
+    if (status === 'today')     return { fg: C.accent, bg: C.accentBg, label: T('section.eod.today') };
+    if (status === 'submitted') return { fg: C.ok,     bg: C.okBg,     label: T('section.eod.submitted') };
+    if (status === 'draft')     return { fg: C.info,   bg: C.infoBg,   label: T('section.eod.draft') };
+    if (status === 'late')      return { fg: C.warn,   bg: C.warnBg,   label: T('section.eod.late') };
+    return { fg: C.fg3, bg: C.panel2, label: T('section.eod.rest') };
   };
 
   // REST day flag — drives input/action disable below. Only the SELECTED
@@ -566,7 +580,7 @@ export default function EODCountSection() {
       >
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border, gap: 6 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={[Type.h2, { color: C.fg }]}>This week</Text>
+            <Text style={[Type.h2, { color: C.fg }]}>{T('common.thisWeek')}</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>wk {wkNum}</Text>
           </View>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
@@ -627,7 +641,7 @@ export default function EODCountSection() {
           }}
         />
         <View style={{ paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>week total</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{T('section.eod.weekTotal')}</Text>
           <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg }}>
             {week.reduce((s, d) => s + d.counted, 0)}/{week.reduce((s, d) => s + d.total, 0)}
           </Text>
@@ -687,10 +701,13 @@ export default function EODCountSection() {
         )}
         <TabStrip
           tabs={[
+            // Filename-style literals stay verbatim per spec instructions —
+            // they look like file paths (count.tsx / history.tsx /
+            // variance.log) and read as commands rather than English text.
             { id: 'count.tsx',      label: 'count.tsx' },
             { id: 'history.tsx',    label: 'history.tsx' },
             { id: 'variance.log',   label: 'variance.log' },
-            { id: 'order-schedule', label: 'Order Schedule' },
+            { id: 'order-schedule', label: T('section.purchaseOrders.scheduleTitle') },
           ]}
           activeId={tabId}
           onChange={setTabId}
@@ -706,7 +723,7 @@ export default function EODCountSection() {
                 // a matching signal at the worksheet head.
                 <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warn }}>
                   <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.5 }}>
-                    REST DAY — NO INPUT
+                    {T('section.eod.restDayLabel')}
                   </Text>
                 </View>
               ) : null}
@@ -718,13 +735,13 @@ export default function EODCountSection() {
                 <>
                   <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.okBg, borderWidth: 1, borderColor: C.ok }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.5 }}>
-                      SUBMITTED · LOCKED
+                      {T('section.eod.submittedLocked')}
                     </Text>
                   </View>
                   <TouchableOpacity
                     onPress={onEditCurrentVendor}
                     accessibilityRole="button"
-                    accessibilityLabel="Edit this vendor's submitted count"
+                    accessibilityLabel={T('section.eod.editAria')}
                     style={{
                       paddingVertical: 4, paddingHorizontal: 12,
                       borderWidth: 1, borderColor: C.fg, borderRadius: CmdRadius.sm,
@@ -732,7 +749,7 @@ export default function EODCountSection() {
                     }}
                   >
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg, letterSpacing: 0.5 }}>
-                      EDIT
+                      {T('section.eod.edit')}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -748,7 +765,7 @@ export default function EODCountSection() {
                       ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
                     }}
                   >
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>+ COUNT</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.eod.addCount')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={onSaveDraft}
@@ -760,7 +777,7 @@ export default function EODCountSection() {
                       ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
                     }}
                   >
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SAVE DRAFT</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.eod.saveDraft')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={onSubmit}
@@ -773,7 +790,7 @@ export default function EODCountSection() {
                     }}
                   >
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>
-                      {isCurrentVendorEditing ? 'UPDATE COUNT' : 'SUBMIT COUNT'}
+                      {isCurrentVendorEditing ? T('section.eod.updateCount') : T('section.eod.submitCount')}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -1313,6 +1330,7 @@ export default function EODCountSection() {
 // still render — their VENDOR cell shows "—".
 function EODHistoryTab() {
   const C = useCmdColors();
+  const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
@@ -1360,7 +1378,7 @@ function EODHistoryTab() {
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>EOD count · history</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.eod.historyTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
           90-day rolling history. One row per vendor submission. Click a row to view the frozen snapshot read-only.
         </Text>

@@ -16,6 +16,12 @@ export interface AuthResult {
    *  apply this to the store after login. Defensively coerced to null when
    *  the stored shape is invalid (wrong `v`, missing items array, etc). */
   sidebarLayout?: SidebarLayoutOverride | null;
+  /** Spec 038: saved chrome-language preference from profiles.locale.
+   *  Defaults to 'en' if the column is missing or holds an unexpected
+   *  value (defense-in-depth via `coerceLocale`). Undefined = unknown
+   *  (e.g. signed out). Callers should apply this to the store after
+   *  login via `hydrateLocale`. */
+  locale?: 'en' | 'es' | 'zh-CN';
 }
 
 /** Defensive shape guard for profiles.sidebar_layout. We treat any
@@ -29,6 +35,18 @@ export interface AuthResult {
  */
 function coerceSidebarLayout(raw: unknown): SidebarLayoutOverride | null {
   return isValidOverride(raw) ? raw : null;
+}
+
+/** Spec 038: defense-in-depth guard for profiles.locale. Returns 'en'
+ *  for any value that is not one of the three in-scope locales. Same
+ *  shape as `coerceSidebarLayout`: if a future migration introduces a
+ *  fourth locale and an older client reads back a value it doesn't
+ *  recognize, the client falls back to 'en' instead of breaking.
+ *  Mirrors the runtime behaviour of the CHECK constraint
+ *  `profiles_locale_check` (spec 038 §2).
+ */
+export function coerceLocale(value: unknown): 'en' | 'es' | 'zh-CN' {
+  return value === 'es' || value === 'zh-CN' ? value : 'en';
 }
 
 /** Sign in with email + password */
@@ -102,6 +120,9 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     // Spec 008: per-user sidebar override; null when uncustomized or when
     // the stored shape is invalid (defensive coercion).
     sidebarLayout: coerceSidebarLayout(profile.sidebar_layout),
+    // Spec 038: per-user chrome-language preference; defaults to 'en'
+    // if the column is missing or holds an unexpected value.
+    locale: coerceLocale(profile.locale),
   };
 }
 

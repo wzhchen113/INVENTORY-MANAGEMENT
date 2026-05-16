@@ -12,6 +12,7 @@ import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
 import { User } from '../../../types';
 import { useIsMaster } from '../../../hooks/useRole';
 import { canDeleteUser, deriveLastOfRole } from '../../../utils/userPermissions';
+import { useT } from '../../../hooks/useT';
 
 // Spec 025 §2 — admin-global users surface. Replaces the legacy
 // UsersScreen from AdminScreens.tsx (master role + admin role + store
@@ -36,6 +37,7 @@ function roleLabel(role: User['role']): string {
 
 export default function UsersSection() {
   const C = useCmdColors();
+  const T = useT();
   const isMaster = useIsMaster();
   const currentUser = useStore((s) => s.currentUser);
   const stores = useStore((s) => s.stores);
@@ -158,7 +160,7 @@ export default function UsersSection() {
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14, paddingBottom: 80 }}>
         {/* Hero */}
         <View>
-          <Text style={[Type.h1, { color: C.fg }]}>Users &amp; access</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.users.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
             Invite admins and store users, manage role assignments, reset passwords, and remove accounts.
           </Text>

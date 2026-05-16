@@ -18,6 +18,7 @@ import { BREADBOT_STORES, BackfillResult } from '../../../lib/posBreadbot';
 import { savePOSImport, fetchUnmappedPosImports } from '../../../lib/db';
 import { matchRecipe, MatchResult } from '../../../utils/recipeMatch';
 import { confirmAction } from '../../../utils/confirmAction';
+import { useT } from '../../../hooks/useT';
 
 // Pattern C — stream/report. Table of POS imports with state pill +
 // counts. Reads useStore.posImports for the current store. Empty state
@@ -37,6 +38,7 @@ type BreadbotPreview = {
 
 export default function POSImportsSection() {
   const C = useCmdColors();
+  const T = useT();
   const posImports = useStore((s) => s.posImports);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -154,7 +156,7 @@ export default function POSImportsSection() {
       ) : (
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
-          <Text style={[Type.h1, { color: C.fg }]}>POS imports</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.posImports.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
             Sales feeds depletion. Errors = SKU not mapped to a recipe.
           </Text>

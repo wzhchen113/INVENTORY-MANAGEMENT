@@ -10,6 +10,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { Avatar } from '../../../components/cmd/Avatar';
 import { relativeTime } from '../../../utils/relativeTime';
 import { WasteReason } from '../../../types';
+import { useT } from '../../../hooks/useT';
 
 const REASONS: WasteReason[] = ['Expired', 'Dropped/spilled', 'Over-prepped', 'Quality issue', 'Theft', 'Other'];
 // Lowercase chip labels per the design's tone (mono caps via the chip's
@@ -31,6 +32,7 @@ const inferInitials = (name: string): string =>
 // the existing `logWaste` store action; matches the live data model.
 export default function WasteLogSection() {
   const C = useCmdColors();
+  const T = useT();
   const wasteLog = useStore((s) => s.wasteLog);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -243,7 +245,7 @@ export default function WasteLogSection() {
           {tabId === 'log.tsx' ? (
             <>
               <View>
-                <Text style={[Type.h1, { color: C.fg }]}>Log new waste</Text>
+                <Text style={[Type.h1, { color: C.fg }]}>{T('section.wasteLog.addEntry')}</Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
                   Records cost & reduces on-hand stock. Required nightly per BOH SOP.
                 </Text>
