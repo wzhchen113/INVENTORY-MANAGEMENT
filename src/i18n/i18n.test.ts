@@ -105,6 +105,17 @@ describe('t()', () => {
     expect(t('zh-CN', 'chrome.signOut')).toBe('退出登录');
   });
 
+  it('section.inventory.tabs.categories exists in en / es / zh-CN', () => {
+    // Spec 039 — the `categories` tab label in InventoryDesktopLayout
+    // is NOT filename-style and DOES route through `t()`. The other two
+    // tabs (`items.tsv`, `catalog.tsv`) stay verbatim. Guarding the
+    // catalog presence here means a future rename of the key surfaces
+    // as a test failure rather than a UI fall-through to the dot-path.
+    expect(t('en', 'section.inventory.tabs.categories')).toBe('categories');
+    expect(t('es', 'section.inventory.tabs.categories')).toBe('categorías');
+    expect(t('zh-CN', 'section.inventory.tabs.categories')).toBe('分类');
+  });
+
   it('substitutes {var} placeholders from the vars object', () => {
     expect(
       t('en', 'chrome.eodFooter', { submittedCount: 3, totalCount: 5 }),

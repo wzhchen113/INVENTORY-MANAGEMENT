@@ -13,6 +13,7 @@ import { User } from '../../../types';
 import { useIsMaster } from '../../../hooks/useRole';
 import { canDeleteUser, deriveLastOfRole } from '../../../utils/userPermissions';
 import { useT } from '../../../hooks/useT';
+import { roleLabel, userStatusLabel } from '../../../utils/enumLabels';
 
 // Spec 025 §2 — admin-global users surface. Replaces the legacy
 // UsersScreen from AdminScreens.tsx (master role + admin role + store
@@ -23,16 +24,6 @@ import { useT } from '../../../hooks/useT';
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 6) : id;
-}
-
-function roleLabel(role: User['role']): string {
-  switch (role) {
-    case 'super_admin': return 'Super admin';
-    case 'master':      return 'Master';
-    case 'admin':       return 'Admin';
-    case 'user':        return 'Store user';
-    default:            return role;
-  }
 }
 
 export default function UsersSection() {
@@ -220,6 +211,7 @@ export default function UsersSection() {
                 lastOfRole={lastOfRole}
                 onDelete={() => setDeleteTarget(u)}
                 onResetPassword={() => handleSendReset(u)}
+                T={T}
               />
             ))}
           </View>
@@ -258,7 +250,7 @@ export default function UsersSection() {
 
 // ─── User row ───────────────────────────────────────────────────────
 function UserRow({
-  user, isFirst, isMaster, currentUserId, stores, lastOfRole, onDelete, onResetPassword,
+  user, isFirst, isMaster, currentUserId, stores, lastOfRole, onDelete, onResetPassword, T,
 }: {
   user: User;
   isFirst: boolean;
@@ -268,6 +260,7 @@ function UserRow({
   lastOfRole: { super_admin: boolean; master: boolean };
   onDelete: () => void;
   onResetPassword: () => void;
+  T: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   const C = useCmdColors();
   const isSelf = !!currentUserId && user.id === currentUserId;
@@ -381,12 +374,12 @@ function UserRow({
           }}
         >
           <Text style={{ fontFamily: mono(700), fontSize: 9, color: C.fg2, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-            {roleLabel(user.role)}
+            {roleLabel(user.role, T)}
           </Text>
         </View>
         <StatusPill
           status={user.status === 'active' ? 'ok' : 'low'}
-          label={user.status === 'active' ? 'ACTIVE' : 'PENDING'}
+          label={userStatusLabel(user.status, T)}
         />
       </View>
 

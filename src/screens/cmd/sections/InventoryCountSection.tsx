@@ -12,6 +12,10 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
 import type { InventoryCount, InventoryCountKind, InventoryCountSummary } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import {
+  inventoryCountKindLabel,
+  inventoryCountKindSubLabel,
+} from '../../../utils/enumLabels';
 
 // Spec 019 — Any-time inventory count
 //
@@ -33,19 +37,10 @@ import { useT } from '../../../hooks/useT';
 //     'detail') instead of a separate screen — mirrors REPORTS-1 pattern
 //     (see ReportsSection.tsx).
 
-const KIND_OPTIONS: Array<{ id: InventoryCountKind; label: string; sub: string }> = [
-  { id: 'spot',      label: 'Spot',       sub: 'ad-hoc check' },
-  { id: 'open',      label: 'Open',       sub: 'morning open' },
-  { id: 'mid_shift', label: 'Mid-shift',  sub: 'between shifts' },
-  { id: 'close',     label: 'Close',      sub: 'pre-EOD close' },
-];
-
-const KIND_LABEL: Record<InventoryCountKind, string> = {
-  spot:      'spot',
-  open:      'open',
-  mid_shift: 'mid-shift',
-  close:     'close',
-};
+// Spec 039 — kind labels + sub-captions route through enumLabels.ts.
+// The id list stays a fixed array so the segmented control's render
+// order is deterministic; display strings come from the active locale.
+const KIND_IDS: ReadonlyArray<InventoryCountKind> = ['spot', 'open', 'mid_shift', 'close'];
 
 // Pad an HTML-input <input type="datetime-local"> value the user has typed.
 // The control returns "YYYY-MM-DDTHH:MM" (no seconds, no timezone). Server
@@ -333,7 +328,7 @@ export default function InventoryCountSection() {
         Toast.show({
           type: 'success',
           text1: 'Count submitted',
-          text2: `${entries.length} items · ${KIND_LABEL[kind]}`,
+          text2: `${entries.length} items · ${inventoryCountKindLabel(kind, T)}`,
         });
       }
       // Clear the form — same UX as a successful EOD submit. Reset
@@ -461,15 +456,17 @@ export default function InventoryCountSection() {
               <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg3, marginRight: 4 }}>
                 kind:
               </Text>
-              {KIND_OPTIONS.map((opt) => {
-                const sel = kind === opt.id;
+              {KIND_IDS.map((id) => {
+                const sel = kind === id;
+                const label = inventoryCountKindLabel(id, T);
+                const sub = inventoryCountKindSubLabel(id, T);
                 return (
                   <TouchableOpacity
-                    key={opt.id}
-                    onPress={() => setKind(opt.id)}
+                    key={id}
+                    onPress={() => setKind(id)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: sel }}
-                    accessibilityLabel={`Set kind to ${opt.label}`}
+                    accessibilityLabel={`Set kind to ${label}`}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 6,
@@ -480,10 +477,10 @@ export default function InventoryCountSection() {
                     }}
                   >
                     <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.accent : C.fg2 }}>
-                      {opt.label.toUpperCase()}
+                      {label.toUpperCase()}
                     </Text>
                     <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: sel ? C.accent : C.fg3, marginTop: 1 }}>
-                      {opt.sub}
+                      {sub}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -798,7 +795,7 @@ export default function InventoryCountSection() {
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>
-            kind <Text style={{ color: C.fg, fontWeight: '600' }}>{KIND_LABEL[kind]}</Text>
+            kind <Text style={{ color: C.fg, fontWeight: '600' }}>{inventoryCountKindLabel(kind, T)}</Text>
           </Text>
           {hasNegative ? (
             <>
@@ -1001,7 +998,7 @@ function HistoryTab({
                           textTransform: 'uppercase',
                         }}
                       >
-                        {KIND_LABEL[c.kind]}
+                        {inventoryCountKindLabel(c.kind, T)}
                       </Text>
                     </View>
                   </View>
@@ -1064,6 +1061,7 @@ function DetailFrame({
   onBack: () => void;
 }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       {/* Back-button header */}
@@ -1094,7 +1092,7 @@ function DetailFrame({
         <>
           <View>
             <Text style={[Type.h1, { color: C.fg }]}>
-              {KIND_LABEL[detail.kind]} count · {new Date(detail.countedAt).toLocaleString()}
+              {inventoryCountKindLabel(detail.kind, T)} count · {new Date(detail.countedAt).toLocaleString()}
             </Text>
             <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
               {detail.submitterName ? `by ${detail.submitterName}` : 'submitter unavailable'}

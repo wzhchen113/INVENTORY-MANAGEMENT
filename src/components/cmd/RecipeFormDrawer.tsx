@@ -7,6 +7,10 @@ import { useStore } from '../../store/useStore';
 import { Recipe, RecipeIngredient, RecipePrepItem } from '../../types';
 import { SelectField } from './SelectField';
 import { CANONICAL_UNITS } from '../../utils/unitConversion';
+import { useT } from '../../hooks/useT';
+import { unitLabel } from '../../utils/enumLabels';
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 // Unit dropdown options for a recipe ingredient row.
 // Always includes all canonical mass/volume units. When the row has a
@@ -15,11 +19,11 @@ import { CANONICAL_UNITS } from '../../utils/unitConversion';
 // way). Surfacing the current value as well — even if non-canonical and
 // not on any item — protects legacy data from getting silently nulled
 // out by the dropdown's value filter.
-function buildUnitOptions(itemUnit: string | undefined, currentValue: string) {
+function buildUnitOptions(itemUnit: string | undefined, currentValue: string, T: TFn) {
   const acc = new Set<string>(CANONICAL_UNITS);
   if (itemUnit) acc.add(itemUnit);
   if (currentValue) acc.add(currentValue);
-  return Array.from(acc).map((u) => ({ value: u, label: u }));
+  return Array.from(acc).map((u) => ({ value: u, label: unitLabel(u, T) }));
 }
 
 type Mode = 'edit' | 'new' | 'duplicate';
@@ -153,6 +157,7 @@ function TextField({ value, onChange, placeholder, width }: { value: string; onC
 // footer (DISCARD / SAVE).
 export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClose }) => {
   const C = useCmdColors();
+  const T = useT();
   const addRecipe = useStore((s) => s.addRecipe);
   const updateRecipe = useStore((s) => s.updateRecipe);
   const inventory = useStore((s) => s.inventory);
@@ -321,7 +326,7 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
                       width={80}
                       monoFont
                       value={r.unit}
-                      options={buildUnitOptions(itemUnit, r.unit)}
+                      options={buildUnitOptions(itemUnit, r.unit, T)}
                       onChange={(v) => updateRow('ingredients', i, { unit: v })}
                     />
                     <TouchableOpacity onPress={() => removeRow('ingredients', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>
@@ -363,7 +368,7 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
                       width={80}
                       monoFont
                       value={r.unit}
-                      options={buildUnitOptions(prepYieldUnit, r.unit)}
+                      options={buildUnitOptions(prepYieldUnit, r.unit, T)}
                       onChange={(v) => updateRow('prepItems', i, { unit: v })}
                     />
                     <TouchableOpacity onPress={() => removeRow('prepItems', i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>

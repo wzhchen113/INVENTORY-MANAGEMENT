@@ -6,7 +6,7 @@
 // per the architect's design (spec 022 §9): does it render? Does the
 // label override prop win over the default statusLabel()?
 //
-// Boundary mocking — `../../theme/colors`:
+// Boundary mocking — `../../theme/colors` AND `../../hooks/useT`:
 //
 // `StatusPill` calls `useCmdColors()` which lives in `src/theme/colors.ts`.
 // `useCmdColors` reads `darkMode` from the Zustand store at `src/store/useStore.ts`.
@@ -17,11 +17,12 @@
 // hook-with-store-side-effect can be stubbed at the test level rather than
 // dragging the whole store import graph into the component-test runtime.
 //
-// The mock returns the `LightCmd` palette shape (just the keys StatusPill
-// reads — `ok`/`okBg`/`warn`/`warnBg`/`danger`/`dangerBg`/`info`/`infoBg`)
-// so `statusFg(C, s)` / `statusBg(C, s)` still produce real string values.
-// We also re-export `CmdRadius` because StatusPill imports it from the same
-// module.
+// Spec 039 (this) — `StatusPill` now also calls `useT()` (from
+// `../../hooks/useT`) to resolve the default `enum.itemStatus.<s>` label.
+// `useT` reads `locale` from the same Zustand store; mock it at the
+// boundary too. The mock returns a deterministic dictionary so the test's
+// existing `'OK' / 'LOW' / 'OUT' / 'INFO'` text-match assertions stay
+// identical.
 
 jest.mock('../../theme/colors', () => ({
   useCmdColors: () => ({
@@ -35,6 +36,18 @@ jest.mock('../../theme/colors', () => ({
     infoBg: '#E6F1FB',
   }),
   CmdRadius: { xs: 3, sm: 4, md: 5, lg: 6 },
+}));
+
+jest.mock('../../hooks/useT', () => ({
+  useT: () => (key: string) => {
+    const dict: Record<string, string> = {
+      'enum.itemStatus.ok':   'OK',
+      'enum.itemStatus.low':  'LOW',
+      'enum.itemStatus.out':  'OUT',
+      'enum.itemStatus.info': 'INFO',
+    };
+    return dict[key] ?? key;
+  },
 }));
 
 import React from 'react';

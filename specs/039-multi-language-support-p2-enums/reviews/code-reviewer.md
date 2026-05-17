@@ -1,0 +1,27 @@
+## Code review for spec 039
+
+### Critical
+
+_None._
+
+### Should-fix
+
+- `src/screens/cmd/sections/WasteLogSection.tsx:390` — The form's reason-selection chips use `wasteReasonShortLabel(r, T)` (the abbreviated filter-chip form) instead of `wasteReasonLabel(r, T)` (the sentence-case display form). The spec AC says "the dropdown that renders `REASONS: WasteReason[]` routes through `t('enum.wasteReason.<key>')`" (long form); the short form was meant only for the filter-chip strip (line 143, which is correct). A Spanish user selecting a reason in the form sees "vencido" (short) instead of "Vencido" (display). Fix: change line 390 from `wasteReasonShortLabel(r, T)` to `wasteReasonLabel(r, T)`.
+
+- `src/screens/cmd/sections/AuditLogSection.tsx:245` — `ByUserTab` renders `{e.action}` (raw English canonical) directly in the selected-events detail panel. The `FeedTab` correctly wraps the same field with `formatAuditAction(e, T)`. `ByUserTab` does not call `useT()` and thus cannot translate the action verb. A user in `zh-CN` sees English action strings in the by-user panel while the feed tab shows Chinese. Fix: add `const T = useT();` to `ByUserTab` and replace `{e.action}` at line 245 with `{formatAuditAction(e, T)}`.
+
+- `src/i18n/matchesQuery.ts:27` / `src/utils/enumLabels.test.ts:257` — The exported `matchesQuery` signature declares `candidates: string[]` but the internal `fold` helper accepts `string | null | undefined`. The test at line 257 passes `null as any` and `undefined as any` to work around the type mismatch. The `as any` casts suppress a real type error rather than fix it. Either widen the public signature to `candidates: ReadonlyArray<string | null | undefined>` (makes the robustness explicit and removes the cast) or narrow `fold` to `string` and drop the null guard (accepting that the test must not pass nulls). The current state is a leaky contract.
+
+- `src/utils/enumLabels.ts` — `matchesQuery` is exported and fully implemented but has zero production call sites. The spec's §1(d) architect decision says callers in `WasteLogSection`, `AuditLogSection`, `UsersSection`, and `InventoryCountSection` should build a candidates array for text-input search. None of those files import or invoke `matchesQuery`. The spec AC says "When the user types into a 'search' or 'filter' text input over a translated enum, the match scans BOTH the current-locale label AND the English canonical" — this behavior is not delivered. Shipping a helper with no caller is dead exported code; more importantly, the acceptance criterion for bilingual search is not met. Either wire `matchesQuery` to at least one text-search input (WasteLogSection has no text search yet, but AuditLogSection's "filter:" bar at line 131 is a stub) or explicitly defer the wiring to a follow-up spec and document it. Note: deferred wiring should be noted in a code comment in `matchesQuery.ts`; as-is it looks complete but isn't used.
+
+### Nits
+
+- `src/utils/enumLabels.ts:19`, `src/utils/formatAuditAction.ts:3`, `src/theme/statusColors.ts:6`, `src/components/cmd/RecipeFormDrawer.tsx:13`, `src/components/cmd/PrepRecipeFormDrawer.tsx:13`, `src/utils/enumLabels.test.ts:43` — `type TFn = (key: string, vars?: Record<string, string | number>) => string` is copy-pasted across six files. A single export from `src/i18n/index.ts` (or `src/i18n/types.ts`) would make the signature a single source of truth. If the shape ever changes (e.g., to support arrays or ICU plural selectors in a future spec), every file needs to be updated in sync. This is a low-urgency quality gap.
+
+- `src/screens/cmd/sections/BrandsSection.tsx:930` — `u.role` is rendered as the raw DB string (e.g., `"super_admin"`) in the MembersTab. The spec's task table for BrandsSection covers only `userStatusLabel`; `roleLabel` was not in scope. Flagging so the next i18n pass picks it up. (out-of-scope)
+
+- `src/screens/cmd/sections/InventoryCountSection.tsx:9,187-196` — Pre-existing: `supabase` is imported directly and used to open a realtime channel `store-${storeId}-inv-counts`. Two violations on a file this spec touched: (1) direct supabase client usage outside `src/lib/db.ts` (CLAUDE.md policy); (2) channel name `store-${storeId}-inv-counts` does not follow the `store-{id}` / `brand-{id}` convention from `useRealtimeSync.ts`. Neither was introduced by spec 039, but they were visible during this spec's edit pass. (out-of-scope, deferred to a cleanup spec)
+
+- `src/utils/enumLabels.ts:134-139` — `unitLabel` correctly accepts `string | null | undefined` in its signature and handles the empty case. The fallback on line 138 (`unit ?? ''`) will return the original (possibly non-lowercased) `unit` when it's not in `UNIT_KEY`. Consider returning the trimmed+lowercased form `u` for consistency since `u` was already normalized; returning the original `unit` preserves original casing which could be surprising (e.g., `"FL_OZ"` would fall through as `"FL_OZ"` not `"fl_oz"`).
+
+- `src/utils/enumLabels.test.ts:214-215` — The comment on line 214 says `// English value of enum.unit.flOz is the stored fl_oz form.` and the test asserts `toBe('fl_oz')`. This is correct and intentional (the en catalog stores `"fl_oz"` as the display string for `flOz`). The comment is a good explanation but the test name `'fl_oz maps via the flOz catalog key'` could be clearer: `'fl_oz is round-tripped via the flOz catalog key in English'` to signal that the English display form intentionally matches the DB canonical.

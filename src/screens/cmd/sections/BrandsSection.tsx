@@ -18,6 +18,7 @@ import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal
 import { confirmAction } from '../../../utils/confirmAction';
 import { Brand, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { userStatusLabel } from '../../../utils/enumLabels';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const fmtDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : '—');
@@ -810,6 +811,7 @@ function MembersTab({
   superAdminUserId: string;
 }) {
   const C = useCmdColors();
+  const T = useT();
   const demoteProfileToUser = useStore((s) => s.demoteProfileToUser);
 
   const handleDemote = (u: User) => {
@@ -930,7 +932,7 @@ function MembersTab({
                   </View>
                   <StatusPill
                     status={u.status === 'active' ? 'ok' : 'low'}
-                    label={u.status === 'active' ? 'ACTIVE' : 'PENDING'}
+                    label={userStatusLabel(u.status, T)}
                   />
                 </View>
                 {canActOn ? (

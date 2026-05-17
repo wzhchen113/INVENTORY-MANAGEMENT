@@ -5,6 +5,7 @@ import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
+import { useT } from '../../hooks/useT';
 
 interface Props {
   /** The ingredient name to filter audit events on. Case-insensitive. */
@@ -16,6 +17,7 @@ interface Props {
 // itemRef (InventoryDesktopLayout.tsx:367) — same case-insensitive name match.
 export const AuditHistory: React.FC<Props> = ({ itemName }) => {
   const C = useCmdColors();
+  const T = useT();
   const auditLog = useStore((s) => s.auditLog);
   const events = React.useMemo(() => {
     const needle = itemName.toLowerCase();
@@ -41,7 +43,7 @@ export const AuditHistory: React.FC<Props> = ({ itemName }) => {
             <View key={e.id} style={{ paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: 3 }}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
                 <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg }} numberOfLines={1}>
-                  {formatAuditAction(e)}
+                  {formatAuditAction(e, T)}
                 </Text>
                 <View style={{ flex: 1 }} />
                 <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{relativeTime(e.timestamp)}</Text>

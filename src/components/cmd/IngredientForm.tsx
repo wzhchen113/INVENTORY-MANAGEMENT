@@ -7,6 +7,8 @@ import { useStore } from '../../store/useStore';
 import { CANONICAL_UNITS, isCanonicalUnit } from '../../utils/unitConversion';
 import { isNumericInput } from '../../utils/validators';
 import type { Vendor } from '../../types';
+import { useT } from '../../hooks/useT';
+import { unitLabel } from '../../utils/enumLabels';
 
 // Form values held by IngredientFormDrawer. A subset persists to
 // inventory_items today — fields commented `STUB` are read-only displays
@@ -159,6 +161,7 @@ const FlagRow: React.FC<{ label: string; desc: string; on: boolean; onToggle: ()
 
 export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFocusName, onAddVendor }) => {
   const C = useCmdColors();
+  const T = useT();
   const isNew = mode === 'new';
 
   // Lookup data — sourced from the live store so realtime updates propagate
@@ -186,21 +189,21 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     // the value to empty on first render.
     const cur = (values.unit || '').toLowerCase().trim();
     if (cur) acc.add(cur);
-    return Array.from(acc).sort().map((u) => ({ value: u, label: u }));
-  }, [allConversions, values.unit]);
+    return Array.from(acc).sort().map((u) => ({ value: u, label: unitLabel(u, T) }));
+  }, [allConversions, values.unit, T]);
 
   // Pack-unit options — canonical mass/volume only per spec 004 §7. Adding
   // an ingredient's existing subUnitUnit to the option list when it's
   // canonical, else surface as "(non-canonical)" disabled item so the user
   // sees what's there but can't pick more abstract values.
   const packUnitOptions = React.useMemo(() => {
-    const out: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: u }));
+    const out: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: unitLabel(u, T) }));
     const cur = (values.subUnitUnit || '').toLowerCase().trim();
     if (cur && !isCanonicalUnit(cur)) {
-      out.push({ value: cur, label: `${cur} · non-canonical`, disabled: true });
+      out.push({ value: cur, label: `${unitLabel(cur, T)} · non-canonical`, disabled: true });
     }
     return out;
-  }, [values.subUnitUnit]);
+  }, [values.subUnitUnit, T]);
 
   // Vendor options — brand-scoped. The "+ new vendor" sentinel sits at the
   // bottom and routes to the host's onAddVendor handler.

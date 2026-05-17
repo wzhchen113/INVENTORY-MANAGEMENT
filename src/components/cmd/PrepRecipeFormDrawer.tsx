@@ -7,27 +7,31 @@ import { useStore } from '../../store/useStore';
 import { PrepRecipe, PrepRecipeIngredient } from '../../types';
 import { SelectField } from './SelectField';
 import { CANONICAL_UNITS } from '../../utils/unitConversion';
+import { useT } from '../../hooks/useT';
+import { unitLabel } from '../../utils/enumLabels';
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 // Unit options for an ingredient row inside a prep recipe. Mirrors the
 // recipe drawer helper — canonical units always present, plus the picked
 // item / sub-recipe unit so abstract pack units (cases, bags, each) and
 // non-canonical legacy values stay selectable.
-function buildUnitOptions(itemUnit: string | undefined, currentValue: string) {
+function buildUnitOptions(itemUnit: string | undefined, currentValue: string, T: TFn) {
   const acc = new Set<string>(CANONICAL_UNITS);
   if (itemUnit) acc.add(itemUnit);
   if (currentValue) acc.add(currentValue);
-  return Array.from(acc).map((u) => ({ value: u, label: u }));
+  return Array.from(acc).map((u) => ({ value: u, label: unitLabel(u, T) }));
 }
 
 // Yield-unit options for the prep recipe itself. Restricted to canonical
 // mass / volume — preps yield in g/kg/oz/lbs or fl_oz/cups/qt/gal. If the
 // existing record holds a non-canonical legacy yield_unit, surface it as
 // a disabled option so the user sees what's there but can't pick more.
-function buildYieldUnitOptions(currentValue: string) {
-  const opts: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: u }));
+function buildYieldUnitOptions(currentValue: string, T: TFn) {
+  const opts: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: unitLabel(u, T) }));
   const cur = (currentValue || '').toLowerCase().trim();
   if (cur && !CANONICAL_UNITS.includes(cur)) {
-    opts.push({ value: currentValue, label: `${currentValue} · non-canonical`, disabled: true });
+    opts.push({ value: currentValue, label: `${unitLabel(currentValue, T)} · non-canonical`, disabled: true });
   }
   return opts;
 }
@@ -150,6 +154,7 @@ function TextField({ value, onChange, placeholder, width }: { value: string; onC
 // raw/prep-type ingredient rows and yield fields instead of sell price.
 export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onClose }) => {
   const C = useCmdColors();
+  const T = useT();
   const addPrepRecipe = useStore((s) => s.addPrepRecipe);
   const updatePrepRecipe = useStore((s) => s.updatePrepRecipe);
   const inventory = useStore((s) => s.inventory);
@@ -304,7 +309,7 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
                   label="Yield unit"
                   monoFont
                   value={values.yieldUnit}
-                  options={buildYieldUnitOptions(values.yieldUnit)}
+                  options={buildYieldUnitOptions(values.yieldUnit, T)}
                   onChange={setVal('yieldUnit')}
                 />
               </View>
@@ -359,7 +364,7 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
                       width={80}
                       monoFont
                       value={r.unit}
-                      options={buildUnitOptions(itemUnit, r.unit)}
+                      options={buildUnitOptions(itemUnit, r.unit, T)}
                       onChange={(v) => updateRow(i, { unit: v })}
                     />
                     <TouchableOpacity onPress={() => removeRow(i)} style={{ paddingVertical: 7, paddingHorizontal: 10, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.danger }}>

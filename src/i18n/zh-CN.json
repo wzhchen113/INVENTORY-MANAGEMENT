@@ -401,16 +401,98 @@
   "filterChip": {
     "ariaPrefix": "筛选条件"
   },
-  "status": {
-    "good": "正常",
-    "low": "偏低",
-    "out": "缺货",
-    "expired": "已过期"
-  },
-  "role": {
-    "user": "用户",
-    "admin": "管理员",
-    "master": "主控",
-    "superAdmin": "超级管理员"
+  "enum": {
+    "itemStatus": {
+      "ok":   "正常",
+      "low":  "偏低",
+      "out":  "缺货",
+      "info": "提示"
+    },
+    "wasteReason": {
+      "expired":        "过期",
+      "droppedSpilled": "掉落/洒出",
+      "overPrepped":    "备菜过量",
+      "qualityIssue":   "品质问题",
+      "theft":          "失窃",
+      "other":          "其他",
+      "short": {
+        "expired":        "过期",
+        "droppedSpilled": "掉洒",
+        "overPrepped":    "过量",
+        "qualityIssue":   "品质",
+        "theft":          "失窃",
+        "other":          "其他"
+      }
+    },
+    "auditAction": {
+      "eodEntry":          "提交日终盘点",
+      "itemEdit":          "编辑项目",
+      "itemAdded":         "新增项目",
+      "itemDeleted":       "删除项目",
+      "posImport":         "导入 POS",
+      "wasteLog":          "记录损耗",
+      "userInvite":        "邀请用户",
+      "userDeleted":       "删除用户",
+      "recipeSaved":       "保存配方",
+      "recipeDeleted":     "删除配方",
+      "prepRecipeSaved":   "保存备菜配方",
+      "prepRecipeDeleted": "删除备菜配方",
+      "stockAdjusted":     "调整库存"
+    },
+    "inventoryCountKind": {
+      "spot":     "抽查",
+      "open":     "开市",
+      "midShift": "班中",
+      "close":    "闭市",
+      "sub": {
+        "spot":     "临时检查",
+        "open":     "早晨开市",
+        "midShift": "班次之间",
+        "close":    "日终前"
+      }
+    },
+    "role": {
+      "user":       "用户",
+      "admin":      "管理员",
+      "master":     "主控",
+      "superAdmin": "超级管理员"
+    },
+    "userStatus": {
+      "active":  "活跃",
+      "pending": "待激活"
+    },
+    "dayOfWeek": {
+      "short": {
+        "monday":    "周一",
+        "tuesday":   "周二",
+        "wednesday": "周三",
+        "thursday":  "周四",
+        "friday":    "周五",
+        "saturday":  "周六",
+        "sunday":    "周日"
+      },
+      "long": {
+        "monday":    "星期一",
+        "tuesday":   "星期二",
+        "wednesday": "星期三",
+        "thursday":  "星期四",
+        "friday":    "星期五",
+        "saturday":  "星期六",
+        "sunday":    "星期日"
+      }
+    },
+    "unit": {
+      "g":     "克",
+      "kg":    "公斤",
+      "oz":    "盎司",
+      "lbs":   "磅",
+      "flOz":  "液量盎司",
+      "cups":  "杯",
+      "qt":    "夸脱",
+      "gal":   "加仑",
+      "each":  "个",
+      "cases": "箱",
+      "bags":  "袋"
+    }
   }
 }

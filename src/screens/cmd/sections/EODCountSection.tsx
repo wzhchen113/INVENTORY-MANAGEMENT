@@ -9,6 +9,7 @@ import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { usePaletteAction } from '../../../lib/paletteAction';
 import { useT } from '../../../hooks/useT';
+import { dayOfWeekShortLabel, dayOfWeekLongLabel, type DayName } from '../../../utils/enumLabels';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
 import { StatCard } from '../../../components/cmd/StatCard';
@@ -22,7 +23,7 @@ import OrderScheduleSection from './OrderScheduleSection';
 type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
 
 interface DayCell {
-  day: string;       // "Saturday"
+  day: DayName;      // "Saturday"
   date: string;      // "May 2"
   iso: string;       // "2026-05-02"
   status: DayStatus;
@@ -31,7 +32,11 @@ interface DayCell {
   vendors: string;
 }
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// DB join keys + lookup keys for `order_schedule[day]`. Must stay English
+// canonical; rendered text routes through `dayOfWeek{Long,Short}Label`.
+const DAY_NAMES: ReadonlyArray<DayName> = [
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+];
 
 // Local-day ISO string ("YYYY-MM-DD" in the user's timezone). Avoids the
 // `new Date().toISOString().slice(0,10)` trap, which returns the UTC date —
@@ -618,7 +623,7 @@ export default function EODCountSection() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ width: 7, height: 7, borderRadius: 99, backgroundColor: dotColor }} />
                   <Text style={{ fontFamily: sans(d.status === 'today' ? 700 : 600), fontSize: 13, color: C.fg, flex: 1 }}>
-                    {d.day}
+                    {dayOfWeekLongLabel(d.day, T)}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, fontVariant: ['tabular-nums'] }}>
                     {d.date}
@@ -687,7 +692,7 @@ export default function EODCountSection() {
                     <View style={{ width: 6, height: 6, borderRadius: 99, backgroundColor: dotColor }} />
                     <View>
                       <Text style={{ fontFamily: sans(isSel ? 700 : 600), fontSize: 11, color: C.fg }}>
-                        {d.day.slice(0, 3)}
+                        {dayOfWeekShortLabel(d.day, T)}
                       </Text>
                       <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, fontVariant: ['tabular-nums'] }}>
                         {d.date}

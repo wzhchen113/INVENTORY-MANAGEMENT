@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { Status, statusFg, statusBg, statusLabel } from '../../theme/statusColors';
+import { useT } from '../../hooks/useT';
 
 interface Props {
   status: Status;
@@ -11,6 +12,7 @@ interface Props {
 
 export const StatusPill: React.FC<Props> = ({ status, label }) => {
   const C = useCmdColors();
+  const T = useT();
   return (
     <View
       style={{
@@ -29,7 +31,7 @@ export const StatusPill: React.FC<Props> = ({ status, label }) => {
           color: statusFg(C, status),
         }}
       >
-        {label ?? statusLabel(status)}
+        {label ?? statusLabel(status, T)}
       </Text>
     </View>
   );

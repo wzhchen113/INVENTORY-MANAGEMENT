@@ -4,12 +4,12 @@ import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { useT } from '../../../hooks/useT';
+import { dayOfWeekShortLabel, type DayName } from '../../../utils/enumLabels';
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
-const DAY_SHORT: Record<(typeof DAY_NAMES)[number], string> = {
-  Monday: 'mon', Tuesday: 'tue', Wednesday: 'wed', Thursday: 'thu',
-  Friday: 'fri', Saturday: 'sat', Sunday: 'sun',
-};
+// DB join keys for `order_schedule.day` — must stay English canonical.
+// The displayed text routes through `dayOfWeekShortLabel(day, T)`.
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const satisfies ReadonlyArray<DayName>;
 
 // Weekly grid admin UI for order_schedule. Rows = vendors (brand-scoped at
 // the store load level via useStore.vendors). Cols = days. Each cell is a
@@ -18,6 +18,7 @@ const DAY_SHORT: Record<(typeof DAY_NAMES)[number], string> = {
 // separate fetch.
 export default function OrderScheduleSection() {
   const C = useCmdColors();
+  const T = useT();
   const vendors        = useStore((s) => s.vendors);
   const orderSchedule  = useStore((s) => s.orderSchedule);
   const currentStore   = useStore((s) => s.currentStore);
@@ -123,7 +124,7 @@ export default function OrderScheduleSection() {
             {DAY_NAMES.map((day) => (
               <View key={day} style={{ width: 60, alignItems: 'center' }}>
                 <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-                  {DAY_SHORT[day]}
+                  {dayOfWeekShortLabel(day, T)}
                 </Text>
               </View>
             ))}

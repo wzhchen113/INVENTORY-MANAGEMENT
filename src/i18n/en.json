@@ -157,7 +157,7 @@
       "tabs": {
         "items": "Items",
         "catalog": "Catalog",
-        "categories": "Categories",
+        "categories": "categories",
         "conversions": "Conversions"
       },
       "emptyState": "No items yet",
@@ -401,16 +401,98 @@
   "filterChip": {
     "ariaPrefix": "Filter by"
   },
-  "status": {
-    "good": "Good",
-    "low": "Low",
-    "out": "Out",
-    "expired": "Expired"
-  },
-  "role": {
-    "user": "User",
-    "admin": "Admin",
-    "master": "Master",
-    "superAdmin": "Super admin"
+  "enum": {
+    "itemStatus": {
+      "ok":   "OK",
+      "low":  "LOW",
+      "out":  "OUT",
+      "info": "INFO"
+    },
+    "wasteReason": {
+      "expired":        "Expired",
+      "droppedSpilled": "Dropped/spilled",
+      "overPrepped":    "Over-prepped",
+      "qualityIssue":   "Quality issue",
+      "theft":          "Theft",
+      "other":          "Other",
+      "short": {
+        "expired":        "expired",
+        "droppedSpilled": "dropped",
+        "overPrepped":    "overproduction",
+        "qualityIssue":   "quality",
+        "theft":          "theft",
+        "other":          "other"
+      }
+    },
+    "auditAction": {
+      "eodEntry":          "submitted EOD count",
+      "itemEdit":          "edited item",
+      "itemAdded":         "added item",
+      "itemDeleted":       "deleted item",
+      "posImport":         "imported POS",
+      "wasteLog":          "logged waste",
+      "userInvite":        "invited user",
+      "userDeleted":       "deleted user",
+      "recipeSaved":       "saved recipe",
+      "recipeDeleted":     "deleted recipe",
+      "prepRecipeSaved":   "saved prep recipe",
+      "prepRecipeDeleted": "deleted prep recipe",
+      "stockAdjusted":     "adjusted stock"
+    },
+    "inventoryCountKind": {
+      "spot":     "Spot",
+      "open":     "Open",
+      "midShift": "Mid-shift",
+      "close":    "Close",
+      "sub": {
+        "spot":     "ad-hoc check",
+        "open":     "morning open",
+        "midShift": "between shifts",
+        "close":    "pre-EOD close"
+      }
+    },
+    "role": {
+      "user":       "User",
+      "admin":      "Admin",
+      "master":     "Master",
+      "superAdmin": "Super admin"
+    },
+    "userStatus": {
+      "active":  "ACTIVE",
+      "pending": "PENDING"
+    },
+    "dayOfWeek": {
+      "short": {
+        "monday":    "MON",
+        "tuesday":   "TUE",
+        "wednesday": "WED",
+        "thursday":  "THU",
+        "friday":    "FRI",
+        "saturday":  "SAT",
+        "sunday":    "SUN"
+      },
+      "long": {
+        "monday":    "Monday",
+        "tuesday":   "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday":  "Thursday",
+        "friday":    "Friday",
+        "saturday":  "Saturday",
+        "sunday":    "Sunday"
+      }
+    },
+    "unit": {
+      "g":     "g",
+      "kg":    "kg",
+      "oz":    "oz",
+      "lbs":   "lbs",
+      "flOz":  "fl_oz",
+      "cups":  "cups",
+      "qt":    "qt",
+      "gal":   "gal",
+      "each":  "each",
+      "cases": "cases",
+      "bags":  "bags"
+    }
   }
 }

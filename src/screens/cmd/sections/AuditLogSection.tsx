@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useStore } from '../../../store/useStore';
@@ -8,6 +8,7 @@ import { Avatar } from '../../../components/cmd/Avatar';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { useT } from '../../../hooks/useT';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import { AuditAction, AuditEvent } from '../../../types';
 
 const inferInitials = (name: string): string =>
@@ -106,16 +107,37 @@ export default function AuditLogSection() {
 function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: string }) {
   const C = useCmdColors();
   const T = useT();
+
+  // Spec 039 AC15 — bilingual diacritic-folded substring search over the
+  // translated action verb + raw English canonical + actor + entity ref.
+  // A user typing "creó" (Spanish "created") matches an entry whose
+  // English action verb is "added" by way of the localized translation;
+  // a user typing "added" still matches via the English canonical.
+  const [filterText, setFilterText] = React.useState('');
+
+  const filteredEvents = React.useMemo(() => {
+    if (!filterText.trim()) return events;
+    return events.filter((e) =>
+      matchesQuery(filterText, [
+        formatAuditAction(e, T),
+        e.action,
+        e.userName,
+        e.itemRef,
+        e.value,
+      ]),
+    );
+  }, [events, filterText, T]);
+
   const grouped = React.useMemo(() => {
     const map = new Map<string, AuditEvent[]>();
-    for (const e of events) {
+    for (const e of filteredEvents) {
       const iso = new Date(e.timestamp).toISOString().slice(0, 10);
       const arr = map.get(iso) || [];
       arr.push(e);
       map.set(iso, arr);
     }
     return Array.from(map.entries()).sort(([a], [b]) => (a < b ? 1 : -1));
-  }, [events]);
+  }, [filteredEvents]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
@@ -128,9 +150,22 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.panel2, borderRadius: CmdRadius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, paddingVertical: 7 }}>
         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>filter:</Text>
-        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg, flex: 1 }}>actor:* entity:* action:*</Text>
+        <TextInput
+          value={filterText}
+          onChangeText={setFilterText}
+          placeholder="actor / entity / action"
+          placeholderTextColor={C.fg3}
+          style={{
+            flex: 1,
+            fontFamily: mono(400),
+            fontSize: 11,
+            color: C.fg,
+            paddingVertical: 0,
+            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+          }}
+        />
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-          {grouped.length} day{grouped.length === 1 ? '' : 's'} · {events.length} events
+          {grouped.length} day{grouped.length === 1 ? '' : 's'} · {filteredEvents.length} events
         </Text>
       </View>
 
@@ -155,7 +190,7 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
                     <Avatar initials={inferInitials(e.userName || '?')} />
                     <Text style={{ fontFamily: sans(600), fontSize: 12.5, color: C.fg, width: 160 }} numberOfLines={1}>{e.userName || '—'}</Text>
                     <Text style={{ fontFamily: sans(400), fontSize: 12.5, color: C.fg2, flex: 1 }} numberOfLines={1}>
-                      {formatAuditAction(e)}{' '}
+                      {formatAuditAction(e, T)}{' '}
                       <Text style={{ color: C.fg }}>{e.itemRef}{e.value ? ` · ${e.value}` : ''}</Text>
                     </Text>
                     <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }} />
@@ -173,6 +208,7 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
 // ─── byUser.tsx — group by actor, show selected user's recent events ──
 function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFeed: () => void }) {
   const C = useCmdColors();
+  const T = useT();
 
   // Aggregate per user with hot-action breakdown.
   const users = React.useMemo(() => {
@@ -242,7 +278,7 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
             selectedEvents.map((e, i) => (
               <TouchableOpacity key={e.id} onPress={onJumpToFeed} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 90 }}>{new Date(e.timestamp).toISOString().slice(5, 16).replace('T', ' ')}</Text>
-                <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, width: 130 }} numberOfLines={1}>{e.action}</Text>
+                <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, width: 130 }} numberOfLines={1}>{formatAuditAction(e, T)}</Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg, flex: 1 }} numberOfLines={1}>{e.itemRef}{e.value ? ` · ${e.value}` : ''}</Text>
               </TouchableOpacity>
             ))

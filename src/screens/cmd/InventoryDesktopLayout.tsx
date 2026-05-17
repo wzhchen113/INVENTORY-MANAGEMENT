@@ -10,6 +10,7 @@ import { calculateWeeklyUsageTrend } from '../../utils/usageCalculations';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
+import { useT } from '../../hooks/useT';
 import { CmdStatusBar } from '../../components/cmd/StatusBar';
 import { TabStrip } from '../../components/cmd/TabStrip';
 import { StatCard } from '../../components/cmd/StatCard';
@@ -73,6 +74,7 @@ interface Props {
 
 export default function InventoryDesktopLayout({ onPaletteOpen, section, setSection }: Props) {
   const C = useCmdColors();
+  const T = useT();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
@@ -194,7 +196,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
               tabs={[
                 { id: 'per-store',  label: 'items.tsv' },
                 { id: 'catalog',    label: 'catalog.tsv' },
-                { id: 'categories', label: 'categories' },
+                { id: 'categories', label: T('section.inventory.tabs.categories') },
               ]}
               activeId={viewMode}
               onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
@@ -212,7 +214,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                 tabs={[
                   { id: 'per-store',  label: 'items.tsv' },
                   { id: 'catalog',    label: 'catalog.tsv' },
-                  { id: 'categories', label: 'categories' },
+                  { id: 'categories', label: T('section.inventory.tabs.categories') },
                 ]}
                 activeId={viewMode}
                 onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
@@ -235,7 +237,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                 tabs={[
                   { id: 'per-store',  label: 'items.tsv' },
                   { id: 'catalog',    label: 'catalog.tsv' },
-                  { id: 'categories', label: 'categories' },
+                  { id: 'categories', label: T('section.inventory.tabs.categories') },
                 ]}
                 activeId={viewMode}
                 onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
@@ -392,6 +394,7 @@ function DetailPane({
   item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress, onDeletePress, onCountPress,
 }: DetailProps) {
   const C = useCmdColors();
+  const T = useT();
 
   const itemActivity = React.useMemo(() => {
     return auditLog
@@ -519,7 +522,7 @@ function DetailPane({
                   key={e.id}
                   ago={relativeTime(e.timestamp)}
                   userName={e.userName}
-                  action={formatAuditAction(e)}
+                  action={formatAuditAction(e, T)}
                   target={e.value}
                 />
               ))
@@ -624,6 +627,7 @@ function UsageTab({ item }: { item: any }) {
 
 function AuditTab({ itemName }: { itemName: string }) {
   const C = useCmdColors();
+  const T = useT();
   const auditLog = useStore((s) => s.auditLog);
 
   const events = React.useMemo(() => {
@@ -651,7 +655,7 @@ function AuditTab({ itemName }: { itemName: string }) {
               key={e.id}
               ago={relativeTime(e.timestamp)}
               userName={e.userName}
-              action={formatAuditAction(e)}
+              action={formatAuditAction(e, T)}
               target={e.value}
             />
           ))

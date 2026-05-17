@@ -14,6 +14,7 @@ import { useStore } from '../../store/useStore';
 import { useStockSeries, useRecipesUsingItem } from '../../lib/cmdSelectors';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
+import { useT } from '../../hooks/useT';
 import { TitleBar } from '../../components/cmd/TitleBar';
 import { CmdStatusBar } from '../../components/cmd/StatusBar';
 import { TabStrip } from '../../components/cmd/TabStrip';
@@ -38,6 +39,7 @@ const TABS = [
 
 export default function ItemDetailScreen() {
   const C = useCmdColors();
+  const T = useT();
   const breakpoint = useBreakpoint();
   const nav = useNavigation<any>();
   const route = useRoute<any>();
@@ -260,7 +262,7 @@ export default function ItemDetailScreen() {
                     key={e.id}
                     ago={relativeTime(e.timestamp)}
                     userName={e.userName}
-                    action={formatAuditAction(e)}
+                    action={formatAuditAction(e, T)}
                     target={e.value}
                   />
                 ))

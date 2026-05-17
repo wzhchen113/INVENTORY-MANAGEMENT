@@ -21,6 +21,8 @@ import { CANONICAL_UNITS } from '../../../utils/unitConversion';
 import { isNumericInput } from '../../../utils/validators';
 import Toast from 'react-native-toast-message';
 import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../types';
+import { useT } from '../../../hooks/useT';
+import { unitLabel } from '../../../utils/enumLabels';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const isUnfinished = (i: InventoryItem) => !i.costPerUnit || i.costPerUnit === 0;
@@ -61,6 +63,7 @@ interface Props {
 // keeps focus on the same logical ingredient.
 export default function InventoryCatalogMode({ selectedName, onSelectName, topSlot }: Props) {
   const C = useCmdColors();
+  const T = useT();
   const inventory      = useStore((s) => s.inventory);
   const stores         = useStore((s) => s.stores);
   const vendors        = useStore((s) => s.vendors);
@@ -277,7 +280,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                   </Text>
                   <View style={{ flex: 1 }} />
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: g.unfinished ? C.danger : C.fg, fontVariant: ['tabular-nums'] }}>
-                    {avgCost > 0 ? `$${avgCost.toFixed(2)}/${g.unit}` : 'no cost'}
+                    {avgCost > 0 ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}` : 'no cost'}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -353,9 +356,9 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                 {/* 4-up stats — cross-store rollup */}
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <StatCard label="Stores"        value={String(sel.storeCount)}                       sub={`of ${stores.length} total`} />
-                  <StatCard label="Total on hand" value={`${sel.totalStock.toFixed(1)} ${sel.unit}`}    sub="across all stores" />
+                  <StatCard label="Total on hand" value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`}    sub="across all stores" />
                   <StatCard label="Avg cost / unit" value={selAvgCost > 0 ? `$${selAvgCost.toFixed(2)}` : '—'} sub="stock-weighted" />
-                  <StatCard label="Avg par"       value={selAvgPar > 0 ? `${selAvgPar.toFixed(1)} ${sel.unit}` : '—'} sub="per store" />
+                  <StatCard label="Avg par"       value={selAvgPar > 0 ? `${selAvgPar.toFixed(1)} ${unitLabel(sel.unit, T)}` : '—'} sub="per store" />
                 </View>
 
                 {/* Stores breakdown + properties */}
@@ -407,7 +410,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                             {store?.name || row.storeId.slice(0, 6)}
                           </Text>
                           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                            {row.currentStock} {row.unit}
+                            {row.currentStock} {unitLabel(row.unit, T)}
                           </Text>
                           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'right' }}>
                             {row.parLevel}
@@ -483,6 +486,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
 // ─── stores.tsx — per-store overrides on the shared catalog row ────────
 function CatalogStoresTab({ sel }: { sel: Group }) {
   const C = useCmdColors();
+  const T = useT();
   const stores = useStore((s) => s.stores);
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
@@ -498,8 +502,8 @@ function CatalogStoresTab({ sel }: { sel: Group }) {
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <StatCard label="Stores carrying" value={`${sel.storeCount} / ${stores.length}`} sub="this catalog row" />
-        <StatCard label="On hand · sum" value={`${sel.totalStock.toFixed(1)} ${sel.unit}`} sub="all stores combined" />
-        <StatCard label="Par · range" value={`${Math.min(...sel.rows.map((r) => r.parLevel))}–${Math.max(...sel.rows.map((r) => r.parLevel))}`} sub={sel.unit} />
+        <StatCard label="On hand · sum" value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`} sub="all stores combined" />
+        <StatCard label="Par · range" value={`${Math.min(...sel.rows.map((r) => r.parLevel))}–${Math.max(...sel.rows.map((r) => r.parLevel))}`} sub={unitLabel(sel.unit, T)} />
         <StatCard label="Cost · range" value={(() => {
           const costs = sel.rows.map((r) => r.costPerUnit || 0).filter((c) => c > 0);
           if (costs.length === 0) return '—';
@@ -533,7 +537,7 @@ function CatalogStoresTab({ sel }: { sel: Group }) {
                 {vendor?.name || '—'}
               </Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                {row.currentStock} {row.unit}
+                {row.currentStock} {unitLabel(row.unit, T)}
               </Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 60, textAlign: 'right' }}>{row.parLevel}</Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right' }}>
@@ -576,6 +580,7 @@ function NumericInput({ value, onChange, placeholder, width = 110, monoFont = tr
 
 function CatalogConversionsTab({ sel }: { sel: Group }) {
   const C = useCmdColors();
+  const T = useT();
   const allConversions = useStore((s) => s.ingredientConversions);
   const addIngredientConversion    = useStore((s) => s.addIngredientConversion);
   const updateIngredientConversion = useStore((s) => s.updateIngredientConversion);
@@ -612,20 +617,23 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
   const [editValues, setEditValues] = React.useState<{ purchaseUnit: string; baseUnit: string; factor: string; yield: string }>({ purchaseUnit: '', baseUnit: 'lbs', factor: '', yield: '100' });
 
   const baseUnitOptions = React.useMemo(
-    () => CANONICAL_UNITS.map((u) => ({ value: u, label: u })),
-    [],
+    () => CANONICAL_UNITS.map((u) => ({ value: u, label: unitLabel(u, T) })),
+    [T],
   );
 
   // Distinct purchase units already used anywhere in the system — gives a
   // dropdown of likely picks while still allowing free-text below.
+  // Many of these are non-canonical user-entered strings (`case`, `bag`,
+  // etc.); `unitLabel` falls through to the raw value when no catalog
+  // entry exists.
   const purchaseUnitOptions = React.useMemo(() => {
     const acc = new Set<string>();
     for (const c of allConversions) {
       const pu = c.purchaseUnit.toLowerCase().trim();
       if (pu) acc.add(pu);
     }
-    return Array.from(acc).sort().map((u) => ({ value: u, label: u }));
-  }, [allConversions]);
+    return Array.from(acc).sort().map((u) => ({ value: u, label: unitLabel(u, T) }));
+  }, [allConversions, T]);
 
   const handleAdd = () => {
     const pu = addPurchaseUnit.trim().toLowerCase();
@@ -801,13 +809,13 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
           <SectionCaption tone="fg3" size={10.5}>conversions.tsv</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{conversions.length} {conversions.length === 1 ? 'row' : 'rows'} · base unit "{sel.unit}"</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{conversions.length} {conversions.length === 1 ? 'row' : 'rows'} · base unit "{unitLabel(sel.unit, T)}"</Text>
         </View>
         {conversions.length === 0 ? (
           <View style={{ padding: 18, gap: 6 }}>
             <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>FIX — NO CONVERSIONS</Text>
             <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg2 }}>
-              Recipes that consume {sel.name} in a unit other than {sel.unit} can't compute cost. Use the form above to add one — e.g. "1 case = 40 lbs".
+              Recipes that consume {sel.name} in a unit other than {unitLabel(sel.unit, T)} can't compute cost. Use the form above to add one — e.g. "1 case = 40 lbs".
             </Text>
           </View>
         ) : (
@@ -852,9 +860,9 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
                     </>
                   ) : (
                     <>
-                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.purchaseUnit}</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{unitLabel(conv.purchaseUnit, T)}</Text>
                       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 40, textAlign: 'center' }}>→</Text>
-                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{conv.baseUnit}</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg, flex: 1 }}>{unitLabel(conv.baseUnit, T)}</Text>
                       <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg2, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                         ×{(conv.conversionFactor || 0).toFixed(4)}
                       </Text>

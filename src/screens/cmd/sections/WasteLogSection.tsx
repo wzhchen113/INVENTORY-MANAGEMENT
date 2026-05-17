@@ -11,18 +11,9 @@ import { Avatar } from '../../../components/cmd/Avatar';
 import { relativeTime } from '../../../utils/relativeTime';
 import { WasteReason } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { wasteReasonLabel, wasteReasonShortLabel } from '../../../utils/enumLabels';
 
 const REASONS: WasteReason[] = ['Expired', 'Dropped/spilled', 'Over-prepped', 'Quality issue', 'Theft', 'Other'];
-// Lowercase chip labels per the design's tone (mono caps via the chip's
-// own textTransform handling). We display them uppercase via the chip.
-const REASON_LABEL: Record<WasteReason, string> = {
-  'Expired': 'expired',
-  'Dropped/spilled': 'dropped',
-  'Over-prepped': 'overproduction',
-  'Quality issue': 'quality',
-  'Theft': 'theft',
-  'Other': 'other',
-};
 
 const inferInitials = (name: string): string =>
   name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
@@ -149,7 +140,7 @@ export default function WasteLogSection() {
             contentContainerStyle={{ gap: 6 }}
             renderItem={({ item: r }) => {
               const sel = reasonFilter === r;
-              const label = r === 'all' ? 'all' : REASON_LABEL[r];
+              const label = r === 'all' ? 'all' : wasteReasonShortLabel(r, T);
               const count = reasonCounts[r] ?? 0;
               return (
                 <TouchableOpacity
@@ -211,7 +202,7 @@ export default function WasteLogSection() {
                   {w.quantity} {w.unit}
                 </Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-                  · {REASON_LABEL[w.reason] || w.reason.toLowerCase()}
+                  · {wasteReasonShortLabel(w.reason, T) || w.reason.toLowerCase()}
                 </Text>
                 <View style={{ flex: 1 }} />
                 <Avatar initials={inferInitials(w.loggedBy)} />
@@ -396,7 +387,7 @@ export default function WasteLogSection() {
                         }}
                       >
                         <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: sel ? C.fg : C.fg2 }}>
-                          {REASON_LABEL[r]}
+                          {wasteReasonLabel(r, T)}
                         </Text>
                       </TouchableOpacity>
                     );

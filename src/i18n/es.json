@@ -157,7 +157,7 @@
       "tabs": {
         "items": "Artículos",
         "catalog": "Catálogo",
-        "categories": "Categorías",
+        "categories": "categorías",
         "conversions": "Conversiones"
       },
       "emptyState": "Aún no hay artículos",
@@ -401,16 +401,98 @@
   "filterChip": {
     "ariaPrefix": "Filtrar por"
   },
-  "status": {
-    "good": "Bueno",
-    "low": "Bajo",
-    "out": "Agotado",
-    "expired": "Caducado"
-  },
-  "role": {
-    "user": "Usuario",
-    "admin": "Administrador",
-    "master": "Maestro",
-    "superAdmin": "Super administrador"
+  "enum": {
+    "itemStatus": {
+      "ok":   "OK",
+      "low":  "BAJO",
+      "out":  "AGOTADO",
+      "info": "INFO"
+    },
+    "wasteReason": {
+      "expired":        "Vencido",
+      "droppedSpilled": "Caído/derramado",
+      "overPrepped":    "Sobre-preparado",
+      "qualityIssue":   "Problema de calidad",
+      "theft":          "Robo",
+      "other":          "Otro",
+      "short": {
+        "expired":        "vencido",
+        "droppedSpilled": "caído",
+        "overPrepped":    "sobreprep",
+        "qualityIssue":   "calidad",
+        "theft":          "robo",
+        "other":          "otro"
+      }
+    },
+    "auditAction": {
+      "eodEntry":          "envió conteo EOD",
+      "itemEdit":          "editó artículo",
+      "itemAdded":         "añadió artículo",
+      "itemDeleted":       "eliminó artículo",
+      "posImport":         "importó POS",
+      "wasteLog":          "registró merma",
+      "userInvite":        "invitó usuario",
+      "userDeleted":       "eliminó usuario",
+      "recipeSaved":       "guardó receta",
+      "recipeDeleted":     "eliminó receta",
+      "prepRecipeSaved":   "guardó receta de prep",
+      "prepRecipeDeleted": "eliminó receta de prep",
+      "stockAdjusted":     "ajustó stock"
+    },
+    "inventoryCountKind": {
+      "spot":     "Puntual",
+      "open":     "Apertura",
+      "midShift": "Medio turno",
+      "close":    "Cierre",
+      "sub": {
+        "spot":     "verificación ad-hoc",
+        "open":     "apertura mañana",
+        "midShift": "entre turnos",
+        "close":    "previo a EOD"
+      }
+    },
+    "role": {
+      "user":       "Usuario",
+      "admin":      "Administrador",
+      "master":     "Maestro",
+      "superAdmin": "Super administrador"
+    },
+    "userStatus": {
+      "active":  "ACTIVO",
+      "pending": "PENDIENTE"
+    },
+    "dayOfWeek": {
+      "short": {
+        "monday":    "LUN",
+        "tuesday":   "MAR",
+        "wednesday": "MIÉ",
+        "thursday":  "JUE",
+        "friday":    "VIE",
+        "saturday":  "SÁB",
+        "sunday":    "DOM"
+      },
+      "long": {
+        "monday":    "Lunes",
+        "tuesday":   "Martes",
+        "wednesday": "Miércoles",
+        "thursday":  "Jueves",
+        "friday":    "Viernes",
+        "saturday":  "Sábado",
+        "sunday":    "Domingo"
+      }
+    },
+    "unit": {
+      "g":     "g",
+      "kg":    "kg",
+      "oz":    "oz",
+      "lbs":   "lbs",
+      "flOz":  "fl_oz",
+      "cups":  "tazas",
+      "qt":    "qt",
+      "gal":   "gal",
+      "each":  "ud",
+      "cases": "cajas",
+      "bags":  "bolsas"
+    }
   }
 }
