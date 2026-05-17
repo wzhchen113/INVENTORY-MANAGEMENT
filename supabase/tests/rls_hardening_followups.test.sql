@@ -414,10 +414,24 @@ select is(
 -- check fails (target_b.brand_id != admin.brand_id), the
 -- self-arm fails (id != auth.uid()). Postgres RLS surfaces this
 -- as 0 rows affected — no error, just silent rejection.
+--
+-- Spec 043 fixture patch: the verification SELECT
+-- below MUST drop the brand-A admin JWT context BEFORE running.
+-- Pre-043, the brand-blind admin SELECT arm on "Admins can read
+-- all profiles" admitted the cross-brand row for the verification
+-- read. Post-043, that arm is brand-scoped (auth_can_see_brand),
+-- so an admin-context SELECT for target_b returns 0 rows and the
+-- assertion subquery yields NULL — the assertion would fail even
+-- though the arm's UPDATE was correctly silently rejected. Same
+-- `reset role + clear claims` pattern arms (5)-(6) use above.
+-- See specs/043-profiles-rls-sweep.md § "Pre-existing pgTAP test
+-- interaction (Open question 1)" for the diagnosis.
 update public.profiles
    set name = 'Target B (tampered by cross-brand admin)'
  where id = current_setting('test.target_b', true)::uuid;
 
+reset role;
+select set_config('request.jwt.claims', '', true);
 select is(
   (select name from public.profiles
     where id = current_setting('test.target_b', true)::uuid),
