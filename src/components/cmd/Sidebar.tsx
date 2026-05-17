@@ -4,6 +4,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { AccentTile } from './AccentTile';
 import { TreeGroup, TreeItem } from './TreeGroup';
+import { LocaleSwitcher } from './LocaleSwitcher';
 import { useT } from '../../hooks/useT';
 
 export interface SidebarGroup {
@@ -100,6 +101,7 @@ export const Sidebar: React.FC<Props> = ({
       >
         <AccentTile glyph="i" size={22} />
         <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>im.cmd</Text>
+        <LocaleSwitcher />
         <View style={{ flex: 1 }} />
         {showEditAffordances && onToggleEditMode ? (
           editMode ? (

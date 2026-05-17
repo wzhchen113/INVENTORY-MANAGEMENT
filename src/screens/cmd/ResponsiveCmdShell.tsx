@@ -254,7 +254,6 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
 
   const sidebarFooterRight = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <LocaleSwitcher />
       <ThemeToggle />
       <Text style={[Type.statusBar, { color: C.fg3 }]}>
         {T('chrome.eodFooter', { submittedCount: submittedToday, totalCount: stores.length })}
