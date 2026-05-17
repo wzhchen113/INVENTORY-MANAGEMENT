@@ -33,6 +33,7 @@ import {
   KeyboardCode,
   UniqueIdentifier,
 } from '@dnd-kit/core';
+import type { Modifier } from '@dnd-kit/core';
 import type { KeyboardCoordinateGetter } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -57,6 +58,35 @@ interface Props {
   /** Called when the user clicks the eye-off / eye toggle on an item. */
   onToggleHide: (id: string) => void;
 }
+
+// DragOverlay modifier: pin the overlay's center to the pointer. Without
+// this, dnd-kit preserves the pointer's relative offset inside the source
+// element's bbox — but our source row is wide (eye-toggle + padding +
+// label) while the overlay pill is narrow (label-only), so the cursor
+// ends up off the right edge of the floating preview. Mirrors the shape
+// of `@dnd-kit/modifiers` snapCenterToCursor, inlined to avoid the new
+// dependency. Falls through unchanged for keyboard drags (no cursor).
+const snapCenterToCursor: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
+  if (!draggingNodeRect || !activatorEvent) return transform;
+  let cx: number | null = null;
+  let cy: number | null = null;
+  const e = activatorEvent as PointerEvent | MouseEvent | TouchEvent;
+  if ('clientX' in e && typeof e.clientX === 'number') {
+    cx = e.clientX;
+    cy = (e as PointerEvent).clientY;
+  } else if ('touches' in e && (e as TouchEvent).touches[0]) {
+    cx = (e as TouchEvent).touches[0].clientX;
+    cy = (e as TouchEvent).touches[0].clientY;
+  }
+  if (cx == null || cy == null) return transform;
+  const offsetX = cx - draggingNodeRect.left;
+  const offsetY = cy - draggingNodeRect.top;
+  return {
+    ...transform,
+    x: transform.x + offsetX - draggingNodeRect.width / 2,
+    y: transform.y + offsetY - draggingNodeRect.height / 2,
+  };
+};
 
 // Find the group label that contains a given id. Returns null if not found
 // (e.g. mid-drag on a stale snapshot — render bails out gracefully).
@@ -297,7 +327,7 @@ const SidebarEditMode: React.FC<Props> = ({ groups, onChange, onToggleHide }) =>
         ))}
       </View>
       </div>
-      <DragOverlay>
+      <DragOverlay modifiers={[snapCenterToCursor]}>
         {activeItem ? (
           <View
             style={{
