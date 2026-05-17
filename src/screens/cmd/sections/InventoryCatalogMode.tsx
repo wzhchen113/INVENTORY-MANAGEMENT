@@ -22,6 +22,9 @@ import { isNumericInput } from '../../../utils/validators';
 import Toast from 'react-native-toast-message';
 import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { useLocale } from '../../../hooks/useLocale';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import { unitLabel } from '../../../utils/enumLabels';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -45,6 +48,8 @@ interface Group {
   storeCount: number;
   unfinished: boolean;
   primary: InventoryItem;  // first row — used for ID + base properties
+  /** Spec 040 P3 — passed through to getLocalizedName for display + search. */
+  i18nNames?: import('../../../types').LocalizedNames;
 }
 
 interface Props {
@@ -64,6 +69,7 @@ interface Props {
 export default function InventoryCatalogMode({ selectedName, onSelectName, topSlot }: Props) {
   const C = useCmdColors();
   const T = useT();
+  const locale         = useLocale();
   const inventory      = useStore((s) => s.inventory);
   const stores         = useStore((s) => s.stores);
   const vendors        = useStore((s) => s.vendors);
@@ -96,6 +102,11 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
           storeCount: 0,
           unfinished: false,
           primary: it,
+          // Spec 040 P3 — carry the catalog-hydrated i18n names so the
+          // list display + filter / sort logic can use them downstream.
+          // Any row from this group has the same i18nNames (it's a catalog
+          // ingredient field); first-write wins is fine.
+          i18nNames: it.i18nNames,
         };
         map.set(k, g);
       }
@@ -107,18 +118,39 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
       g.storeCount = new Set(g.rows.map((r) => r.storeId)).size;
       g.unfinished = g.rows.some(isUnfinished);
     }
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [inventory]);
+    // Spec 040 P3 / Q5 — sort by current-locale display name.
+    return Array.from(map.values()).sort((a, b) =>
+      getLocalizedName({ name: a.name, i18nNames: a.i18nNames }, locale)
+        .localeCompare(
+          getLocalizedName({ name: b.name, i18nNames: b.i18nNames }, locale),
+          locale,
+        ),
+    );
+  }, [inventory, locale]);
 
   const filtered = React.useMemo(() => {
-    const q = filterText.trim().toLowerCase();
     return groups.filter((g) => {
-      if (q && !g.name.toLowerCase().includes(q) && !g.category.toLowerCase().includes(q)) return false;
+      // Spec 040 P3 / Q4 — search matches BOTH the English canonical and
+      // the current-locale translation (with diacritic + case folding via
+      // matchesQuery). Category match also includes the localized
+      // category label so a Spanish search for `proteína` finds Protein.
+      if (filterText.trim()) {
+        const localizedName = getLocalizedName({ name: g.name, i18nNames: g.i18nNames }, locale);
+        const localizedCategory = (() => {
+          const entry = ingredientCats.find((c) => c.name === g.category);
+          return entry
+            ? getLocalizedName({ name: entry.name, i18nNames: entry.i18nNames }, locale)
+            : g.category;
+        })();
+        if (!matchesQuery(filterText, [localizedName, g.name, localizedCategory, g.category])) {
+          return false;
+        }
+      }
       if (categoryFilter && g.category !== categoryFilter) return false;
       if (showUnfinished && !g.unfinished) return false;
       return true;
     });
-  }, [groups, filterText, categoryFilter, showUnfinished]);
+  }, [groups, filterText, categoryFilter, showUnfinished, locale, ingredientCats]);
 
   // Auto-select on first render only — once the user (or items.tsv mode)
   // has a selection, keep it even when filters narrow it out of view.
@@ -207,18 +239,26 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                 setShowUnfinished(false);
               }}
             />
-            {ingredientCats.map((cat) => (
-              <FilterChip
-                key={cat}
-                label={cat.toLowerCase()}
-                count={catCounts[cat] || 0}
-                selected={categoryFilter === cat}
-                onPress={() => {
-                  setShowUnfinished(false);
-                  setCategoryFilter(categoryFilter === cat ? null : cat);
-                }}
-              />
-            ))}
+            {ingredientCats.map((cat) => {
+              // Spec 040 P3 — chip label localizes; the join key
+              // (categoryFilter / `cat.name`) stays English canonical.
+              const label = getLocalizedName(
+                { name: cat.name, i18nNames: cat.i18nNames },
+                locale,
+              );
+              return (
+                <FilterChip
+                  key={cat.name}
+                  label={label.toLowerCase()}
+                  count={catCounts[cat.name] || 0}
+                  selected={categoryFilter === cat.name}
+                  onPress={() => {
+                    setShowUnfinished(false);
+                    setCategoryFilter(categoryFilter === cat.name ? null : cat.name);
+                  }}
+                />
+              );
+            })}
             {unfinishedCount > 0 ? (
               <FilterChip
                 label="unfinished"
@@ -247,6 +287,15 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
             const avgCost = g.totalStock > 0
               ? g.weightedCost / g.totalStock
               : g.rows.reduce((s, r) => s + (r.costPerUnit || 0), 0) / Math.max(1, g.rows.length);
+            // Spec 040 P3 — localized display label for the row.
+            const localizedName = getLocalizedName(
+              { name: g.name, i18nNames: g.i18nNames },
+              locale,
+            );
+            const catEntry = ingredientCats.find((c) => c.name === g.category);
+            const localizedCategory = catEntry
+              ? getLocalizedName({ name: catEntry.name, i18nNames: catEntry.i18nNames }, locale)
+              : g.category;
             return (
               <TouchableOpacity
                 onPress={() => onSelectName(g.key)}
@@ -265,7 +314,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <StatusDot status={groupStatus} />
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
-                    {g.name}
+                    {localizedName}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
                     {shortId(g.primary.id)}
@@ -273,7 +322,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                    {g.category.toLowerCase()}
+                    {localizedCategory.toLowerCase()}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
                     in {g.storeCount} {g.storeCount === 1 ? 'store' : 'stores'}
@@ -347,7 +396,9 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.primary.id)}</Text>
                     <StatusPill status={selStatus} />
                   </View>
-                  <Text style={[Type.display, { color: C.fg }]}>{sel.name}</Text>
+                  <Text style={[Type.display, { color: C.fg }]}>
+                    {getLocalizedName({ name: sel.name, i18nNames: sel.i18nNames }, locale)}
+                  </Text>
                   <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
                     {sel.category.toLowerCase()} · supplied by {selVendorName} · in {sel.storeCount} {sel.storeCount === 1 ? 'store' : 'stores'} · last edited {relativeTime(selLastCount) || 'never'} ago
                   </Text>

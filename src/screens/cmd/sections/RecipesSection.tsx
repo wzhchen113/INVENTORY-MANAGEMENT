@@ -15,6 +15,9 @@ import { FilterInput } from '../../../components/cmd/FilterInput';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getConversionFactor } from '../../../utils/unitConversion';
 import { parseFilter } from '../../../utils/filterParser';
+import { useLocale } from '../../../hooks/useLocale';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -24,7 +27,9 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 export default function RecipesSection() {
   const C = useCmdColors();
   const role = useRole();
+  const locale = useLocale();
   const recipes = useStore((s) => s.recipes);
+  const recipeCategoriesSlice = useStore((s) => s.recipeCategories);
   const inventory = useStore((s) => s.inventory);
   const prepRecipes = useStore((s) => s.prepRecipes);
   const currentStore = useStore((s) => s.currentStore);
@@ -49,20 +54,37 @@ export default function RecipesSection() {
   // narrows by category and substring-matches menuItem. status / vendor are
   // accepted but no-op (don't apply to recipes), so users can paste a query
   // copied from the inventory filter without errors.
+  //
+  // Spec 040 P3 / Q4 — bare-token text matches the localized menuItem AND
+  // the English canonical via matchesQuery (diacritic + case folding).
+  // Sort by current-locale label via localeCompare.
   const filteredRecipes = React.useMemo(() => {
-    if (!filterText.trim()) return storeRecipes;
-    const parsed = parseFilter(filterText);
-    return storeRecipes.filter((r) => {
-      for (const { key, value } of parsed.filters) {
-        if (key === 'category' && (r.category || '').toLowerCase() !== value) return false;
-      }
-      if (parsed.text.length > 0) {
-        const haystack = (r.menuItem || '').toLowerCase();
-        for (const t of parsed.text) if (!haystack.includes(t)) return false;
-      }
-      return true;
-    });
-  }, [storeRecipes, filterText]);
+    const base = !filterText.trim()
+      ? storeRecipes
+      : (() => {
+          const parsed = parseFilter(filterText);
+          return storeRecipes.filter((r) => {
+            for (const { key, value } of parsed.filters) {
+              if (key === 'category' && (r.category || '').toLowerCase() !== value) return false;
+            }
+            if (parsed.text.length > 0) {
+              const localized = getLocalizedName(
+                { menuItem: r.menuItem, i18nNames: r.i18nNames },
+                locale,
+              );
+              if (!matchesQuery(parsed.text.join(' '), [localized, r.menuItem])) return false;
+            }
+            return true;
+          });
+        })();
+    return [...base].sort((a, b) =>
+      getLocalizedName({ menuItem: a.menuItem, i18nNames: a.i18nNames }, locale)
+        .localeCompare(
+          getLocalizedName({ menuItem: b.menuItem, i18nNames: b.i18nNames }, locale),
+          locale,
+        ),
+    );
+  }, [storeRecipes, filterText, locale]);
 
   React.useEffect(() => {
     if (selectedId && filteredRecipes.find((r) => r.id === selectedId)) return;
@@ -189,6 +211,14 @@ export default function RecipesSection() {
             const isSel = r.id === selectedId;
             const cost = getRecipeCost(r.id);
             const margin = r.sellPrice ? Math.round((1 - cost / r.sellPrice) * 100) : null;
+            const localizedName = getLocalizedName(
+              { menuItem: r.menuItem, i18nNames: r.i18nNames },
+              locale,
+            );
+            const catEntry = recipeCategoriesSlice.find((c) => c.name === r.category);
+            const localizedCategory = catEntry
+              ? getLocalizedName({ name: catEntry.name, i18nNames: catEntry.i18nNames }, locale)
+              : r.category;
             return (
               <TouchableOpacity
                 onPress={() => setSelectedId(r.id)}
@@ -206,13 +236,13 @@ export default function RecipesSection() {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
-                    {r.menuItem}
+                    {localizedName}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{shortId(r.id)}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                    {r.category}
+                    {localizedCategory}
                   </Text>
                   <View style={{ flex: 1 }} />
                   {role === 'admin' ? (
@@ -306,7 +336,9 @@ export default function RecipesSection() {
                     · {sel.category}
                   </Text>
                 </View>
-                <Text style={[Type.display, { color: C.fg }]}>{sel.menuItem}</Text>
+                <Text style={[Type.display, { color: C.fg }]}>
+                  {getLocalizedName({ menuItem: sel.menuItem, i18nNames: sel.i18nNames }, locale)}
+                </Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
                   {(sel.ingredients || []).length} ingredients{(sel.prepItems || []).length ? ` + ${(sel.prepItems || []).length} prep recipes` : ''}
                 </Text>

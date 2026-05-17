@@ -14,6 +14,8 @@ import { PrepRecipeFormDrawer } from '../../../components/cmd/PrepRecipeFormDraw
 import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
 import { getConversionFactor } from '../../../utils/unitConversion';
+import { useLocale } from '../../../hooks/useLocale';
+import { getLocalizedName } from '../../../i18n/localizedName';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -26,6 +28,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 export default function PrepRecipesSection() {
   const C = useCmdColors();
   const role = useRole();
+  const locale = useLocale();
   const prepRecipes = useStore((s) => s.prepRecipes);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -41,9 +44,20 @@ export default function PrepRecipesSection() {
 
   // Prep recipes are brand-level after the catalog refactor — every
   // store sees the same set. Just filter to the current version.
+  // Spec 040 P3 / Q5 — sort by current-locale label so list ordering
+  // matches what the user sees.
   const storePrepRecipes = React.useMemo(
-    () => prepRecipes.filter((p) => p.isCurrent !== false),
-    [prepRecipes],
+    () => prepRecipes
+      .filter((p) => p.isCurrent !== false)
+      .slice()
+      .sort((a, b) =>
+        getLocalizedName({ name: a.name, i18nNames: a.i18nNames }, locale)
+          .localeCompare(
+            getLocalizedName({ name: b.name, i18nNames: b.i18nNames }, locale),
+            locale,
+          ),
+      ),
+    [prepRecipes, locale],
   );
 
   React.useEffect(() => {
@@ -146,6 +160,10 @@ export default function PrepRecipesSection() {
             const isSel = r.id === selectedId;
             const cost = getPrepRecipeCost(r.id);
             const cpu = getPrepRecipeCostPerUnit(r.id);
+            const localizedName = getLocalizedName(
+              { name: r.name, i18nNames: r.i18nNames },
+              locale,
+            );
             return (
               <TouchableOpacity
                 onPress={() => setSelectedId(r.id)}
@@ -163,7 +181,7 @@ export default function PrepRecipesSection() {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
-                    {r.name}
+                    {localizedName}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{shortId(r.id)}</Text>
                 </View>
@@ -261,7 +279,9 @@ export default function PrepRecipesSection() {
                     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>· {sel.category}</Text>
                   ) : null}
                 </View>
-                <Text style={[Type.display, { color: C.fg }]}>{sel.name}</Text>
+                <Text style={[Type.display, { color: C.fg }]}>
+                  {getLocalizedName({ name: sel.name, i18nNames: sel.i18nNames }, locale)}
+                </Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
                   yields {sel.yieldQuantity} {sel.yieldUnit} · {(sel.ingredients || []).length} ingredient
                   {(sel.ingredients || []).length === 1 ? '' : 's'}

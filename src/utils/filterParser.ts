@@ -1,5 +1,6 @@
 import { InventoryItem } from '../types';
 import { ItemStatus } from '../types';
+import { matchesQuery } from '../i18n/matchesQuery';
 
 // Tokens are whitespace-separated. `key:value` (alphanumeric + `-`/`_`) becomes
 // an AND-filter on the key; everything else is a case-insensitive substring
@@ -45,10 +46,20 @@ export function parseFilter(input: string): ParsedFilter {
 // Test a single inventory item against a parsed filter.
 // `getStatus` is delegated to the caller so we don't duplicate the threshold
 // logic (currently in useStore.getItemStatus).
+//
+// Spec 040 P3 — when called via the localized form, bare tokens match the
+// English `name` AND the current-locale `i18n_names[locale]` (with
+// diacritic + case folding via matchesQuery). The English-only form
+// (no `localizedName` candidate) keeps the original byte-substring
+// semantics for sites that pre-date P3.
 export function matchesFilter(
   item: InventoryItem,
   parsed: ParsedFilter,
   getStatus: (i: InventoryItem) => ItemStatus,
+  /** Spec 040 P3 — optional localized display name for bare-token search.
+   *  Pass `getLocalizedName(item, locale)` from the call site; the locale
+   *  itself isn't needed here because the comparison is string-level. */
+  localizedName?: string,
 ): boolean {
   for (const { key, value } of parsed.filters) {
     if (key === 'status') {
@@ -61,9 +72,18 @@ export function matchesFilter(
     }
   }
   if (parsed.text.length > 0) {
-    const haystack = (item.name || '').toLowerCase();
-    for (const t of parsed.text) {
-      if (!haystack.includes(t)) return false;
+    if (localizedName !== undefined) {
+      // Localized path — matchesQuery folds diacritics + case across both
+      // candidates so the search is symmetric ("detergente" finds
+      // "Detergent" when the row is in Spanish mode).
+      const candidates: (string | null | undefined)[] = [localizedName, item.name];
+      const query = parsed.text.join(' ');
+      if (!matchesQuery(query, candidates)) return false;
+    } else {
+      const haystack = (item.name || '').toLowerCase();
+      for (const t of parsed.text) {
+        if (!haystack.includes(t)) return false;
+      }
     }
   }
   return true;

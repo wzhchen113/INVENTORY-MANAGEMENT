@@ -143,9 +143,22 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
  * best-effort and not a load-bearing artifact. That pattern is
  * preserved and the envelope is simply discarded by those callers.
  */
-async function callEdgeFunction(
+// Spec 040 P3 — exported so src/lib/db.ts can thread translateOnSave's
+// edge-function call through the same envelope semantics that auth.ts has
+// used since spec 032 (CLAUDE.md "Edge function calls go through
+// callEdgeFunction"). Was file-private; auth.ts's pre-spec-040 callers
+// (inviteUser, registerInvitedUser, deleteUser) keep their imports working
+// because they live in the same module and don't go through the export
+// boundary.
+//
+// Spec 040 review pass — accepts an optional `AbortSignal` so callers like
+// the form drawers can cancel a stale in-flight DeepL request when the
+// user types again (otherwise the AbortController only suppresses the
+// stale RESULT, burning DeepL quota on every rapid retype).
+export async function callEdgeFunction(
   fnName: string,
   body: Record<string, any>,
+  options?: { signal?: AbortSignal },
 ): Promise<{ data: any; error: string | null }> {
   // (a) Missing session — short-circuit, do NOT call fetch.
   const { data: { session } } = await supabase.auth.getSession();
@@ -164,8 +177,10 @@ async function callEdgeFunction(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
   } catch (e: any) {
+    // AbortError surfaces here when the caller fires signal.abort() mid-fetch.
     return { data: null, error: e?.message || 'Network error' };
   }
 

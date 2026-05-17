@@ -9,6 +9,7 @@ import { isNumericInput } from '../../utils/validators';
 import type { Vendor } from '../../types';
 import { useT } from '../../hooks/useT';
 import { unitLabel } from '../../utils/enumLabels';
+import { translateOnSave } from '../../lib/translate';
 
 // Form values held by IngredientFormDrawer. A subset persists to
 // inventory_items today — fields commented `STUB` are read-only displays
@@ -50,6 +51,13 @@ export interface IngredientFormValues {
   // save" convention; cast in IngredientFormDrawer's save handler.
   defaultShelfLifeDays: string;  // numeric int days; '' = no auto-compute
   expiryDate: string;            // 'YYYY-MM-DD' or '' for none
+  // Spec 040 P3 — per-locale display-name overrides for the catalog
+  // ingredient. Held as plain strings (free-form text) so the user can
+  // accept the DeepL suggestion or replace it. Empty strings are
+  // serialized as "no translation" on save (the key is omitted from
+  // i18n_names) so the silent-English fallback kicks in.
+  nameEs: string;
+  nameZh: string;
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -61,6 +69,7 @@ export const blankValues = (): IngredientFormValues => ({
   countNightly: true, trackWaste: true, allowSubstitute: false,
   createAtAllStores: false,
   defaultShelfLifeDays: '', expiryDate: '',
+  nameEs: '', nameZh: '',
 });
 
 // Sentinel value for the "+ new vendor" inline-add option in the vendor
@@ -70,7 +79,13 @@ export const NEW_VENDOR_SENTINEL = '__new_vendor__';
 interface Props {
   mode: 'edit' | 'new';
   values: IngredientFormValues;
-  onChange: (next: IngredientFormValues) => void;
+  /**
+   * Accepts a value OR a functional updater, mirroring React's
+   * `Dispatch<SetStateAction<IngredientFormValues>>`. The functional form
+   * lets the spec 040 P3 translate-on-save handler patch only the i18n
+   * fields without clobbering concurrent edits to other fields.
+   */
+  onChange: (next: IngredientFormValues | ((prev: IngredientFormValues) => IngredientFormValues)) => void;
   /** True when the field name should pull the focus ring on mount (NEW mode). */
   autoFocusName?: boolean;
   /** Fired when user picks the "+ new vendor" sentinel — host opens VendorFormDrawer. */
@@ -93,7 +108,11 @@ const InputLine: React.FC<{
   readOnly?: boolean;
   autoFocus?: boolean;
   numericOnly?: boolean;
-}> = ({ label, value, onChangeText, placeholder, monoFont, width = '100%', help, error, readOnly, autoFocus, numericOnly }) => {
+  /** Spec 040 P3 — extra onBlur callback (in addition to focus-ring
+   *  state). Used by the IngredientForm name field to fire the
+   *  translate-on-save edge function when the user tabs out. */
+  onBlur?: () => void;
+}> = ({ label, value, onChangeText, placeholder, monoFont, width = '100%', help, error, readOnly, autoFocus, numericOnly, onBlur }) => {
   const C = useCmdColors();
   const [focus, setFocus] = React.useState(false);
   const borderColor = focus ? C.accent : error ? C.danger : C.border;
@@ -121,7 +140,7 @@ const InputLine: React.FC<{
           editable={!readOnly}
           autoFocus={autoFocus}
           onFocus={() => setFocus(true)}
-          onBlur={() => setFocus(false)}
+          onBlur={() => { setFocus(false); onBlur?.(); }}
           keyboardType={numericOnly ? 'decimal-pad' : 'default'}
           style={{
             fontFamily: monoFont ? mono(400) : sans(500),
@@ -173,6 +192,63 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
 
   const set = <K extends keyof IngredientFormValues>(k: K, v: IngredientFormValues[K]) => onChange({ ...values, [k]: v });
 
+  // Spec 040 P3 — auto-fill translation suggestions for ES + zh-CN.
+  // Hybrid trigger: 600ms idle OR blur; AbortController cancels in-flight
+  // requests when the user keeps typing. On DeepL error we leave the
+  // override fields editable so the user can fill in manually.
+  const abortRef = React.useRef<AbortController | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [translating, setTranslating] = React.useState(false);
+  // Refs to the latest `values` / `onChange` so the debounced timer always
+  // operates on fresh state rather than a captured stale closure.
+  const valuesRef = React.useRef(values);
+  const onChangeRef = React.useRef(onChange);
+  React.useEffect(() => { valuesRef.current = values; }, [values]);
+  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  React.useEffect(() => () => {
+    abortRef.current?.abort();
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const runTranslate = React.useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setTranslating(true);
+    try {
+      // Pass ctrl.signal so a fresh keystroke aborts the in-flight fetch
+      // instead of just discarding its result (saves DeepL quota).
+      const { data, error } = await translateOnSave(trimmed, ['es', 'zh-CN'], ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      if (error || !data) return;
+      // Functional-updater form so any concurrent edits the user made to
+      // other fields (e.g. category) while DeepL was in-flight aren't
+      // clobbered by a stale `valuesRef.current` snapshot.
+      onChangeRef.current((prev: IngredientFormValues) => {
+        const next = { ...prev };
+        const es = data.translations?.es;
+        const zh = data.translations?.['zh-CN'];
+        if (typeof es === 'string' && es.trim().length > 0) next.nameEs = es;
+        if (typeof zh === 'string' && zh.trim().length > 0) next.nameZh = zh;
+        return next;
+      });
+    } finally {
+      if (!ctrl.signal.aborted) setTranslating(false);
+    }
+  }, []);
+
+  const scheduleTranslate = React.useCallback((text: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { runTranslate(text); }, 600);
+  }, [runTranslate]);
+
+  const handleNameBlur = React.useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    runTranslate(valuesRef.current.name);
+  }, [runTranslate]);
+
   // Default-unit options: canonical units ∪ distinct purchase_unit values
   // across all conversions. Purely client-side derivation per spec 004 §3.
   const defaultUnitOptions = React.useMemo(() => {
@@ -218,16 +294,19 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     return opts;
   }, [vendors, currentStore?.brandId, onAddVendor]);
 
-  // Category options. ingredient_categories is a global string list today.
+  // Category options. ingredient_categories is a `{ name; i18nNames }[]`
+  // after spec 040 P3. The value (join key) stays English canonical;
+  // the label could be localized in the future — keeping plain English
+  // for now since the form is itself a string-typed control.
   const categoryOptions = React.useMemo(() => {
     const seen = new Set<string>();
     const out: Array<{ value: string; label: string }> = [];
     for (const c of ingredientCategories) {
-      if (!c) continue;
-      const key = c.toLowerCase();
+      if (!c?.name) continue;
+      const key = c.name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ value: c, label: c });
+      out.push({ value: c.name, label: c.name });
     }
     // If the ingredient's current category is not registered (legacy free
     // text), surface it as a selectable option so the displayed value
@@ -275,7 +354,36 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 0 }}>
       <SectionCaption tone="fg3" size={9.5}>IDENTITY · required</SectionCaption>
       <View style={{ gap: 12, marginTop: 8, marginBottom: 14 }}>
-        <InputLine label="display name" value={values.name} onChangeText={(v) => set('name', v)} autoFocus={autoFocusName} />
+        <InputLine
+          label="display name"
+          value={values.name}
+          onChangeText={(v) => { set('name', v); scheduleTranslate(v); }}
+          onBlur={handleNameBlur}
+          autoFocus={autoFocusName}
+        />
+        {/* Spec 040 P3 — translation override inputs. Filled by the
+            translate-on-save edge function debounce + blur trigger;
+            user can edit either field before saving. Empty strings serialize
+            as "no translation" on save (the key is omitted from
+            i18n_names) so silent-English fallback kicks in. */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <InputLine
+            label="display name · español"
+            value={values.nameEs}
+            onChangeText={(v) => set('nameEs', v)}
+            placeholder={translating ? 'translating…' : '—'}
+            width="50%"
+            help={translating ? 'auto-fill in progress' : 'auto-fills · editable'}
+          />
+          <InputLine
+            label="display name · 中文"
+            value={values.nameZh}
+            onChangeText={(v) => set('nameZh', v)}
+            placeholder={translating ? 'translating…' : '—'}
+            width="50%"
+            help={translating ? 'auto-fill in progress' : 'auto-fills · editable'}
+          />
+        </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <InputLine label="sku" value={values.sku} monoFont width="50%"
             help={isNew ? 'generated on save' : undefined} readOnly />

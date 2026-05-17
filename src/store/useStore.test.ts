@@ -100,6 +100,14 @@ jest.mock('../lib/db', () => ({
   cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),
+  // Spec 040 P3 — new helpers the store imports. The deleteProfile
+  // test path doesn't exercise these, but the import-level namespace
+  // resolves to this mock and a stray reference would TypeError.
+  updateCatalogIngredientI18n: jest.fn().mockResolvedValue(undefined),
+  updateRecipeI18n: jest.fn().mockResolvedValue(undefined),
+  updatePrepRecipeI18n: jest.fn().mockResolvedValue(undefined),
+  updateRecipeCategoryI18n: jest.fn().mockResolvedValue(undefined),
+  updateIngredientCategoryI18n: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ─── Imports (resolve mocks above) ───────────────────────────────────

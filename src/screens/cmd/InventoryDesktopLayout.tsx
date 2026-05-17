@@ -11,6 +11,8 @@ import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
 import { formatAuditAction } from '../../utils/formatAuditAction';
 import { useT } from '../../hooks/useT';
+import { useLocale } from '../../hooks/useLocale';
+import { getLocalizedName } from '../../i18n/localizedName';
 import { CmdStatusBar } from '../../components/cmd/StatusBar';
 import { TabStrip } from '../../components/cmd/TabStrip';
 import { StatCard } from '../../components/cmd/StatCard';
@@ -75,6 +77,7 @@ interface Props {
 export default function InventoryDesktopLayout({ onPaletteOpen, section, setSection }: Props) {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
@@ -103,9 +106,28 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
     [inventory, currentStore.id],
   );
   const parsed = React.useMemo(() => parseFilter(filterText), [filterText]);
+  // Spec 040 P3 — filter consults BOTH English `name` and the
+  // current-locale label (via getLocalizedName) for bare-token search.
+  // Sort by current-locale label using localeCompare.
   const items = React.useMemo(
-    () => storeInventory.filter((i) => matchesFilter(i, parsed, getItemStatus)),
-    [storeInventory, parsed, getItemStatus],
+    () => storeInventory
+      .filter((i) =>
+        matchesFilter(
+          i,
+          parsed,
+          getItemStatus,
+          getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
+        ),
+      )
+      .slice()
+      .sort((a, b) =>
+        getLocalizedName({ name: a.name, i18nNames: a.i18nNames }, locale)
+          .localeCompare(
+            getLocalizedName({ name: b.name, i18nNames: b.i18nNames }, locale),
+            locale,
+          ),
+      ),
+    [storeInventory, parsed, getItemStatus, locale],
   );
 
   // Auto-select on first render only. After that the user owns the selection
@@ -268,7 +290,11 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                   <InventoryRow
                     item={{
                       id: it.id,
-                      name: it.name,
+                      // Spec 040 P3 — display the localized label.
+                      // Selection key stays English-lowercase so survives
+                      // locale switch (the join key on inventory_items
+                      // is still the English canonical).
+                      name: getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale),
                       stock: it.currentStock,
                       par: it.parLevel,
                       unit: it.unit,
@@ -395,6 +421,7 @@ function DetailPane({
 }: DetailProps) {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
 
   const itemActivity = React.useMemo(() => {
     return auditLog
@@ -473,7 +500,9 @@ function DetailPane({
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(item.id)}</Text>
               <StatusPill status={status} />
             </View>
-            <Text style={[Type.display, { color: C.fg }]}>{item.name}</Text>
+            <Text style={[Type.display, { color: C.fg }]}>
+              {getLocalizedName({ name: item.name, i18nNames: item.i18nNames }, locale)}
+            </Text>
             <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>{meta}</Text>
           </View>
 

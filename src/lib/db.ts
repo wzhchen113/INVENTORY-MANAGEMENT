@@ -1,6 +1,12 @@
 // src/lib/db.ts
 // All database operations — drop-in replacements for the Zustand seed data
 import { supabase } from './supabase';
+// Spec 040 P3 — `callEdgeFunction` is the project-standard wrapper that
+// surfaces edge-function failures as `{ data, error }` (CLAUDE.md "Edge
+// function calls go through callEdgeFunction"). Used by translateOnSave
+// below. Was file-private to auth.ts before spec 040; the export
+// boundary was added in the same change.
+import { callEdgeFunction } from './auth';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -79,17 +85,23 @@ export async function fetchInvitationsForUserLookup(
 }
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
-export async function fetchInventory(storeId?: string): Promise<InventoryItem[]> {
+// Spec 040 P3: return type widened to expose i18nNames on each row. See the
+// mapItem comment below for the rationale on the structural intersection.
+export async function fetchInventory(
+  storeId?: string,
+): Promise<Array<InventoryItem & { i18nNames: Record<string, string> }>> {
   // name/unit/category/case_qty/sub_unit_* are hydrated from
   // catalog_ingredients via the JOIN aliased as `catalog`. The category
   // column is gone from inventory_items so we can no longer order by
-  // it server-side; UI consumers sort client-side anyway.
+  // it server-side; UI consumers sort client-side anyway. Spec 040 also
+  // selects catalog.i18n_names so mapItem can hydrate per-locale name
+  // overrides without a second fetch.
   let query = supabase
     .from('inventory_items')
     .select(`*,
       vendor:vendors(name),
       updater:profiles!last_updated_by(name),
-      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit)`)
+      catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names)`)
     .order('id', { ascending: true });
   if (storeId) query = query.eq('store_id', storeId);
   const { data, error } = await query;
@@ -120,7 +132,16 @@ async function brandIdForStore(storeId: string): Promise<string> {
  * non-atomic and threw on duplicates; this RPC closes both gaps —
  * issue #5 from the PR #3 review.
  */
-export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
+// Spec 040 P3: signature widened to accept an optional `i18nNames` on the
+// Omit<InventoryItem,'id'> input. The intersection on the Omit lets a
+// caller pass i18nNames without modifying src/types/index.ts (the frontend
+// dev's lane in spec 040). The new field is threaded into the RPC's
+// p_i18n_names parameter so the catalog row carries the translations on the
+// first save — eliminating the silent-drop failure mode the architect
+// flagged at §11.
+export async function createInventoryItem(
+  item: Omit<InventoryItem, 'id'> & { i18nNames?: Record<string, string> },
+): Promise<InventoryItem & { i18nNames: Record<string, string> }> {
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
   const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
   if (!storeId) throw new Error('Invalid store ID');
@@ -150,6 +171,12 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
       usage_per_portion:   item.usagePerPortion ?? 0,
       expiry_date:         item.expiryDate || null,
     },
+    // Spec 040 P3: thread per-locale name overrides into the RPC. The
+    // RPC writes catalog_ingredients.i18n_names atomically inside the
+    // find-or-create transaction. Omitting this falls through to the
+    // function's default `{}`::jsonb (back-compat — the RPC accepts the
+    // shorter argument list).
+    p_i18n_names: item.i18nNames ?? {},
   });
   if (error) throw error;
   // The RPC returns a jsonb shaped exactly like a PostgREST embed
@@ -157,12 +184,20 @@ export async function createInventoryItem(item: Omit<InventoryItem, 'id'>): Prom
   return mapItem(data);
 }
 
-export async function updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<void> {
+// Spec 040 P3: signature widened to accept `i18nNames` in the partial
+// update. When present, it lands on catalog_ingredients.i18n_names alongside
+// the other catalog-level fields. Brand-wide change — every store sees the
+// new translations on the next render. Optimistic-then-revert in the store
+// reverts the slice on error per useStore.ts:23 / notifyBackendError.
+export async function updateInventoryItem(
+  id: string,
+  updates: Partial<InventoryItem> & { i18nNames?: Record<string, string> },
+): Promise<void> {
   if (!id || id.length < 10) return;
 
-  // Catalog-level fields (name/unit/category/case_qty/sub_unit_*) propagate
-  // to ALL stores via catalog_ingredients. Per-store fields (cost, vendor,
-  // par, stock) stay on inventory_items.
+  // Catalog-level fields (name/unit/category/case_qty/sub_unit_*/i18n_names)
+  // propagate to ALL stores via catalog_ingredients. Per-store fields (cost,
+  // vendor, par, stock) stay on inventory_items.
   const catalogUpdates: any = {};
   if (updates.name !== undefined) catalogUpdates.name = updates.name;
   if (updates.unit !== undefined) catalogUpdates.unit = updates.unit;
@@ -170,6 +205,11 @@ export async function updateInventoryItem(id: string, updates: Partial<Inventory
   if (updates.caseQty !== undefined) catalogUpdates.case_qty = updates.caseQty;
   if (updates.subUnitSize !== undefined) catalogUpdates.sub_unit_size = updates.subUnitSize;
   if (updates.subUnitUnit !== undefined) catalogUpdates.sub_unit_unit = updates.subUnitUnit;
+  // Spec 040 P3: per-locale name overrides for the catalog ingredient.
+  // Passing `{}` clears all translations; omitting the field leaves the
+  // existing JSONB untouched (matching the rest of this function's
+  // omit-key-to-skip semantics).
+  if (updates.i18nNames !== undefined) catalogUpdates.i18n_names = updates.i18nNames;
   if (Object.keys(catalogUpdates).length > 0) {
     catalogUpdates.updated_at = new Date().toISOString();
     // Resolve the catalog_id for this row before updating
@@ -208,7 +248,11 @@ export async function adjustItemStock(id: string, newStock: number, updatedById:
  * brand and shown at every store. Ingredient names come from
  * catalog_ingredients (brand-shared).
  */
-export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
+// Spec 040 P3: return type widened to surface i18nNames on each recipe row.
+// The select still uses `*` so the new column comes through automatically.
+export async function fetchRecipes(
+  brandId: string,
+): Promise<Array<Recipe & { i18nNames: Record<string, string> }>> {
   const { data, error } = await supabase
     .from('recipes')
     .select(`*,
@@ -238,10 +282,20 @@ export async function fetchRecipes(brandId: string): Promise<Recipe[]> {
       quantity: p.quantity,
       unit: p.unit || p.prep?.yield_unit || '',
     })),
+    // Spec 040 P3: recipes canonical English is in `menu_item`; per-locale
+    // overrides live in recipes.i18n_names. The `getLocalizedName` helper
+    // resolves `menuItem` first, then `name`, then falls through to ''.
+    i18nNames: (r.i18n_names ?? {}) as Record<string, string>,
   }));
 }
 
-export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> {
+// Spec 040 P3: accepts optional `i18nNames` in the create payload. When the
+// form's auto-translate fan-out completes before save, the suggestions are
+// carried into the recipes.i18n_names JSONB on the first INSERT — no
+// separate UPDATE round-trip. Same shape rationale as createInventoryItem.
+export async function createRecipe(
+  recipe: Omit<Recipe, 'id'> & { i18nNames?: Record<string, string> },
+): Promise<Recipe & { i18nNames: Record<string, string> }> {
   const brandId = recipe.brandId || recipe.storeId;
   if (!brandId || brandId.length < 10) throw new Error('Invalid brand ID');
   // Upsert by (brand_id, menu_item). P3 dropped the legacy
@@ -255,6 +309,12 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
         menu_item: recipe.menuItem,
         category: recipe.category,
         sell_price: recipe.sellPrice,
+        // Spec 040 P3: persist per-locale overrides on the recipe row.
+        // The upsert merges this when (brand_id, menu_item) collides;
+        // PostgREST default merge replaces the JSONB field with the new
+        // value. Callers that don't pass i18nNames send `{}` so the
+        // column lands at its default and isn't accidentally cleared.
+        i18n_names: recipe.i18nNames ?? {},
       },
       { onConflict: 'brand_id,menu_item' }
     )
@@ -284,7 +344,17 @@ export async function createRecipe(recipe: Omit<Recipe, 'id'>): Promise<Recipe> 
       }))
     );
   }
-  return { ...recipe, id: data.id, brandId, storeId: brandId };
+  // Spec 040 P3: surface i18nNames on the returned row so the optimistic-
+  // then-revert callsite can swap the temp row for the saved one without
+  // losing the translations the user just typed. Falls back to `{}` when
+  // the caller passed none and the upsert wrote the column default.
+  return {
+    ...recipe,
+    id: data.id,
+    brandId,
+    storeId: brandId,
+    i18nNames: (data.i18n_names ?? recipe.i18nNames ?? {}) as Record<string, string>,
+  };
 }
 
 // ─── WASTE LOG ───────────────────────────────────────────────────────────
@@ -1165,11 +1235,19 @@ export async function deleteInventoryItem(id: string): Promise<void> {
 }
 
 // ─── UPDATE/DELETE RECIPE ────────────────────────────────────────────────
-export async function updateRecipe(id: string, updates: Partial<Recipe>): Promise<void> {
+// Spec 040 P3: signature widened to accept `i18nNames` in the partial. Same
+// omit-key-to-skip semantics as the other catalog-level fields.
+export async function updateRecipe(
+  id: string,
+  updates: Partial<Recipe> & { i18nNames?: Record<string, string> },
+): Promise<void> {
   const dbUpdates: any = {};
   if (updates.menuItem !== undefined) dbUpdates.menu_item = updates.menuItem;
   if (updates.category !== undefined) dbUpdates.category = updates.category;
   if (updates.sellPrice !== undefined) dbUpdates.sell_price = updates.sellPrice;
+  // Spec 040 P3: per-locale name overrides for the recipe row. Passing `{}`
+  // clears all translations; omitting the field leaves the column untouched.
+  if (updates.i18nNames !== undefined) dbUpdates.i18n_names = updates.i18nNames;
   if (Object.keys(dbUpdates).length > 0) {
     await supabase.from('recipes').update(dbUpdates).eq('id', id);
   }
@@ -1299,6 +1377,127 @@ export async function saveLocale(
   if (error) throw error;
 }
 
+// ─── TRANSLATE-ON-SAVE (Spec 040) ─────────────────────────────────────
+/**
+ * Spec 040 P3b — invoke the `translate-on-save` edge function to auto-fill
+ * per-locale name suggestions for an entity (ingredient / recipe / prep /
+ * category). The edge function gates on `requireAdminCaller` server-side
+ * and returns DeepL-backed translations for the requested target locales.
+ *
+ * Envelope shape matches `callEdgeFunction` from src/lib/auth.ts —
+ * `{ data, error }`. The caller (form layer) decides whether to surface
+ * the error as a toast or quietly fall through to manual-override entry.
+ *
+ * Partial-success is allowed: if DeepL returns a translation for `es` but
+ * not `zh-CN`, the returned `translations` object carries only `es`. The
+ * form fills the succeeded fields and leaves the others as manual-override-
+ * only. Whole-call failure (e.g. DEEPL_API_KEY unset, all locales failed,
+ * network error) surfaces as a non-null `error` per the standard envelope.
+ *
+ * Edge function signature (architect §4):
+ *   POST /functions/v1/translate-on-save
+ *   { text: string, sourceLocale: 'en', targetLocales: ('es' | 'zh-CN')[] }
+ *   → 200 { translations: { es?, 'zh-CN'? } }
+ *   → 400 / 401 / 403 / 503 { error: '...' }
+ *
+ * One-time operator step required before this works:
+ *   supabase secrets set DEEPL_API_KEY=<key-from-deepl-pro-signup>
+ */
+export async function translateOnSave(
+  text: string,
+  targetLocales: Array<'es' | 'zh-CN'>,
+  signal?: AbortSignal,
+): Promise<{
+  data: { translations: { es?: string; 'zh-CN'?: string } } | null;
+  error: string | null;
+}> {
+  return callEdgeFunction(
+    'translate-on-save',
+    { text, sourceLocale: 'en', targetLocales },
+    { signal },
+  );
+}
+
+// ─── i18n_names PARTIAL-UPDATE HELPERS (Spec 040 P3b) ─────────────────────
+// Per architect design §5, the form's translation suggestion can arrive
+// AFTER the save returns (600ms debounce + ~200ms DeepL + an in-flight
+// race with the Save click). Rather than re-issuing a whole-row UPDATE
+// when the suggestion lands, each entity has a dedicated partial-update
+// helper that touches ONLY i18n_names. Pairs with `setCatalogI18nNames`
+// etc. on the useStore slice (frontend-developer's lane).
+//
+// Categories are keyed by `name` (not `id`) per the existing two-arg
+// rename helpers; the *I18n helpers stick to that convention.
+
+/** Patch `catalog_ingredients.i18n_names` by catalog id (brand-wide write —
+ *  every store sees the new translations on the next render). RLS:
+ *  privileged-write per spec 026/027. */
+export async function updateCatalogIngredientI18n(
+  catalogId: string,
+  i18nNames: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('catalog_ingredients')
+    .update({ i18n_names: i18nNames })
+    .eq('id', catalogId);
+  if (error) throw error;
+}
+
+/** Patch `recipes.i18n_names` by recipe id. Brand-scoped row; the existing
+ *  privileged-write policy covers the new column. */
+export async function updateRecipeI18n(
+  recipeId: string,
+  i18nNames: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('recipes')
+    .update({ i18n_names: i18nNames })
+    .eq('id', recipeId);
+  if (error) throw error;
+}
+
+/** Patch `prep_recipes.i18n_names` by prep recipe id. The versioning model
+ *  for prep_recipes (see updatePrepRecipeVersioned) treats versions as
+ *  immutable historical snapshots — this helper writes to the SPECIFIC row
+ *  identified by `id`. Callers driving translations on the current version
+ *  pass the `is_current=true` row's id. */
+export async function updatePrepRecipeI18n(
+  prepId: string,
+  i18nNames: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('prep_recipes')
+    .update({ i18n_names: i18nNames })
+    .eq('id', prepId);
+  if (error) throw error;
+}
+
+/** Patch `recipe_categories.i18n_names` by category name. Global-scope row
+ *  (no brand_id / store_id); RLS is "Admins can write categories." */
+export async function updateRecipeCategoryI18n(
+  name: string,
+  i18nNames: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('recipe_categories')
+    .update({ i18n_names: i18nNames })
+    .eq('name', name);
+  if (error) throw error;
+}
+
+/** Patch `ingredient_categories.i18n_names` by category name. Global-scope
+ *  row; RLS is the spec-004 four-policy split (admin-gated writes). */
+export async function updateIngredientCategoryI18n(
+  name: string,
+  i18nNames: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('ingredient_categories')
+    .update({ i18n_names: i18nNames })
+    .eq('name', name);
+  if (error) throw error;
+}
+
 // ─── PREP RECIPES ───────────────────────────────────────────────────────
 /**
  * Brand-level prep recipes after the catalog refactor. brandId param is
@@ -1355,6 +1554,9 @@ export async function fetchPrepRecipes(brandId?: string): Promise<any[]> {
         type: i.type || 'raw',
       };
     }),
+    // Spec 040 P3: per-locale name overrides on the prep recipe row.
+    // Canonical English is in `name` above; JSONB shape {"es"?, "zh-CN"?}.
+    i18nNames: (pr.i18n_names ?? {}) as Record<string, string>,
   }));
   // Resolve sub-recipe names from the loaded recipes
   const nameMap = new Map(recipes.map((r: any) => [r.id, r.name]));
@@ -1410,6 +1612,10 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
       brand_id: brandId,
       version: 1,
       is_current: true,
+      // Spec 040 P3: per-locale name overrides on the prep recipe row.
+      // Falls back to `{}` so the column lands at its default when the
+      // caller doesn't pass translations.
+      i18n_names: recipe.i18nNames ?? {},
     })
     .select().single();
   if (error) throw error;
@@ -1441,6 +1647,8 @@ export async function updatePrepRecipe(id: string, updates: any): Promise<void> 
   if (updates.yieldQuantity !== undefined) dbUpdates.yield_quantity = updates.yieldQuantity;
   if (updates.yieldUnit !== undefined) dbUpdates.yield_unit = updates.yieldUnit;
   if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+  // Spec 040 P3: per-locale name overrides. Same omit-key-to-skip semantics.
+  if (updates.i18nNames !== undefined) dbUpdates.i18n_names = updates.i18nNames;
   if (Object.keys(dbUpdates).length > 0) {
     await supabase.from('prep_recipes').update(dbUpdates).eq('id', id);
   }
@@ -1488,17 +1696,55 @@ export async function deleteVendor(id: string): Promise<void> {
 }
 
 // ─── RECIPE CATEGORIES ──────────────────────────────────────────────────
-export async function fetchRecipeCategories(): Promise<string[]> {
-  const { data } = await supabase.from('recipe_categories').select('name').order('created_at');
-  return (data || []).map((c: any) => c.name);
+// Spec 040 P3: the categories slice shape widens from `string[]` to
+// `Array<{ name; i18nNames }>`. The architect's design §7 ("Categories
+// shape upgrade") flagged this as the load-bearing fan-out to the frontend
+// dev — every existing `.map((c) => c)` site that consumed a string now
+// gets an object. Co-located write helpers accept an optional `i18nNames`
+// param so the form can persist translations alongside the canonical name.
+//
+// Categories are keyed by `name` (not `id`) in this codebase. The legacy
+// updateRecipeCategory(oldName, newName) two-arg signature is preserved
+// (it's only used for renames). A new optional 3rd arg threads i18nNames
+// — additive so existing call sites keep working unchanged.
+export async function fetchRecipeCategories(): Promise<
+  Array<{ name: string; i18nNames: Record<string, string> }>
+> {
+  const { data } = await supabase
+    .from('recipe_categories')
+    .select('name, i18n_names')
+    .order('created_at');
+  return (data || []).map((c: any) => ({
+    name: c.name,
+    i18nNames: (c.i18n_names ?? {}) as Record<string, string>,
+  }));
 }
 
-export async function addRecipeCategory(name: string): Promise<void> {
-  await supabase.from('recipe_categories').insert({ name });
+// Spec 040 P3: optional `i18nNames` param. Omitting it INSERTs with the
+// column default `{}` so existing callers (un-updated frontend) keep
+// working. Passing a populated object lands translations atomically with
+// the canonical English name on the first save.
+export async function addRecipeCategory(
+  name: string,
+  i18nNames?: Record<string, string>,
+): Promise<void> {
+  await supabase
+    .from('recipe_categories')
+    .insert({ name, i18n_names: i18nNames ?? {} });
 }
 
-export async function updateRecipeCategory(oldName: string, newName: string): Promise<void> {
-  await supabase.from('recipe_categories').update({ name: newName }).eq('name', oldName);
+// Spec 040 P3: optional `i18nNames` param. When passed, the JSONB column is
+// rewritten alongside the rename in one statement (still not atomic across
+// the rename + translation update because PostgREST is single-row-per-call,
+// but the same posture as the pre-spec rename was non-atomic).
+export async function updateRecipeCategory(
+  oldName: string,
+  newName: string,
+  i18nNames?: Record<string, string>,
+): Promise<void> {
+  const dbUpdates: any = { name: newName };
+  if (i18nNames !== undefined) dbUpdates.i18n_names = i18nNames;
+  await supabase.from('recipe_categories').update(dbUpdates).eq('name', oldName);
 }
 
 export async function deleteRecipeCategory(name: string): Promise<void> {
@@ -1643,6 +1889,11 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
       version: nextVersion,
       is_current: true,
       parent_id: parentId,
+      // Spec 040 P3: carry per-locale name overrides into the new version.
+      // Versions are immutable historical snapshots in this codebase, so
+      // each version preserves its own translation set. Falls back to `{}`
+      // when the caller didn't pass i18nNames.
+      i18n_names: updates.i18nNames ?? {},
     })
     .select()
     .single();
@@ -1675,17 +1926,40 @@ export async function updatePrepRecipeVersioned(id: string, updates: any): Promi
 }
 
 // ─── INGREDIENT CATEGORIES ──────────────────────────────────────────────
-export async function fetchIngredientCategories(): Promise<string[]> {
-  const { data } = await supabase.from('ingredient_categories').select('name').order('created_at');
-  return (data || []).map((c: any) => c.name);
+// Spec 040 P3: same shape upgrade as recipe categories (see comment above
+// fetchRecipeCategories). Co-located write helpers accept an optional
+// `i18nNames` so the form can land translations alongside the canonical
+// English name in one save.
+export async function fetchIngredientCategories(): Promise<
+  Array<{ name: string; i18nNames: Record<string, string> }>
+> {
+  const { data } = await supabase
+    .from('ingredient_categories')
+    .select('name, i18n_names')
+    .order('created_at');
+  return (data || []).map((c: any) => ({
+    name: c.name,
+    i18nNames: (c.i18n_names ?? {}) as Record<string, string>,
+  }));
 }
 
-export async function addIngredientCategory(name: string): Promise<void> {
-  await supabase.from('ingredient_categories').insert({ name });
+export async function addIngredientCategory(
+  name: string,
+  i18nNames?: Record<string, string>,
+): Promise<void> {
+  await supabase
+    .from('ingredient_categories')
+    .insert({ name, i18n_names: i18nNames ?? {} });
 }
 
-export async function updateIngredientCategory(oldName: string, newName: string): Promise<void> {
-  await supabase.from('ingredient_categories').update({ name: newName }).eq('name', oldName);
+export async function updateIngredientCategory(
+  oldName: string,
+  newName: string,
+  i18nNames?: Record<string, string>,
+): Promise<void> {
+  const dbUpdates: any = { name: newName };
+  if (i18nNames !== undefined) dbUpdates.i18n_names = i18nNames;
+  await supabase.from('ingredient_categories').update(dbUpdates).eq('name', oldName);
 }
 
 export async function deleteIngredientCategory(name: string): Promise<void> {
@@ -2557,6 +2831,10 @@ export async function fetchCatalogIngredients(brandId: string) {
     // undefined → coerce to null so the typed shape matches.
     defaultShelfLifeDays:
       c.default_shelf_life_days == null ? null : Number(c.default_shelf_life_days),
+    // Spec 040 P3: per-locale name overrides on the catalog row. Shape
+    // {"es"?, "zh-CN"?}. Falls back to `{}` when the column is missing or
+    // unpopulated.
+    i18nNames: (c.i18n_names ?? {}) as Record<string, string>,
   }));
 }
 
@@ -2774,7 +3052,14 @@ export async function cleanupOldRecords(): Promise<void> {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────
-function mapItem(row: any): InventoryItem {
+// Spec 040 P3: mapItem now hydrates `i18nNames` from the joined
+// catalog_ingredients.i18n_names JSONB column. The return type is widened
+// from `InventoryItem` to `InventoryItem & { i18nNames: Record<string,
+// string> }` via the intersection so the new field is visible to callers
+// without modifying src/types/index.ts (the frontend dev's lane in spec
+// 040). When the canonical type adds i18nNames, the intersection becomes
+// a structural no-op and this can revert to the plain type.
+function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> } {
   // Catalog fields (name/unit/category/case_qty/sub_unit_*) live on
   // catalog_ingredients; hydrated via the JOIN aliased as `catalog`.
   // Per-store fields (cost_per_unit, case_price, current_stock, par_level,
@@ -2811,5 +3096,11 @@ function mapItem(row: any): InventoryItem {
     caseQty,
     subUnitSize,
     subUnitUnit: cat.sub_unit_unit || '',
+    // Spec 040 P3: per-locale name overrides hydrated from
+    // catalog_ingredients.i18n_names. Falls back to {} when the embed is
+    // absent (e.g. older test fixtures that don't include i18n_names in
+    // the select projection). Keys: 'es', 'zh-CN'. English canonical lives
+    // in `name` above and is never written here.
+    i18nNames: (cat.i18n_names ?? {}) as Record<string, string>,
   };
 }

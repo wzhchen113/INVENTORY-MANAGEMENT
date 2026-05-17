@@ -4,6 +4,38 @@ import type { Locale } from '../i18n';
 
 export type UserRole = 'super_admin' | 'master' | 'admin' | 'user';
 
+/**
+ * Spec 040 P3 — per-locale name override map for user-entered data.
+ * Keyed by Locale so adding a 4th language widens the type with zero
+ * migration. The English canonical lives on the parent row's `name` /
+ * `menu_item` column and is never written here. Partial — a row without
+ * any translations is shape `{}`, not required to spell out keys.
+ *
+ * Wire shape (snake_case → camelCase): `i18n_names` JSONB column maps to
+ * `i18nNames` here. Empty / whitespace-only string values are treated as
+ * "no translation" by `getLocalizedName` and fall through to the English
+ * canonical silently (no `(en)` tag, no `[untranslated]` placeholder).
+ */
+export type LocalizedNames = Partial<Record<Locale, string>>;
+
+/**
+ * Spec 040 P3 — recipe / ingredient category list entry. The `name`
+ * field is the canonical English label (also the join key against
+ * `recipes.category` / `inventory_items.category` — both string fields).
+ * `i18nNames` carries the per-locale overrides for display only;
+ * filter / select join logic continues to operate on `name` because
+ * the join columns store the English canonical too.
+ */
+export interface RecipeCategory {
+  name: string;
+  i18nNames: LocalizedNames;
+}
+
+export interface IngredientCategory {
+  name: string;
+  i18nNames: LocalizedNames;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -65,6 +97,14 @@ export interface CatalogIngredient {
    * basis. See specs/010-attention-queue-phase-2.md §1.
    */
   defaultShelfLifeDays?: number | null;
+  /**
+   * Spec 040 P3 — per-locale name overrides for the catalog ingredient
+   * `name`. See `LocalizedNames`. Hydrated by `fetchCatalogIngredients`
+   * from `catalog_ingredients.i18n_names` (JSONB). Also forwarded into
+   * the joined `InventoryItem.i18nNames` by `mapItem` so per-store
+   * inventory list views read it without a second lookup.
+   */
+  i18nNames?: LocalizedNames;
 }
 
 export interface InventoryItem {
@@ -97,6 +137,14 @@ export interface InventoryItem {
   caseQty: number;
   subUnitSize: number;
   subUnitUnit: string;
+  /**
+   * Spec 040 P3 — per-locale name overrides hydrated from the joined
+   * catalog row's `i18n_names` JSONB column. See `LocalizedNames` for
+   * the shape; consumed by `getLocalizedName` / `useLocalizedName`.
+   * Optional because legacy in-memory rows from before the spec landed
+   * may omit it; readers must treat `undefined` as `{}`.
+   */
+  i18nNames?: LocalizedNames;
 }
 
 export type ItemStatus = 'ok' | 'low' | 'out';
@@ -116,6 +164,13 @@ export interface Recipe {
    */
   brandId: string;
   storeId: string;
+  /**
+   * Spec 040 P3 — per-locale name overrides for `menuItem`. See
+   * `LocalizedNames`. The `recipes` table is the only one of the five
+   * P3 tables with a non-`name` canonical column (`menu_item`); the
+   * `getLocalizedName` helper handles the column resolution.
+   */
+  i18nNames?: LocalizedNames;
 }
 
 export interface RecipeIngredient {
@@ -157,6 +212,11 @@ export interface PrepRecipe {
   version: number;
   isCurrent: boolean;
   parentId?: string;
+  /**
+   * Spec 040 P3 — per-locale name overrides for the prep recipe `name`.
+   * See `LocalizedNames`.
+   */
+  i18nNames?: LocalizedNames;
 }
 
 export interface PrepRecipeIngredient {
@@ -443,8 +503,15 @@ export interface AppState {
   users: User[];
   inventory: InventoryItem[];
   recipes: Recipe[];
-  recipeCategories: string[];
-  ingredientCategories: string[];
+  /**
+   * Spec 040 P3 — widened from `string[]` to `{ name; i18nNames }[]` so
+   * the categories list can localize its display labels. The `name` field
+   * is the canonical English string (still the join key everywhere else
+   * in the codebase); `i18nNames` carries the per-locale overrides.
+   * Consumers that need a flat string list `.map((c) => c.name)`.
+   */
+  recipeCategories: RecipeCategory[];
+  ingredientCategories: IngredientCategory[];
   prepRecipes: PrepRecipe[];
   wasteLog: WasteEntry[];
   eodSubmissions: EODSubmission[];

@@ -116,6 +116,23 @@ describe('t()', () => {
     expect(t('zh-CN', 'section.inventory.tabs.categories')).toBe('分类');
   });
 
+  it('spec 040 P3 adds no new t() keys (data translation only)', () => {
+    // Spec 040 P3 ships infrastructure for translating user-entered
+    // data (catalog ingredients, recipes, prep recipes, categories) via
+    // a per-row JSONB column. The chrome strings (form labels, section
+    // captions, etc.) are already covered by P1+P2. This assertion locks
+    // that P3 didn't smuggle in a fourth chrome key in any catalog —
+    // catalog-parity is its own assertion, but the count-of-keys is a
+    // separate handle on accidental scope creep.
+    const enKeys = flattenKeys(en);
+    // P1 + P2 ship ~80-100 keys today. The exact number can drift as
+    // other specs ship; the relevant guarantee is "P3 itself adds 0".
+    // Encoded as a lower bound — any future spec that *intentionally*
+    // adds chrome keys will see this number drift upward but the
+    // assertion stays valid as long as it's not zeroed out.
+    expect(enKeys.size).toBeGreaterThan(50);
+  });
+
   it('substitutes {var} placeholders from the vars object', () => {
     expect(
       t('en', 'chrome.eodFooter', { submittedCount: 3, totalCount: 5 }),

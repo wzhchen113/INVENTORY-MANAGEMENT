@@ -4,11 +4,12 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { Recipe, RecipeIngredient, RecipePrepItem } from '../../types';
+import { Recipe, RecipeIngredient, RecipePrepItem, LocalizedNames } from '../../types';
 import { SelectField } from './SelectField';
 import { CANONICAL_UNITS } from '../../utils/unitConversion';
 import { useT } from '../../hooks/useT';
 import { unitLabel } from '../../utils/enumLabels';
+import { translateOnSave } from '../../lib/translate';
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -48,6 +49,10 @@ interface FormValues {
   sellPrice: string;
   ingredients: Row[];
   prepItems: Row[];
+  // Spec 040 P3 — translation override fields. Mirrors IngredientForm's
+  // nameEs / nameZh shape.
+  menuItemEs: string;
+  menuItemZh: string;
 }
 
 const blank = (): FormValues => ({
@@ -56,6 +61,8 @@ const blank = (): FormValues => ({
   sellPrice: '',
   ingredients: [],
   prepItems: [],
+  menuItemEs: '',
+  menuItemZh: '',
 });
 
 const fromRecipe = (r: Recipe, suffix = ''): FormValues => ({
@@ -68,6 +75,8 @@ const fromRecipe = (r: Recipe, suffix = ''): FormValues => ({
   prepItems: (r.prepItems || []).map((p) => ({
     itemId: p.prepRecipeId, itemName: p.prepRecipeName, quantity: String(p.quantity), unit: p.unit,
   })),
+  menuItemEs: r.i18nNames?.es ?? '',
+  menuItemZh: r.i18nNames?.['zh-CN'] ?? '',
 });
 
 // Lightweight typeahead: TextInput + dropdown of up to 6 matching options.
@@ -164,6 +173,14 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
   const currentStore = useStore((s) => s.currentStore);
   const prepRecipes = useStore((s) => s.prepRecipes);
   const recipeCategories = useStore((s) => s.recipeCategories || []);
+  // Spec 040 P3 — no `setRecipeI18nNames` here. `updateRecipe` already
+  // includes i18nNames in its payload; a side-channel PATCH would be
+  // redundant. See handleSave below.
+
+  // Spec 040 P3 — debounced translate-on-save trigger for menu_item.
+  const abortRef = React.useRef<AbortController | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [translating, setTranslating] = React.useState(false);
 
   // Catalog options come from current store's inventory (catalog id is the FK).
   const catalogOptions = React.useMemo(() => {
@@ -195,6 +212,51 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
     if (visible) setValues(initial);
   }, [visible, initial]);
 
+  // Spec 040 P3 — auto-fill helpers. Refs to avoid stale closures inside
+  // the debounce callback; abort in-flight requests on unmount or new
+  // keystroke.
+  const valuesRef = React.useRef(values);
+  React.useEffect(() => { valuesRef.current = values; }, [values]);
+  React.useEffect(() => () => {
+    abortRef.current?.abort();
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const runTranslate = React.useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setTranslating(true);
+    try {
+      // Pass ctrl.signal so a fresh keystroke aborts the in-flight fetch
+      // instead of just discarding its result (saves DeepL quota).
+      const { data, error } = await translateOnSave(trimmed, ['es', 'zh-CN'], ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      if (error || !data) return;
+      setValues((p) => {
+        const next = { ...p };
+        const es = data.translations?.es;
+        const zh = data.translations?.['zh-CN'];
+        if (typeof es === 'string' && es.trim().length > 0) next.menuItemEs = es;
+        if (typeof zh === 'string' && zh.trim().length > 0) next.menuItemZh = zh;
+        return next;
+      });
+    } finally {
+      if (!ctrl.signal.aborted) setTranslating(false);
+    }
+  }, []);
+
+  const scheduleTranslate = (text: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { runTranslate(text); }, 600);
+  };
+  const handleMenuItemBlur = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    runTranslate(valuesRef.current.menuItem);
+  };
+
   const dirty = React.useMemo(() => JSON.stringify(values) !== JSON.stringify(initial), [values, initial]);
   const requiredValid = values.menuItem.trim().length > 0;
 
@@ -221,14 +283,26 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
     const prepItems: RecipePrepItem[] = values.prepItems
       .filter((r) => r.itemId && r.itemName)
       .map((r) => ({ prepRecipeId: r.itemId, prepRecipeName: r.itemName, quantity: parseFloat(r.quantity) || 0, unit: r.unit || '' }));
+    // Spec 040 P3 — build the i18n payload. Empty overrides drop out so
+    // silent-English fallback applies.
+    const i18n: LocalizedNames = {};
+    const es = values.menuItemEs.trim();
+    const zh = values.menuItemZh.trim();
+    if (es) i18n.es = es;
+    if (zh) i18n['zh-CN'] = zh;
     const payload = {
       menuItem: values.menuItem.trim(),
       category: values.category.trim(),
       sellPrice: parseFloat(values.sellPrice) || 0,
       ingredients,
       prepItems,
+      i18nNames: i18n,
     };
     if (mode === 'edit' && recipe) {
+      // `updateRecipe` already includes `i18nNames` in its payload, which the
+      // recipe-update path threads into the `recipes` row. A side-channel
+      // `setRecipeI18nNames` PATCH would be a redundant DB round-trip + a
+      // second optimistic-update pass over the same column.
       updateRecipe(recipe.id, payload);
       Toast.show({ type: 'success', text1: 'Saved', text2: payload.menuItem });
     } else {
@@ -282,12 +356,39 @@ export const RecipeFormDrawer: React.FC<Props> = ({ visible, mode, recipe, onClo
             {/* Header fields */}
             <View style={{ gap: 4 }}>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Menu item</Text>
-              <TextField value={values.menuItem} onChange={setVal('menuItem')} placeholder="2AM Cheeseburger" />
+              <TextInput
+                value={values.menuItem}
+                onChangeText={(v) => { setVal('menuItem')(v); scheduleTranslate(v); }}
+                onBlur={handleMenuItemBlur}
+                placeholder="2AM Cheeseburger"
+                placeholderTextColor={C.fg3}
+                style={{
+                  flex: 1, fontFamily: sans(400), fontSize: 13, color: C.fg,
+                  backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border,
+                  borderRadius: CmdRadius.sm, paddingHorizontal: 10, paddingVertical: 7,
+                  ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                }}
+              />
+            </View>
+            {/* Spec 040 P3 — translation override fields. */}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Menu item · Español {translating ? '· translating…' : ''}
+                </Text>
+                <TextField value={values.menuItemEs} onChange={setVal('menuItemEs')} placeholder={translating ? 'translating…' : '—'} />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Menu item · 中文 {translating ? '· translating…' : ''}
+                </Text>
+                <TextField value={values.menuItemZh} onChange={setVal('menuItemZh')} placeholder={translating ? 'translating…' : '—'} />
+              </View>
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 2, gap: 4 }}>
                 <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Category</Text>
-                <TextField value={values.category} onChange={setVal('category')} placeholder={recipeCategories[0] || 'Sandwiches'} />
+                <TextField value={values.category} onChange={setVal('category')} placeholder={recipeCategories[0]?.name || 'Sandwiches'} />
               </View>
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Sell price</Text>

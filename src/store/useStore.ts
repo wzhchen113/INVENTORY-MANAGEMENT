@@ -7,6 +7,7 @@ import {
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand, InventoryCountKind, ReorderPayload,
+  LocalizedNames, RecipeCategory, IngredientCategory,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -194,14 +195,53 @@ interface StoreActions {
   ) => void;
 
   // Recipe Categories
-  addRecipeCategory: (name: string) => void;
-  updateRecipeCategory: (oldName: string, newName: string) => void;
+  // Spec 040 P3 — `i18nNames` is an optional new parameter on add /
+  // rename that persists per-locale labels through `db.addRecipeCategory`
+  // / `db.updateRecipeCategory`. Defaults to `{}` when omitted.
+  addRecipeCategory: (name: string, i18nNames?: LocalizedNames) => void;
+  updateRecipeCategory: (
+    oldName: string,
+    newName: string,
+    i18nNames?: LocalizedNames,
+  ) => void;
   deleteRecipeCategory: (name: string) => void;
+  /**
+   * Spec 040 P3 — patch a recipe category's `i18nNames` without renaming
+   * it. Optimistic-then-revert. Used by the form auto-fill path when
+   * DeepL suggestions arrive after the row already exists.
+   */
+  setRecipeCategoryI18nNames: (name: string, i18nNames: LocalizedNames) => void;
 
   // Ingredient Categories
-  addIngredientCategory: (name: string) => void;
-  updateIngredientCategory: (oldName: string, newName: string) => void;
+  addIngredientCategory: (name: string, i18nNames?: LocalizedNames) => void;
+  updateIngredientCategory: (
+    oldName: string,
+    newName: string,
+    i18nNames?: LocalizedNames,
+  ) => void;
   deleteIngredientCategory: (name: string) => void;
+  setIngredientCategoryI18nNames: (
+    name: string,
+    i18nNames: LocalizedNames,
+  ) => void;
+
+  /**
+   * Spec 040 P3 — patch the catalog row's `i18n_names` for an existing
+   * catalog ingredient. The corresponding InventoryItem rows hydrated
+   * from the catalog also get their local `i18nNames` patched so
+   * list / detail views render the new translations immediately.
+   */
+  setCatalogI18nNames: (catalogId: string, i18nNames: LocalizedNames) => void;
+  /**
+   * Spec 040 P3 — patch an existing recipe's `i18n_names`. The save
+   * itself is authoritative; this action is fired by the form when
+   * DeepL suggestions arrive after the row already exists.
+   */
+  setRecipeI18nNames: (recipeId: string, i18nNames: LocalizedNames) => void;
+  /**
+   * Spec 040 P3 — patch an existing prep recipe's `i18n_names`.
+   */
+  setPrepRecipeI18nNames: (prepId: string, i18nNames: LocalizedNames) => void;
 
   // Ingredient Conversions (Spec 004 — write UI on CatalogConversionsTab)
   addIngredientConversion: (conv: Omit<IngredientConversion, 'id'>) => void;
@@ -421,8 +461,18 @@ export const useStore = create<FullStore>((set, get) => ({
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
-  recipeCategories: ['Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads', 'Starters', 'Desserts', 'Sides', 'Drinks'],
-  ingredientCategories: ['Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods', 'Bakery', 'Condiments', 'Drinks', 'Desserts'],
+  // Spec 040 P3 — slice shape widened from `string[]` to
+  // `{ name; i18nNames }[]`. The English-named defaults stay as the
+  // boot fallback; `loadFromSupabase` overwrites with the DB shape that
+  // carries real per-locale overrides once the user logs in.
+  recipeCategories: [
+    'Sandwiches & Burgers', 'Over Rice Platters', 'Mains', 'Salads',
+    'Starters', 'Desserts', 'Sides', 'Drinks',
+  ].map((name): RecipeCategory => ({ name, i18nNames: {} })),
+  ingredientCategories: [
+    'Protein', 'Seafood', 'Produce', 'Dairy', 'Dry goods',
+    'Bakery', 'Condiments', 'Drinks', 'Desserts',
+  ].map((name): IngredientCategory => ({ name, i18nNames: {} })),
   prepRecipes: PREP_RECIPES,
   wasteLog: WASTE_LOG,
   eodSubmissions: EOD_SUBMISSIONS,
@@ -1096,23 +1146,35 @@ export const useStore = create<FullStore>((set, get) => ({
     return 'ok';
   },
 
-  // Recipe Categories
-  addRecipeCategory: (name) => {
-    set((s) => ({ recipeCategories: [...s.recipeCategories, name] }));
-    db.addRecipeCategory(name).catch((e: any) => {
-      set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
+  // Recipe Categories — Spec 040 P3: slice shape is now
+  // `{ name; i18nNames }[]`. Equality / lookup still happens against
+  // the English canonical `name` because the join column on `recipes`
+  // / `inventory_items` stores English literals.
+  addRecipeCategory: (name, i18nNames) => {
+    const entry: RecipeCategory = { name, i18nNames: i18nNames ?? {} };
+    set((s) => ({ recipeCategories: [...s.recipeCategories, entry] }));
+    db.addRecipeCategory(name, i18nNames).catch((e: any) => {
+      set((s) => ({
+        recipeCategories: s.recipeCategories.filter((c) => c.name !== name),
+      }));
       notifyBackendError('Add recipe category', e);
     });
   },
 
-  updateRecipeCategory: (oldName, newName) => {
+  updateRecipeCategory: (oldName, newName, i18nNames) => {
     const prevCats = get().recipeCategories;
     const prevRecipes = get().recipes;
     set((s) => ({
-      recipeCategories: s.recipeCategories.map((c) => (c === oldName ? newName : c)),
-      recipes: s.recipes.map((r) => (r.category === oldName ? { ...r, category: newName } : r)),
+      recipeCategories: s.recipeCategories.map((c) =>
+        c.name === oldName
+          ? { name: newName, i18nNames: i18nNames ?? c.i18nNames }
+          : c,
+      ),
+      recipes: s.recipes.map((r) =>
+        r.category === oldName ? { ...r, category: newName } : r,
+      ),
     }));
-    db.updateRecipeCategory(oldName, newName).catch((e: any) => {
+    db.updateRecipeCategory(oldName, newName, i18nNames).catch((e: any) => {
       set({ recipeCategories: prevCats, recipes: prevRecipes });
       notifyBackendError('Rename recipe category', e);
     });
@@ -1120,30 +1182,56 @@ export const useStore = create<FullStore>((set, get) => ({
 
   deleteRecipeCategory: (name) => {
     const prevCats = get().recipeCategories;
-    set((s) => ({ recipeCategories: s.recipeCategories.filter((c) => c !== name) }));
+    set((s) => ({
+      recipeCategories: s.recipeCategories.filter((c) => c.name !== name),
+    }));
     db.deleteRecipeCategory(name).catch((e: any) => {
       set({ recipeCategories: prevCats });
       notifyBackendError('Delete recipe category', e);
     });
   },
 
+  setRecipeCategoryI18nNames: (name, i18nNames) => {
+    const prev = get().recipeCategories;
+    set((s) => ({
+      recipeCategories: s.recipeCategories.map((c) =>
+        c.name === name ? { ...c, i18nNames } : c,
+      ),
+    }));
+    db.updateRecipeCategoryI18n(name, i18nNames).catch((e: any) => {
+      set({ recipeCategories: prev });
+      notifyBackendError('Save translation', e);
+    });
+  },
+
   // Ingredient Categories
-  addIngredientCategory: (name) => {
-    set((s) => ({ ingredientCategories: [...s.ingredientCategories, name] }));
-    db.addIngredientCategory(name).catch((e: any) => {
-      set((s) => ({ ingredientCategories: s.ingredientCategories.filter((c) => c !== name) }));
+  addIngredientCategory: (name, i18nNames) => {
+    const entry: IngredientCategory = { name, i18nNames: i18nNames ?? {} };
+    set((s) => ({
+      ingredientCategories: [...s.ingredientCategories, entry],
+    }));
+    db.addIngredientCategory(name, i18nNames).catch((e: any) => {
+      set((s) => ({
+        ingredientCategories: s.ingredientCategories.filter((c) => c.name !== name),
+      }));
       notifyBackendError('Add ingredient category', e);
     });
   },
 
-  updateIngredientCategory: (oldName, newName) => {
+  updateIngredientCategory: (oldName, newName, i18nNames) => {
     const prevCats = get().ingredientCategories;
     const prevInv = get().inventory;
     set((s) => ({
-      ingredientCategories: s.ingredientCategories.map((c) => (c === oldName ? newName : c)),
-      inventory: s.inventory.map((i) => (i.category === oldName ? { ...i, category: newName } : i)),
+      ingredientCategories: s.ingredientCategories.map((c) =>
+        c.name === oldName
+          ? { name: newName, i18nNames: i18nNames ?? c.i18nNames }
+          : c,
+      ),
+      inventory: s.inventory.map((i) =>
+        i.category === oldName ? { ...i, category: newName } : i,
+      ),
     }));
-    db.updateIngredientCategory(oldName, newName).catch((e: any) => {
+    db.updateIngredientCategory(oldName, newName, i18nNames).catch((e: any) => {
       set({ ingredientCategories: prevCats, inventory: prevInv });
       notifyBackendError('Rename ingredient category', e);
     });
@@ -1151,10 +1239,77 @@ export const useStore = create<FullStore>((set, get) => ({
 
   deleteIngredientCategory: (name) => {
     const prevCats = get().ingredientCategories;
-    set((s) => ({ ingredientCategories: s.ingredientCategories.filter((c) => c !== name) }));
+    set((s) => ({
+      ingredientCategories: s.ingredientCategories.filter((c) => c.name !== name),
+    }));
     db.deleteIngredientCategory(name).catch((e: any) => {
       set({ ingredientCategories: prevCats });
       notifyBackendError('Delete ingredient category', e);
+    });
+  },
+
+  setIngredientCategoryI18nNames: (name, i18nNames) => {
+    const prev = get().ingredientCategories;
+    set((s) => ({
+      ingredientCategories: s.ingredientCategories.map((c) =>
+        c.name === name ? { ...c, i18nNames } : c,
+      ),
+    }));
+    db.updateIngredientCategoryI18n(name, i18nNames).catch((e: any) => {
+      set({ ingredientCategories: prev });
+      notifyBackendError('Save translation', e);
+    });
+  },
+
+  // Spec 040 P3 — catalog ingredient / recipe / prep recipe i18nNames
+  // patches. Fired by the form auto-fill path when DeepL suggestions
+  // resolve after the row already exists. Optimistic-then-revert.
+  setCatalogI18nNames: (catalogId, i18nNames) => {
+    if (!catalogId) return;
+    const prevCatalog = get().catalogIngredients;
+    const prevInventory = get().inventory;
+    set((s) => ({
+      catalogIngredients: s.catalogIngredients.map((c) =>
+        c.id === catalogId ? { ...c, i18nNames } : c,
+      ),
+      // Inventory rows hydrate `i18nNames` from the joined catalog row —
+      // patch local matches so list/detail views render the new
+      // translations immediately without waiting for the next reload.
+      inventory: s.inventory.map((i) =>
+        i.catalogId === catalogId ? { ...i, i18nNames } : i,
+      ),
+    }));
+    db.updateCatalogIngredientI18n(catalogId, i18nNames).catch((e: any) => {
+      set({ catalogIngredients: prevCatalog, inventory: prevInventory });
+      notifyBackendError('Save translation', e);
+    });
+  },
+
+  setRecipeI18nNames: (recipeId, i18nNames) => {
+    if (!recipeId) return;
+    const prev = get().recipes;
+    set((s) => ({
+      recipes: s.recipes.map((r) =>
+        r.id === recipeId ? { ...r, i18nNames } : r,
+      ),
+    }));
+    db.updateRecipeI18n(recipeId, i18nNames).catch((e: any) => {
+      set({ recipes: prev });
+      notifyBackendError('Save translation', e);
+    });
+  },
+
+  setPrepRecipeI18nNames: (prepId, i18nNames) => {
+    if (!prepId) return;
+    const prev = get().prepRecipes;
+    set((s) => ({
+      prepRecipes: s.prepRecipes.map((r) =>
+        r.id === prepId ? { ...r, i18nNames } : r,
+      ),
+    }));
+    db.updatePrepRecipeI18n(prepId, i18nNames).catch((e: any) => {
+      set({ prepRecipes: prev });
+      notifyBackendError('Save translation', e);
     });
   },
 

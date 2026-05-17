@@ -4,11 +4,12 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { PrepRecipe, PrepRecipeIngredient } from '../../types';
+import { PrepRecipe, PrepRecipeIngredient, LocalizedNames } from '../../types';
 import { SelectField } from './SelectField';
 import { CANONICAL_UNITS } from '../../utils/unitConversion';
 import { useT } from '../../hooks/useT';
 import { unitLabel } from '../../utils/enumLabels';
+import { translateOnSave } from '../../lib/translate';
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -62,6 +63,9 @@ interface FormValues {
   yieldUnit: string;
   notes: string;
   ingredients: Row[];
+  // Spec 040 P3 — translation overrides for `name`.
+  nameEs: string;
+  nameZh: string;
 }
 
 const blank = (): FormValues => ({
@@ -71,6 +75,8 @@ const blank = (): FormValues => ({
   yieldUnit: 'lb',
   notes: '',
   ingredients: [],
+  nameEs: '',
+  nameZh: '',
 });
 
 const fromPrep = (p: PrepRecipe, suffix = ''): FormValues => ({
@@ -88,6 +94,8 @@ const fromPrep = (p: PrepRecipe, suffix = ''): FormValues => ({
     baseQuantity: String(i.baseQuantity ?? 0),
     baseUnit: i.baseUnit || 'g',
   })),
+  nameEs: p.i18nNames?.es ?? '',
+  nameZh: p.i18nNames?.['zh-CN'] ?? '',
 });
 
 function PickerField({
@@ -157,9 +165,17 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
   const T = useT();
   const addPrepRecipe = useStore((s) => s.addPrepRecipe);
   const updatePrepRecipe = useStore((s) => s.updatePrepRecipe);
+  // Spec 040 P3 — no `setPrepRecipeI18nNames` here. `updatePrepRecipe` ships
+  // i18nNames in its payload via the versioned-write path; a side-channel
+  // PATCH would target the archived stale row id. See handleSave below.
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
   const prepRecipes = useStore((s) => s.prepRecipes);
+
+  // Spec 040 P3 — debounced translate-on-save trigger for `name`.
+  const abortRef = React.useRef<AbortController | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [translating, setTranslating] = React.useState(false);
 
   const catalogOptions = React.useMemo(() => {
     const seen = new Set<string>();
@@ -193,6 +209,49 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
     if (visible) setValues(initial);
   }, [visible, initial]);
 
+  // Spec 040 P3 — auto-fill helpers.
+  const valuesRef = React.useRef(values);
+  React.useEffect(() => { valuesRef.current = values; }, [values]);
+  React.useEffect(() => () => {
+    abortRef.current?.abort();
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const runTranslate = React.useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setTranslating(true);
+    try {
+      // Pass ctrl.signal so a fresh keystroke aborts the in-flight fetch
+      // instead of just discarding its result (saves DeepL quota).
+      const { data, error } = await translateOnSave(trimmed, ['es', 'zh-CN'], ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      if (error || !data) return;
+      setValues((p) => {
+        const next = { ...p };
+        const es = data.translations?.es;
+        const zh = data.translations?.['zh-CN'];
+        if (typeof es === 'string' && es.trim().length > 0) next.nameEs = es;
+        if (typeof zh === 'string' && zh.trim().length > 0) next.nameZh = zh;
+        return next;
+      });
+    } finally {
+      if (!ctrl.signal.aborted) setTranslating(false);
+    }
+  }, []);
+
+  const scheduleTranslate = (text: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { runTranslate(text); }, 600);
+  };
+  const handleNameBlur = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    runTranslate(valuesRef.current.name);
+  };
+
   const dirty = React.useMemo(() => JSON.stringify(values) !== JSON.stringify(initial), [values, initial]);
   const requiredValid = values.name.trim().length > 0 && values.yieldUnit.trim().length > 0;
 
@@ -224,6 +283,12 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
         baseUnit: r.baseUnit || 'g',
         type: r.type,
       }));
+    // Spec 040 P3 — i18n payload.
+    const i18n: LocalizedNames = {};
+    const es = values.nameEs.trim();
+    const zh = values.nameZh.trim();
+    if (es) i18n.es = es;
+    if (zh) i18n['zh-CN'] = zh;
     const payload = {
       name: values.name.trim(),
       category: values.category.trim(),
@@ -231,8 +296,15 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
       yieldUnit: values.yieldUnit.trim(),
       notes: values.notes.trim(),
       ingredients,
+      i18nNames: i18n,
     };
     if (mode === 'edit' && prep) {
+      // `updatePrepRecipe` routes through `db.updatePrepRecipeVersioned`, which
+      // creates a NEW version row carrying the entire payload (including
+      // `i18nNames`). The old `setPrepRecipeI18nNames(prep.id, i18n)` follow-up
+      // would target the now-archived stale row id — ghost write. The new
+      // version already has the translations from `payload.i18nNames`, so no
+      // side-channel PATCH is needed.
       updatePrepRecipe(prep.id, payload);
       Toast.show({ type: 'success', text1: 'Saved', text2: payload.name });
     } else {
@@ -293,7 +365,34 @@ export const PrepRecipeFormDrawer: React.FC<Props> = ({ visible, mode, prep, onC
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 18 }}>
             <View style={{ gap: 4 }}>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>Name</Text>
-              <TextField value={values.name} onChange={setVal('name')} placeholder="2AM Sauce" />
+              <TextInput
+                value={values.name}
+                onChangeText={(v) => { setVal('name')(v); scheduleTranslate(v); }}
+                onBlur={handleNameBlur}
+                placeholder="2AM Sauce"
+                placeholderTextColor={C.fg3}
+                style={{
+                  flex: 1, fontFamily: sans(400), fontSize: 13, color: C.fg,
+                  backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border,
+                  borderRadius: CmdRadius.sm, paddingHorizontal: 10, paddingVertical: 7,
+                  ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+                }}
+              />
+            </View>
+            {/* Spec 040 P3 — translation override fields. */}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Name · Español {translating ? '· translating…' : ''}
+                </Text>
+                <TextField value={values.nameEs} onChange={setVal('nameEs')} placeholder={translating ? 'translating…' : '—'} />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Name · 中文 {translating ? '· translating…' : ''}
+                </Text>
+                <TextField value={values.nameZh} onChange={setVal('nameZh')} placeholder={translating ? 'translating…' : '—'} />
+              </View>
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 2, gap: 4 }}>

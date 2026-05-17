@@ -11,7 +11,7 @@ import { JsonPreview } from './JsonPreview';
 import { AuditHistory } from './AuditHistory';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsCompact, useIsPhone } from '../../theme/breakpoints';
-import { InventoryItem } from '../../types';
+import { InventoryItem, LocalizedNames } from '../../types';
 
 type Mode = 'edit' | 'new';
 
@@ -45,7 +45,23 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
   defaultShelfLifeDays:
     defaultShelfLifeDays == null ? '' : String(defaultShelfLifeDays),
   expiryDate: it.expiryDate || '',
+  // Spec 040 P3 — populate translation override fields from the joined
+  // catalog i18n_names. Empty strings = no override; silent fallback applies.
+  nameEs: it.i18nNames?.es ?? '',
+  nameZh: it.i18nNames?.['zh-CN'] ?? '',
 });
+
+// Spec 040 P3 — build a LocalizedNames map from the form's translation
+// overrides. Empty strings are omitted so they don't shadow the silent-
+// English fallback with an "empty translation" sentinel.
+function buildI18nNames(v: IngredientFormValues): LocalizedNames {
+  const out: LocalizedNames = {};
+  const es = (v.nameEs ?? '').trim();
+  const zh = (v.nameZh ?? '').trim();
+  if (es) out.es = es;
+  if (zh) out['zh-CN'] = zh;
+  return out;
+}
 
 const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
   name: v.name,
@@ -87,6 +103,11 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   // and write path for save.
   const catalogIngredients = useStore((s) => s.catalogIngredients);
   const updateCatalogIngredient = useStore((s) => s.updateCatalogIngredient);
+  // Spec 040 P3 — write path for the catalog's i18n_names. Fires on
+  // save after the regular updateItem call so the brand-shared
+  // translation map persists; setCatalogI18nNames patches both the
+  // catalogIngredients slice and any joined inventory rows optimistically.
+  const setCatalogI18nNames = useStore((s) => s.setCatalogI18nNames);
 
   // Resolve the ingredient's catalog row up front so fromItem() can hydrate
   // defaultShelfLifeDays. Recomputes when item changes.
@@ -154,6 +175,15 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
         if (newShelf !== oldShelf) {
           updateCatalogIngredient(catalogId, { defaultShelfLifeDays: newShelf });
         }
+        // Spec 040 P3 — persist the translation overrides on the catalog
+        // row. setCatalogI18nNames patches the brand-shared catalog row
+        // and all joined inventory rows so list/detail views render the
+        // new translations immediately.
+        const nextI18n = buildI18nNames(values);
+        const prevI18n = catalogRow?.i18nNames ?? {};
+        if (JSON.stringify(nextI18n) !== JSON.stringify(prevI18n)) {
+          setCatalogI18nNames(catalogId, nextI18n);
+        }
       }
       Toast.show({ type: 'success', text1: 'Saved', text2: values.name });
       onClose();
@@ -161,6 +191,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     }
     // NEW mode — create across one or all stores
     const targets = values.createAtAllStores ? stores : [currentStore];
+    const i18n = buildI18nNames(values);
     targets.forEach((s) => {
       addItem({
         ...toUpdates(values) as Omit<InventoryItem, 'id'>,
@@ -173,6 +204,12 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
         eodRemaining: 0,
         storeId: s.id,
         vendorId: values.vendorId || '',
+        // Spec 040 P3 — write through; the InventoryItem type carries
+        // i18nNames hydrated from the joined catalog row. `db.createInventoryItem`
+        // accepts the new field per the backend dev's RPC re-creation
+        // (`create_inventory_item_with_catalog` gained a `p_i18n_names`
+        // jsonb default '{}' param).
+        i18nNames: i18n,
       } as Omit<InventoryItem, 'id'>);
     });
     Toast.show({ type: 'success', text1: targets.length > 1 ? `Created at ${targets.length} stores` : 'Created', text2: values.name });
