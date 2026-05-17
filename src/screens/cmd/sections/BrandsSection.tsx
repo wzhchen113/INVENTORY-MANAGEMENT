@@ -12,6 +12,7 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { BrandFormDrawer } from '../../../components/cmd/BrandFormDrawer';
+import { StoreFormDrawer } from '../../../components/cmd/StoreFormDrawer';
 import { InviteAdminDrawer } from '../../../components/cmd/InviteAdminDrawer';
 import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal';
@@ -627,7 +628,7 @@ function DetailPane({
             superAdminUserId={superAdminUserId}
           />
         ) : tabId === 'stores.tsx' ? (
-          <StoresTab stores={selStores} />
+          <StoresTab stores={selStores} brandId={sel.id} brandName={sel.name} />
         ) : null}
       </ScrollView>
     </View>
@@ -1010,11 +1011,34 @@ function DeleteProfileModal({
 }
 
 // ─── stores.tsx ─────────────────────────────────────────────────────
-function StoresTab({ stores }: { stores: ReturnType<typeof useStore.getState>['stores'] }) {
+function StoresTab({
+  stores,
+  brandId,
+  brandName,
+}: {
+  stores: ReturnType<typeof useStore.getState>['stores'];
+  brandId: string;
+  brandName: string;
+}) {
   const C = useCmdColors();
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
   return (
     <View style={{ gap: 10 }}>
-      <Text style={[Type.h2, { color: C.fg }]}>Stores</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={[Type.h2, { color: C.fg }]}>Stores</Text>
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity
+          onPress={() => setDrawerOpen(true)}
+          style={{
+            paddingVertical: 4,
+            paddingHorizontal: 10,
+            backgroundColor: C.accent,
+            borderRadius: CmdRadius.sm,
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>+ NEW STORE</Text>
+        </TouchableOpacity>
+      </View>
       {stores.length === 0 ? (
         <View
           style={{
@@ -1031,8 +1055,7 @@ function StoresTab({ stores }: { stores: ReturnType<typeof useStore.getState>['s
             no stores yet
           </Text>
           <Text style={{ fontFamily: sans(400), fontSize: 11.5, color: C.fg3, textAlign: 'center', maxWidth: 360 }}>
-            Switch into this brand via the header brand picker, then add a store
-            from the Inventory section's store-switcher menu.
+            Click "+ NEW STORE" above to add the first store under this brand.
           </Text>
         </View>
       ) : (
@@ -1075,6 +1098,12 @@ function StoresTab({ stores }: { stores: ReturnType<typeof useStore.getState>['s
           ))}
         </View>
       )}
+      <StoreFormDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        brandId={brandId}
+        brandName={brandName}
+      />
     </View>
   );
 }

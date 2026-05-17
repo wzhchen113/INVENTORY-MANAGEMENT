@@ -35,15 +35,21 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
+  const currentBrandId = useStore((s) => s.currentBrandId);
   const setCurrentStore = useStore((s) => s.setCurrentStore);
   const [storeMenuOpen, setStoreMenuOpen] = React.useState(false);
 
   if (Platform.OS !== 'web') return null;
 
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master' || currentUser?.role === 'super_admin';
-  const accessibleStores = isAdmin
+  // First filter by per-user access, then narrow to the active brand if
+  // one is selected. Super-admins set currentBrandId via the brand
+  // picker; clearing it (null) means "All brands" so the brand filter
+  // is skipped.
+  const accessibleStores = (isAdmin
     ? stores
-    : stores.filter((s) => currentUser?.stores?.includes(s.id));
+    : stores.filter((s) => currentUser?.stores?.includes(s.id))
+  ).filter((s) => currentBrandId === null || s.brandId === currentBrandId);
 
   const tail = [section.toLowerCase(), itemSlug ? slugify(itemSlug) : null]
     .filter(Boolean)
