@@ -189,8 +189,14 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
       onClose();
       return;
     }
-    // NEW mode — create across one or all stores
-    const targets = values.createAtAllStores ? stores : [currentStore];
+    // NEW mode — create across one or all stores.
+    // "Create at all stores" applies only within the CURRENT brand. RLS
+    // already rejects cross-brand inserts on inventory_items, but
+    // filtering client-side keeps the loop honest for super-admin users
+    // whose `stores` slice spans multiple brands.
+    const targets = values.createAtAllStores
+      ? stores.filter((s) => s.brandId === currentStore.brandId)
+      : [currentStore];
     const i18n = buildI18nNames(values);
     targets.forEach((s) => {
       addItem({

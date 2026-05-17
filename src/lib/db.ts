@@ -2536,6 +2536,20 @@ export async function createBrand(name: string): Promise<Brand> {
   };
 }
 
+// Clone every row in `catalog_ingredients` from `sourceBrandId` into
+// `targetBrandId`. ON CONFLICT (brand_id, lower(name)) DO NOTHING, so
+// re-running on a partially-populated target only inserts the missing
+// rows. Server-side RPC enforces privileged-role gate and visibility on
+// both brands. Returns the count of rows inserted.
+export async function copyBrandCatalog(sourceBrandId: string, targetBrandId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('copy_brand_catalog', {
+    p_source_brand_id: sourceBrandId,
+    p_target_brand_id: targetBrandId,
+  });
+  if (error) throw error;
+  return typeof data === 'number' ? data : 0;
+}
+
 // ─── BRAND LIFECYCLE (Spec 012c) ────────────────────────────────────
 //
 // Five SECURITY DEFINER RPCs gated by auth_is_super_admin() server-side.

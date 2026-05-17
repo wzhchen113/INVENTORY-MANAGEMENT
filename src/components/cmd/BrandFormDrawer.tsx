@@ -6,6 +6,7 @@ import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
+import { copyBrandCatalog } from '../../lib/db';
 
 interface Props {
   visible: boolean;
@@ -20,27 +21,46 @@ export const BrandFormDrawer: React.FC<Props> = ({ visible, onClose }) => {
   const C = useCmdColors();
   const isPhone = useIsPhone();
   const createBrand = useStore((s) => s.createBrand);
+  const brandsList = useStore((s) => s.brandsList);
   const [name, setName] = React.useState('');
+  const [seedFromBrandId, setSeedFromBrandId] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (visible) {
       setName('');
+      setSeedFromBrandId(null);
       setSubmitting(false);
     }
   }, [visible]);
 
   const requiredValid = name.trim().length > 0;
+  const seedableBrands = brandsList.filter((b) => !b.deletedAt);
 
   const handleSave = async () => {
     if (!requiredValid || submitting) return;
     setSubmitting(true);
     const created = await createBrand(name.trim());
-    setSubmitting(false);
-    if (created) {
+    if (created && seedFromBrandId) {
+      try {
+        const copied = await copyBrandCatalog(seedFromBrandId, created.id);
+        Toast.show({
+          type: 'success',
+          text1: 'Created brand',
+          text2: `${created.name} · seeded ${copied} catalog item${copied === 1 ? '' : 's'}`,
+        });
+      } catch (e: any) {
+        Toast.show({
+          type: 'error',
+          text1: 'Brand created — seed failed',
+          text2: e?.message || 'See console for details.',
+        });
+      }
+    } else if (created) {
       Toast.show({ type: 'success', text1: 'Created brand', text2: created.name });
-      onClose();
     }
+    setSubmitting(false);
+    if (created) onClose();
     // Failure path: createBrand already surfaced via notifyBackendError.
     // Keep the drawer open so the operator can retry without retyping.
   };
@@ -189,6 +209,78 @@ export const BrandFormDrawer: React.FC<Props> = ({ visible, onClose }) => {
             Must be unique. Case-sensitive.
           </Text>
         </View>
+
+        {seedableBrands.length > 0 ? (
+          <View style={{ gap: 6 }}>
+            <Text
+              style={{
+                fontFamily: mono(700),
+                fontSize: 9.5,
+                color: C.fg3,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              Seed catalog from existing brand (optional)
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setSeedFromBrandId(null)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: CmdRadius.sm,
+                  borderWidth: 1,
+                  borderColor: seedFromBrandId === null ? C.accent : C.border,
+                  backgroundColor: seedFromBrandId === null ? C.accentBg : C.panel2,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: mono(seedFromBrandId === null ? 700 : 500),
+                    fontSize: 11,
+                    color: seedFromBrandId === null ? C.accent : C.fg2,
+                  }}
+                >
+                  none (start empty)
+                </Text>
+              </TouchableOpacity>
+              {seedableBrands.map((b) => {
+                const sel = seedFromBrandId === b.id;
+                return (
+                  <TouchableOpacity
+                    key={b.id}
+                    onPress={() => setSeedFromBrandId(b.id)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: CmdRadius.sm,
+                      borderWidth: 1,
+                      borderColor: sel ? C.accent : C.border,
+                      backgroundColor: sel ? C.accentBg : C.panel2,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: mono(sel ? 700 : 500),
+                        fontSize: 11,
+                        color: sel ? C.accent : C.fg2,
+                      }}
+                    >
+                      {b.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, lineHeight: 16 }}>
+              Copies every catalog ingredient (name, unit, category, costs,
+              translations) into the new brand. The two brands stay
+              independent after — editing one does not affect the other.
+            </Text>
+          </View>
+        ) : null}
+
         <View
           style={{
             backgroundColor: C.panel2,
