@@ -36,8 +36,33 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
   const currentBrandId = useStore((s) => s.currentBrandId);
+  const brand = useStore((s) => s.brand);
+  const brandsList = useStore((s) => s.brandsList);
   const setCurrentStore = useStore((s) => s.setCurrentStore);
   const [storeMenuOpen, setStoreMenuOpen] = React.useState(false);
+
+  // brand-id → display name lookup. brandsList is populated for super-admins
+  // (covers every brand); for regular admins/masters only `brand` is set
+  // (their single brand). Merge both so the store-picker prefix renders the
+  // right initials regardless of role.
+  const brandNameByBrandId = React.useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const b of brandsList) m[b.id] = b.name;
+    if (brand?.id && brand?.name) m[brand.id] = brand.name;
+    return m;
+  }, [brand, brandsList]);
+
+  // "2AM PROJECT" → "2P", "BALTIMORE SEAFOOD" → "BS". Single-word brand
+  // names collapse to a single initial. Empty / missing → fall back to
+  // the legacy `inv` prefix so nothing breaks during first-paint before
+  // the brand slice loads.
+  const brandPrefix = React.useCallback((brandId: string | null | undefined): string => {
+    if (!brandId) return 'inv';
+    const name = brandNameByBrandId[brandId];
+    if (!name) return 'inv';
+    const initials = name.trim().split(/\s+/).map((w) => w[0]?.toUpperCase() ?? '').join('');
+    return initials || 'inv';
+  }, [brandNameByBrandId]);
 
   if (Platform.OS !== 'web') return null;
 
@@ -114,7 +139,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
               style={{ fontFamily: mono(500), fontSize: 11, color: C.fg2 }}
               numberOfLines={1}
             >
-              inv://{slugify(storeName)}
+              {brandPrefix(currentStore?.brandId)}://{slugify(storeName)}
             </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3 }}>▾</Text>
           </TouchableOpacity>
@@ -189,7 +214,7 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
                             color: isCurrent ? C.accent : C.fg2,
                           }}
                         >
-                          inv://{slugify(s.name)}
+                          {brandPrefix(s.brandId)}://{slugify(s.name)}
                         </Text>
                       </TouchableOpacity>
                     );
