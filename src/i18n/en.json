@@ -656,7 +656,31 @@
       "allergensNotWiredBody": "Needs allergen flags on `catalog_ingredients` (gluten, dairy, egg, soy, peanut, tree_nut, fish, shellfish, sesame) — coming in a follow-up migration.",
       "lineSummary": "{count} lines · plate cost ${cost}",
       "totalLabel": "total",
-      "linesLabel": "lines"
+      "linesLabel": "lines",
+      "categories": {
+        "title": "Recipe categories",
+        "description": "Categories are the dropdown choices on the recipe and prep-recipe forms. Renaming a category does NOT cascade to existing recipes — retag dependent rows manually before refreshing.",
+        "newCategoryCaption": "+ new category",
+        "newCategoryButton": "+ NEW CATEGORY",
+        "namePlaceholder": "e.g. Entrée, Sauce, Side",
+        "active": "{count} active",
+        "rowsCount": "{count} rows",
+        "emptyState": "no categories yet — add one above",
+        "uses": "{count} uses",
+        "saveButton": "SAVE",
+        "cancelButton": "CANCEL",
+        "editButton": "EDIT",
+        "deleteButton": "DELETE",
+        "alreadyExists": "Category \"{name}\" already exists.",
+        "cannotDeleteInUse": "Cannot delete \"{name}\" — used by {recipes} recipes / {preps} prep recipes.",
+        "deleteConfirmTitle": "Delete category \"{name}\"?",
+        "deleteConfirmBody": "No recipes or prep recipes reference this category. The deletion is reversible by re-adding the same name.",
+        "added": "Category added",
+        "renamed": "Category renamed",
+        "deleted": "Category deleted",
+        "inUseToast": "Category in use",
+        "inUseToastBody": "Used by {recipes} recipes / {preps} prep recipes — cannot delete."
+      }
     },
     "prepRecipes": {
       "title": "Prep recipes",

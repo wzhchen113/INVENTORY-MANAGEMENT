@@ -12,6 +12,8 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { RecipeFormDrawer } from '../../../components/cmd/RecipeFormDrawer';
 import { FilterInput } from '../../../components/cmd/FilterInput';
+import RecipeCategoriesSection from './RecipeCategoriesSection';
+import type { Tab } from '../../../components/cmd/TabStrip';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getConversionFactor } from '../../../utils/unitConversion';
 import { parseFilter } from '../../../utils/filterParser';
@@ -21,6 +23,19 @@ import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
+
+// Spec 048 / code-reviewer SF1 — single source for the TabStrip tabs array.
+// Used by both the `categories.tsx` branch (no selection required), the
+// `!sel` empty-selection branch, and the `sel`-present branch. Adding a new
+// tab requires one edit, not three. Typed as `Tab[]` (not `as const`) to
+// match TabStrip's mutable `Tab[]` prop signature.
+const RECIPE_TABS: Tab[] = [
+  { id: 'recipe.tsx',     label: 'recipe.tsx' },
+  { id: 'method.tsx',     label: 'method.tsx' },
+  { id: 'allergens.tsx',  label: 'allergens.tsx' },
+  { id: 'sales.tsx',      label: 'sales.tsx' },
+  { id: 'categories.tsx', label: 'categories.tsx' },
+];
 
 // Pattern B — list+detail. Reads useStore.recipes + getRecipeCost +
 // getRecipeFoodCostPct. Detail shows the ingredient table with cost
@@ -270,21 +285,41 @@ export default function RecipesSection() {
 
       {/* Detail pane */}
       <View style={{ flex: 1, backgroundColor: C.bg, minHeight: 0, minWidth: 0 }}>
-        {!sel ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-              {storeRecipes.length === 0 ? T('section.recipes.noRecipes').toLowerCase() : T('section.recipes.selectRecipe')}
-            </Text>
-          </View>
+        {/* Spec 048 — `categories.tsx` is NOT recipe-scoped, so render it
+            even when no recipe is selected. Other tabs (sales/method/
+            allergens/recipe) still require a selection and fall through
+            to the "select a recipe" message when `sel` is null. */}
+        {tabId === 'categories.tsx' ? (
+          <>
+            <TabStrip
+              tabs={RECIPE_TABS}
+              activeId={tabId}
+              onChange={setTabId}
+            />
+            <RecipeCategoriesSection />
+          </>
+        ) : !sel ? (
+          // Spec 048 / code-reviewer SF2 — render the TabStrip in the
+          // empty-selection state too, so a user with no recipe selected
+          // (filter to zero, brand with no recipes) can still navigate to
+          // the `categories.tsx` tab. No rightSlot here — the duplicate /
+          // delete / edit actions only make sense when a recipe is selected.
+          <>
+            <TabStrip
+              tabs={RECIPE_TABS}
+              activeId={tabId}
+              onChange={setTabId}
+            />
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+                {storeRecipes.length === 0 ? T('section.recipes.noRecipes').toLowerCase() : T('section.recipes.selectRecipe')}
+              </Text>
+            </View>
+          </>
         ) : (
           <>
             <TabStrip
-              tabs={[
-                { id: 'recipe.tsx',    label: 'recipe.tsx' },
-                { id: 'method.tsx',    label: 'method.tsx' },
-                { id: 'allergens.tsx', label: 'allergens.tsx' },
-                { id: 'sales.tsx',     label: 'sales.tsx' },
-              ]}
+              tabs={RECIPE_TABS}
               activeId={tabId}
               onChange={setTabId}
               rightSlot={

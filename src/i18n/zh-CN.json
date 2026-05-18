@@ -656,7 +656,31 @@
       "allergensNotWiredBody": "需要 `catalog_ingredients` 上的过敏原标志 (麸质、乳制品、蛋、大豆、花生、坚果、鱼、贝类、芝麻) — 即将在后续迁移中提供。",
       "lineSummary": "{count} 行 · 菜品成本 ${cost}",
       "totalLabel": "总计",
-      "linesLabel": "行"
+      "linesLabel": "行",
+      "categories": {
+        "title": "配方分类",
+        "description": "分类是配方和备菜配方表单中的下拉选项。重命名一个分类不会自动同步到已有的配方 — 刷新前请手动重新分配相关行。",
+        "newCategoryCaption": "+ 新分类",
+        "newCategoryButton": "+ 新分类",
+        "namePlaceholder": "例如:主菜、酱汁、配菜",
+        "active": "{count} 个活跃",
+        "rowsCount": "{count} 行",
+        "emptyState": "暂无分类 — 在上方添加",
+        "uses": "使用 {count} 次",
+        "saveButton": "保存",
+        "cancelButton": "取消",
+        "editButton": "编辑",
+        "deleteButton": "删除",
+        "alreadyExists": "分类 \"{name}\" 已存在。",
+        "cannotDeleteInUse": "无法删除 \"{name}\" — 被 {recipes} 个配方 / {preps} 个备菜配方使用。",
+        "deleteConfirmTitle": "删除分类 \"{name}\"?",
+        "deleteConfirmBody": "没有配方或备菜配方引用此分类。可通过重新添加相同名称撤销删除。",
+        "added": "分类已添加",
+        "renamed": "分类已重命名",
+        "deleted": "分类已删除",
+        "inUseToast": "分类正在使用中",
+        "inUseToastBody": "被 {recipes} 个配方 / {preps} 个备菜配方使用 — 无法删除。"
+      }
     },
     "prepRecipes": {
       "title": "备菜配方",

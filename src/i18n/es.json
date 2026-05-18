@@ -656,7 +656,31 @@
       "allergensNotWiredBody": "Necesita flags de alérgenos en `catalog_ingredients` (gluten, lácteos, huevo, soja, maní, frutos secos, pescado, mariscos, sésamo) — próximamente en una migración futura.",
       "lineSummary": "{count} líneas · costo del plato ${cost}",
       "totalLabel": "total",
-      "linesLabel": "líneas"
+      "linesLabel": "líneas",
+      "categories": {
+        "title": "Categorías de recetas",
+        "description": "Las categorías son las opciones del selector en los formularios de receta y prep. Renombrar una categoría NO se propaga a las recetas existentes — reasigna las filas dependientes manualmente antes de actualizar.",
+        "newCategoryCaption": "+ nueva categoría",
+        "newCategoryButton": "+ NUEVA CATEGORÍA",
+        "namePlaceholder": "ej. Entrada, Salsa, Acompañamiento",
+        "active": "{count} activas",
+        "rowsCount": "{count} filas",
+        "emptyState": "aún no hay categorías — añade una arriba",
+        "uses": "{count} usos",
+        "saveButton": "GUARDAR",
+        "cancelButton": "CANCELAR",
+        "editButton": "EDITAR",
+        "deleteButton": "ELIMINAR",
+        "alreadyExists": "La categoría \"{name}\" ya existe.",
+        "cannotDeleteInUse": "No se puede eliminar \"{name}\" — usada por {recipes} recetas / {preps} recetas de prep.",
+        "deleteConfirmTitle": "¿Eliminar la categoría \"{name}\"?",
+        "deleteConfirmBody": "Ninguna receta ni receta de prep hace referencia a esta categoría. La eliminación se puede revertir volviendo a crear el mismo nombre.",
+        "added": "Categoría añadida",
+        "renamed": "Categoría renombrada",
+        "deleted": "Categoría eliminada",
+        "inUseToast": "Categoría en uso",
+        "inUseToastBody": "Usada por {recipes} recetas / {preps} recetas de prep — no se puede eliminar."
+      }
     },
     "prepRecipes": {
       "title": "Recetas de prep",
