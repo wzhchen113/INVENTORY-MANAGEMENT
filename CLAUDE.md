@@ -77,8 +77,8 @@ scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runn
 
 **Gaps and unknowns**
 - **Test framework.** See [tests/README.md](tests/README.md) — three tracks (jest, pgTAP DB tests, shell smokes). v1 ships infra + 1-2 example tests per track; retroactive coverage of past Criticals is a follow-up.
-- **No CI workflow on disk.** [README.md](README.md) references `.github/workflows/db-migrations-applied.yml` but no `.github/` directory exists in the repo.
-- **Empty placeholders.** [.claude/agents/_archive/](.claude/agents/_archive/), [specs/](specs/), and [.claude/worktrees/](.claude/worktrees/) are all empty.
+- **CI workflow on disk.** [.github/workflows/test.yml](.github/workflows/test.yml) runs jest + base/test typechecks + pgTAP DB tests (Specs 022/024/025; Spec 047 added the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workflow-level opt-in). The `db-migrations-applied.yml` gate originally referenced in the README was never landed — see the Resolved questions section below.
+- **Empty placeholders.** [.claude/agents/_archive/](.claude/agents/_archive/) and [.claude/worktrees/](.claude/worktrees/) are empty by design ([specs/](specs/) is now populated with 47 specs).
 - **Identity drift.** [app.json](app.json) `slug` is `towson-inventory` while [package.json](package.json) name and brand are `imr-inventory` / "2AM PROJECT".
 - **Stray asset.** `2AM_Project_Menu_Ingredients.xlsx` (19 KB) sits at repo root, not referenced by code.
 
@@ -195,7 +195,7 @@ Ad-hoc work that doesn't belong in the pipeline gets `next_agent: NONE` from the
 These were open questions during the initial audit. Answers below are now project policy.
 
 ### CI workflow
-The `.github/workflows/db-migrations-applied.yml` workflow referenced in README was meant to be added but couldn't be pushed due to a `workflow`-scoped token permission issue. Status: pending re-push when token is updated. Agents: do not assume this CI gate is currently running. If working on database migrations, manually verify migrations are applied — don't rely on automation.
+[.github/workflows/test.yml](.github/workflows/test.yml) is the active CI gate (jest, base typecheck, test-graph typecheck, pgTAP DB tests). The `db-migrations-applied.yml` gate originally referenced in the README was meant to be added during the audit but blocked by a `workflow`-scoped token-permission issue and never landed. Agents: do not assume a `migrations-applied` CI gate runs — if working on database migrations, manually verify migrations are applied. The standing `test.yml` covers code+schema-as-tested but not "every migration ran against prod-shape."
 
 ### Data layer (active vs. legacy)
 **Active:** Supabase is the data layer. `src/store/useStore.ts` is the current store.
