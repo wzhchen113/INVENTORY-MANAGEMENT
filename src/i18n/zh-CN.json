@@ -862,7 +862,24 @@
       "noBrandsHint": "暂无品牌 — 点击「+ 新品牌」创建",
       "noTrashDetail": "回收站中无品牌",
       "noBrandsYetDetail": "暂无品牌",
-      "selectBrand": "选择一个品牌"
+      "selectBrand": "选择一个品牌",
+      "brandCount": {
+        "one":   "{count} 品牌",
+        "other": "{count} 品牌"
+      },
+      "cardCounts": "{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients} {ingredientsLabel}",
+      "cardCountsStores": {
+        "one":   "门店",
+        "other": "门店"
+      },
+      "cardCountsAdmins": {
+        "one":   "管理员",
+        "other": "管理员"
+      },
+      "cardCountsIngredients": {
+        "one":   "原料",
+        "other": "原料"
+      }
     },
     "categories": {
       "title": "分类",
@@ -1035,6 +1052,15 @@
         "friday":    "星期五",
         "saturday":  "星期六",
         "sunday":    "星期日"
+      },
+      "twoLetter": {
+        "monday":    "一",
+        "tuesday":   "二",
+        "wednesday": "三",
+        "thursday":  "四",
+        "friday":    "五",
+        "saturday":  "六",
+        "sunday":    "日"
       }
     },
     "unit": {

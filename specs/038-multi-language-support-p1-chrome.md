@@ -1912,3 +1912,90 @@ Re-verification (R3):
 - `src/screens/cmd/sections/BrandsSection.tsx`
 - `src/screens/cmd/sections/RecipesSection.tsx`
 - `src/screens/cmd/sections/PrepRecipesSection.tsx`
+
+### Round 2 carry-forward Nits (code-reviewer-r2 N-1 / N-2 / N-R3-1)
+
+Applied 2026-05-18 in response to deferred Nits from
+`specs/038-multi-language-support-p1-chrome/reviews/code-reviewer-r2.md`.
+Three pure literal-extraction / locale-aware-Intl changes; no architecture.
+
+- MODIFY `src/i18n/en.json` — added `enum.dayOfWeek.twoLetter.{sunday..
+  saturday}` (7 keys, N-1, values `Su/Mo/Tu/We/Th/Fr/Sa`);
+  `section.brands.brandCount.{one,other}` (N-R3-1, `{count} brand` /
+  `{count} brands`); `section.brands.cardCounts` composite template
+  (`{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients}
+  {ingredientsLabel}`); and three pairs of singular/plural noun labels
+  `section.brands.cardCountsStores.{one,other}`,
+  `cardCountsAdmins.{one,other}`, `cardCountsIngredients.{one,other}`.
+  Total: 7 + 2 + 1 + 6 = 16 new keys.
+- MODIFY `src/i18n/es.json` — Spanish translations for the 16 new keys
+  (`lu/ma/mi/ju/vi/sá/do` for two-letter days; `1 marca` /
+  `5 marcas`; `tienda/tiendas`, `administrador/administradores`,
+  `ingrediente/ingredientes`).
+- MODIFY `src/i18n/zh-CN.json` — Mandarin translations for the 16 new
+  keys (`一/二/三/四/五/六/日`; Mandarin has no plural distinction so
+  the `.one` and `.other` values are identical: `品牌`, `门店`,
+  `管理员`, `原料`).
+- MODIFY `src/screens/cmd/sections/AuditLogSection.tsx` — N-2:
+  `formatDayLabel` now takes a `locale: Locale` argument and uses
+  `d.toLocaleString(locale, { month: 'short' })` instead of hardcoded
+  `'en'`. `FeedTab` reads `useLocale()` and passes it through. Imports
+  `useLocale` and `type Locale` from `../../../hooks/useLocale`.
+- MODIFY `src/screens/cmd/sections/DashboardSection.tsx` — N-1:
+  `lastNDayLetters` now takes a `T: TFn` argument and routes through
+  the new `enum.dayOfWeek.twoLetter.*` catalog instead of hardcoded
+  English. Catalog approach was chosen over `Intl narrow` because
+  Intl's English narrow ("S/M/T/W/T/F/S") produces ambiguous Sun/Sat
+  + Tue/Thu duplicates. The `heatmapDayLetters` memoization adds `T`
+  to its dep array so the column headers re-render on locale change
+  (matches the `T`-in-deps convention established in spec 038 §8b).
+- MODIFY `src/screens/cmd/sections/BrandsSection.tsx` — N-R3-1:
+  list-header `{visible.length} brand(s)` now routes through
+  `section.brands.brandCount.${pluralKey(locale, visible.length)}`;
+  list-row `{storeCount} stores · {memberCount} admins ·
+  {catalogIngredientCount} ingredients` triple now routes through the
+  `cardCounts` composite template with three pairs of `pluralKey`-
+  selected noun labels. Added a file-local `pluralKey(locale, n)`
+  helper that wraps `Intl.PluralRules(locale).select(n)` and narrows
+  to the `'one' | 'other'` pair (the only forms used by the en / es /
+  zh-CN locales the app ships). The helper has a defensive try/catch
+  fallback to English-style `n === 1` if `Intl.PluralRules` isn't
+  available in some exotic RN environment.
+
+**Implementation notes**:
+- The `pluralKey` helper lives inline at the top of `BrandsSection.tsx`
+  rather than in a shared module. Only one section currently needs
+  CLDR plural selection; extraction to a shared `src/utils/plurals.ts`
+  is a follow-up for whichever section adopts it next.
+- The `enum.dayOfWeek.twoLetter.*` catalog branch is sibling to the
+  existing `enum.dayOfWeek.short.*` (which is uppercase three-letter
+  for `dayOfWeekShortLabel()`) and `enum.dayOfWeek.long.*`. Two-letter
+  is its own form because the heatmap column header width can't fit
+  three letters.
+
+**Verification (R3 carry-forward fixes)**:
+- `npm run typecheck` exits 0.
+- `npm test` — 13 suites / 163 tests pass; catalog parity test
+  confirms en / es / zh-CN have identical key sets after the 16 new
+  additions.
+- Web bundle served by Metro on `localhost:8081` compiles clean
+  (HTTP 200, 11.6 MB). Inspected bundle confirms:
+  - all 7 `enum.dayOfWeek.twoLetter.*` keys present;
+  - `formatDayLabel` signature is `(iso, T, locale)` and
+    `toLocaleString(locale, { month: 'short' })` is in the compiled
+    output;
+  - `lastNDayLetters` signature is `(n, T)` and reads through the
+    new catalog keys;
+  - `Intl.PluralRules(locale).select(n)` is in the compiled output;
+  - sampled Spanish two-letter (`do`, `ma`) and brand plural label
+    values (`tiendas`, `ingrediente`) are present in the bundle.
+
+(Carry-forward Nits, 2026-05-18)
+
+- `specs/038-multi-language-support-p1-chrome.md`
+- `src/i18n/en.json`
+- `src/i18n/es.json`
+- `src/i18n/zh-CN.json`
+- `src/screens/cmd/sections/AuditLogSection.tsx`
+- `src/screens/cmd/sections/DashboardSection.tsx`
+- `src/screens/cmd/sections/BrandsSection.tsx`

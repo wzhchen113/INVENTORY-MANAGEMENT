@@ -19,7 +19,26 @@ import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal
 import { confirmAction } from '../../../utils/confirmAction';
 import { Brand, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { useLocale } from '../../../hooks/useLocale';
 import { userStatusLabel, roleLabel } from '../../../utils/enumLabels';
+
+// Spec 038 N-R3-1 — locale-aware plural form selector. `Intl.PluralRules`
+// returns the CLDR plural category ('one' | 'other' | 'two' | 'few' | …)
+// for the given count. The brand-count catalog keys ship `.one` and
+// `.other` (the two forms used by every locale we support: en, es, zh-CN).
+// Anything outside that pair falls back to `.other`, matching CLDR for
+// the locales in this app and providing a safe default for any future
+// locale where Spec 038 hasn't yet curated finer-grained plural keys.
+function pluralKey(locale: string, n: number): 'one' | 'other' {
+  try {
+    const cat = new Intl.PluralRules(locale).select(n);
+    return cat === 'one' ? 'one' : 'other';
+  } catch {
+    // Defensive fallback if Intl.PluralRules isn't available in some
+    // exotic RN environment. English-style fallback.
+    return n === 1 ? 'one' : 'other';
+  }
+}
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const fmtDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : '—');
@@ -376,6 +395,7 @@ function ListPane({
 }) {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
   const isCompact = useIsCompact();
   const visible = listTab === 'active' ? activeBrands : trashBrands;
   return (
@@ -404,7 +424,7 @@ function ListPane({
         <Text style={[Type.h2, { color: C.fg }]}>{T('section.brands.title')}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {visible.length} {visible.length === 1 ? 'brand' : 'brands'}
+            {T(`section.brands.brandCount.${pluralKey(locale, visible.length)}`, { count: visible.length })}
           </Text>
           {listTab === 'active' ? (
             <TouchableOpacity
@@ -480,7 +500,14 @@ function ListPane({
                   {isTrash ? <StatusPill status="out" label="DELETED" /> : null}
                 </View>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                  {b.storeCount} {b.storeCount === 1 ? 'store' : 'stores'} · {b.memberCount} {b.memberCount === 1 ? 'admin' : 'admins'} · {b.catalogIngredientCount} {b.catalogIngredientCount === 1 ? 'ingredient' : 'ingredients'}
+                  {T('section.brands.cardCounts', {
+                    stores: b.storeCount,
+                    storesLabel: T(`section.brands.cardCountsStores.${pluralKey(locale, b.storeCount)}`),
+                    admins: b.memberCount,
+                    adminsLabel: T(`section.brands.cardCountsAdmins.${pluralKey(locale, b.memberCount)}`),
+                    ingredients: b.catalogIngredientCount,
+                    ingredientsLabel: T(`section.brands.cardCountsIngredients.${pluralKey(locale, b.catalogIngredientCount)}`),
+                  })}
                 </Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
                   {shortId(b.id)} · {isTrash && days !== null

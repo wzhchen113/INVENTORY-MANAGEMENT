@@ -7,6 +7,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { Avatar } from '../../../components/cmd/Avatar';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { useT } from '../../../hooks/useT';
+import { useLocale, type Locale } from '../../../hooks/useLocale';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { AuditAction, AuditEvent } from '../../../types';
@@ -31,13 +32,16 @@ const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info'
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
-const formatDayLabel = (iso: string, T: TFn): string => {
+// Spec 038 N-2 — month abbreviation now respects the active locale.
+// Intl.DateTimeFormat handles the locale-aware short-month spelling
+// natively (en → "May", es → "may", zh-CN → "5月").
+const formatDayLabel = (iso: string, T: TFn, locale: Locale): string => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const d = new Date(iso);
   d.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - d.getTime()) / 86400000);
-  const monthDay = `${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
+  const monthDay = `${d.toLocaleString(locale, { month: 'short' })} ${d.getDate()}`;
   if (diffDays === 0) return T('section.auditLog.todayPrefix', { label: monthDay });
   if (diffDays === 1) return T('section.auditLog.yesterdayPrefix', { label: monthDay });
   return monthDay;
@@ -110,6 +114,7 @@ export default function AuditLogSection() {
 function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: string }) {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
 
   // Spec 039 AC15 — bilingual diacritic-folded substring search over the
   // translated action verb + raw English canonical + actor + entity ref.
@@ -184,7 +189,7 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
       ) : (
         grouped.map(([iso, dayEvents]) => (
           <View key={iso} style={{ gap: 8 }}>
-            <SectionCaption tone="fg3" size={10}>{formatDayLabel(iso, T)}</SectionCaption>
+            <SectionCaption tone="fg3" size={10}>{formatDayLabel(iso, T, locale)}</SectionCaption>
             <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14 }}>
               {dayEvents.map((e, i) => {
                 const tone = ACTION_TONE[e.action] || 'muted';

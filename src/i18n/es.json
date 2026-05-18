@@ -862,7 +862,24 @@
       "noBrandsHint": "aún no hay marcas — pulsa \"+ NUEVA MARCA\" para crear una",
       "noTrashDetail": "no hay marcas en la papelera",
       "noBrandsYetDetail": "aún no hay marcas",
-      "selectBrand": "selecciona una marca"
+      "selectBrand": "selecciona una marca",
+      "brandCount": {
+        "one":   "{count} marca",
+        "other": "{count} marcas"
+      },
+      "cardCounts": "{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients} {ingredientsLabel}",
+      "cardCountsStores": {
+        "one":   "tienda",
+        "other": "tiendas"
+      },
+      "cardCountsAdmins": {
+        "one":   "administrador",
+        "other": "administradores"
+      },
+      "cardCountsIngredients": {
+        "one":   "ingrediente",
+        "other": "ingredientes"
+      }
     },
     "categories": {
       "title": "Categorías",
@@ -1035,6 +1052,15 @@
         "friday":    "Viernes",
         "saturday":  "Sábado",
         "sunday":    "Domingo"
+      },
+      "twoLetter": {
+        "monday":    "lu",
+        "tuesday":   "ma",
+        "wednesday": "mi",
+        "thursday":  "ju",
+        "friday":    "vi",
+        "saturday":  "sá",
+        "sunday":    "do"
       }
     },
     "unit": {

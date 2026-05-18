@@ -74,13 +74,30 @@ function lastNDates(n: number): string[] {
 }
 
 // Day-letter labels keyed off the actual weekday for the last N days.
-function lastNDayLetters(n: number): string[] {
+// Spec 038 N-1 — routes through the `enum.dayOfWeek.twoLetter.*` catalog
+// instead of hardcoded English so Spanish / Mandarin users see locale-
+// appropriate compact-density column headers. Catalog approach was
+// chosen over Intl `narrow` because Intl's English narrow ("S/M/T/W/T/F/S")
+// produces ambiguous duplicates for Sun/Sat and Tue/Thu.
+const DAY_TWO_LETTER_KEYS = [
+  'enum.dayOfWeek.twoLetter.sunday',
+  'enum.dayOfWeek.twoLetter.monday',
+  'enum.dayOfWeek.twoLetter.tuesday',
+  'enum.dayOfWeek.twoLetter.wednesday',
+  'enum.dayOfWeek.twoLetter.thursday',
+  'enum.dayOfWeek.twoLetter.friday',
+  'enum.dayOfWeek.twoLetter.saturday',
+] as const;
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
+function lastNDayLetters(n: number, T: TFn): string[] {
   const out: string[] = [];
   const today = new Date();
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    out.push(['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][d.getDay()]);
+    out.push(T(DAY_TWO_LETTER_KEYS[d.getDay()]));
   }
   return out;
 }
@@ -229,7 +246,10 @@ export default function DashboardSection() {
   // computeStoreFoodCostVariancePp is a pure function so we call it once per
   // store with the cross-store EOD/POS data we hold locally.
   const heatmapDays = React.useMemo(() => lastNDates(7), []);
-  const heatmapDayLetters = React.useMemo(() => lastNDayLetters(7), []);
+  // Spec 038 N-1 — re-memoize on locale change so the heatmap column
+  // headers swap to the active language when the user toggles locale.
+  // `T`'s identity changes on locale change per useT() semantics.
+  const heatmapDayLetters = React.useMemo(() => lastNDayLetters(7, T), [T]);
   const startDate = heatmapDays[0];
   const endDate = heatmapDays[heatmapDays.length - 1];
   const heatmapRows = React.useMemo<HeatmapRow[]>(
