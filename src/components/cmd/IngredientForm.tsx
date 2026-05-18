@@ -411,8 +411,8 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
           width="33%"
           placeholder="— pick unit —"
         />
-        <InputLine label="pack size" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="e.g. 1 (case)" />
-        <InputLine label="default unit size" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="e.g. 40 (per case)" />
+        <InputLine label="packs / order" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many packs at a time" />
+        <InputLine label="units / pack" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="how many default units in one pack" />
       </View>
       <View style={{ marginBottom: 6 }}>
         <SelectField
@@ -426,6 +426,30 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
           help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
         />
       </View>
+      {(() => {
+        const packs = Number(values.caseQty);
+        const perPack = Number(values.subUnitSize);
+        if (!Number.isFinite(packs) || !Number.isFinite(perPack) || packs <= 0 || perPack <= 0) return null;
+        const unit = values.unit || 'each';
+        // Simple s-suffix pluralization — handles case/tray/bag/bottle/pack
+        // (seed values). Won't be right for irregular plurals but the seed
+        // doesn't contain any. Empty subUnitUnit renders the literal
+        // placeholder `pack(s)` per spec 045 AC line 28 — the user-facing
+        // signal that no pack unit is selected yet.
+        const packLabel = !values.subUnitUnit
+          ? 'pack(s)'
+          : packs === 1
+            ? values.subUnitUnit
+            : (values.subUnitUnit.toLowerCase().endsWith('s') ? values.subUnitUnit : `${values.subUnitUnit}s`);
+        const total = packs * perPack;
+        return (
+          <View style={{ marginTop: 4, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: CmdRadius.sm, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+              {`= ${packs} ${packLabel} × ${perPack} ${unit} = ${total} ${unit} per order`}
+            </Text>
+          </View>
+        );
+      })()}
       {abstractUnitWarning ? (
         <View style={{ marginTop: 6, padding: 10, borderRadius: CmdRadius.sm, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warn }}>
           <Text style={{ fontFamily: mono(500), fontSize: 11, color: C.warn, lineHeight: 15 }}>
