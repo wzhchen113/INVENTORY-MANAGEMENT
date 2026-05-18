@@ -87,6 +87,13 @@ module.exports = {
       testMatch: [
         '<rootDir>/src/components/**/*.test.tsx',
         '<rootDir>/src/screens/**/*.test.tsx',
+        // Spec 046 — pure-logic tests that need the jsdom env because
+        // they import a helper from a `.tsx` file (which transitively
+        // pulls in `react-native`). Lives next to the component for
+        // proximity rather than in `src/utils/`. Keep this list short:
+        // pure-logic tests with no `.tsx` dependency belong under
+        // `src/utils/` to stay in the fast node-env project.
+        '<rootDir>/src/components/**/*.test.ts',
       ],
       // @testing-library/jest-native/extend-expect was removed in spec
       // 023 / B1 — neither shipped test file used jest-native-specific

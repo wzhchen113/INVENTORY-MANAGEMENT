@@ -76,6 +76,77 @@ export const blankValues = (): IngredientFormValues => ({
 // dropdown. Picked so it can never collide with a real UUID.
 export const NEW_VENDOR_SENTINEL = '__new_vendor__';
 
+// Spec 046 — sentinel for the "+ custom…" entry in the default-unit and
+// pack-unit dropdowns. Picked so it can never collide with a real unit
+// label. Mirrors the NEW_VENDOR_SENTINEL shape above.
+export const CUSTOM_UNIT_SENTINEL = '__custom__';
+
+// Spec 046 — max length for a free-text unit. 30 chars (not 32) so a
+// pluralized canonical label like "fluid ounces" renders within the
+// form's mono-font column width with a one-tick buffer. The DB column
+// is plain `text` (no CHECK), so this cap is client-side only.
+export const CUSTOM_UNIT_MAX_LEN = 30;
+
+/**
+ * Result shape for {@link validateCustomUnit}.
+ *
+ * - `ok: true, snappedToCanonical: false` — user typed a non-canonical
+ *   string; preserve original casing on the value, the form's
+ *   `defaultUnitOptions` / `packUnitOptions` memos surface it as a
+ *   disabled-style "· custom" entry in the dropdown afterwards.
+ * - `ok: true, snappedToCanonical: true` — user typed something that
+ *   case-insensitively matches a canonical unit OR a known-lowercase
+ *   option already in the SelectField's option list (e.g. "EACH", "Bag").
+ *   We coerce to the lowercase form rather than create a near-duplicate
+ *   entry whose case differs by a byte (which would miss the SelectField's
+ *   byte-for-byte display lookup), per spec 046 AC6.
+ * - `ok: false` — input is empty/whitespace-only (`required`) or longer
+ *   than CUSTOM_UNIT_MAX_LEN (`too_long`).
+ */
+export type CustomUnitValidation =
+  | { ok: true; normalized: string; snappedToCanonical: false }
+  | { ok: true; normalized: string; snappedToCanonical: true }
+  | { ok: false; error: 'required' | 'too_long' };
+
+/**
+ * Validate a user-typed custom unit and return either the normalized
+ * value to commit or a structured rejection.
+ *
+ * Pure function — exported for jest. Resolution order matches the
+ * architect's design (spec 046 §Backend / architecture design Q3) plus
+ * the round-2 code-review fix C2 (snap to known-lowercase option keys):
+ *   1. trim whitespace
+ *   2. reject empty
+ *   3. reject > 30 chars
+ *   4. case-insensitively snap to CANONICAL_UNITS
+ *   5. case-insensitively snap to any caller-supplied known-lowercase
+ *      keys (e.g. `'each'`, or any `ingredient_conversions.purchaseUnit`
+ *      already present in the dropdown). Without this, typing `EACH` or
+ *      `BAG` would create a near-duplicate entry that misses the
+ *      SelectField's byte-for-byte display lookup.
+ *   6. otherwise pass through with original casing preserved.
+ *
+ * `knownLowercaseKeys` MUST already be lowercase; the helper compares
+ * the lowercased user input against each entry. Callers build the array
+ * at-call-time from the live options list.
+ */
+export function validateCustomUnit(
+  raw: string,
+  knownLowercaseKeys: readonly string[] = [],
+): CustomUnitValidation {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: false, error: 'required' };
+  if (trimmed.length > CUSTOM_UNIT_MAX_LEN) return { ok: false, error: 'too_long' };
+  const lower = trimmed.toLowerCase();
+  if (CANONICAL_UNITS.includes(lower)) {
+    return { ok: true, normalized: lower, snappedToCanonical: true };
+  }
+  if (knownLowercaseKeys.includes(lower)) {
+    return { ok: true, normalized: lower, snappedToCanonical: true };
+  }
+  return { ok: true, normalized: trimmed, snappedToCanonical: false };
+}
+
 interface Props {
   mode: 'edit' | 'new';
   values: IngredientFormValues;
@@ -165,6 +236,118 @@ const InputLine: React.FC<{
 import { SelectField } from './SelectField';
 export { SelectField };
 
+// Spec 046 — inline TextInput that replaces a SelectField when the user
+// picks "+ custom…". Mirrors the InputLine visual rhythm (same height,
+// border, focus ring) so the form reads as a coherent grid, plus a
+// trailing `×` button that returns to the dropdown without committing.
+//
+// Commit triggers (round-2 code-review fix C1):
+//   - blur of the TextInput (touch-out / Tab) → onCommit()
+//   - onSubmitEditing (Enter on web AND native) → onCommit()
+//
+// Both paths fire within the same React batch on web (pressing Enter
+// triggers onSubmitEditing AND a focus-loss blur back-to-back), so the
+// helper guards re-entry with `committedRef` — the second call is a
+// no-op until `setTimeout(…, 0)` resets the latch on the next tick.
+// SF1: the previous `onKeyPress` web Enter trap was removed because RN
+// Web 0.21 synthesizes `onSubmitEditing` reliably for `TextInput`; the
+// trap was a third redundant commit path and contributed to the same
+// double-fire symptom.
+//
+// Cancel trigger:
+//   - press the `×` button → onCancel() — drops the draft without
+//     touching `values.*`. onMouseDown also short-circuits onCommit's
+//     race-with-blur by virtue of the same committedRef latch (the
+//     cancel path sets the latch, then resets on next tick).
+//
+// Validation lives in the caller's onCommit; this component only renders
+// what the parent tells it.
+const CustomUnitInput: React.FC<{
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  width?: any;
+  error?: string;
+  help?: string;
+}> = ({ label, value, onChange, onCommit, onCancel, width = '100%', error, help }) => {
+  const C = useCmdColors();
+  const [focus, setFocus] = React.useState(false);
+  const borderColor = focus ? C.accent : error ? C.danger : C.border;
+  // Spec 046 round-2 (C1) — single-commit latch. Web's Enter key fires
+  // onSubmitEditing AND a focus-loss blur in the same React batch, both
+  // wired here to onCommit; without the latch the parent's onChange
+  // would fire 2-3 times with stale customDraft state and re-snap the
+  // value to a stale (or empty) string. Reset on next tick so a
+  // subsequent legitimate edit-then-commit cycle still works.
+  const committedRef = React.useRef(false);
+  const handleCommit = React.useCallback(() => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    onCommit();
+    setTimeout(() => { committedRef.current = false; }, 0);
+  }, [onCommit]);
+  const handleCancel = React.useCallback(() => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    onCancel();
+    setTimeout(() => { committedRef.current = false; }, 0);
+  }, [onCancel]);
+  return (
+    <View style={{ width, gap: 4 }}>
+      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {label}
+      </Text>
+      <View style={{
+        height: 32, paddingLeft: 11, paddingRight: 4, flexDirection: 'row', alignItems: 'center',
+        backgroundColor: C.panel,
+        borderWidth: 1, borderColor, borderRadius: CmdRadius.sm,
+        ...(focus ? { boxShadow: `0 0 0 3px ${C.accentBg}` } as any : {}),
+      }}>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          placeholder="e.g. case, box, tray"
+          placeholderTextColor={C.fg3}
+          autoFocus
+          onFocus={() => setFocus(true)}
+          onBlur={() => { setFocus(false); handleCommit(); }}
+          onSubmitEditing={handleCommit}
+          style={{
+            flex: 1,
+            fontFamily: mono(400),
+            fontSize: 12.5,
+            color: C.fg,
+            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+          }}
+        />
+        {/* `×` back-out — does NOT commit. onMouseDown fires before the
+            TextInput's blur, so handleCancel runs and sets the commit
+            latch, suppressing the blur-driven commit path that would
+            otherwise race a stale-draft commit through. Round-2 C1: the
+            latch is now the canonical single-commit guard; this comment
+            previously called out only the cancel-path race. */}
+        <TouchableOpacity
+          onPress={handleCancel}
+          {...(Platform.OS === 'web' ? ({ onMouseDown: (e: any) => { e.preventDefault?.(); handleCancel(); } } as any) : {})}
+          accessibilityRole="button"
+          accessibilityLabel="back to dropdown"
+          hitSlop={6}
+          style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.fg3 }}>×</Text>
+        </TouchableOpacity>
+      </View>
+      {(help || error) ? (
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: error ? C.danger : C.fg3 }}>
+          {error || help}
+        </Text>
+      ) : null}
+    </View>
+  );
+};
+
 const FlagRow: React.FC<{ label: string; desc: string; on: boolean; onToggle: () => void }> = ({ label, desc, on, onToggle }) => {
   const C = useCmdColors();
   return (
@@ -249,8 +432,27 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     runTranslate(valuesRef.current.name);
   }, [runTranslate]);
 
+  // Spec 046 — local render flags for the inline "+ custom…" TextInput.
+  // Component-local state only; NOT persisted to `values`. When `default`
+  // / `pack` flips to true, the corresponding SelectField unmounts and
+  // an inline TextInput mounts in its place. Flipped back to false when
+  // the user commits a valid value (blur / Enter) or backs out via `×`.
+  const [customMode, setCustomMode] = React.useState<{ default: boolean; pack: boolean }>({ default: false, pack: false });
+  // Spec 046 — text the user is typing into the inline TextInput. Held
+  // here (not on `values`) so a partially-typed invalid string never
+  // races into the persisted form values. Mirrors the in-progress draft
+  // pattern used elsewhere in Cmd UI.
+  const [customDraft, setCustomDraft] = React.useState<{ default: string; pack: string }>({ default: '', pack: '' });
+  // Spec 046 — inline validation error displayed under the TextInput
+  // when the committed value (blur / Enter) fails validateCustomUnit.
+  const [customError, setCustomError] = React.useState<{ default: string; pack: string }>({ default: '', pack: '' });
+
   // Default-unit options: canonical units ∪ distinct purchase_unit values
   // across all conversions. Purely client-side derivation per spec 004 §3.
+  // Spec 046 — appends a "+ custom…" sentinel row at the bottom so users
+  // can type a free-text unit when no canonical option fits. The stored
+  // value's auto-inclusion (block below) ensures edit-mode for an
+  // already-custom value renders cleanly without flipping into TextInput.
   const defaultUnitOptions = React.useMemo(() => {
     const acc = new Set<string>(CANONICAL_UNITS.map((u) => u.toLowerCase()));
     for (const c of allConversions) {
@@ -260,24 +462,59 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     // Always include "each" as the default tracking unit even though it's
     // not canonical and may not have a conversion row yet.
     acc.add('each');
+    const curRaw = (values.unit || '').trim();
+    const curLower = curRaw.toLowerCase();
     // Surface the ingredient's current unit even if it's a one-off string
     // not in either source — otherwise the dropdown would silently change
-    // the value to empty on first render.
-    const cur = (values.unit || '').toLowerCase().trim();
-    if (cur) acc.add(cur);
-    return Array.from(acc).sort().map((u) => ({ value: u, label: unitLabel(u, T) }));
+    // the value to empty on first render. Skip the dedup-set add when the
+    // current value is a non-canonical custom string (case-preserved) so
+    // we don't accidentally lowercase it; the special-case append below
+    // handles that path explicitly.
+    const isCustom = !!curLower
+      && !isCanonicalUnit(curLower)
+      && curLower !== 'each'
+      && !allConversions.some((c) => c.purchaseUnit.toLowerCase().trim() === curLower);
+    if (curLower && !isCustom) acc.add(curLower);
+    const out: Array<{ value: string; label: string; disabled?: boolean }> = Array
+      .from(acc)
+      .sort()
+      .map((u) => ({ value: u, label: unitLabel(u, T) }));
+    // Spec 046 — append the stored value verbatim (case-preserved) with
+    // a "· custom" suffix when it's a non-canonical custom string. The
+    // option value MUST equal the stored value byte-for-byte so the
+    // SelectField's display lookup `options.find((o) => o.value === value)`
+    // hits. Left enabled so the user can re-pick the same value or pick
+    // another option without losing the current one.
+    if (isCustom) {
+      out.push({ value: curRaw, label: `${curRaw} · custom` });
+    }
+    // Spec 046 — "+ custom…" sentinel always sits at the bottom.
+    out.push({ value: CUSTOM_UNIT_SENTINEL, label: '+ custom…' });
+    return out;
   }, [allConversions, values.unit, T]);
 
   // Pack-unit options — canonical mass/volume only per spec 004 §7. Adding
   // an ingredient's existing subUnitUnit to the option list when it's
   // canonical, else surface as "(non-canonical)" disabled item so the user
   // sees what's there but can't pick more abstract values.
+  // Spec 046 — appends a "+ custom…" sentinel row at the bottom so the
+  // pack-unit dropdown also accepts free-text labels like "case" or "tray",
+  // and surfaces the stored value verbatim (case-preserved) so byte-for-
+  // byte equality with the SelectField's display lookup holds.
   const packUnitOptions = React.useMemo(() => {
     const out: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: unitLabel(u, T) }));
-    const cur = (values.subUnitUnit || '').toLowerCase().trim();
-    if (cur && !isCanonicalUnit(cur)) {
-      out.push({ value: cur, label: `${unitLabel(cur, T)} · non-canonical`, disabled: true });
+    const curRaw = (values.subUnitUnit || '').trim();
+    const curLower = curRaw.toLowerCase();
+    if (curLower && !isCanonicalUnit(curLower)) {
+      // Spec 046 — keep the entry enabled (not disabled like the pre-046
+      // pattern) so a user editing an existing ingredient can re-pick
+      // their custom pack unit without being forced into the canonical
+      // set. The "· custom" suffix flags it as a non-canonical value.
+      // Value is the raw (case-preserved) stored string so SelectField's
+      // display lookup hits.
+      out.push({ value: curRaw, label: `${curRaw} · custom` });
     }
+    out.push({ value: CUSTOM_UNIT_SENTINEL, label: '+ custom…' });
     return out;
   }, [values.subUnitUnit, T]);
 
@@ -324,7 +561,12 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
   // conversion globally for this purchase_unit string". That matches the
   // dropdown derivation and avoids false positives.
   const abstractUnitWarning = React.useMemo(() => {
-    const u = (values.unit || '').toLowerCase().trim();
+    // Round-2 (SF2) — preserve display casing in the banner. The
+    // lowercased `u` is for comparison only (canonical-set lookup,
+    // conversion-row lookup); the user-facing string uses `curRaw` so a
+    // committed `Case` reads as `"Case"` in the banner, not `"case"`.
+    const curRaw = (values.unit || '').trim();
+    const u = curRaw.toLowerCase();
     // `each` is intentionally exempt: it is a tracking unit (count of
     // physical items) that does not need a `g` / `fl_oz` conversion to
     // function — the cost-calc resolves it via `subUnitSize` × `subUnitUnit`
@@ -336,7 +578,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
       (c) => c.purchaseUnit.toLowerCase().trim() === u,
     );
     if (hasAnyConv) return null;
-    return `No conversion defined for "${u}". Recipes using this unit can't compute cost. Define on Conversions tab →`;
+    return `No conversion defined for "${curRaw}". Recipes using this unit can't compute cost. Define on Conversions tab →`;
   }, [values.unit, allConversions]);
 
   // Vendor pick handler — selecting the sentinel value fires onAddVendor;
@@ -402,29 +644,129 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
 
       <SectionCaption tone="fg3" size={9.5}>UNITS &amp; PACK</SectionCaption>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 8 }}>
-        <SelectField
-          label="default unit"
-          value={values.unit}
-          options={defaultUnitOptions}
-          onChange={(v) => set('unit', v)}
-          monoFont
-          width="33%"
-          placeholder="— pick unit —"
-        />
+        {/* Spec 046 — when the user picks the "+ custom…" sentinel from the
+            default-unit dropdown, swap the SelectField out for an inline
+            TextInput plus a `×` button that returns to the dropdown. The
+            customMode flag is component-local so a partially-typed invalid
+            value never races into the persisted `values.unit`. */}
+        {customMode.default ? (
+          <CustomUnitInput
+            label="default unit"
+            width="33%"
+            value={customDraft.default}
+            error={customError.default}
+            onChange={(v) => setCustomDraft((p) => ({ ...p, default: v }))}
+            onCommit={() => {
+              // Round-2 (C2) — build the known-lowercase keys live from
+              // the dropdown's option list so typing `EACH` or `BAG`
+              // snaps to the same lowercase byte sequence that
+              // SelectField uses for its display lookup, instead of
+              // creating a near-duplicate "Each / each" pair where the
+              // SelectField shows the placeholder.
+              const knownKeys = defaultUnitOptions
+                .map((o) => o.value.toLowerCase())
+                .filter((v) => v !== CUSTOM_UNIT_SENTINEL.toLowerCase());
+              const res = validateCustomUnit(customDraft.default, knownKeys);
+              if (!res.ok) {
+                setCustomError((p) => ({ ...p, default: res.error === 'required' ? 'required' : `too long (max ${CUSTOM_UNIT_MAX_LEN})` }));
+                return;
+              }
+              set('unit', res.normalized);
+              setCustomDraft((p) => ({ ...p, default: '' }));
+              setCustomError((p) => ({ ...p, default: '' }));
+              setCustomMode((p) => ({ ...p, default: false }));
+            }}
+            onCancel={() => {
+              setCustomDraft((p) => ({ ...p, default: '' }));
+              setCustomError((p) => ({ ...p, default: '' }));
+              setCustomMode((p) => ({ ...p, default: false }));
+            }}
+          />
+        ) : (
+          <SelectField
+            label="default unit"
+            value={values.unit}
+            options={defaultUnitOptions}
+            onChange={(v) => {
+              if (v === CUSTOM_UNIT_SENTINEL) {
+                setCustomDraft((p) => ({ ...p, default: '' }));
+                setCustomError((p) => ({ ...p, default: '' }));
+                setCustomMode((p) => ({ ...p, default: true }));
+                return;
+              }
+              set('unit', v);
+            }}
+            monoFont
+            width="33%"
+            placeholder="— pick unit —"
+          />
+        )}
         <InputLine label="packs / order" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many packs at a time" />
         <InputLine label="units / pack" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="how many default units in one pack" />
       </View>
       <View style={{ marginBottom: 6 }}>
-        <SelectField
-          label="pack unit"
-          value={values.subUnitUnit}
-          options={packUnitOptions}
-          onChange={(v) => set('subUnitUnit', v)}
-          monoFont
-          placeholder="— pick pack unit —"
-          allowEmpty
-          help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
-        />
+        {customMode.pack ? (
+          <CustomUnitInput
+            label="pack unit"
+            value={customDraft.pack}
+            error={customError.pack}
+            help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+            onChange={(v) => setCustomDraft((p) => ({ ...p, pack: v }))}
+            onCommit={() => {
+              // Round-2 (C2) — known-lowercase keys for the pack-unit
+              // dropdown. Includes:
+              //   - the pack-unit dropdown's current option values
+              //     (CANONICAL_UNITS + case-preserved stored value)
+              //   - every `ingredient_conversions.purchaseUnit`
+              //     globally, because typing a conversion-derived unit
+              //     like `BAG` should snap to `bag` (the canonical
+              //     lowercase form the rest of the form uses for
+              //     dropdown lookups) instead of being persisted as a
+              //     fresh "BAG" custom string that drifts from existing
+              //     conversion rows. Matches the reviewer's spec 046
+              //     code-review C2 example verbatim.
+              const knownKeys = [
+                ...packUnitOptions
+                  .map((o) => o.value.toLowerCase())
+                  .filter((v) => v !== CUSTOM_UNIT_SENTINEL.toLowerCase()),
+                ...allConversions.map((c) => c.purchaseUnit.toLowerCase().trim()),
+              ];
+              const res = validateCustomUnit(customDraft.pack, knownKeys);
+              if (!res.ok) {
+                setCustomError((p) => ({ ...p, pack: res.error === 'required' ? 'required' : `too long (max ${CUSTOM_UNIT_MAX_LEN})` }));
+                return;
+              }
+              set('subUnitUnit', res.normalized);
+              setCustomDraft((p) => ({ ...p, pack: '' }));
+              setCustomError((p) => ({ ...p, pack: '' }));
+              setCustomMode((p) => ({ ...p, pack: false }));
+            }}
+            onCancel={() => {
+              setCustomDraft((p) => ({ ...p, pack: '' }));
+              setCustomError((p) => ({ ...p, pack: '' }));
+              setCustomMode((p) => ({ ...p, pack: false }));
+            }}
+          />
+        ) : (
+          <SelectField
+            label="pack unit"
+            value={values.subUnitUnit}
+            options={packUnitOptions}
+            onChange={(v) => {
+              if (v === CUSTOM_UNIT_SENTINEL) {
+                setCustomDraft((p) => ({ ...p, pack: '' }));
+                setCustomError((p) => ({ ...p, pack: '' }));
+                setCustomMode((p) => ({ ...p, pack: true }));
+                return;
+              }
+              set('subUnitUnit', v);
+            }}
+            monoFont
+            placeholder="— pick pack unit —"
+            allowEmpty
+            help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+          />
+        )}
       </View>
       {(() => {
         const packs = Number(values.caseQty);
