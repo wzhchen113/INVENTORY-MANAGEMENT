@@ -36,6 +36,16 @@ on:
 permissions:
   contents: read
 
+# Opt JS-based GitHub Actions (actions/checkout@v4, actions/setup-node@v4,
+# supabase/setup-cli@v1) into the Node 24 action runtime ahead of GitHub's
+# ~June 2, 2026 force-default. This flag is read by the runner before it
+# decides which Node binary to invoke for any `runs.using: node20` action;
+# it does NOT change the project Node version we install via setup-node
+# (still `node-version: '20'` below — that's our app's Node, not the
+# action's Node — they're independent). See spec 047.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   jest:
     name: Track 1 — jest-expo
