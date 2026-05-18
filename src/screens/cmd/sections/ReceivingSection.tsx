@@ -10,6 +10,7 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { OrderSubmission } from '../../../types';
 import { computeExpiryFromShelfLife } from '../../../lib/db';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -33,6 +34,7 @@ function shortExpiry(iso: string | undefined | null): string {
 // mock rows become real lookups; the chrome stays unchanged.
 export default function ReceivingSection() {
   const C = useCmdColors();
+  const T = useT();
   const orderSubmissions = useStore((s) => s.orderSubmissions);
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
@@ -162,7 +164,7 @@ export default function ReceivingSection() {
     });
     Toast.show({
       type: 'success',
-      text1: 'Received',
+      text1: T('section.receiving.receivedToast'),
       text2: `${item.name} +${qtyToReceive} ${item.unit}`,
     });
   };
@@ -203,9 +205,9 @@ export default function ReceivingSection() {
             justifyContent: 'space-between',
           }}
         >
-          <Text style={[Type.h2, { color: C.fg }]}>Receiving</Text>
+          <Text style={[Type.h2, { color: C.fg }]}>{T('section.receiving.title')}</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {incoming.length} in flight
+            {T('section.receiving.inFlight', { count: incoming.length })}
           </Text>
         </View>
         <FlatList
@@ -213,7 +215,7 @@ export default function ReceivingSection() {
           keyExtractor={(o) => o.id}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no incoming orders
+              {T('section.receiving.noIncomingOrders')}
             </Text>
           }
           renderItem={({ item: o }) => {
@@ -237,7 +239,7 @@ export default function ReceivingSection() {
                   <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg }}>
                     {shortId(o.id)}
                   </Text>
-                  <StatusPill status="info" label="in transit" />
+                  <StatusPill status="info" label={T('section.receiving.inTransit')} />
                 </View>
                 <Text style={{ fontFamily: sans(600), fontSize: 12.5, color: C.fg }} numberOfLines={1}>
                   {o.vendorName}
@@ -257,8 +259,8 @@ export default function ReceivingSection() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
               {incoming.length === 0
-                ? 'no incoming orders to receive'
-                : 'select an order'}
+                ? T('section.receiving.noIncomingToReceive')
+                : T('section.receiving.selectOrder')}
             </Text>
           </View>
         ) : (
@@ -274,10 +276,10 @@ export default function ReceivingSection() {
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>SCAN BARCODE</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.receiving.scanBarcode')}</Text>
                   </View>
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>FINISH RECEIVING</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.receiving.finishReceiving')}</Text>
                   </View>
                 </View>
               }
@@ -289,47 +291,47 @@ export default function ReceivingSection() {
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.id)}</Text>
-                  <StatusPill status="low" label="receiving" />
+                  <StatusPill status="low" label={T('section.receiving.receivingPill')} />
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                    · {sel.day} · arrived {sel.submittedAt.slice(11, 16)}
+                    · {sel.day}{T('section.receiving.arrivedAt', { time: sel.submittedAt.slice(11, 16) })}
                   </Text>
                 </View>
-                <Text style={[Type.h1, { color: C.fg }]}>{sel.vendorName} · {lineItems.length} lines</Text>
+                <Text style={[Type.h1, { color: C.fg }]}>{T('section.receiving.vendorLines', { vendor: sel.vendorName, count: lineItems.length })}</Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                  Match each line to invoice. Short or damaged → flag for credit.
+                  {T('section.receiving.lineSubtitle')}
                 </Text>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <StatCard label="Lines matched" value={`${matched} / ${lineItems.length}`} sub={`${Math.round((matched / Math.max(1, lineItems.length)) * 100)}% complete`} />
-                <StatCard label="Shorts" value={String(shorts)} sub={shorts > 0 ? 'flag for credit' : '—'} />
-                <StatCard label="Damaged" value="0" sub="—" />
-                <StatCard label="Invoice total" value={`$${invoiceTotal.toFixed(2)}`} sub={`actual $${actualTotal.toFixed(2)}`} />
+                <StatCard label={T('section.receiving.linesMatched')} value={`${matched} / ${lineItems.length}`} sub={T('section.receiving.percentComplete', { pct: Math.round((matched / Math.max(1, lineItems.length)) * 100) })} />
+                <StatCard label={T('section.receiving.shorts')} value={String(shorts)} sub={shorts > 0 ? T('section.receiving.flagForCredit') : '—'} />
+                <StatCard label={T('section.receiving.damaged')} value="0" sub="—" />
+                <StatCard label={T('section.receiving.invoiceTotal')} value={`$${invoiceTotal.toFixed(2)}`} sub={T('section.receiving.actualTotal', { value: actualTotal.toFixed(2) })} />
               </View>
 
               {/* Line items table */}
               <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                  <SectionCaption tone="fg3" size={10.5}>line_items.tsv</SectionCaption>
-                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>tap to commit · stock + audit only (no undo)</Text>
+                  <SectionCaption tone="fg3" size={10.5}>{T('section.receiving.lineItemsCaption')}</SectionCaption>
+                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.receiving.lineItemsHint')}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
                   <View style={{ width: 18 }} />
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 60 }]}>id</Text>
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>name</Text>
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>ordered</Text>
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>received</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 60 }]}>{T('section.receiving.idCol')}</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>{T('section.receiving.nameCol')}</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.orderedCol')}</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.receivedCol')}</Text>
                   {/* Spec 010 §5 — display-only expires column. The
                       auto-stamp branch in commitReceive sets this on
                       first receive when the catalog row has a
                       defaultShelfLifeDays. */}
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>expires</Text>
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>line $</Text>
-                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>state</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.expiresCol')}</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.lineDollarCol')}</Text>
+                  <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>{T('section.receiving.stateCol')}</Text>
                 </View>
                 {lineItems.length === 0 ? (
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-                    no line items found for this vendor
+                    {T('section.receiving.noLineItems')}
                   </Text>
                 ) : (
                   lineItems.map((li, i) => {
@@ -405,22 +407,23 @@ export default function ReceivingSection() {
 // ─── docs.tsx + flag.tsx (Tier 2 — needs new tables + storage) ────────
 function ReceivingPlaceholder({ kind }: { kind: 'docs' | 'flag' }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>receiving · {kind}</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{kind === 'docs' ? T('section.receiving.docsTitle') : T('section.receiving.flagTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
           {kind === 'docs'
-            ? 'Invoice + photo + signature attachments. OCR-parsed JSON drives short/pending flags.'
-            : 'Short/damaged lines queued for vendor credit. Submit emails vendor + opens contact thread.'}
+            ? T('section.receiving.docsSubtitle')
+            : T('section.receiving.flagSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.receiving.notYetWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
           {kind === 'docs'
-            ? 'Needs `receiving_docs` table + Supabase Storage bucket + OCR pipeline — coming in a follow-up migration.'
-            : 'Needs `receiving_flags` table + vendor email integration + thread linkage — coming in a follow-up migration.'}
+            ? T('section.receiving.docsNotWiredBody')
+            : T('section.receiving.flagNotWiredBody')}
         </Text>
       </View>
     </ScrollView>

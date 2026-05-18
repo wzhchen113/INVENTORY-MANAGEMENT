@@ -57,7 +57,7 @@ export default function OrderScheduleSection() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
         <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
-          Select a store to manage order schedule.
+          {T('section.orderSchedule.selectStore')}
         </Text>
       </View>
     );
@@ -85,22 +85,20 @@ export default function OrderScheduleSection() {
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
-          <Text style={[Type.h2, { color: C.fg }]}>Order schedule</Text>
+          <Text style={[Type.h2, { color: C.fg }]}>{T('section.orderSchedule.title')}</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-            {totalScheduledCells} scheduled · {sortedVendors.length} vendors
+            {T('section.orderSchedule.scheduledHeader', { count: totalScheduledCells, vendors: sortedVendors.length })}
           </Text>
         </View>
         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-          {(currentStore.name || 'store').toLowerCase()}
+          {(currentStore.name || T('chrome.store')).toLowerCase()}
         </Text>
       </View>
 
       <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-            Click a cell to toggle whether the vendor is scheduled for that day.
-            The EOD count screen filters its vendor row by this schedule.
-            Empty schedule = all vendors visible on every day (no regression).
+            {T('section.orderSchedule.description')}
           </Text>
         </View>
 
@@ -119,7 +117,7 @@ export default function OrderScheduleSection() {
             }}
           >
             <View style={{ flex: 1 }}>
-              <SectionCaption tone="fg3" size={10.5}>order_schedule.tsv</SectionCaption>
+              <SectionCaption tone="fg3" size={10.5}>{T('section.orderSchedule.orderScheduleTsv')}</SectionCaption>
             </View>
             {DAY_NAMES.map((day) => (
               <View key={day} style={{ width: 60, alignItems: 'center' }}>
@@ -132,7 +130,7 @@ export default function OrderScheduleSection() {
 
           {sortedVendors.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no vendors yet — create one in the Vendors section
+              {T('section.orderSchedule.noVendorsYet')}
             </Text>
           ) : (
             sortedVendors.map((v, i) => (
@@ -152,7 +150,9 @@ export default function OrderScheduleSection() {
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }} numberOfLines={1}>{v.name}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3, marginTop: 2 }} numberOfLines={1}>
-                    lead {v.leadTimeDays ?? 0}d{v.orderCutoffTime ? ` · cutoff ${v.orderCutoffTime}` : ''}
+                    {v.orderCutoffTime
+                      ? T('section.orderSchedule.leadWithCutoff', { leadTime: v.leadTimeDays ?? 0, cutoff: v.orderCutoffTime })
+                      : T('section.orderSchedule.lead', { leadTime: v.leadTimeDays ?? 0 })}
                   </Text>
                 </View>
                 {DAY_NAMES.map((day) => {
@@ -163,7 +163,7 @@ export default function OrderScheduleSection() {
                       onPress={() => onToggleCell(v.id, v.name, day, isOn)}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: isOn }}
-                      accessibilityLabel={`${v.name} ${day}: ${isOn ? 'scheduled' : 'not scheduled'}`}
+                      accessibilityLabel={T('section.orderSchedule.cellAria', { vendor: v.name, day, state: isOn ? T('section.orderSchedule.cellScheduled') : T('section.orderSchedule.cellNotScheduled') })}
                       style={{
                         width: 60, height: 28, alignItems: 'center', justifyContent: 'center',
                       }}
@@ -190,8 +190,7 @@ export default function OrderScheduleSection() {
 
         {/* Footer hint mirroring how the read-side consumes this data */}
         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-          // EOD count screen reads this at (store={currentStore.id.slice(0, 6)}, day=…).
-          A "show unscheduled vendors" toggle on EOD lets a counter bypass the filter for one view.
+          {T('section.orderSchedule.footerHint', { store: currentStore.id.slice(0, 6) })}
         </Text>
       </ScrollView>
     </View>

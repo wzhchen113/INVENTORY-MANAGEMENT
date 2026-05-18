@@ -15,6 +15,7 @@ import { FilterInput } from '../../../components/cmd/FilterInput';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getConversionFactor } from '../../../utils/unitConversion';
 import { parseFilter } from '../../../utils/filterParser';
+import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
@@ -26,6 +27,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 // breakdown. Staff sees view-only without the cost columns.
 export default function RecipesSection() {
   const C = useCmdColors();
+  const T = useT();
   const role = useRole();
   const locale = useLocale();
   const recipes = useStore((s) => s.recipes);
@@ -172,11 +174,11 @@ export default function RecipesSection() {
         >
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-              <Text style={[Type.h2, { color: C.fg }]}>Recipes</Text>
+              <Text style={[Type.h2, { color: C.fg }]}>{T('section.recipes.listTitle')}</Text>
               <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
                 {filterText.trim()
                   ? `${filteredRecipes.length} / ${storeRecipes.length}`
-                  : `${storeRecipes.length} total`}
+                  : T('section.recipes.totalCount', { count: storeRecipes.length })}
               </Text>
             </View>
             {role === 'admin' ? (
@@ -184,16 +186,16 @@ export default function RecipesSection() {
                 onPress={() => setDrawerMode('new')}
                 style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
                 accessibilityRole="button"
-                accessibilityLabel="New recipe"
+                accessibilityLabel={T('section.recipes.newAria')}
               >
-                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>{T('section.recipes.newButton')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
           <FilterInput
             value={filterText}
             onChangeText={setFilterText}
-            placeholder="cat:appetizer chicken"
+            placeholder={T('section.recipes.filterPlaceholder')}
           />
         </View>
         <FlatList
@@ -203,8 +205,8 @@ export default function RecipesSection() {
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
               {filterText.trim()
-                ? `no recipes match filter`
-                : `no recipes for ${currentStore.name || 'this store'}`}
+                ? T('section.recipes.noMatch')
+                : T('section.recipes.noRecipesForStore', { storeName: currentStore.name || T('chrome.store') })}
             </Text>
           }
           renderItem={({ item: r }) => {
@@ -255,7 +257,7 @@ export default function RecipesSection() {
                           {margin}%
                         </Text>
                       ) : (
-                        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>sub</Text>
+                        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>{T('section.recipes.sub')}</Text>
                       )}
                     </>
                   ) : null}
@@ -271,7 +273,7 @@ export default function RecipesSection() {
         {!sel ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-              {storeRecipes.length === 0 ? 'no recipes yet' : 'select a recipe'}
+              {storeRecipes.length === 0 ? T('section.recipes.noRecipes').toLowerCase() : T('section.recipes.selectRecipe')}
             </Text>
           </View>
         ) : (
@@ -292,29 +294,29 @@ export default function RecipesSection() {
                       onPress={() => setDrawerMode('duplicate')}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>DUPLICATE</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.recipes.duplicate')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
                         confirmAction(
-                          `Delete "${sel.menuItem}"?`,
-                          'Removes the recipe and its ingredient/prep links. POS imports referencing it stay intact (they record the menu name, not the FK).',
+                          T('section.recipes.deleteRecipeConfirm', { name: sel.menuItem }),
+                          T('section.recipes.deleteRecipeBody'),
                           () => {
                             deleteRecipe(sel.id);
                             setSelectedId(null);
-                            Toast.show({ type: 'success', text1: 'Deleted', text2: sel.menuItem });
+                            Toast.show({ type: 'success', text1: T('section.recipes.deletedToast'), text2: sel.menuItem });
                           },
                         );
                       }}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>{T('section.recipes.delete')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => setDrawerMode('edit')}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>EDIT</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.recipes.edit')}</Text>
                     </TouchableOpacity>
                   </View>
                 ) : null
@@ -331,7 +333,7 @@ export default function RecipesSection() {
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.id)}</Text>
-                  <StatusPill status="ok" label="ACTIVE" />
+                  <StatusPill status="ok" label={T('section.recipes.active')} />
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
                     · {sel.category}
                   </Text>
@@ -340,28 +342,30 @@ export default function RecipesSection() {
                   {getLocalizedName({ menuItem: sel.menuItem, i18nNames: sel.i18nNames }, locale)}
                 </Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                  {(sel.ingredients || []).length} ingredients{(sel.prepItems || []).length ? ` + ${(sel.prepItems || []).length} prep recipes` : ''}
+                  {(sel.prepItems || []).length
+                    ? T('section.recipes.ingredientsPlusPrep', { count: (sel.ingredients || []).length, prep: (sel.prepItems || []).length })
+                    : T('section.recipes.ingredientsCount', { count: (sel.ingredients || []).length })}
                 </Text>
               </View>
 
               {role === 'admin' ? (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <StatCard
-                    label="Plate cost"
+                    label={T('section.recipes.plateCost')}
                     value={`$${selCost.toFixed(2)}`}
                     sub={
                       (sel.prepItems || []).length
-                        ? `${(sel.ingredients || []).length} ingredients + ${(sel.prepItems || []).length} prep`
-                        : `${(sel.ingredients || []).length} ingredients`
+                        ? T('section.recipes.ingredientsPlusPrep', { count: (sel.ingredients || []).length, prep: (sel.prepItems || []).length })
+                        : T('section.recipes.ingredientsCount', { count: (sel.ingredients || []).length })
                     }
                   />
-                  <StatCard label="Menu price" value={sel.sellPrice ? `$${sel.sellPrice.toFixed(2)}` : '—'} sub={sel.category.toLowerCase()} />
+                  <StatCard label={T('section.recipes.menuPrice')} value={sel.sellPrice ? `$${sel.sellPrice.toFixed(2)}` : '—'} sub={sel.category.toLowerCase()} />
                   <StatCard
-                    label="Margin"
+                    label={T('section.recipes.margin')}
                     value={selMargin != null ? `${selMargin}%` : '—'}
-                    sub={selMargin != null ? 'vs target 70%' : 'sub-recipe'}
+                    sub={selMargin != null ? T('section.recipes.vsTarget') : T('section.recipes.subRecipe')}
                   />
-                  <StatCard label="Food cost %" value={`${selFoodCostPct.toFixed(1)}%`} sub="cost ÷ menu price" />
+                  <StatCard label={T('section.recipes.foodCostPct')} value={`${selFoodCostPct.toFixed(1)}%`} sub={T('section.recipes.costSubtitle')} />
                 </View>
               ) : null}
 
@@ -381,25 +385,25 @@ export default function RecipesSection() {
                     <SectionCaption tone="fg3" size={10.5}>ingredients.tsv</SectionCaption>
                     {role === 'admin' ? (
                       <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-                        {ingredientRows.length} lines · plate cost ${selCost.toFixed(2)}
+                        {T('section.recipes.lineSummary', { count: ingredientRows.length, cost: selCost.toFixed(2) })}
                       </Text>
                     ) : null}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40 }}>kind</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>id</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>name</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>qty</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40 }}>{T('section.recipes.kindCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>{T('section.recipes.idCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.recipes.nameCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.recipes.qtyCol')}</Text>
                     {role === 'admin' ? (
                       <>
-                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cost</Text>
-                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>%</Text>
+                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.recipes.costCol')}</Text>
+                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>{T('section.recipes.pctCol')}</Text>
                       </>
                     ) : null}
                   </View>
                   {ingredientRows.length === 0 ? (
                     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-                      no ingredients defined
+                      {T('section.recipes.noIngredients')}
                     </Text>
                   ) : (
                     ingredientRows.map((row, i) => (
@@ -417,7 +421,7 @@ export default function RecipesSection() {
                         }}
                       >
                         <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: row.kind === 'prep' ? C.accent : C.fg3, width: 40, letterSpacing: 0.5 }}>
-                          {row.kind === 'prep' ? 'PREP' : 'RAW'}
+                          {row.kind === 'prep' ? T('section.recipes.prep') : T('section.recipes.raw')}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60 }}>{shortId(row.id)}</Text>
                         <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>
@@ -464,7 +468,7 @@ export default function RecipesSection() {
                             { key: 'menu_price',    value: sel.sellPrice ? `$${sel.sellPrice.toFixed(2)}` : '"sub"' },
                             { key: 'target_margin', value: '70%' },
                           ]
-                        : [{ key: 'plate_cost', value: '— admin only' }]),
+                        : [{ key: 'plate_cost', value: T('common.adminOnly') }]),
                     ]}
                   />
                 </View>
@@ -488,6 +492,7 @@ export default function RecipesSection() {
 // ─── sales.tsx — POS-driven units / revenue / margin ─────────────────
 function RecipeSalesTab({ recipeId, recipeName }: { recipeId: string; recipeName: string }) {
   const C = useCmdColors();
+  const T = useT();
   const posImports = useStore((s) => s.posImports);
   const recipes = useStore((s) => s.recipes);
   const inventory = useStore((s) => s.inventory);
@@ -530,35 +535,39 @@ function RecipeSalesTab({ recipeId, recipeName }: { recipeId: string; recipeName
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · sales</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.recipes.salesTitle', { name: recipeName })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          POS-driven units sold / revenue / food cost % / margin · joined via POS mapping
+          {T('section.recipes.salesSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Units · YTD" value={String(totalUnits)} sub="across imports" />
-        <StatCard label="Revenue · YTD" value={`$${totalRevenue.toFixed(0)}`} sub="" />
-        <StatCard label="Food cost %" value={fcPct ? `${fcPct}%` : '—'} sub={`vs sell $${sellPrice.toFixed(2)}`} />
-        <StatCard label="Margin / unit" value={margin ? `$${margin.toFixed(2)}` : '—'} sub={`cost $${recipeCost.toFixed(2)}`} />
+        <StatCard label={T('section.recipes.unitsYtd')} value={String(totalUnits)} sub={T('section.recipes.acrossImports')} />
+        <StatCard label={T('section.recipes.revenueYtd')} value={`$${totalRevenue.toFixed(0)}`} sub="" />
+        <StatCard label={T('section.recipes.foodCostPct')} value={fcPct ? `${fcPct}%` : '—'} sub={T('section.recipes.salesVsSell', { price: sellPrice.toFixed(2) })} />
+        <StatCard label={T('section.recipes.marginPerUnit')} value={margin ? `$${margin.toFixed(2)}` : '—'} sub={T('section.recipes.salesCost', { cost: recipeCost.toFixed(2) })} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
           <SectionCaption tone="fg3" size={10.5}>recent_sales.log</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{salesRows.length} import{salesRows.length === 1 ? '' : 's'}</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            {salesRows.length === 1
+              ? T('section.recipes.importsCount', { count: salesRows.length })
+              : T('section.recipes.importsCountPlural', { count: salesRows.length })}
+          </Text>
         </View>
         {salesRows.length === 0 ? (
           <View style={{ padding: 22, alignItems: 'center', gap: 6 }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>NO SALES DATA</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>{T('section.recipes.noSalesData')}</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-              Either no POS imports include this recipe, or the POS pos_name isn't mapped — check posimports/mapping.tsx.
+              {T('section.recipes.noSalesDataBody')}
             </Text>
           </View>
         ) : (
           salesRows.slice(0, 30).map((r, i) => (
             <View key={r.importId} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 100 }}>{r.date}</Text>
-              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>import {r.importId.slice(-6)}</Text>
-              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{r.qty} units</Text>
+              <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>{T('section.recipes.salesImport', { id: r.importId.slice(-6) })}</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{T('section.recipes.salesUnits', { count: r.qty })}</Text>
               <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>${r.revenue.toFixed(0)}</Text>
             </View>
           ))
@@ -571,18 +580,19 @@ function RecipeSalesTab({ recipeId, recipeName }: { recipeId: string; recipeName
 // ─── method.tsx (Tier 2 — needs recipe_methods table) ─────────────────
 function RecipeMethodPlaceholder({ recipeName }: { recipeName: string }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · method</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.recipes.methodTitle', { name: recipeName })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Ordered cook steps with time + ingredient-tag references.
+          {T('section.recipes.methodSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.recipes.notYetWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-          Cook procedures need a `recipe_methods` table (step_no, instruction, duration_min, ingredient_tags) — coming in a follow-up migration.
+          {T('section.recipes.methodNotWiredBody')}
         </Text>
       </View>
     </ScrollView>
@@ -592,18 +602,19 @@ function RecipeMethodPlaceholder({ recipeName }: { recipeName: string }) {
 // ─── allergens.tsx (Tier 2 — needs allergen flags on catalog_ingredients) ─
 function RecipeAllergensPlaceholder({ recipeName }: { recipeName: string }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{recipeName} · allergens</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.recipes.allergensTitle', { name: recipeName })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          9-col allergen matrix computed from ingredient flags.
+          {T('section.recipes.allergensSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.recipes.notYetWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-          Needs allergen flags on `catalog_ingredients` (gluten, dairy, egg, soy, peanut, tree_nut, fish, shellfish, sesame) — coming in a follow-up migration.
+          {T('section.recipes.allergensNotWiredBody')}
         </Text>
       </View>
     </ScrollView>

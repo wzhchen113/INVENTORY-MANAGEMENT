@@ -7,6 +7,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { useStockSeries, computeVarianceLines } from '../../../lib/cmdSelectors';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -28,6 +29,7 @@ interface VarianceRow {
 // lands). Single full-width table with a NET footer row.
 export default function ReconciliationSection() {
   const C = useCmdColors();
+  const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
   const stores = useStore((s) => s.stores);
@@ -104,10 +106,10 @@ export default function ReconciliationSection() {
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-              <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT</Text>
+              <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.reconciliation.export')}</Text>
             </View>
             <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>POST → COGS</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.reconciliation.postToCogs')}</Text>
             </View>
           </View>
         }
@@ -120,52 +122,52 @@ export default function ReconciliationSection() {
       <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>
-            Reconciliation{latest ? ` · ${latest.date}` : ''}
+            {latest ? T('section.reconciliation.titleWithDate', { date: latest.date }) : T('section.reconciliation.title')}
           </Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-            Counted EOD vs expected (prior period). Post-shrink to GL when reviewed.
+            {T('section.reconciliation.subtitle')}
           </Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <StatCard
-            label="Items reconciled"
+            label={T('section.reconciliation.itemsReconciled')}
             value={`${latest?.entries?.length ?? 0} / ${latest?.entries?.length ?? 0}`}
-            sub={latest ? '100% complete' : 'no EOD yet'}
+            sub={latest ? T('section.reconciliation.percentComplete', { pct: 100 }) : T('section.reconciliation.noEod')}
           />
           <StatCard
-            label="Net variance"
+            label={T('section.reconciliation.netVariance')}
             value={`${netDollar < 0 ? '−' : netDollar > 0 ? '+' : ''}$${Math.abs(netDollar).toFixed(2)}`}
-            sub={`${netPctOfInv >= 0 ? '+' : ''}${netPctOfInv}% of inventory`}
+            sub={T('section.reconciliation.percentOfInventory', { pct: `${netPctOfInv >= 0 ? '+' : ''}${netPctOfInv}` })}
           />
-          <StatCard label="Items off" value={String(rows.length)} sub={`${favorable} favorable · ${short} short`} />
+          <StatCard label={T('section.reconciliation.itemsOff')} value={String(rows.length)} sub={T('section.reconciliation.favorableShort', { favorable, short })} />
           <StatCard
-            label="Largest"
+            label={T('section.reconciliation.largest')}
             value={largest ? `${largest.dollar < 0 ? '−' : '+'}$${Math.abs(largest.dollar).toFixed(2)}` : '—'}
-            sub={largest?.name || 'no variances'}
+            sub={largest?.name || T('section.reconciliation.noVariances')}
           />
         </View>
 
         <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-            <SectionCaption tone="fg3" size={10.5}>variance_report.tsv</SectionCaption>
+            <SectionCaption tone="fg3" size={10.5}>{T('section.reconciliation.varianceReportTsv')}</SectionCaption>
             <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-              {rows.length} lines · sorted by |Δ$|
+              {T('section.reconciliation.linesSorted', { count: rows.length })}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>id</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>name</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>expected</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>counted</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>Δ qty</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>Δ $</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>Δ %</Text>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cat</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>{T('section.reconciliation.idCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.reconciliation.nameCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.reconciliation.expectedCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.reconciliation.countedCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.reconciliation.deltaQtyCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.reconciliation.deltaDollarCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>{T('section.reconciliation.deltaPctCol')}</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.reconciliation.catCol')}</Text>
           </View>
           {rows.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              {latest ? 'no variances vs prior period' : 'no EOD submissions yet'}
+              {latest ? T('section.reconciliation.noVarianceVsPrior') : T('section.reconciliation.noEodYet')}
             </Text>
           ) : (
             <>
@@ -222,7 +224,7 @@ export default function ReconciliationSection() {
               >
                 <View style={{ width: 60 }} />
                 <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>
-                  Net · {rows.length} lines
+                  {T('section.reconciliation.netRow', { count: rows.length })}
                 </Text>
                 <View style={{ width: 90 }} />
                 <View style={{ width: 90 }} />
@@ -247,6 +249,7 @@ export default function ReconciliationSection() {
 // ─── byCategory.tsx — net Δ$ rolled up by ingredient_categories ───────
 function ReconByCategoryTab() {
   const C = useCmdColors();
+  const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -282,24 +285,24 @@ function ReconByCategoryTab() {
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>reconciliation · by category</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.reconciliation.byCategoryTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Net Δ$ rolled up by ingredient category. Top shrink drivers surface first.
+          {T('section.reconciliation.byCategorySubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Net Δ$" value={`${totalDelta >= 0 ? '+' : '−'}$${Math.abs(totalDelta).toFixed(0)}`} sub="all categories" />
-        <StatCard label="Categories" value={String(rows.length)} sub="affected" />
-        <StatCard label="Top driver" value={drivers[0]?.cat || '—'} sub={drivers[0] ? `$${drivers[0].deltaCost.toFixed(0)}` : '—'} />
+        <StatCard label={T('section.reconciliation.netDollarAll')} value={`${totalDelta >= 0 ? '+' : '−'}$${Math.abs(totalDelta).toFixed(0)}`} sub={T('section.reconciliation.allCategories')} />
+        <StatCard label={T('section.reconciliation.categories')} value={String(rows.length)} sub={T('section.reconciliation.affected')} />
+        <StatCard label={T('section.reconciliation.topDriver')} value={drivers[0]?.cat || '—'} sub={drivers[0] ? `$${drivers[0].deltaCost.toFixed(0)}` : '—'} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>by_category.tsv</SectionCaption>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.reconciliation.byCategoryTsv')}</SectionCaption>
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{rows.length}</Text>
         </View>
         {rows.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no count submitted today — variance rolls up after submit
+            {T('section.reconciliation.noCountToday')}
           </Text>
         ) : (
           rows.map((r, i) => {
@@ -307,7 +310,11 @@ function ReconByCategoryTab() {
             return (
               <View key={r.cat} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
                 <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.cat}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 80, textAlign: 'right' }}>{r.n} {r.n === 1 ? 'item' : 'items'}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 80, textAlign: 'right' }}>
+                  {r.n === 1
+                    ? T('section.reconciliation.itemSuffix', { count: r.n })
+                    : T('section.reconciliation.itemSuffixPlural', { count: r.n })}
+                </Text>
                 <Text style={{ fontFamily: mono(500), fontSize: 12, color: tone, width: 100, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                   {r.deltaCost >= 0 ? '+' : '−'}${Math.abs(r.deltaCost).toFixed(0)}
                 </Text>
@@ -323,6 +330,7 @@ function ReconByCategoryTab() {
 // ─── timeline.tsx — 90d calendar of net variance ──────────────────────
 function ReconTimelineTab() {
   const C = useCmdColors();
+  const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -364,21 +372,21 @@ function ReconTimelineTab() {
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>reconciliation · 90d timeline</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.reconciliation.timelineTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Daily net Δ$ variance — streak detection, missed-posting alerts.
+          {T('section.reconciliation.timelineSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Submitted · 90d" value={String(submittedDays.length)} sub={`of ${days.length}`} />
-        <StatCard label="Missing" value={String(missing)} sub="days w/ no count" />
-        <StatCard label="Streak" value={`${streak}d`} sub="consecutive" />
-        <StatCard label="Net Δ$ · 90d" value={`${submittedDays.reduce((s, d) => s + d.delta, 0) >= 0 ? '+' : '−'}$${Math.abs(submittedDays.reduce((s, d) => s + d.delta, 0)).toFixed(0)}`} sub="" />
+        <StatCard label={T('section.reconciliation.submitted90d')} value={String(submittedDays.length)} sub={T('section.reconciliation.ofTotal', { total: days.length })} />
+        <StatCard label={T('section.reconciliation.missing')} value={String(missing)} sub={T('section.reconciliation.missingDays')} />
+        <StatCard label={T('section.reconciliation.streak')} value={`${streak}d`} sub={T('section.reconciliation.consecutive')} />
+        <StatCard label={T('section.reconciliation.netDollar90d')} value={`${submittedDays.reduce((s, d) => s + d.delta, 0) >= 0 ? '+' : '−'}$${Math.abs(submittedDays.reduce((s, d) => s + d.delta, 0)).toFixed(0)}`} sub="" />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>timeline.dat</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>green=favorable · red=shrink · grey=missing</Text>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.reconciliation.timelineDat')}</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.reconciliation.timelineLegend')}</Text>
         </View>
         <View style={{ paddingHorizontal: 14, paddingVertical: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 3 }}>
           {days.map((d) => {

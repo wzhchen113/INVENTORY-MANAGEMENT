@@ -564,7 +564,7 @@ export default function EODCountSection() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
         <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
-          Select a store to count inventory.
+          {T('section.eod.selectStoreToCount')}
         </Text>
       </View>
     );
@@ -586,10 +586,10 @@ export default function EODCountSection() {
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border, gap: 6 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <Text style={[Type.h2, { color: C.fg }]}>{T('common.thisWeek')}</Text>
-            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>wk {wkNum}</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{T('section.eod.weekShort', { num: wkNum })}</Text>
           </View>
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-            {(currentStore.name || 'store').toLowerCase()}
+            {(currentStore.name || T('chrome.store')).toLowerCase()}
           </Text>
         </View>
         <FlatList
@@ -859,7 +859,7 @@ export default function EODCountSection() {
                   >
                     {isSubmittedHere ? (
                       <Text
-                        accessibilityLabel="submitted"
+                        accessibilityLabel={T('section.eod.submittedAria')}
                         style={{
                           fontFamily: mono(700),
                           fontSize: 11,
@@ -874,7 +874,7 @@ export default function EODCountSection() {
                     </Text>
                     {!isPhone && v.orderCutoffTime ? (
                       <Text style={{ fontFamily: mono(400), fontSize: 10, color: sel ? C.bg : C.fg3, opacity: 0.7 }}>
-                        · cutoff {v.orderCutoffTime}
+                        {T('section.eod.cutoffSuffix', { time: v.orderCutoffTime })}
                       </Text>
                     ) : null}
                   </TouchableOpacity>
@@ -888,7 +888,7 @@ export default function EODCountSection() {
                         removeOrderScheduleEntry(selectedDayName, v.id);
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Remove ${v.name} from ${selectedDayName} schedule`}
+                      accessibilityLabel={T('section.eod.removeVendorAria', { vendor: v.name, day: selectedDayName })}
                       style={{
                         paddingHorizontal: 7,
                         paddingVertical: 6,
@@ -905,8 +905,8 @@ export default function EODCountSection() {
             {vendorTabs.length === 0 ? (
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
                 {scheduleConfigured && !showUnscheduled
-                  ? `no vendors scheduled for ${selectedDayName.toLowerCase()}`
-                  : 'no vendors with items at this store'}
+                  ? T('section.eod.noVendorsScheduled', { day: selectedDayName.toLowerCase() })
+                  : T('section.eod.noVendorsAtStore')}
               </Text>
             ) : null}
             {/* + vendor button — opens the vendor picker modal scoped to
@@ -917,7 +917,7 @@ export default function EODCountSection() {
               onPress={() => setAddVendorOpen(true)}
               disabled={showUnscheduled}
               accessibilityRole="button"
-              accessibilityLabel={`Add a vendor to ${selectedDayName} schedule`}
+              accessibilityLabel={T('section.eod.addVendorAria', { day: selectedDayName })}
               style={{
                 paddingHorizontal: 10,
                 paddingVertical: 6,
@@ -929,7 +929,7 @@ export default function EODCountSection() {
                 opacity: showUnscheduled ? 0.4 : 1,
               }}
             >
-              <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.fg2 }}>+ vendor</Text>
+              <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.fg2 }}>{T('section.eod.addVendorButton')}</Text>
             </TouchableOpacity>
             {/* Show-unscheduled toggle. Q4=(d): bypass filter for this view
                 only; never mutates the schedule. Hidden when the store has
@@ -959,7 +959,7 @@ export default function EODCountSection() {
                   }}
                 />
                 <Text style={{ fontFamily: mono(showUnscheduled ? 700 : 500), fontSize: 10.5, color: showUnscheduled ? C.accent : C.fg3 }}>
-                  show unscheduled vendors
+                  {T('section.eod.showUnscheduled')}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -1023,15 +1023,15 @@ export default function EODCountSection() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: isPhone ? 6 : 10, flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
             <StatusDot status={countedNum === total ? 'ok' : countedNum > 0 ? 'low' : 'info'} />
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-              {countedNum} of {total} items counted
+              {T('section.eod.countedOfTotal', { counted: countedNum, total })}
             </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>·</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg2 }}>
-              vendor: {vendorTabs.find((v) => v.id === selectedVendorId)?.name?.toUpperCase() || '—'}
+              {T('section.eod.vendorLabel')} {vendorTabs.find((v) => v.id === selectedVendorId)?.name?.toUpperCase() || '—'}
             </Text>
             {!isPhone && <View style={{ flex: 1 }} />}
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-              counter: <Text style={{ color: C.fg }}>{currentUser?.name?.toLowerCase().replace(/\s+/g, '.') || 'guest'}</Text>
+              {T('section.eod.counterLabel')} <Text style={{ color: C.fg }}>{currentUser?.name?.toLowerCase().replace(/\s+/g, '.') || T('section.eod.guest')}</Text>
             </Text>
           </View>
         </View>
@@ -1057,10 +1057,10 @@ export default function EODCountSection() {
               }}
             >
               <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.ok, letterSpacing: 0.5 }}>
-                ✓ SUBMITTED
+                {T('section.eod.submittedBanner')}
               </Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1 }}>
-                This vendor's EOD is submitted for {selectedIso}. Click EDIT to amend the count.
+                {T('section.eod.submittedBannerBody', { date: selectedIso })}
               </Text>
             </View>
           ) : null}
@@ -1080,23 +1080,23 @@ export default function EODCountSection() {
               }}
             >
               <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.5 }}>
-                EDITING
+                {T('section.eod.editingBanner')}
               </Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1 }}>
-                Amending submitted count. Press UPDATE COUNT to overwrite the prior submission.
+                {T('section.eod.editingBannerBody')}
               </Text>
             </View>
           ) : null}
           {/* Column header */}
           <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: rowGap }}>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>item · pack</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>box/case</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>count</Text>
-            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>note</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>{T('section.eod.itemPackCol')}</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.boxCaseCol')}</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.countCol')}</Text>
+            <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>{T('section.eod.noteCol')}</Text>
           </View>
           {grouped.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
-              no items in this filter
+              {T('section.eod.noItemsInFilter')}
             </Text>
           ) : (
             grouped.map(([cat, items], gi) => (
@@ -1107,7 +1107,7 @@ export default function EODCountSection() {
                   </Text>
                   <View style={{ flex: 1, height: 1, backgroundColor: C.border }} />
                   <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg3 }}>
-                    {items.length} items
+                    {T('section.eod.itemsCount', { count: items.length })}
                   </Text>
                 </View>
                 {items.map((it, i) => {
@@ -1233,7 +1233,7 @@ export default function EODCountSection() {
                         value={nVal}
                         editable={!inputsDisabled}
                         onChangeText={(text) => setNotes((p) => ({ ...p, [it.id]: text }))}
-                        placeholder="Note…"
+                        placeholder={T('section.eod.notePlaceholder')}
                         placeholderTextColor={C.fg3}
                         style={{
                           ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
@@ -1273,19 +1273,19 @@ export default function EODCountSection() {
           }}
         >
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: countedNum === total && total > 0 ? C.ok : C.warn }}>
-            {countedNum}/{total} counted
+            {T('section.eod.countedSlash', { counted: countedNum, total })}
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>
-            est. value <Text style={{ color: C.fg, fontWeight: '600' }}>${estValue.toFixed(2)}</Text>
+            {T('section.eod.estValueLabel')} <Text style={{ color: C.fg, fontWeight: '600' }}>${estValue.toFixed(2)}</Text>
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>
-            variance <Text style={{ color: variance < 0 ? C.warn : C.fg }}>{countedNum > 0 ? `${variance >= 0 ? '+' : ''}${variance.toFixed(1)}` : '—'}</Text>
+            {T('section.eod.varianceLabel')} <Text style={{ color: variance < 0 ? C.warn : C.fg }}>{countedNum > 0 ? `${variance >= 0 ? '+' : ''}${variance.toFixed(1)}` : '—'}</Text>
           </Text>
           <View style={{ flex: 1 }} />
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-            tab moves cell · ⏎ next item
+            {T('section.eod.tabHint')}
           </Text>
         </View>
         </>)}
@@ -1385,33 +1385,33 @@ function EODHistoryTab() {
       <View>
         <Text style={[Type.h1, { color: C.fg }]}>{T('section.eod.historyTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          90-day rolling history. One row per vendor submission. Click a row to view the frozen snapshot read-only.
+          {T('section.eod.historyDescription')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Submissions" value={String(submissions.length)} sub="last 90 days" />
-        <StatCard label="On-time %" value={`${onTimePct}%`} sub="vs deadline" />
-        <StatCard label="Items / count" value={submissions.length === 0 ? '—' : String(Math.round(submissions.reduce((s, c) => s + (c.sub.itemCount || c.sub.entries?.length || 0), 0) / submissions.length))} sub="avg" />
-        <StatCard label="Last submitted" value={submissions[0] ? submissions[0].sub.date.slice(5) : '—'} sub={submissions[0] ? new Date(submissions[0].sub.timestamp).toTimeString().slice(0, 5) : '—'} />
+        <StatCard label={T('section.eod.submissionsCount')} value={String(submissions.length)} sub={T('section.eod.last90Days')} />
+        <StatCard label={T('section.eod.onTimePct')} value={`${onTimePct}%`} sub={T('section.eod.vsDeadline')} />
+        <StatCard label={T('section.eod.itemsPerCount')} value={submissions.length === 0 ? '—' : String(Math.round(submissions.reduce((s, c) => s + (c.sub.itemCount || c.sub.entries?.length || 0), 0) / submissions.length))} sub={T('section.eod.avg')} />
+        <StatCard label={T('section.eod.lastSubmitted')} value={submissions[0] ? submissions[0].sub.date.slice(5) : '—'} sub={submissions[0] ? new Date(submissions[0].sub.timestamp).toTimeString().slice(0, 5) : '—'} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>history.tsv</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{submissions.length} {submissions.length === 1 ? 'count' : 'counts'}</Text>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.eod.historyTsv')}</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{submissions.length} {submissions.length === 1 ? T('section.eod.countWord') : T('section.eod.countsWord')}</Text>
         </View>
         {submissions.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no submitted counts in the last 90 days
+            {T('section.eod.noSubmittedCounts')}
           </Text>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 100 }}>date</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>time</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 160 }}>vendor</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>submitted by</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>items</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>status</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 100 }}>{T('section.eod.dateCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>{T('section.eod.timeCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 160 }}>{T('section.eod.vendorCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.eod.submittedByCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.itemsCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.eod.statusCol')}</Text>
             </View>
             {submissions.map((row, i) => {
               const sub = row.sub;
@@ -1430,7 +1430,7 @@ function EODHistoryTab() {
                   <View style={{ width: 90, alignItems: 'flex-end' }}>
                     <View style={{ borderWidth: 1, borderColor: tone === 'warn' ? C.warn : C.ok, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: tone === 'warn' ? C.warnBg : C.okBg }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone === 'warn' ? C.warn : C.ok, letterSpacing: 0.4 }}>
-                        {sub.status === 'draft' ? 'DRAFT' : 'SUBMITTED'}
+                        {sub.status === 'draft' ? T('section.eod.statusDraftPill') : T('section.eod.statusSubmittedPill')}
                       </Text>
                     </View>
                   </View>
@@ -1452,6 +1452,7 @@ function EODHistoryTab() {
 // report (REPORTS-3) is authoritative.
 function VarianceLogTab() {
   const C = useCmdColors();
+  const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -1509,36 +1510,41 @@ function VarianceLogTab() {
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>variance · live</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.eod.varianceTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Counted vs expected per item. Posts to reconciliation at day-close.
-          Rules: SHRINK ≥ $25 · MINOR ≥ 5% · FAVORABLE +Δ · OK.
+          {T('section.eod.varianceSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Items counted" value={String(sorted.length)} sub={todaySubs.length > 0 ? `today's count · ${todaySubs.length} ${todaySubs.length === 1 ? 'vendor' : 'vendors'}` : 'no count submitted'} />
-        <StatCard label="Net Δ$" value={`${sumDelta >= 0 ? '+' : '−'}$${Math.abs(sumDelta).toFixed(0)}`} sub="vs par × cost" />
-        <StatCard label="SHRINK" value={String(shrinkCount)} sub="≥ $25 loss" />
-        <StatCard label="MINOR" value={String(minorCount)} sub="≥ 5% off" />
+        <StatCard label={T('section.eod.itemsCounted')} value={String(sorted.length)} sub={
+          todaySubs.length > 0
+            ? (todaySubs.length === 1
+                ? T('section.eod.todaysCount', { count: todaySubs.length })
+                : T('section.eod.todaysCountPlural', { count: todaySubs.length }))
+            : T('section.eod.noCountSubmitted')
+        } />
+        <StatCard label={T('section.eod.netDelta')} value={`${sumDelta >= 0 ? '+' : '−'}$${Math.abs(sumDelta).toFixed(0)}`} sub={T('section.eod.vsParCost')} />
+        <StatCard label={T('section.eod.shrinkLabel')} value={String(shrinkCount)} sub={T('section.eod.shrinkSub')} />
+        <StatCard label={T('section.eod.minorLabel')} value={String(minorCount)} sub={T('section.eod.minorSub')} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>variance.log</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>sorted by |Δ$|</Text>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.eod.varianceLog')}</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.eod.sortedByDeltaDollar')}</Text>
         </View>
         {sorted.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no count submitted today — submit a count to see variance
+            {T('section.eod.noCountToday')}
           </Text>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>item</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>expected</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>counted</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>Δ</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>Δ$</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>tag</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>{T('section.eod.vItemCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.vExpectedCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.vCountedCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.vDeltaCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.vDeltaDollarCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.eod.vTagCol')}</Text>
             </View>
             {sorted.map((v, i) => {
               const tone = v.tag === 'SHRINK' ? C.danger : v.tag === 'MINOR' ? C.warn : v.tag === 'FAVORABLE' ? C.ok : C.fg3;

@@ -1521,7 +1521,7 @@ Known follow-up work (NOT in this spec — pragmatic deferral per the
 architect's "Be exhaustive but pragmatic" framing on the 913 `<Text>`
 literals + 88 `accessibilityLabel` + 92 `Toast.show` surface):
 
-- Deeper extraction inside `DashboardSection.tsx` (KPI labels,
+- ~~Deeper extraction inside `DashboardSection.tsx` (KPI labels,
   attention-queue strings, heatmap legend), the four-tab Dashboard
   body, the EOD `OrderScheduleSection` body, the
   `InventoryCatalogMode` per-store/conversion/audit panes, the
@@ -1531,7 +1531,11 @@ literals + 88 `accessibilityLabel` + 92 `Toast.show` surface):
   LocaleSwitcher / TitleBar / CommandPalette). These remain as English
   literals today; the catalog parity test guarantees that when a key
   is added to en.json, the parallel keys in es.json + zh-CN.json must
-  follow in the same PR.
+  follow in the same PR.~~ **Done — Round 2 body-extraction sweep
+  landed 2026-05-17. The 8 deferred section files now route their
+  user-visible English through `t()`. The 28 cmd component bodies
+  beyond the chrome-priority subset are still deferred (lower-frequency
+  drawers / modals).**
 - Native-speaker review of the initial es / zh-CN translations (PM
   open question #4).
 
@@ -1587,3 +1591,324 @@ Re-verification:
   the dead `isLocale` / `LocaleCode` symbols are gone. No
   `exports.catalogs` / `exports._warned` symbols remain in the i18n
   module's compiled output.
+
+### Round 2 — body extraction (deferred 8 sections + deep DashboardSection / EODCountSection / AuditLogSection)
+
+Applied 2026-05-17 to finish the chrome-pass deferrals enumerated in
+"Known follow-up work" above. Pure literal-extraction following the
+architect's already-set pattern — no new design decisions.
+
+**Catalog expansion** — added ~681 keys (en → 898 total) covering
+the 8 deferred section files + body deepening on Dashboard / EOD /
+AuditLog / InventoryCatalog. All keys mirrored across `es.json` and
+`zh-CN.json`; parity test still green.
+
+- MODIFY `src/i18n/en.json` — added `section.recipes.*` (sub-recipe /
+  sales / method / allergens placeholder bodies), `section.prepRecipes.*`
+  (sub-recipes, usage, method placeholder), `section.vendors.*`
+  (catalog tab, contacts placeholder), `section.receiving.*` (line
+  items, docs / flag placeholders), `section.reconciliation.*`
+  (variance + byCategory + timeline tabs), `section.purchaseOrders.*`
+  (list / detail / history / docs), `section.orderSchedule.*`
+  (grid + footer hint), `section.inventory.*` (catalog mode body —
+  per-store / conversions / audit / filter chrome), and deepened
+  `section.dashboard.*` (KPI strip, CoGS card, heatmap legend,
+  per-store column, attention-queue), `section.eod.*` (history tab,
+  variance log tab, vendor pills, status line, modal pickers),
+  `section.auditLog.*` (feed filter, day-label prefixes, by-user
+  panel, by-entity panel).
+- MODIFY `src/i18n/es.json` — Spanish translations for all new keys.
+- MODIFY `src/i18n/zh-CN.json` — Mandarin translations for all new
+  keys.
+
+**Section file extraction**:
+
+- MODIFY `src/screens/cmd/sections/RecipesSection.tsx` — `useT()` wired
+  at top + on the three placeholder sub-components (`RecipeSalesTab`,
+  `RecipeMethodPlaceholder`, `RecipeAllergensPlaceholder`). H2 list
+  header, "+ NEW" aria, filter placeholder, empty-state copy, detail
+  pane "select / no recipes yet" copy, ACTIVE pill, ingredient table
+  header + lineSummary + RAW/PREP cell, plate-cost / menu-price /
+  margin / food-cost stat cards, delete confirm + toast, sales tab
+  title / subtitle / stat-cards / NO SALES DATA empty-state, method
+  + allergens placeholder titles + NOT YET WIRED bodies.
+- MODIFY `src/screens/cmd/sections/PrepRecipesSection.tsx` — same shape
+  as RecipesSection. H2 list header, "+ NEW" aria, empty-state copy,
+  yieldDescription (plural-split via two keys), createdAgo /
+  createdRecently, version pill, 4-up stat cards (total cost / cost /
+  unit / ingredients / version), delete confirm + toast, sub_recipes
+  tab (CIRCULAR REFERENCE banner, children / parents empty states,
+  missing-marker), usage tab (Used by / Per week / Yield / Days cover
+  stat cards + no-consumers empty), method placeholder.
+- MODIFY `src/screens/cmd/sections/VendorsSection.tsx` — H2 header,
+  "+ NEW" aria, active count, leadCutoff / leadCutoffWithCutoff
+  pluralization, empty-state copy, detail pane ACTIVE pill +
+  no-categories fallback, delete confirm + toast, 4-up stat cards
+  (lead time / cutoff / catalog / last order), catalog table header
+  + caption + empty state + par cell, catalog tab title + SKUs /
+  Case sum / Avg lead time stat cards + column headers, contacts
+  placeholder (name / email / phone field labels + unset fallback +
+  THREADS — NOT YET WIRED body).
+- MODIFY `src/screens/cmd/sections/ReceivingSection.tsx` — H2 header,
+  in-flight count, empty-state copy, in-transit pill, SCAN BARCODE /
+  FINISH RECEIVING / SUBMITTED column header buttons, lineItems table
+  header + caption + hint + receivingPill + arrivedAt + vendorLines
+  title + lineSubtitle + 4-up stat cards (Lines matched / Shorts /
+  Damaged / Invoice total), no-line-items empty state, Received toast,
+  docs / flag placeholder (NOT YET WIRED body for both kinds).
+- MODIFY `src/screens/cmd/sections/ReconciliationSection.tsx` — H1
+  with optional date, subtitle, 4-up stat cards (Items reconciled /
+  Net variance / Items off / Largest), export + post-to-cogs buttons,
+  variance_report.tsv caption + linesSorted summary + column headers
+  + Net row footer + empty-state copy, byCategory tab title +
+  subtitle + 3-up stat cards + empty state + itemSuffix pluralization,
+  timeline tab title + subtitle + 4-up stat cards + timeline.dat
+  caption + legend.
+- MODIFY `src/screens/cmd/sections/POsSection.tsx` — H2 header,
+  totalCount, status-filter pill labels (all / draft / sent / rcvd),
+  empty-state copy, DUPLICATE / EDIT / RESEND right-slot buttons,
+  status pill (sent → low / received → ok), detail pane vendorLines
+  title + deliveryBy subtitle + sentPrefix + 4-up stat cards (Lines /
+  Order total / Status / Delivery), order_lines.tsv caption + column
+  headers + no-line-items empty state + subtotalRow footer, history
+  tab title (vendorOrders if filter) + subtitle + 4-up stat cards
+  (Orders / Received / Spend / Last sent) + history.log caption +
+  empty-state + column headers, docs placeholder.
+- MODIFY `src/screens/cmd/sections/OrderScheduleSection.tsx` — H2
+  header, scheduledHeader count, no-store guard copy, description
+  paragraph, order_schedule.tsv caption, no-vendors empty state, day
+  cell aria-label (scheduled / not scheduled), footerHint with
+  store-slug interpolation.
+- MODIFY `src/screens/cmd/sections/InventoryCatalogMode.tsx` — H2
+  header + uniqueCount, filter placeholder + filter chips (all /
+  unfinished), empty-state copy, inStores / inStore pluralization,
+  noCost fallback, detail pane header (EXPORT CSV / EDIT / DELETE /
+  + NEW INGREDIENT), suppliedBy / suppliedByOne pluralization with
+  neverEdited fallback + vendorUnset, 4-up stat cards (Stores / Total
+  on hand / Avg cost / unit / Avg par), stores.tsv caption +
+  rowsCount(One) + column headers, deleteEverywhere confirm +
+  deletedToast (pluralized body), per-store tab title + subtitle +
+  4-up stat cards + storesTsv caption + rowsCount + column headers +
+  currentMarker suffix, conversions tab title + subtitle + add
+  conversion form (+ add conversion / e.g. hint / purchase unit
+  placeholder / factor / base unit / ADD / advanced disclosure /
+  net yield / yield description), conversions.tsv caption +
+  rowsBaseUnit pluralization + FIX — NO CONVERSIONS empty state +
+  noConversionsBody, conversion CRUD toasts (Purchase unit required /
+  Factor must be positive / Yield % must be 0-100 / Conversion added /
+  updated / deleted), delete-conversion confirm + body, inline edit
+  row (SAVE / CANCEL buttons + EDIT / DEL action chips), audit tab
+  title + subtitle + audit.log caption + empty state.
+- MODIFY `src/screens/cmd/sections/DashboardSection.tsx` — store
+  selector right-slot + period + allStores pluralization, greeting
+  line with interpolated time-of-day + date + storeCount, hero title,
+  5 KPI labels + sub-strings (itemsStores / ppOver / onTarget /
+  last7Days / storeComplete / outLow), CogsCard caption + 3 sub-stats
+  (theoretical / actual / Δ variance with hint + topVarianceItems
+  caption + empty-state), HeatmapLegend swatches' 4 ranges +
+  foodCostVariance7d caption + ppVsTarget + noStoresVisible empty,
+  StoreCol status text (LATE / CLOSED / OPEN), 4 mini stats labels
+  (inv / food% / alerts / eod), attention queue caption + all-clear
+  copy + drill-down aria + manager + sync footer.
+- MODIFY `src/screens/cmd/sections/EODCountSection.tsx` — week
+  sidebar header (This week + wk N), no-store guard copy, vendor
+  pill submittedAria + cutoffSuffix, removeVendorAria + addVendorAria
+  + addVendorButton, no-vendors-scheduled / no-vendors-at-store
+  empty-state copy, showUnscheduled toggle label, status line
+  (countedOfTotal + vendor + counter labels + guest fallback),
+  submittedBanner + body + editingBanner + body, column headers
+  (item · pack / box-case / count / note), no-items-in-filter empty,
+  itemsCount group header, notePlaceholder, sticky footer
+  (countedSlash + estValueLabel + varianceLabel + tabHint), history
+  tab (subtitle + 4-up stat cards + history.tsv caption +
+  no-submitted-counts empty + column headers + status pill labels),
+  variance log tab (title + subtitle + 4-up stat cards + variance.log
+  caption + sortedByDeltaDollar + noCountToday empty + column
+  headers).
+- MODIFY `src/screens/cmd/sections/AuditLogSection.tsx` — feed tab
+  subtitle, filter label + placeholder + day count pluralization,
+  empty-state copy, formatDayLabel now takes T + interpolates the
+  today / yesterday prefix keys. byUser tab title + subtitle + USERS.TSV
+  panel header + actorCount pluralization + noEvents copy + selected-
+  user title with name + count + interpolated heading. byEntity tab
+  title + subtitle + TYPES.TSV panel + hot entities title (with
+  optional kind) + events suffix. Added comment on the abbreviated
+  hot-action chip rationale (stays English-first — single-word density
+  indicator, full translated label lives on the row to the left).
+- MODIFY `src/screens/cmd/sections/BrandsSection.tsx` — spec 039
+  carry-forward Nit: `u.role` rendered as raw DB string at line 930
+  now routes through `roleLabel(u.role, T)` from `enumLabels.ts`.
+
+**Verification (Round 2)**:
+- `npm run typecheck` exits 0.
+- `npm test` — 12 suites / 138 tests pass, including the
+  catalog-parity test against all three locales (en / es / zh-CN have
+  identical key sets, 898 keys each).
+- Web bundle (Metro on `localhost:8081`) compiles clean; sample
+  translations from the new keys (`Selecciona una tienda`,
+  `cola de atención`, `Categorías de ingredientes`, `关注队列`,
+  `订货排程`, `Operaciones` / `运营`, `cerrar sesión`) are present
+  in the served bundle.
+
+**Out of scope / intentionally skipped per spec instructions**:
+- Filename-style tab labels (`count.tsx` / `history.tsx` /
+  `variance.log` / `recipe.tsx` / `method.tsx` / `allergens.tsx` /
+  `profile.tsx` / `catalog.tsv` / `orders.tsx` / `contacts.tsx` /
+  `lines.tsv` / `properties.json` / `bom.tsv` / `prep.tsx` /
+  `sub_recipes.tsx` / `usage.tsx` / `ingredients.tsv` /
+  `recent_sales.log` / `consumers.tsv` / `children.tsv` / `parents.tsv`
+  / `feed.tsx` / `byUser.tsx` / `byEntity.tsx` / `variance.tsx` /
+  `byCategory.tsx` / `timeline.tsx` / `audit.log` /
+  `primary_contact.json` / `line_items.tsv` / `order_lines.tsv` /
+  `order_schedule.tsv` / `history.log` / `timeline.dat`) — these stay
+  verbatim per Spec 038 rationale; they read as command identifiers,
+  not English chrome.
+- Status pill / role labels already route through `enumLabels.ts`
+  from Spec 039 — not re-translated here.
+- User-typed values (ingredient names, recipe names, etc.) — Spec
+  040's domain, already wired via `getLocalizedName()`.
+- 28 cmd component drawer / modal bodies beyond the chrome-priority
+  subset — lower-frequency than sections, deferred for a future pass.
+- Date / number / currency formatting — explicit Spec 038 out-of-scope.
+
+### Round 2 re-review fixes (code-reviewer-r2 Should-fix)
+
+Applied 2026-05-17 in response to
+`specs/038-multi-language-support-p1-chrome/reviews/code-reviewer-r2.md`
+(5 Should-fix items + N-6 opportunistic). The remaining Nits (N-1..N-5)
+were documented as carry-forwards in the reviewer file — heatmap day
+letters, `toLocaleString('en')` month abbr, enum-style strings via
+`.toUpperCase()` — and deferred pending the enum-labels expansion noted
+in the reviewer's N-3..N-5 notes.
+
+- MODIFY `src/i18n/en.json` — added `common.adminOnly` (N-6),
+  `section.recipes.totalCount` + `salesImport` / `salesUnits` /
+  `salesVsSell` / `salesCost` (SF-1, SF-2),
+  `section.prepRecipes.qtyPerSale` (SF-3), `section.orderSchedule.lead`
+  + `leadWithCutoff` (SF-1), `section.brands.notAvailable` /
+  `notAvailableBody` / `newBrandAria` / `newBrandButton` / `activeTab` /
+  `trashTab` / `noTrash` / `noBrandsHint` (SF-4, SF-5).
+- MODIFY `src/i18n/es.json` — Spanish translations for the 16 new keys
+  above.
+- MODIFY `src/i18n/zh-CN.json` — Mandarin translations for the 16 new
+  keys above.
+- MODIFY `src/screens/cmd/sections/RecipesSection.tsx` — list-header
+  count now reads `section.recipes.totalCount` (was borrowing
+  `section.purchaseOrders.totalCount`, SF-1); sales sub-tab "import {id}"
+  + "{qty} units" row cells route through `section.recipes.salesImport`
+  / `salesUnits` (SF-2); StatCard.sub `vs sell $...` / `cost $...` now
+  use `salesVsSell` / `salesCost` (SF-2); admin-only PropertiesJson
+  fallback routes through `common.adminOnly` (N-6).
+- MODIFY `src/screens/cmd/sections/PrepRecipesSection.tsx` — usage tab
+  consumer row's `{qtyPerSale} {unit} / sale` cell now routes through
+  `section.prepRecipes.qtyPerSale` (SF-3); admin-only PropertiesJson
+  fallback routes through `common.adminOnly` (N-6).
+- MODIFY `src/screens/cmd/sections/OrderScheduleSection.tsx` — vendor
+  cells now read `section.orderSchedule.lead` /
+  `section.orderSchedule.leadWithCutoff` (was borrowing
+  `section.vendors.leadCutoff*`, SF-1).
+- MODIFY `src/screens/cmd/sections/BrandsSection.tsx` — access-gate
+  "Not available" / "Brands management is super-admin only." now route
+  through `section.brands.notAvailable` / `notAvailableBody` (SF-4);
+  list pane `accessibilityLabel="New brand"`, `+ NEW BRAND` button
+  label, `Active (N)` / `Trash (N)` tab labels, `loading…` placeholder,
+  and the two empty-state hints now route through the new
+  `section.brands.*` keys plus the existing `common.loading` (SF-5).
+
+Re-verification (Round 2 — re-review fixes):
+- `npm run typecheck` exits 0.
+- `npm run typecheck:test` exits 0.
+- `npm test` — 12 suites / 138 tests pass; catalog parity test
+  confirms en / es / zh-CN have identical key sets after the 16 new
+  additions.
+- Web bundle (Metro on `localhost:8081`) compiles clean; the new
+  translated strings (`No disponible`, `不可用`, `+ NUEVA MARCA`,
+  `+ 新品牌`, `importación {id}`, `导入 {id}`, etc.) are present in
+  the served bundle.
+
+## Files changed
+
+(Round 2 — body extraction sweep, 2026-05-17)
+
+- `specs/038-multi-language-support-p1-chrome.md`
+- `src/i18n/en.json`
+- `src/i18n/es.json`
+- `src/i18n/zh-CN.json`
+- `src/screens/cmd/sections/RecipesSection.tsx`
+- `src/screens/cmd/sections/PrepRecipesSection.tsx`
+- `src/screens/cmd/sections/VendorsSection.tsx`
+- `src/screens/cmd/sections/ReceivingSection.tsx`
+- `src/screens/cmd/sections/ReconciliationSection.tsx`
+- `src/screens/cmd/sections/POsSection.tsx`
+- `src/screens/cmd/sections/OrderScheduleSection.tsx`
+- `src/screens/cmd/sections/InventoryCatalogMode.tsx`
+- `src/screens/cmd/sections/DashboardSection.tsx`
+- `src/screens/cmd/sections/EODCountSection.tsx`
+- `src/screens/cmd/sections/AuditLogSection.tsx`
+
+(Round 2 re-review fixes, 2026-05-17 — code-reviewer-r2 Should-fix sweep)
+
+- `specs/038-multi-language-support-p1-chrome.md`
+- `src/i18n/en.json`
+- `src/i18n/es.json`
+- `src/i18n/zh-CN.json`
+- `src/screens/cmd/sections/RecipesSection.tsx`
+- `src/screens/cmd/sections/PrepRecipesSection.tsx`
+- `src/screens/cmd/sections/OrderScheduleSection.tsx`
+- `src/screens/cmd/sections/BrandsSection.tsx`
+- `src/screens/cmd/sections/BrandsSection.tsx`
+
+### Round 2 re-review fixes — R3 (code-reviewer-r3 Should-fix)
+
+Applied 2026-05-17 in response to
+`specs/038-multi-language-support-p1-chrome/reviews/code-reviewer-r3.md`
+(2 Should-fix items, sibling-of-SF-5 untranslated strings that were
+missed in the R2 sweep). N-R3-1 multi-noun plural patterns deferred per
+reviewer.
+
+- MODIFY `src/i18n/en.json` — added `section.brands.noTrashDetail`
+  (`"no brands in trash"`), `section.brands.noBrandsYetDetail`
+  (`"no brands yet"`), `section.brands.selectBrand` (`"select a brand"`)
+  for the desktop two-pane empty state (separate from the ListPane
+  cluster's longer `noTrash` / `noBrandsHint` strings, SF-R3-1); added
+  `section.recipes.newButton` and `section.prepRecipes.newButton`
+  (both `"+ NEW"`, SF-R3-2).
+- MODIFY `src/i18n/es.json` — Spanish translations for the 5 new keys:
+  `"no hay marcas en la papelera"` / `"aún no hay marcas"` /
+  `"selecciona una marca"` / `"+ NUEVA"` (recipes + prepRecipes).
+- MODIFY `src/i18n/zh-CN.json` — Mandarin translations for the 5 new
+  keys: `"回收站中无品牌"` / `"暂无品牌"` / `"选择一个品牌"` /
+  `"+ 新建"` (recipes + prepRecipes).
+- MODIFY `src/screens/cmd/sections/BrandsSection.tsx` — desktop
+  two-pane empty-state literals (`'no brands in trash'` /
+  `'no brands yet'` / `'select a brand'` at line 297-300) now route
+  through the new `section.brands.noTrashDetail` /
+  `noBrandsYetDetail` / `selectBrand` keys (SF-R3-1).
+- MODIFY `src/screens/cmd/sections/RecipesSection.tsx` — visible
+  `+ NEW` button label at line 191 now routes through
+  `section.recipes.newButton` (SF-R3-2).
+- MODIFY `src/screens/cmd/sections/PrepRecipesSection.tsx` — visible
+  `+ NEW` button label at line 148 now routes through
+  `section.prepRecipes.newButton` (SF-R3-2).
+
+Re-verification (R3):
+- `npm run typecheck` exits 0.
+- `npm test` — 12 suites / 138 tests pass; catalog parity test
+  confirms en / es / zh-CN have identical key sets (920 keys each)
+  after the 5 new additions.
+- Web bundle on `localhost:8081` compiles clean; sample-check shows
+  all 5 new English keys, all 5 new Spanish keys
+  (`"no hay marcas en la papelera"`, `"aún no hay marcas"`,
+  `"selecciona una marca"`, `"+ NUEVA"`), and all 5 new Mandarin keys
+  (`"回收站中无品牌"`, `"暂无品牌"`, `"选择一个品牌"`, `"+ 新建"`)
+  present in the served bundle.
+
+(R3 fix-pass, 2026-05-17)
+
+- `specs/038-multi-language-support-p1-chrome.md`
+- `src/i18n/en.json`
+- `src/i18n/es.json`
+- `src/i18n/zh-CN.json`
+- `src/screens/cmd/sections/BrandsSection.tsx`
+- `src/screens/cmd/sections/RecipesSection.tsx`
+- `src/screens/cmd/sections/PrepRecipesSection.tsx`

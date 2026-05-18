@@ -29,15 +29,18 @@ const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info'
   'Stock adjusted':   'ok',
 };
 
-const formatDayLabel = (iso: string): string => {
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
+const formatDayLabel = (iso: string, T: TFn): string => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const d = new Date(iso);
   d.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - d.getTime()) / 86400000);
-  if (diffDays === 0) return `today · ${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
-  if (diffDays === 1) return `yesterday · ${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
-  return `${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
+  const monthDay = `${d.toLocaleString('en', { month: 'short' })} ${d.getDate()}`;
+  if (diffDays === 0) return T('section.auditLog.todayPrefix', { label: monthDay });
+  if (diffDays === 1) return T('section.auditLog.yesterdayPrefix', { label: monthDay });
+  return monthDay;
 };
 
 const formatTime = (iso: string): string => new Date(iso).toTimeString().slice(0, 5);
@@ -144,16 +147,16 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
       <View>
         <Text style={[Type.h1, { color: C.fg }]}>{T('section.auditLog.title')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Append-only event stream. Every state change is recorded with actor, entity, before/after.
+          {T('section.auditLog.feedSubtitle')}
         </Text>
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.panel2, borderRadius: CmdRadius.md, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, paddingVertical: 7 }}>
-        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>filter:</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{T('section.auditLog.filterLabel')}</Text>
         <TextInput
           value={filterText}
           onChangeText={setFilterText}
-          placeholder="actor / entity / action"
+          placeholder={T('section.auditLog.filterPlaceholder')}
           placeholderTextColor={C.fg3}
           style={{
             flex: 1,
@@ -165,21 +168,23 @@ function FeedTab({ events, storeName }: { events: AuditEvent[]; storeName: strin
           }}
         />
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-          {grouped.length} day{grouped.length === 1 ? '' : 's'} · {filteredEvents.length} events
+          {grouped.length === 1
+            ? T('section.auditLog.dayCount', { count: grouped.length, events: filteredEvents.length })
+            : T('section.auditLog.dayCountPlural', { count: grouped.length, events: filteredEvents.length })}
         </Text>
       </View>
 
       {grouped.length === 0 ? (
         <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 6 }}>
-          <SectionCaption tone="fg3">empty</SectionCaption>
+          <SectionCaption tone="fg3">{T('section.auditLog.empty')}</SectionCaption>
           <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg3 }}>
-            no events recorded for {storeName || 'this store'}
+            {T('section.auditLog.noEventsForStore', { storeName: storeName || T('chrome.store') })}
           </Text>
         </View>
       ) : (
         grouped.map(([iso, dayEvents]) => (
           <View key={iso} style={{ gap: 8 }}>
-            <SectionCaption tone="fg3" size={10}>{formatDayLabel(iso)}</SectionCaption>
+            <SectionCaption tone="fg3" size={10}>{formatDayLabel(iso, T)}</SectionCaption>
             <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14 }}>
               {dayEvents.map((e, i) => {
                 const tone = ACTION_TONE[e.action] || 'muted';
@@ -241,15 +246,15 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>audit · by user</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.auditLog.byUserTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          aggregate of feed.tsx grouped by actor · row click → feed with that actor filtered
+          {T('section.auditLog.byUserSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 14 }}>
-        <Panel title="USERS.TSV" right={`${users.length} actor${users.length === 1 ? '' : 's'}`} style={{ flex: 1 }}>
+        <Panel title={T('section.auditLog.usersTsv')} right={users.length === 1 ? T('section.auditLog.actorCount', { count: users.length }) : T('section.auditLog.actorCountPlural', { count: users.length })} style={{ flex: 1 }}>
           {users.length === 0 ? (
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>no events</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>{T('section.auditLog.noEvents2')}</Text>
           ) : (
             users.map((u, i) => {
               const selected = u.name === selectedName;
@@ -260,6 +265,11 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
                   <View style={{ flexDirection: 'row', gap: 4 }}>
                     {u.hot.map(([action, count]) => (
                       <View key={action} style={{ borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        {/* Spec 038 Round 2 — abbreviated hot-action chip stays English-first.
+                            The full translated label lives on the row to the left via formatAuditAction;
+                            this chip's job is a single-word density indicator, so we accept the
+                            English first-word abbreviation and don't double-translate the truncated
+                            string. */}
                         <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
                           {action.toLowerCase().split(' ')[0]} {count}
                         </Text>
@@ -271,10 +281,11 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
             })
           )}
         </Panel>
-        <Panel title={selectedName ? `${selectedName.toUpperCase()} · ${selectedEvents.length} EVENTS` : 'NO SELECTION'} style={{ flex: 1.6 }}>
+        <Panel title={selectedName ? T('section.auditLog.userEvents', { name: selectedName.toUpperCase(), count: selectedEvents.length }) : T('section.auditLog.noSelection')} style={{ flex: 1.6 }}>
           {selectedEvents.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>—</Text>
           ) : (
+
             selectedEvents.map((e, i) => (
               <TouchableOpacity key={e.id} onPress={onJumpToFeed} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 90 }}>{new Date(e.timestamp).toISOString().slice(5, 16).replace('T', ' ')}</Text>
@@ -292,6 +303,7 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
 // ─── byEntity.tsx — group by inferred entity kind ─────────────────────
 function ByEntityTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFeed: () => void }) {
   const C = useCmdColors();
+  const T = useT();
 
   const kinds = React.useMemo(() => {
     const map = new Map<string, number>();
@@ -323,15 +335,15 @@ function ByEntityTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToF
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>audit · by entity</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.auditLog.byEntityTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          most-touched objects · find the noise
+          {T('section.auditLog.byEntitySubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 14 }}>
-        <Panel title="TYPES.TSV" right={`${kinds.length}`} style={{ flex: 1 }}>
+        <Panel title={T('section.auditLog.typesTsv')} right={`${kinds.length}`} style={{ flex: 1 }}>
           {kinds.length === 0 ? (
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>no events</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>{T('section.auditLog.noEvents2')}</Text>
           ) : (
             kinds.map(([kind, count], i) => {
               const selected = kind === selectedKind;
@@ -344,14 +356,14 @@ function ByEntityTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToF
             })
           )}
         </Panel>
-        <Panel title={selectedKind ? `HOT ENTITIES · ${selectedKind}` : 'HOT ENTITIES'} right={`${hotEntities.length}`} style={{ flex: 1.5 }}>
+        <Panel title={selectedKind ? T('section.auditLog.hotEntitiesFor', { kind: selectedKind }) : T('section.auditLog.hotEntities')} right={`${hotEntities.length}`} style={{ flex: 1.5 }}>
           {hotEntities.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 8 }}>—</Text>
           ) : (
             hotEntities.map((h, i) => (
               <TouchableOpacity key={h.ref} onPress={onJumpToFeed} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
                 <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{h.ref}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, width: 60, textAlign: 'right' }}>{h.total} ev</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, width: 60, textAlign: 'right' }}>{T('section.auditLog.events', { count: h.total })}</Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 90, textAlign: 'right' }}>
                   {new Date(h.lastAt).toISOString().slice(5, 16).replace('T', ' ')}
                 </Text>

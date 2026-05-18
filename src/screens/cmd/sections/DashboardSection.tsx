@@ -10,6 +10,7 @@ import { Heatmap, HeatmapRow } from '../../../components/cmd/Heatmap';
 import { ExpiringItemsModal } from '../../../components/cmd/ExpiringItemsModal';
 import { relativeTime } from '../../../utils/relativeTime';
 import * as db from '../../../lib/db';
+import { useT } from '../../../hooks/useT';
 import {
   computeAttentionQueue,
   computeStoreFoodCostVariancePp,
@@ -90,6 +91,7 @@ function lastNDayLetters(n: number): string[] {
 // card + heatmap, per-store attention-queue grid. v1 is deleted (Q6 lock).
 export default function DashboardSection() {
   const C = useCmdColors();
+  const T = useT();
   const inventory = useStore((s) => s.inventory);
   const wasteLog = useStore((s) => s.wasteLog);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
@@ -267,7 +269,7 @@ export default function DashboardSection() {
 
   const today = new Date();
   const greeting =
-    today.getHours() < 12 ? 'good morning' : today.getHours() < 17 ? 'good afternoon' : 'good evening';
+    today.getHours() < 12 ? T('section.dashboard.greetingMorning') : today.getHours() < 17 ? T('section.dashboard.greetingAfternoon') : T('section.dashboard.greetingEvening');
 
   const fcDeltaPp = currentFc - TARGET_FOOD_COST_PCT;
   const fcTone = fcDeltaPp > 1 ? C.danger : fcDeltaPp > 0 ? C.warn : C.ok;
@@ -280,8 +282,8 @@ export default function DashboardSection() {
         onChange={setTabId}
         rightSlot={
           <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-            store: <Text style={{ color: C.fg }}>all ({storeCount})</Text>
-            {'  '}·{'  '}period: <Text style={{ color: C.fg }}>today</Text>
+            {T('section.dashboard.storeSelector')} <Text style={{ color: C.fg }}>{T('section.dashboard.allStores', { count: storeCount })}</Text>
+            {'  '}·{'  '}{T('section.dashboard.period')} <Text style={{ color: C.fg }}>{T('section.dashboard.periodToday')}</Text>
           </Text>
         }
       />
@@ -289,9 +291,9 @@ export default function DashboardSection() {
         {/* Hero greeting */}
         <View style={{ gap: 4, marginBottom: 2 }}>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-            // {greeting}, admin · {today.toDateString().toLowerCase()} · {storeCount} stores
+            {T('section.dashboard.greetingLine', { greeting, date: today.toDateString().toLowerCase(), count: storeCount })}
           </Text>
-          <Text style={[Type.h1, { color: C.fg }]}>All stores · day in progress</Text>
+          <Text style={[Type.h1, { color: C.fg }]}>{T('section.dashboard.heroTitle')}</Text>
         </View>
 
         {/* KPI strip — 5 tiles each with sparkline */}
@@ -302,41 +304,45 @@ export default function DashboardSection() {
               EOD SUBMITTED show real deltas (fcDeltaPp from current vs
               target; eod difference vs storeCount). */}
           <Kpi
-            label="TOTAL INV VALUE"
+            label={T('section.dashboard.kpi.totalInvValue')}
             value={`$${(totalInvValue / 1000).toFixed(1)}k`}
-            sub={`${itemCount} items · ${storeCount} ${storeCount === 1 ? 'store' : 'stores'}`}
+            sub={storeCount === 1
+              ? T('section.dashboard.kpi.itemsStores', { items: itemCount, count: storeCount })
+              : T('section.dashboard.kpi.itemsStoresPlural', { items: itemCount, count: storeCount })}
             series={synthSeries(totalInvValue, `${currentStore.id}:inv`)}
             delta=""
             tone={C.ok}
           />
           <Kpi
-            label="AVG FOOD COST %"
+            label={T('section.dashboard.kpi.avgFoodCost')}
             value={`${currentFc.toFixed(1)}%`}
-            sub={fcDeltaPp > 0 ? `${fcDeltaPp.toFixed(1)}pp over target` : 'on target'}
+            sub={fcDeltaPp > 0 ? T('section.dashboard.kpi.ppOver', { pp: fcDeltaPp.toFixed(1) }) : T('section.dashboard.kpi.onTarget')}
             series={fcSeries}
             delta={`${fcDeltaPp > 0 ? '+' : ''}${fcDeltaPp.toFixed(1)}pp`}
             tone={fcTone}
           />
           <Kpi
-            label="WASTE / WK"
+            label={T('section.dashboard.kpi.waste')}
             value={`$${wasteWeek.toFixed(0)}`}
-            sub="last 7 days"
+            sub={T('section.dashboard.kpi.last7Days')}
             series={synthSeries(Math.max(wasteWeek, 1), `${currentStore.id}:waste`)}
             delta=""
             tone={C.warn}
           />
           <Kpi
-            label="EOD SUBMITTED"
+            label={T('section.dashboard.kpi.eodSubmitted')}
             value={`${eodSubmittedToday}/${storeCount}`}
-            sub={`${eodSubmittedToday} ${eodSubmittedToday === 1 ? 'store' : 'stores'} complete`}
+            sub={eodSubmittedToday === 1
+              ? T('section.dashboard.kpi.storeComplete', { count: eodSubmittedToday })
+              : T('section.dashboard.kpi.storesComplete', { count: eodSubmittedToday })}
             series={synthSeries(eodSubmittedToday + 1, `${currentStore.id}:eod`)}
             delta={eodSubmittedToday === storeCount ? '' : `${eodSubmittedToday - storeCount}`}
             tone={eodSubmittedToday === storeCount ? C.ok : C.fg3}
           />
           <Kpi
-            label="STOCK ALERTS"
+            label={T('section.dashboard.kpi.stockAlerts')}
             value={String(lowOutAll.length)}
-            sub={`${outCount} out · ${lowCount} low`}
+            sub={T('section.dashboard.kpi.outLow', { out: outCount, low: lowCount })}
             series={synthSeries(Math.max(lowOutAll.length, 1), `${currentStore.id}:alerts`)}
             delta=""
             tone={outCount > 0 ? C.danger : lowCount > 0 ? C.warn : C.ok}
@@ -389,13 +395,13 @@ export default function DashboardSection() {
               }}
             >
               <SectionCaption tone="fg3" size={10}>
-                food cost variance · last 7 days
+                {T('section.dashboard.foodCostVariance7d')}
               </SectionCaption>
-              <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>pp vs target</Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{T('section.dashboard.ppVsTarget')}</Text>
             </View>
             {heatmapRows.length === 0 ? (
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 12 }}>
-                no stores visible
+                {T('section.dashboard.noStoresVisible')}
               </Text>
             ) : (
               <Heatmap rows={heatmapRows} dayLabels={heatmapDayLetters} />
@@ -510,6 +516,7 @@ interface CogsCardProps {
 }
 const CogsCard: React.FC<CogsCardProps> = ({ theoretical, actual, delta, pct, topRows }) => {
   const C = useCmdColors();
+  const T = useT();
   const deltaTone = delta > 0 ? C.danger : delta < 0 ? C.ok : C.fg2;
   return (
     <View>
@@ -522,26 +529,26 @@ const CogsCard: React.FC<CogsCardProps> = ({ theoretical, actual, delta, pct, to
         }}
       >
         <SectionCaption tone="fg3" size={10}>
-          cogs · theoretical vs actual
+          {T('section.dashboard.cogsCaption')}
         </SectionCaption>
-        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>this week</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{T('section.dashboard.thisWeek')}</Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 14, marginBottom: 14 }}>
-        <CogsStat label="theoretical" value={`$${Math.round(theoretical).toLocaleString()}`} hint="POS × recipe BoM" />
-        <CogsStat label="actual" value={`$${Math.round(actual).toLocaleString()}`} hint="from physical counts" />
+        <CogsStat label={T('section.dashboard.theoretical')} value={`$${Math.round(theoretical).toLocaleString()}`} hint={T('section.dashboard.theoreticalHint')} />
+        <CogsStat label={T('section.dashboard.actual')} value={`$${Math.round(actual).toLocaleString()}`} hint={T('section.dashboard.actualHint')} />
         <CogsStat
-          label="Δ variance"
+          label={T('section.dashboard.deltaVariance')}
           value={`${delta > 0 ? '+' : delta < 0 ? '−' : ''}$${Math.abs(Math.round(delta)).toLocaleString()}`}
           sub={`${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}
           tone={deltaTone}
         />
       </View>
       <SectionCaption tone="fg3" size={10} style={{ marginBottom: 6 }}>
-        top variance items
+        {T('section.dashboard.topVarianceItems')}
       </SectionCaption>
       {topRows.length === 0 ? (
         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 10 }}>
-          no variance lines yet — needs EOD + POS data
+          {T('section.dashboard.noVarianceYet')}
         </Text>
       ) : (
         topRows.map((v, i) => (
@@ -640,6 +647,7 @@ const CogsStat: React.FC<{ label: string; value: string; hint?: string; sub?: st
 // ─── <HeatmapLegend /> ────────────────────────────────────────────────
 const HeatmapLegend: React.FC = () => {
   const C = useCmdColors();
+  const T = useT();
   const swatch = (bg: string, opacity: number) => (
     <View
       style={{
@@ -654,13 +662,13 @@ const HeatmapLegend: React.FC = () => {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
       {swatch(C.ok, 0.55)}
-      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>−1 to −0.5</Text>
+      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.dashboard.heatmapLegendNeg')}</Text>
       {swatch(C.fg3, 0.35)}
-      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>±0.5</Text>
+      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.dashboard.heatmapLegendZero')}</Text>
       {swatch(C.warn, 0.65)}
-      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>+0.5 to 1.5</Text>
+      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.dashboard.heatmapLegendWarn')}</Text>
       {swatch(C.danger, 1)}
-      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>+2.5+</Text>
+      <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.dashboard.heatmapLegendBad')}</Text>
     </View>
   );
 };
@@ -695,6 +703,7 @@ const StoreCol: React.FC<StoreColProps> = ({
   onSelectExpiry,
 }) => {
   const C = useCmdColors();
+  const T = useT();
 
   // Per-store mini-stat derivations.
   const storeInv = inventory.filter((i) => i.storeId === store.id);
@@ -719,7 +728,7 @@ const StoreCol: React.FC<StoreColProps> = ({
     now.getHours() > dlH || (now.getHours() === dlH && now.getMinutes() >= dlM);
   const isLate = isPastDeadline && !eodToday;
   const dotStatus: 'ok' | 'low' | 'out' = isLate ? 'low' : 'ok';
-  const statusText = isLate ? 'LATE' : (store.status === 'inactive' ? 'CLOSED' : 'OPEN');
+  const statusText = isLate ? T('section.dashboard.statusLate') : (store.status === 'inactive' ? T('section.dashboard.statusClosed') : T('section.dashboard.statusOpen'));
   const statusFg = isLate ? C.warn : store.status === 'inactive' ? C.fg3 : C.ok;
   const statusBg = isLate ? C.warnBg : store.status === 'inactive' ? C.panel : C.okBg;
 
@@ -818,15 +827,15 @@ const StoreCol: React.FC<StoreColProps> = ({
           borderBottomColor: C.border,
         }}
       >
-        <Mini2 label="inv" value={`$${(invValue / 1000).toFixed(1)}k`} bold />
-        <Mini2 label="food%" value={`${foodPct.toFixed(1)}%`} tone={foodPct > 32 ? C.warn : C.fg} />
+        <Mini2 label={T('section.dashboard.miniInv')} value={`$${(invValue / 1000).toFixed(1)}k`} bold />
+        <Mini2 label={T('section.dashboard.miniFood')} value={`${foodPct.toFixed(1)}%`} tone={foodPct > 32 ? C.warn : C.fg} />
         <Mini2
-          label="alerts"
+          label={T('section.dashboard.miniAlerts')}
           value={`${lowOut.length}`}
           tone={outN > 0 ? C.danger : lowOut.length > 0 ? C.warn : C.fg}
         />
         <Mini2
-          label="eod"
+          label={T('section.dashboard.miniEod')}
           value={`${eodToday ? 1 : 0}/1`}
           tone={eodToday ? C.ok : isLate ? C.danger : C.fg3}
         />
@@ -844,7 +853,7 @@ const StoreCol: React.FC<StoreColProps> = ({
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
           <SectionCaption tone="fg3" size={9.5} style={{ flex: 1 }}>
-            attention queue
+            {T('section.dashboard.attentionQueue')}
           </SectionCaption>
           <Text
             style={{
@@ -860,7 +869,7 @@ const StoreCol: React.FC<StoreColProps> = ({
         {queue.length === 0 ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}>
             <Text style={{ fontFamily: mono(700), fontSize: 12, color: C.ok }}>✓</Text>
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.ok }}>all clear</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.ok }}>{T('section.dashboard.allClear')}</Text>
           </View>
         ) : (
           queue.map((item, i) => {
@@ -875,7 +884,7 @@ const StoreCol: React.FC<StoreColProps> = ({
                   onPress: () => onSelectExpiry(item.expiryDetail),
                   activeOpacity: 0.7,
                   accessibilityRole: 'button' as const,
-                  accessibilityLabel: `${item.text} — open drill-down`,
+                  accessibilityLabel: T('section.dashboard.openDrillDown', { text: item.text }),
                 }
               : {};
             return (
@@ -951,9 +960,9 @@ const StoreCol: React.FC<StoreColProps> = ({
         }}
       >
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }} numberOfLines={1}>
-          mgr: <Text style={{ color: C.fg2 }}>{manager}</Text>
+          {T('section.dashboard.managerLabel')} <Text style={{ color: C.fg2 }}>{manager}</Text>
         </Text>
-        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>sync {lastSync}</Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{T('section.dashboard.syncLabel', { time: lastSync ?? '—' })}</Text>
       </View>
     </View>
   );

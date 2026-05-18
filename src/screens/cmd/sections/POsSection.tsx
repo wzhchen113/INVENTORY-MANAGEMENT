@@ -8,6 +8,7 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { OrderSubmission } from '../../../types';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -16,6 +17,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 // synthetic line-item table sourced from the matching vendor's catalog.
 export default function POsSection() {
   const C = useCmdColors();
+  const T = useT();
   const orderSubmissions = useStore((s) => s.orderSubmissions);
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
@@ -96,15 +98,20 @@ export default function POsSection() {
       >
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border, gap: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={[Type.h2, { color: C.fg }]}>Purchase orders</Text>
+            <Text style={[Type.h2, { color: C.fg }]}>{T('section.purchaseOrders.title')}</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {allOrders.length} total
+              {T('section.purchaseOrders.totalCount', { count: allOrders.length })}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             {(['all', 'draft', 'sent', 'rcvd'] as const).map((k) => {
               const n = counts[k];
               const sel = statusFilter === k;
+              const filterLabelKey =
+                k === 'all' ? 'section.purchaseOrders.filterAll'
+                : k === 'draft' ? 'section.purchaseOrders.filterDraft'
+                : k === 'sent' ? 'section.purchaseOrders.filterSent'
+                : 'section.purchaseOrders.filterRcvd';
               return (
                 <TouchableOpacity
                   key={k}
@@ -121,7 +128,7 @@ export default function POsSection() {
                     backgroundColor: sel ? C.accentBg : C.panel2,
                   }}
                 >
-                  <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: sel ? C.fg : C.fg2 }}>{k}</Text>
+                  <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: sel ? C.fg : C.fg2 }}>{T(filterLabelKey)}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>{n}</Text>
                 </TouchableOpacity>
               );
@@ -133,7 +140,7 @@ export default function POsSection() {
           keyExtractor={(o) => o.id}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              {allOrders.length === 0 ? 'no orders submitted' : 'no orders matching filter'}
+              {allOrders.length === 0 ? T('section.purchaseOrders.noOrdersSubmitted') : T('section.purchaseOrders.noOrdersMatching')}
             </Text>
           }
           renderItem={({ item: o }) => {
@@ -181,8 +188,8 @@ export default function POsSection() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
               {allOrders.length === 0
-                ? 'no purchase orders submitted yet'
-                : 'select an order'}
+                ? T('section.purchaseOrders.noSubmitted')
+                : T('section.purchaseOrders.selectOrder')}
             </Text>
           </View>
         ) : (
@@ -198,13 +205,13 @@ export default function POsSection() {
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>DUPLICATE</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.purchaseOrders.duplicate')}</Text>
                   </View>
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.purchaseOrders.edit')}</Text>
                   </View>
                   <View style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>RESEND</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.purchaseOrders.resend')}</Text>
                   </View>
                 </View>
               }
@@ -218,41 +225,41 @@ export default function POsSection() {
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.id)}</Text>
-                  <StatusPill status={selStatus === 'sent' ? 'low' : 'ok'} label={selStatus} />
+                  <StatusPill status={selStatus === 'sent' ? 'low' : 'ok'} label={selStatus === 'sent' ? T('section.purchaseOrders.filterSent') : T('section.purchaseOrders.received')} />
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                    · sent {sel.submittedAt.slice(0, 10)}
+                    {T('section.purchaseOrders.sentPrefix', { date: sel.submittedAt.slice(0, 10) })}
                   </Text>
                 </View>
                 <Text style={[Type.h1, { color: C.fg }]}>
-                  {sel.vendorName} · {lineItems.length} lines
+                  {T('section.purchaseOrders.vendorLines', { vendor: sel.vendorName, count: lineItems.length })}
                 </Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                  {sel.day} delivery · submitted by {sel.submittedBy}
+                  {T('section.purchaseOrders.deliveryBy', { day: sel.day, user: sel.submittedBy })}
                 </Text>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <StatCard label="Lines" value={String(lineItems.length)} sub="from vendor catalog" />
-                <StatCard label="Order total" value={`$${subtotal.toFixed(2)}`} sub="net 14d" />
-                <StatCard label="Status" value={selStatus.toUpperCase()} sub={selStatus === 'sent' ? 'awaiting receipt' : 'received'} />
-                <StatCard label="Delivery" value={sel.day.slice(0, 3)} sub={sel.date.slice(0, 10)} />
+                <StatCard label={T('section.purchaseOrders.linesCard')} value={String(lineItems.length)} sub={T('section.purchaseOrders.fromVendorCatalog')} />
+                <StatCard label={T('section.purchaseOrders.orderTotal')} value={`$${subtotal.toFixed(2)}`} sub={T('section.purchaseOrders.net14d')} />
+                <StatCard label={T('section.purchaseOrders.statusCard')} value={selStatus.toUpperCase()} sub={selStatus === 'sent' ? T('section.purchaseOrders.awaitingReceipt') : T('section.purchaseOrders.received')} />
+                <StatCard label={T('section.purchaseOrders.delivery')} value={sel.day.slice(0, 3)} sub={sel.date.slice(0, 10)} />
               </View>
 
               <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                  <SectionCaption tone="fg3" size={10.5}>order_lines.tsv</SectionCaption>
-                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{lineItems.length} items</Text>
+                  <SectionCaption tone="fg3" size={10.5}>{T('section.purchaseOrders.orderLinesTsv')}</SectionCaption>
+                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.purchaseOrders.itemsCount', { count: lineItems.length })}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>id</Text>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>name</Text>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>qty</Text>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>unit $</Text>
-                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>line $</Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70 }}>{T('section.purchaseOrders.idCol')}</Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.purchaseOrders.nameCol')}</Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.purchaseOrders.qtyCol')}</Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.purchaseOrders.unitCol')}</Text>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.purchaseOrders.lineCol')}</Text>
                 </View>
                 {lineItems.length === 0 ? (
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-                    no line items derived for this vendor
+                    {T('section.purchaseOrders.noLineItems')}
                   </Text>
                 ) : (
                   <>
@@ -298,7 +305,7 @@ export default function POsSection() {
                     >
                       <View style={{ width: 70 }} />
                       <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>
-                        subtotal · {lineItems.length} lines
+                        {T('section.purchaseOrders.subtotalRow', { count: lineItems.length })}
                       </Text>
                       <View style={{ width: 90 }} />
                       <View style={{ width: 90 }} />
@@ -321,6 +328,7 @@ export default function POsSection() {
 // ─── history.tsx — vendor PO lifecycle log ────────────────────────────
 export function POHistoryTab({ vendorIdFilter }: { vendorIdFilter?: string } = {}) {
   const C = useCmdColors();
+  const T = useT();
   const orderSubmissions = useStore((s) => s.orderSubmissions);
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
@@ -342,34 +350,34 @@ export function POHistoryTab({ vendorIdFilter }: { vendorIdFilter?: string } = {
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{vendorName ? `${vendorName} · orders` : 'PO history'}</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{vendorName ? T('section.purchaseOrders.vendorOrders', { vendor: vendorName }) : T('section.purchaseOrders.historyTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          PO lifecycle log · draft → sent → received → credit
+          {T('section.purchaseOrders.historySubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Orders" value={String(totalSent)} sub={vendorName ? 'this vendor' : 'all vendors'} />
-        <StatCard label="Received" value={String(received)} sub={`${fillPct}% fill`} />
-        <StatCard label="Spend" value={`$${totalSpend.toFixed(0)}`} sub="across orders" />
-        <StatCard label="Last sent" value={orders[0]?.submittedAt?.slice(5, 10) || '—'} sub={orders[0]?.day || '—'} />
+        <StatCard label={T('section.purchaseOrders.ordersCard')} value={String(totalSent)} sub={vendorName ? T('section.purchaseOrders.thisVendor') : T('section.purchaseOrders.allVendors')} />
+        <StatCard label={T('section.purchaseOrders.receivedCard')} value={String(received)} sub={T('section.purchaseOrders.fillPct', { pct: fillPct })} />
+        <StatCard label={T('section.purchaseOrders.spend')} value={`$${totalSpend.toFixed(0)}`} sub={T('section.purchaseOrders.acrossOrders')} />
+        <StatCard label={T('section.purchaseOrders.lastSent')} value={orders[0]?.submittedAt?.slice(5, 10) || '—'} sub={orders[0]?.day || '—'} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>history.log</SectionCaption>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.purchaseOrders.historyLog')}</SectionCaption>
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{orders.length}</Text>
         </View>
         {orders.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no orders yet{vendorName ? ` for ${vendorName}` : ''}
+            {vendorName ? T('section.purchaseOrders.noOrdersForVendor', { vendor: vendorName }) : T('section.purchaseOrders.noOrdersYet')}
           </Text>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110 }}>sent</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>vendor</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90 }}>day</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>total</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>state</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110 }}>{T('section.purchaseOrders.sentCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.purchaseOrders.vendorCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90 }}>{T('section.purchaseOrders.dayCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.purchaseOrders.totalCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.purchaseOrders.stateCol')}</Text>
             </View>
             {orders.map((o, i) => {
               const status = ((o as any).status || 'sent') as string;
@@ -403,18 +411,19 @@ export function POHistoryTab({ vendorIdFilter }: { vendorIdFilter?: string } = {
 // ─── docs.tsx — Tier 2 placeholder ────────────────────────────────────
 function PODocsPlaceholder() {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>PO docs</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.purchaseOrders.docsTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Per-stage attachments (draft / sent / confirmed / received / credit).
+          {T('section.purchaseOrders.docsSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.purchaseOrders.notYetWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-          Needs a `purchase_order_docs` table + Supabase Storage bucket — coming in a follow-up migration.
+          {T('section.purchaseOrders.docsNotWiredBody')}
         </Text>
       </View>
     </ScrollView>

@@ -19,7 +19,7 @@ import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal
 import { confirmAction } from '../../../utils/confirmAction';
 import { Brand, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
-import { userStatusLabel } from '../../../utils/enumLabels';
+import { userStatusLabel, roleLabel } from '../../../utils/enumLabels';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 const fmtDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : '—');
@@ -131,9 +131,9 @@ export default function BrandsSection() {
   if (!isSuperAdmin) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={[Type.h2, { color: C.fg }]}>Not available</Text>
+        <Text style={[Type.h2, { color: C.fg }]}>{T('section.brands.notAvailable')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, marginTop: 6 }}>
-          Brands management is super-admin only.
+          {T('section.brands.notAvailableBody')}
         </Text>
       </View>
     );
@@ -296,8 +296,10 @@ export default function BrandsSection() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
               {visibleBrands.length === 0
-                ? listTab === 'trash' ? 'no brands in trash' : 'no brands yet'
-                : 'select a brand'}
+                ? listTab === 'trash'
+                  ? T('section.brands.noTrashDetail')
+                  : T('section.brands.noBrandsYetDetail')
+                : T('section.brands.selectBrand')}
             </Text>
           </View>
         ) : (
@@ -409,9 +411,9 @@ function ListPane({
               onPress={onNew}
               style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
               accessibilityRole="button"
-              accessibilityLabel="New brand"
+              accessibilityLabel={T('section.brands.newBrandAria')}
             >
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accentFg }}>+ NEW BRAND</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accentFg }}>{T('section.brands.newBrandButton')}</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -419,8 +421,8 @@ function ListPane({
       {/* Spec 012c — Active / Trash sub-tabs. */}
       <TabStrip
         tabs={[
-          { id: 'active', label: `Active (${activeBrands.length})` },
-          { id: 'trash', label: `Trash (${trashBrands.length})` },
+          { id: 'active', label: T('section.brands.activeTab', { count: activeBrands.length }) },
+          { id: 'trash', label: T('section.brands.trashTab', { count: trashBrands.length }) },
         ]}
         activeId={listTab}
         onChange={(id) => setListTab(id as ListTab)}
@@ -428,14 +430,14 @@ function ListPane({
       />
       {loadingStats ? (
         <View style={{ padding: 22 }}>
-          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>loading…</Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{T('common.loading')}</Text>
         </View>
       ) : visible.length === 0 ? (
         <View style={{ padding: 22 }}>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
             {listTab === 'trash'
-              ? 'no soft-deleted brands'
-              : 'no brands yet — click "+ NEW BRAND" to create one'}
+              ? T('section.brands.noTrash')
+              : T('section.brands.noBrandsHint')}
           </Text>
         </View>
       ) : (
@@ -928,7 +930,7 @@ function MembersTab({
                     }}
                   >
                     <Text style={{ fontFamily: mono(700), fontSize: 9, color: C.fg2, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                      {u.role}
+                      {roleLabel(u.role, T)}
                     </Text>
                   </View>
                   <StatusPill

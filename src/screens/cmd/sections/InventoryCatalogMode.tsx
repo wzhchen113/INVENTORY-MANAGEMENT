@@ -215,15 +215,15 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={[Type.h2, { color: C.fg }]}>Inventory</Text>
+            <Text style={[Type.h2, { color: C.fg }]}>{T('section.inventory.title')}</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {groups.length} unique
+              {T('section.inventory.uniqueCount', { count: groups.length })}
             </Text>
           </View>
           <FilterInput
             value={filterText}
             onChangeText={setFilterText}
-            placeholder="cat:protein vendor:sysco"
+            placeholder={T('section.inventory.filterPlaceholder')}
           />
           <ScrollView
             horizontal
@@ -231,7 +231,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
             contentContainerStyle={{ gap: 6 }}
           >
             <FilterChip
-              label="all"
+              label={T('section.inventory.filterAll')}
               count={groups.length}
               selected={!categoryFilter && !showUnfinished}
               onPress={() => {
@@ -261,7 +261,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
             })}
             {unfinishedCount > 0 ? (
               <FilterChip
-                label="unfinished"
+                label={T('section.inventory.filterUnfinished')}
                 count={unfinishedCount}
                 selected={showUnfinished}
                 onPress={() => {
@@ -278,7 +278,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
           keyExtractor={(g) => g.key}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              {groups.length === 0 ? 'no ingredients defined yet' : 'no matches'}
+              {groups.length === 0 ? T('section.inventory.noIngredients') : T('section.inventory.noMatches')}
             </Text>
           }
           renderItem={({ item: g }) => {
@@ -325,11 +325,13 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     {localizedCategory.toLowerCase()}
                   </Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                    in {g.storeCount} {g.storeCount === 1 ? 'store' : 'stores'}
+                    {g.storeCount === 1
+                      ? T('section.inventory.inStore', { count: g.storeCount })
+                      : T('section.inventory.inStores', { count: g.storeCount })}
                   </Text>
                   <View style={{ flex: 1 }} />
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: g.unfinished ? C.danger : C.fg, fontVariant: ['tabular-nums'] }}>
-                    {avgCost > 0 ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}` : 'no cost'}
+                    {avgCost > 0 ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}` : T('section.inventory.noCost')}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -343,7 +345,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
         {!sel ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-              {groups.length === 0 ? 'no ingredients defined' : 'select an ingredient'}
+              {groups.length === 0 ? T('section.inventory.noIngredientsDefined') : T('section.inventory.selectIngredient')}
             </Text>
           </View>
         ) : (
@@ -360,29 +362,31 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity onPress={() => setExportOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EXPORT CSV</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.inventory.exportCsv')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setEditDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.inventory.edit')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => {
                       confirmAction(
-                        `Delete "${sel.name}" everywhere?`,
-                        `Removes ${sel.rows.length} per-store inventory ${sel.rows.length === 1 ? 'row' : 'rows'} across all stores. The brand catalog ingredient is left in place — re-link by counting at any store again.`,
+                        T('section.inventory.deleteEverywhere', { name: sel.name }),
+                        sel.rows.length === 1
+                          ? T('section.inventory.deleteEverywhereBodyOne', { count: sel.rows.length })
+                          : T('section.inventory.deleteEverywhereBody', { count: sel.rows.length }),
                         () => {
                           sel.rows.forEach((r) => deleteItem(r.id));
                           onSelectName(null);
-                          Toast.show({ type: 'success', text1: 'Deleted', text2: `${sel.name} (${sel.rows.length} stores)` });
+                          Toast.show({ type: 'success', text1: T('section.inventory.deletedToast'), text2: T('section.inventory.deletedToastDetail', { name: sel.name, count: sel.rows.length }) });
                         },
                       );
                     }}
                     style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
                   >
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>{T('section.inventory.delete')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setNewDrawerOpen(true)} style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ NEW INGREDIENT</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.inventory.newIngredient')}</Text>
                   </TouchableOpacity>
                 </View>
               }
@@ -400,16 +404,18 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     {getLocalizedName({ name: sel.name, i18nNames: sel.i18nNames }, locale)}
                   </Text>
                   <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                    {sel.category.toLowerCase()} · supplied by {selVendorName} · in {sel.storeCount} {sel.storeCount === 1 ? 'store' : 'stores'} · last edited {relativeTime(selLastCount) || 'never'} ago
+                    {sel.storeCount === 1
+                      ? T('section.inventory.suppliedByOne', { category: sel.category.toLowerCase(), vendor: selVendorName, count: sel.storeCount, time: relativeTime(selLastCount) || T('section.inventory.neverEdited') })
+                      : T('section.inventory.suppliedBy', { category: sel.category.toLowerCase(), vendor: selVendorName, count: sel.storeCount, time: relativeTime(selLastCount) || T('section.inventory.neverEdited') })}
                   </Text>
                 </View>
 
                 {/* 4-up stats — cross-store rollup */}
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <StatCard label="Stores"        value={String(sel.storeCount)}                       sub={`of ${stores.length} total`} />
-                  <StatCard label="Total on hand" value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`}    sub="across all stores" />
-                  <StatCard label="Avg cost / unit" value={selAvgCost > 0 ? `$${selAvgCost.toFixed(2)}` : '—'} sub="stock-weighted" />
-                  <StatCard label="Avg par"       value={selAvgPar > 0 ? `${selAvgPar.toFixed(1)} ${unitLabel(sel.unit, T)}` : '—'} sub="per store" />
+                  <StatCard label={T('section.inventory.storesCard')}        value={String(sel.storeCount)}                       sub={T('section.inventory.ofTotal', { count: stores.length })} />
+                  <StatCard label={T('section.inventory.totalOnHand')} value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`}    sub={T('section.inventory.acrossStores')} />
+                  <StatCard label={T('section.inventory.avgCostPerUnit')} value={selAvgCost > 0 ? `$${selAvgCost.toFixed(2)}` : '—'} sub={T('section.inventory.stockWeighted')} />
+                  <StatCard label={T('section.inventory.avgPar')}       value={selAvgPar > 0 ? `${selAvgPar.toFixed(1)} ${unitLabel(sel.unit, T)}` : '—'} sub={T('section.inventory.perStore')} />
                 </View>
 
                 {/* Stores breakdown + properties */}
@@ -425,17 +431,19 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     }}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                      <SectionCaption tone="fg3" size={10.5}>stores.tsv</SectionCaption>
+                      <SectionCaption tone="fg3" size={10.5}>{T('section.inventory.storesTsv')}</SectionCaption>
                       <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-                        {sel.rows.length} {sel.rows.length === 1 ? 'row' : 'rows'}
+                        {sel.rows.length === 1
+                          ? T('section.inventory.rowsCountOne', { count: sel.rows.length })
+                          : T('section.inventory.rowsCount', { count: sel.rows.length })}
                       </Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 30 }}>id</Text>
-                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>store</Text>
-                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>on hand</Text>
-                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>par</Text>
-                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>status</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.inventory.storeCol')}</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.inventory.onHandCol')}</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>{T('section.inventory.parCol')}</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>{T('section.inventory.statusCol')}</Text>
                     </View>
                     {sel.rows.map((row, i) => {
                       const store = stores.find((s) => s.id === row.storeId);
@@ -546,34 +554,34 @@ function CatalogStoresTab({ sel }: { sel: Group }) {
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{sel.name} · per-store</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.inventory.perStoreTitle', { name: sel.name })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Same catalog row, different per-store overrides (par, vendor, price, current stock).
+          {T('section.inventory.perStoreSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Stores carrying" value={`${sel.storeCount} / ${stores.length}`} sub="this catalog row" />
-        <StatCard label="On hand · sum" value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`} sub="all stores combined" />
-        <StatCard label="Par · range" value={`${Math.min(...sel.rows.map((r) => r.parLevel))}–${Math.max(...sel.rows.map((r) => r.parLevel))}`} sub={unitLabel(sel.unit, T)} />
-        <StatCard label="Cost · range" value={(() => {
+        <StatCard label={T('section.inventory.storesCarrying')} value={`${sel.storeCount} / ${stores.length}`} sub={T('section.inventory.thisCatalogRow')} />
+        <StatCard label={T('section.inventory.onHandSum')} value={`${sel.totalStock.toFixed(1)} ${unitLabel(sel.unit, T)}`} sub={T('section.inventory.allStoresCombined')} />
+        <StatCard label={T('section.inventory.parRange')} value={`${Math.min(...sel.rows.map((r) => r.parLevel))}–${Math.max(...sel.rows.map((r) => r.parLevel))}`} sub={unitLabel(sel.unit, T)} />
+        <StatCard label={T('section.inventory.costRange')} value={(() => {
           const costs = sel.rows.map((r) => r.costPerUnit || 0).filter((c) => c > 0);
           if (costs.length === 0) return '—';
           const lo = Math.min(...costs), hi = Math.max(...costs);
           return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–${hi.toFixed(2)}`;
-        })()} sub="per store" />
+        })()} sub={T('section.inventory.perStore')} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>stores.tsv</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{sel.rows.length} rows</Text>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.inventory.storesTsv')}</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.inventory.rowsCount', { count: sel.rows.length })}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>store</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.2 }}>vendor</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>on hand</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>par</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cost / u</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>status</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>{T('section.inventory.storeCol')}</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.2 }}>{T('section.inventory.vendorCol')}</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.inventory.onHandCol')}</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>{T('section.inventory.parCol')}</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.inventory.costPerUnitCol')}</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>{T('section.inventory.statusCol')}</Text>
         </View>
         {sel.rows.map((row, i) => {
           const store = stores.find((s) => s.id === row.storeId);
@@ -582,7 +590,7 @@ function CatalogStoresTab({ sel }: { sel: Group }) {
           return (
             <View key={row.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, backgroundColor: isCurrent ? C.accentBg : 'transparent' }}>
               <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1.4 }} numberOfLines={1}>
-                {store?.name || row.storeId.slice(0, 6)}{isCurrent ? ' ← current' : ''}
+                {store?.name || row.storeId.slice(0, 6)}{isCurrent ? T('section.inventory.currentMarker') : ''}
               </Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, flex: 1.2 }} numberOfLines={1}>
                 {vendor?.name || '—'}
@@ -689,12 +697,12 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
   const handleAdd = () => {
     const pu = addPurchaseUnit.trim().toLowerCase();
     if (!pu) {
-      Toast.show({ type: 'error', text1: 'Purchase unit is required' });
+      Toast.show({ type: 'error', text1: T('section.inventory.purchaseUnitRequired') });
       return;
     }
     const factorN = parseFloat(addFactor);
     if (!isFinite(factorN) || factorN <= 0) {
-      Toast.show({ type: 'error', text1: 'Factor must be a positive number' });
+      Toast.show({ type: 'error', text1: T('section.inventory.factorRequired') });
       return;
     }
     // Yield % must land in (0, 100]. Empty / blank input falls back to 100
@@ -706,7 +714,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
     if (yieldRaw !== '') {
       const parsed = parseFloat(yieldRaw);
       if (!isFinite(parsed) || parsed <= 0 || parsed > 100) {
-        Toast.show({ type: 'error', text1: 'Yield % must be between 0 and 100' });
+        Toast.show({ type: 'error', text1: T('section.inventory.yieldRange') });
         return;
       }
       yieldN = parsed;
@@ -719,7 +727,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
       netYieldPct: yieldN,
     };
     addIngredientConversion(conv);
-    Toast.show({ type: 'success', text1: 'Conversion added', text2: `1 ${pu} = ${factorN} ${addBaseUnit}` });
+    Toast.show({ type: 'success', text1: T('section.inventory.conversionAdded'), text2: T('section.inventory.conversionAddedDetail', { pu, factor: factorN, baseUnit: addBaseUnit }) });
     setAddPurchaseUnit('');
     setAddFactor('');
     setAddYield('100');
@@ -741,11 +749,11 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
     const pu = editValues.purchaseUnit.trim().toLowerCase();
     const factorN = parseFloat(editValues.factor);
     if (!pu) {
-      Toast.show({ type: 'error', text1: 'Purchase unit is required' });
+      Toast.show({ type: 'error', text1: T('section.inventory.purchaseUnitRequired') });
       return;
     }
     if (!isFinite(factorN) || factorN <= 0) {
-      Toast.show({ type: 'error', text1: 'Factor must be a positive number' });
+      Toast.show({ type: 'error', text1: T('section.inventory.factorRequired') });
       return;
     }
     // Same range-check as handleAdd — security-auditor M1.
@@ -754,7 +762,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
     if (yieldRaw !== '') {
       const parsed = parseFloat(yieldRaw);
       if (!isFinite(parsed) || parsed <= 0 || parsed > 100) {
-        Toast.show({ type: 'error', text1: 'Yield % must be between 0 and 100' });
+        Toast.show({ type: 'error', text1: T('section.inventory.yieldRange') });
         return;
       }
       yieldN = parsed;
@@ -765,16 +773,16 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
       conversionFactor: factorN,
       netYieldPct: yieldN,
     });
-    Toast.show({ type: 'success', text1: 'Conversion updated' });
+    Toast.show({ type: 'success', text1: T('section.inventory.conversionUpdated') });
     setEditingId(null);
   };
   const handleDelete = (conv: IngredientConversion) => {
     confirmAction(
-      `Delete conversion "${conv.purchaseUnit}"?`,
-      'Recipes that use this purchase unit will fall back to step-2 cost-calc; if there is no sub-unit pair set, they will become unmatchable until the row is recreated.',
+      T('section.inventory.deleteConversionConfirm', { name: conv.purchaseUnit }),
+      T('section.inventory.deleteConversionBody'),
       () => {
         deleteIngredientConversion(conv.id);
-        Toast.show({ type: 'success', text1: 'Conversion deleted' });
+        Toast.show({ type: 'success', text1: T('section.inventory.conversionDeleted') });
       },
     );
   };
@@ -782,27 +790,27 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
   return (
     <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{sel.name} · conversions</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.inventory.conversionsTitle', { name: sel.name })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Unit translation table. Without these rows, recipes that use a different unit than the base can't compute cost or depletion.
+          {T('section.inventory.conversionsSubtitle')}
         </Text>
       </View>
 
       {/* ── Add-row card ─────────────────────────────────────── */}
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 10 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <SectionCaption tone="fg3" size={10.5}>+ add conversion</SectionCaption>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.inventory.addConversion')}</SectionCaption>
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-            e.g. 1 case = 40 lbs (chicken leg)
+            {T('section.inventory.addConversionHint')}
           </Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>purchase unit</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>{T('section.inventory.purchaseUnit')}</Text>
             <TextInput
               value={addPurchaseUnit}
               onChangeText={setAddPurchaseUnit}
-              placeholder="case / bag / tray"
+              placeholder={T('section.inventory.purchaseUnitPlaceholder')}
               placeholderTextColor={C.fg3}
               autoCapitalize="none"
               style={{
@@ -825,12 +833,12 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
           </View>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingBottom: 8 }}>=</Text>
           <View style={{ width: 100 }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>factor</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>{T('section.inventory.factor')}</Text>
             <NumericInput value={addFactor} onChange={setAddFactor} placeholder="40" width={100} />
           </View>
           <View style={{ flex: 1 }}>
             <SelectField
-              label="base unit"
+              label={T('section.inventory.baseUnit')}
               value={addBaseUnit}
               options={baseUnitOptions}
               onChange={setAddBaseUnit}
@@ -838,20 +846,20 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
             />
           </View>
           <TouchableOpacity onPress={handleAdd} style={{ paddingVertical: 7, paddingHorizontal: 12, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>ADD</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 11, color: '#000' }}>{T('section.inventory.addBtn')}</Text>
           </TouchableOpacity>
         </View>
         {/* Advanced disclosure: net_yield_pct */}
         <TouchableOpacity onPress={() => setShowAdvanced((p) => !p)} activeOpacity={0.7}>
           <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg3 }}>
-            {showAdvanced ? '▼' : '▶'} advanced — yield % (default 100)
+            {showAdvanced ? '▼' : '▶'} {T('section.inventory.advancedHint')}
           </Text>
         </TouchableOpacity>
         {showAdvanced ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>net yield</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>{T('section.inventory.netYieldLabel')}</Text>
             <NumericInput value={addYield} onChange={setAddYield} placeholder="92" width={80} />
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>% (waste / trim discount)</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{T('section.inventory.yieldDescription')}</Text>
           </View>
         ) : null}
       </View>
@@ -859,25 +867,29 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
       {/* ── Conversions list ──────────────────────────────── */}
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>conversions.tsv</SectionCaption>
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{conversions.length} {conversions.length === 1 ? 'row' : 'rows'} · base unit "{unitLabel(sel.unit, T)}"</Text>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.inventory.conversionsTsv')}</SectionCaption>
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            {conversions.length === 1
+              ? T('section.inventory.rowsBaseUnitOne', { count: conversions.length, unit: unitLabel(sel.unit, T) })
+              : T('section.inventory.rowsBaseUnit', { count: conversions.length, unit: unitLabel(sel.unit, T) })}
+          </Text>
         </View>
         {conversions.length === 0 ? (
           <View style={{ padding: 18, gap: 6 }}>
-            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>FIX — NO CONVERSIONS</Text>
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.warn, letterSpacing: 0.4 }}>{T('section.inventory.fixNoConversions')}</Text>
             <Text style={{ fontFamily: sans(400), fontSize: 12, color: C.fg2 }}>
-              Recipes that consume {sel.name} in a unit other than {unitLabel(sel.unit, T)} can't compute cost. Use the form above to add one — e.g. "1 case = 40 lbs".
+              {T('section.inventory.noConversionsBody', { name: sel.name, unit: unitLabel(sel.unit, T) })}
             </Text>
           </View>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>purchase u</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.inventory.purchaseUCol')}</Text>
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40, textAlign: 'center' }}>→</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>base u</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>factor</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>net yield</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>actions</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.inventory.baseUCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>{T('section.inventory.factorCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>{T('section.inventory.netYieldCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>{T('section.inventory.actionsCol')}</Text>
             </View>
             {conversions.map((conv, i) => {
               const isEditing = editingId === conv.id;
@@ -902,10 +914,10 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
                       <NumericInput value={editValues.yield} onChange={(v) => setEditValues((p) => ({ ...p, yield: v }))} width={70} />
                       <View style={{ flexDirection: 'row', gap: 6, width: 110, justifyContent: 'flex-end' }}>
                         <TouchableOpacity onPress={saveEdit} style={{ paddingVertical: 4, paddingHorizontal: 8, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>SAVE</Text>
+                          <Text style={{ fontFamily: mono(700), fontSize: 10, color: '#000' }}>{T('section.inventory.saveBtn')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={cancelEdit} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>CANCEL</Text>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>{T('section.inventory.cancelBtn')}</Text>
                         </TouchableOpacity>
                       </View>
                     </>
@@ -922,7 +934,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
                       </Text>
                       <View style={{ flexDirection: 'row', gap: 6, width: 110, justifyContent: 'flex-end' }}>
                         <TouchableOpacity onPress={() => startEdit(conv)} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}>
-                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>EDIT</Text>
+                          <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.fg2 }}>{T('section.inventory.edit')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => handleDelete(conv)} style={{ paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}>
                           <Text style={{ fontFamily: mono(500), fontSize: 10, color: C.danger }}>DEL</Text>

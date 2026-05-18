@@ -12,6 +12,7 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { VendorFormDrawer } from '../../../components/cmd/VendorFormDrawer';
 import { confirmAction } from '../../../utils/confirmAction';
+import { useT } from '../../../hooks/useT';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -19,6 +20,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 // the right-pane content with vendor profile + catalog + properties.
 export default function VendorsSection() {
   const C = useCmdColors();
+  const T = useT();
   const vendors = useStore((s) => s.vendors);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -64,16 +66,16 @@ export default function VendorsSection() {
             justifyContent: 'space-between',
           }}
         >
-          <Text style={[Type.h2, { color: C.fg }]}>Vendors</Text>
+          <Text style={[Type.h2, { color: C.fg }]}>{T('section.vendors.title')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {vendors.length} active
+              {T('section.vendors.active', { count: vendors.length })}
             </Text>
             <TouchableOpacity
               onPress={() => setNewDrawerOpen(true)}
               style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
               accessibilityRole="button"
-              accessibilityLabel="New vendor"
+              accessibilityLabel={T('section.vendors.newAria')}
             >
               <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
             </TouchableOpacity>
@@ -102,10 +104,12 @@ export default function VendorsSection() {
               >
                 <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{v.name}</Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                  {(v.categories || []).join(', ').toLowerCase() || 'no categories'}
+                  {(v.categories || []).join(', ').toLowerCase() || T('section.vendors.noCategories')}
                 </Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                  lead {v.leadTimeDays ?? 0}d{v.orderCutoffTime ? ` · cutoff ${v.orderCutoffTime}` : ''}
+                  {v.orderCutoffTime
+                    ? T('section.vendors.leadCutoffWithCutoff', { leadTime: v.leadTimeDays ?? 0, cutoff: v.orderCutoffTime })
+                    : T('section.vendors.leadCutoff', { leadTime: v.leadTimeDays ?? 0 })}
                 </Text>
               </TouchableOpacity>
             );
@@ -118,7 +122,7 @@ export default function VendorsSection() {
         {!sel ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-              {vendors.length === 0 ? 'no vendors yet' : 'select a vendor'}
+              {vendors.length === 0 ? T('section.vendors.noVendorsHint') : T('section.vendors.selectVendor')}
             </Text>
           </View>
         ) : (
@@ -138,23 +142,23 @@ export default function VendorsSection() {
                     onPress={() => setEditDrawerOpen(true)}
                     style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
                   >
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>EDIT</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.vendors.edit')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => {
                       confirmAction(
-                        `Delete vendor "${sel.name}"?`,
-                        'Items still pointing at this vendor will keep the foreign-key value but show as "no vendor" until reassigned.',
+                        T('section.vendors.deleteVendorConfirm', { name: sel.name }),
+                        T('section.vendors.deleteVendorBody'),
                         () => {
                           deleteVendor(sel.id);
                           setSelectedId(null);
-                          Toast.show({ type: 'success', text1: 'Deleted', text2: sel.name });
+                          Toast.show({ type: 'success', text1: T('section.vendors.deletedToast'), text2: sel.name });
                         },
                       );
                     }}
                     style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
                   >
-                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>{T('section.vendors.delete')}</Text>
                   </TouchableOpacity>
                 </View>
               }
@@ -164,11 +168,11 @@ export default function VendorsSection() {
               <View style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{shortId(sel.id)}</Text>
-                  <StatusPill status="ok" label="ACTIVE" />
+                  <StatusPill status="ok" label={T('section.vendors.active2')} />
                 </View>
                 <Text style={[Type.h1, { color: C.fg }]}>{sel.name}</Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                  {(sel.categories || []).join(' · ') || 'no categories'}
+                  {(sel.categories || []).join(' · ') || T('section.vendors.noCategories')}
                   {sel.contactName ? ` · ${sel.contactName}` : ''}
                   {sel.phone ? ` · ${sel.phone}` : ''}
                 </Text>
@@ -178,10 +182,10 @@ export default function VendorsSection() {
                 <>
                   {/* 4-up stats */}
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <StatCard label="Lead time"   value={`${sel.leadTimeDays ?? 0}d`}            sub="standard" />
-                    <StatCard label="Cutoff"      value={sel.orderCutoffTime || '—'}             sub={(sel.deliveryDays || []).join(' ').toLowerCase() || 'no schedule'} />
-                    <StatCard label="Catalog"     value={`${catalog.length}`}                    sub="items @ this store" />
-                    <StatCard label="Last order"  value={sel.lastOrderDate ? sel.lastOrderDate.slice(0, 10) : '—'} sub="trailing 90d" />
+                    <StatCard label={T('section.vendors.leadTime')}   value={`${sel.leadTimeDays ?? 0}d`}            sub={T('section.vendors.standard')} />
+                    <StatCard label={T('section.vendors.cutoff')}      value={sel.orderCutoffTime || '—'}             sub={(sel.deliveryDays || []).join(' ').toLowerCase() || T('section.vendors.noSchedule')} />
+                    <StatCard label={T('section.vendors.catalog')}     value={`${catalog.length}`}                    sub={T('section.vendors.itemsAtStore')} />
+                    <StatCard label={T('section.vendors.lastOrder')}  value={sel.lastOrderDate ? sel.lastOrderDate.slice(0, 10) : '—'} sub={T('section.vendors.trailing90d')} />
                   </View>
 
                   {/* Catalog + properties side-by-side */}
@@ -198,12 +202,12 @@ export default function VendorsSection() {
                       }}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <SectionCaption tone="fg3" size={10.5}>catalog</SectionCaption>
-                        <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{catalog.length} items</Text>
+                        <SectionCaption tone="fg3" size={10.5}>{T('section.vendors.catalogCaption')}</SectionCaption>
+                        <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{T('section.vendors.itemsCount', { count: catalog.length })}</Text>
                       </View>
                       {catalog.length === 0 ? (
                         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, paddingVertical: 6 }}>
-                          no items at this store
+                          {T('section.vendors.noItemsAtStore')}
                         </Text>
                       ) : (
                         catalog.map((it, i) => (
@@ -225,7 +229,7 @@ export default function VendorsSection() {
                               ${it.costPerUnit.toFixed(2)}/{it.unit}
                             </Text>
                             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'right' }}>
-                              par {it.parLevel}
+                              {T('section.vendors.par', { value: it.parLevel })}
                             </Text>
                           </View>
                         ))
@@ -289,6 +293,7 @@ export default function VendorsSection() {
 // ─── catalog.tsx — items vendor supplies, deduped at brand level ──────
 function VendorCatalogTab({ vendorId }: { vendorId: string }) {
   const C = useCmdColors();
+  const T = useT();
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
 
@@ -304,15 +309,15 @@ function VendorCatalogTab({ vendorId }: { vendorId: string }) {
   return (
     <View style={{ gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>vendor · catalog</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.vendors.catalogTabTitle')}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Items this vendor supplies at the current store. Each row is a per-store inventory_items row keyed to vendor_id.
+          {T('section.vendors.catalogTabSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="SKUs" value={String(items.length)} sub="at this store" />
-        <StatCard label="Case sum" value={`$${totalValue.toFixed(0)}`} sub="list price total" />
-        <StatCard label="Avg lead time" value="—" sub="per vendor" />
+        <StatCard label={T('section.vendors.skus')} value={String(items.length)} sub={T('section.vendors.atThisStore')} />
+        <StatCard label={T('section.vendors.caseSum')} value={`$${totalValue.toFixed(0)}`} sub={T('section.vendors.listPriceTotal')} />
+        <StatCard label={T('section.vendors.avgLeadTime')} value="—" sub={T('section.vendors.perVendor')} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -321,16 +326,16 @@ function VendorCatalogTab({ vendorId }: { vendorId: string }) {
         </View>
         {items.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no items at this store linked to this vendor
+            {T('section.vendors.noItemsForVendor')}
           </Text>
         ) : (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>item</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>category</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>case</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cost / u</Text>
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>par</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1.4 }}>{T('section.vendors.itemCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.vendors.categoryCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.vendors.caseCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.vendors.costPerUnitCol')}</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 70, textAlign: 'right' }}>{T('section.vendors.parCol')}</Text>
             </View>
             {items.map((it, i) => (
               <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
@@ -355,28 +360,30 @@ function VendorCatalogTab({ vendorId }: { vendorId: string }) {
 // ─── contacts.tsx — vendor contacts (Tier 2 — needs vendor_contacts table) ─
 function VendorContactsPlaceholder({ vendorName, contactName, email, phone }: { vendorName: string; contactName?: string; email?: string; phone?: string }) {
   const C = useCmdColors();
+  const T = useT();
+  const unset = T('section.vendors.unset');
   return (
     <View style={{ gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{vendorName} · contacts</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.vendors.contactsTitle', { name: vendorName })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Recipients (orders / credits / rep) + open + resolved threads.
+          {T('section.vendors.contactsSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <SectionCaption tone="fg3" size={10.5}>primary_contact.json</SectionCaption>
+          <SectionCaption tone="fg3" size={10.5}>{T('section.vendors.primaryContactJson')}</SectionCaption>
         </View>
         <View style={{ padding: 14, gap: 6 }}>
-          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>name: <Text style={{ color: C.fg2 }}>{contactName || 'unset'}</Text></Text>
-          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>email: <Text style={{ color: C.fg2 }}>{email || 'unset'}</Text></Text>
-          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>phone: <Text style={{ color: C.fg2 }}>{phone || 'unset'}</Text></Text>
+          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>{T('section.vendors.name')}: <Text style={{ color: C.fg2 }}>{contactName || unset}</Text></Text>
+          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>{T('section.vendors.email')}: <Text style={{ color: C.fg2 }}>{email || unset}</Text></Text>
+          <Text style={{ fontFamily: mono(500), fontSize: 12, color: C.fg }}>{T('section.vendors.phone')}: <Text style={{ color: C.fg2 }}>{phone || unset}</Text></Text>
         </View>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>THREADS — NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.vendors.threadsNotWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-          Multi-recipient threads (orders / credits / rep) need a `vendor_contacts` + `vendor_threads` table — coming in a follow-up migration.
+          {T('section.vendors.threadsNotWiredBody')}
         </Text>
       </View>
     </View>

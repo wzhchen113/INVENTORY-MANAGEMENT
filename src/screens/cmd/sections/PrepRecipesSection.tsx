@@ -14,6 +14,7 @@ import { PrepRecipeFormDrawer } from '../../../components/cmd/PrepRecipeFormDraw
 import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
 import { getConversionFactor } from '../../../utils/unitConversion';
+import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { getLocalizedName } from '../../../i18n/localizedName';
 
@@ -27,6 +28,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 // getPrepRecipeCost + getPrepRecipeCostPerUnit selectors.
 export default function PrepRecipesSection() {
   const C = useCmdColors();
+  const T = useT();
   const role = useRole();
   const locale = useLocale();
   const prepRecipes = useStore((s) => s.prepRecipes);
@@ -131,19 +133,19 @@ export default function PrepRecipesSection() {
             justifyContent: 'space-between',
           }}
         >
-          <Text style={[Type.h2, { color: C.fg }]}>Prep recipes</Text>
+          <Text style={[Type.h2, { color: C.fg }]}>{T('section.prepRecipes.listTitle')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {storePrepRecipes.length} active
+              {storePrepRecipes.length} {T('section.prepRecipes.active')}
             </Text>
             {role === 'admin' ? (
               <TouchableOpacity
                 onPress={() => setDrawerMode('new')}
                 style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
                 accessibilityRole="button"
-                accessibilityLabel="New prep recipe"
+                accessibilityLabel={T('section.prepRecipes.newAria')}
               >
-                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>{T('section.prepRecipes.newButton')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -153,7 +155,7 @@ export default function PrepRecipesSection() {
           keyExtractor={(r) => r.id}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-              no prep recipes for {currentStore.name || 'this store'}
+              {T('section.prepRecipes.noPrepsForStore', { storeName: currentStore.name || T('chrome.store') })}
             </Text>
           }
           renderItem={({ item: r }) => {
@@ -213,8 +215,8 @@ export default function PrepRecipesSection() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
               {storePrepRecipes.length === 0
-                ? 'no prep recipes yet — sub-recipes used as ingredients in menu items'
-                : 'select a prep recipe'}
+                ? T('section.prepRecipes.noPrepsHint')
+                : T('section.prepRecipes.selectPrep')}
             </Text>
           </View>
         ) : (
@@ -235,29 +237,29 @@ export default function PrepRecipesSection() {
                       onPress={() => setDrawerMode('duplicate')}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>DUPLICATE</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.prepRecipes.duplicate')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
                         confirmAction(
-                          `Delete "${sel.name}"?`,
-                          'Removes the prep recipe and its ingredient list. Any menu recipe referencing it will lose the prep link.',
+                          T('section.prepRecipes.deletePrepConfirm', { name: sel.name }),
+                          T('section.prepRecipes.deletePrepBody'),
                           () => {
                             deletePrepRecipe(sel.id);
                             setSelectedId(null);
-                            Toast.show({ type: 'success', text1: 'Deleted', text2: sel.name });
+                            Toast.show({ type: 'success', text1: T('section.prepRecipes.deletedToast'), text2: sel.name });
                           },
                         );
                       }}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>DELETE</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>{T('section.prepRecipes.delete')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => setDrawerMode('edit')}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
                     >
-                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>EDIT</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.prepRecipes.edit')}</Text>
                     </TouchableOpacity>
                   </View>
                 ) : null
@@ -283,18 +285,27 @@ export default function PrepRecipesSection() {
                   {getLocalizedName({ name: sel.name, i18nNames: sel.i18nNames }, locale)}
                 </Text>
                 <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-                  yields {sel.yieldQuantity} {sel.yieldUnit} · {(sel.ingredients || []).length} ingredient
-                  {(sel.ingredients || []).length === 1 ? '' : 's'}
-                  {sel.createdAt ? ` · created ${relativeTime(sel.createdAt) || 'recently'} ago` : ''}
+                  {(sel.ingredients || []).length === 1
+                    ? T('section.prepRecipes.yieldDescription', { qty: sel.yieldQuantity, unit: sel.yieldUnit, count: (sel.ingredients || []).length })
+                    : T('section.prepRecipes.yieldDescriptionPlural', { qty: sel.yieldQuantity, unit: sel.yieldUnit, count: (sel.ingredients || []).length })}
+                  {sel.createdAt
+                    ? (relativeTime(sel.createdAt)
+                        ? T('section.prepRecipes.createdAgo', { time: relativeTime(sel.createdAt) || '' })
+                        : T('section.prepRecipes.createdRecently'))
+                    : ''}
                 </Text>
               </View>
 
               {role === 'admin' ? (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <StatCard label="Total cost"    value={`$${selCost.toFixed(2)}`} sub={`for ${sel.yieldQuantity} ${sel.yieldUnit}`} />
-                  <StatCard label="Cost / unit"   value={`$${selCostPerUnit.toFixed(2)}`} sub={`per ${sel.yieldUnit}`} />
-                  <StatCard label="Ingredients"   value={String((sel.ingredients || []).length)} sub={`${ingredientRows.filter((r) => r.kind === 'sub').length} sub-recipe${ingredientRows.filter((r) => r.kind === 'sub').length === 1 ? '' : 's'}`} />
-                  <StatCard label="Version"       value={`v${sel.version ?? 1}`} sub={sel.parentId ? 'derived' : 'original'} />
+                  <StatCard label={T('section.prepRecipes.totalCost')}    value={`$${selCost.toFixed(2)}`} sub={T('section.prepRecipes.forYield', { qty: sel.yieldQuantity, unit: sel.yieldUnit })} />
+                  <StatCard label={T('section.prepRecipes.costPerUnit')}   value={`$${selCostPerUnit.toFixed(2)}`} sub={T('section.prepRecipes.perUnit', { unit: sel.yieldUnit })} />
+                  <StatCard label={T('section.prepRecipes.ingredientsLabel')}   value={String((sel.ingredients || []).length)} sub={
+                    ingredientRows.filter((r) => r.kind === 'sub').length === 1
+                      ? T('section.prepRecipes.subRecipeCount', { count: ingredientRows.filter((r) => r.kind === 'sub').length })
+                      : T('section.prepRecipes.subRecipeCountPlural', { count: ingredientRows.filter((r) => r.kind === 'sub').length })
+                  } />
+                  <StatCard label={T('section.prepRecipes.version')}       value={`v${sel.version ?? 1}`} sub={sel.parentId ? T('section.prepRecipes.derived') : T('section.prepRecipes.original')} />
                 </View>
               ) : null}
 
@@ -314,25 +325,25 @@ export default function PrepRecipesSection() {
                     <SectionCaption tone="fg3" size={10.5}>bom.tsv</SectionCaption>
                     {role === 'admin' ? (
                       <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-                        {ingredientRows.length} lines · total ${selCost.toFixed(2)}
+                        {T('section.prepRecipes.lineSummary', { count: ingredientRows.length, cost: selCost.toFixed(2) })}
                       </Text>
                     ) : null}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40 }}>kind</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>id</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>name</Text>
-                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>qty</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 40 }}>{T('section.prepRecipes.kindCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60 }}>{T('section.prepRecipes.idCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.prepRecipes.nameCol')}</Text>
+                    <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 90, textAlign: 'right' }}>{T('section.prepRecipes.qtyCol')}</Text>
                     {role === 'admin' ? (
                       <>
-                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>cost</Text>
-                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>%</Text>
+                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.prepRecipes.costCol')}</Text>
+                        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>{T('section.prepRecipes.pctCol')}</Text>
                       </>
                     ) : null}
                   </View>
                   {ingredientRows.length === 0 ? (
                     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-                      no ingredients defined
+                      {T('section.prepRecipes.noIngredients')}
                     </Text>
                   ) : (
                     ingredientRows.map((row, i) => (
@@ -358,7 +369,7 @@ export default function PrepRecipesSection() {
                             letterSpacing: 0.5,
                           }}
                         >
-                          {row.kind === 'sub' ? 'PREP' : 'RAW'}
+                          {row.kind === 'sub' ? T('section.prepRecipes.subKind') : T('section.prepRecipes.raw')}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60 }}>{shortId(row.id)}</Text>
                         <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>
@@ -405,7 +416,7 @@ export default function PrepRecipesSection() {
                             { key: 'total_cost',    value: `$${selCost.toFixed(2)}` },
                             { key: 'cost_per_unit', value: `$${selCostPerUnit.toFixed(2)}` },
                           ]
-                        : [{ key: 'cost', value: '— admin only' }]),
+                        : [{ key: 'cost', value: T('common.adminOnly') }]),
                       { key: 'notes',        value: sel.notes ? `"${sel.notes}"` : '"—"' },
                     ]}
                   />
@@ -430,6 +441,7 @@ export default function PrepRecipesSection() {
 // ─── sub_recipes.tsx — children + parents graph ───────────────────────
 function PrepSubRecipesTab({ prep }: { prep: any }) {
   const C = useCmdColors();
+  const T = useT();
   const prepRecipes = useStore((s) => s.prepRecipes);
 
   // Children: this prep's ingredients with type === 'prep' point at other preps.
@@ -439,13 +451,13 @@ function PrepSubRecipesTab({ prep }: { prep: any }) {
       const child = prepRecipes.find((p) => p.id === i.itemId);
       return {
         id: i.itemId,
-        name: child?.name || `(missing ${String(i.itemId).slice(0, 6)})`,
+        name: child?.name || T('section.prepRecipes.missingMarker', { id: String(i.itemId).slice(0, 6) }),
         quantity: i.quantity,
         unit: i.unit,
         broken: !child,
       };
     });
-  }, [prep, prepRecipes]);
+  }, [prep, prepRecipes, T]);
 
   // Parents: any prep whose ingredients reference THIS prep id.
   const parents = React.useMemo(() => {
@@ -475,16 +487,16 @@ function PrepSubRecipesTab({ prep }: { prep: any }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{prep.name} · sub-recipes</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.prepRecipes.subRecipesTitle', { name: prep.name })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Dependency graph: children (preps this one references) and parents (preps that reference this one).
+          {T('section.prepRecipes.subRecipesSubtitle')}
         </Text>
       </View>
       {circular ? (
         <View style={{ borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.lg, backgroundColor: C.dangerBg, padding: 14 }}>
-          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger, letterSpacing: 0.4 }}>CIRCULAR REFERENCE DETECTED</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.danger, letterSpacing: 0.4 }}>{T('section.prepRecipes.circularDetected')}</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, marginTop: 4 }}>
-            One of this prep's children eventually references back to itself. Cost cascades will fail until resolved.
+            {T('section.prepRecipes.circularBody')}
           </Text>
         </View>
       ) : null}
@@ -495,7 +507,7 @@ function PrepSubRecipesTab({ prep }: { prep: any }) {
             <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{children.length}</Text>
           </View>
           {children.length === 0 ? (
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>no sub-recipe references — only raw ingredients</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>{T('section.prepRecipes.noChildren')}</Text>
           ) : (
             children.map((c: any, i: number) => (
               <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
@@ -511,7 +523,7 @@ function PrepSubRecipesTab({ prep }: { prep: any }) {
             <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{parents.length}</Text>
           </View>
           {parents.length === 0 ? (
-            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>no preps reference this</Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 14 }}>{T('section.prepRecipes.noParents')}</Text>
           ) : (
             parents.map((p, i) => (
               <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 14, gap: 10, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
@@ -529,6 +541,7 @@ function PrepSubRecipesTab({ prep }: { prep: any }) {
 // ─── usage.tsx — where this prep is consumed ──────────────────────────
 function PrepUsageTab({ prep }: { prep: any }) {
   const C = useCmdColors();
+  const T = useT();
   const recipes = useStore((s) => s.recipes);
   const posImports = useStore((s) => s.posImports);
   const currentStore = useStore((s) => s.currentStore);
@@ -564,16 +577,16 @@ function PrepUsageTab({ prep }: { prep: any }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{prep.name} · usage</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.prepRecipes.usageTitle', { name: prep.name })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Where this prep is consumed and how much per week.
+          {T('section.prepRecipes.usageSubtitle')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <StatCard label="Used by" value={String(consumers.length)} sub="recipes" />
-        <StatCard label="Per week" value={`${weeklyDepletion.totalQty.toFixed(1)} ${prep.yieldUnit}`} sub="sales-driven" />
-        <StatCard label="Yield" value={`${yieldQty} ${prep.yieldUnit}`} sub="per batch" />
-        <StatCard label="Days cover" value={daysCover === '—' ? '—' : `${daysCover}d`} sub="at current rate" />
+        <StatCard label={T('section.prepRecipes.usedBy')} value={String(consumers.length)} sub={T('section.prepRecipes.recipes')} />
+        <StatCard label={T('section.prepRecipes.perWeek')} value={`${weeklyDepletion.totalQty.toFixed(1)} ${prep.yieldUnit}`} sub={T('section.prepRecipes.salesDriven')} />
+        <StatCard label={T('section.prepRecipes.yieldLabel')} value={`${yieldQty} ${prep.yieldUnit}`} sub={T('section.prepRecipes.perBatch')} />
+        <StatCard label={T('section.prepRecipes.daysCover')} value={daysCover === '—' ? '—' : `${daysCover}d`} sub={T('section.prepRecipes.atCurrentRate')} />
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -582,7 +595,7 @@ function PrepUsageTab({ prep }: { prep: any }) {
         </View>
         {consumers.length === 0 ? (
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
-            no recipes reference this prep yet
+            {T('section.prepRecipes.noConsumers')}
           </Text>
         ) : (
           consumers.map(({ recipe, qtyPerSale, unit }, i) => (
@@ -590,7 +603,7 @@ function PrepUsageTab({ prep }: { prep: any }) {
               <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{recipe.menuItem}</Text>
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>{recipe.category}</Text>
               <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 110, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                {qtyPerSale} {unit} / sale
+                {T('section.prepRecipes.qtyPerSale', { qty: qtyPerSale, unit })}
               </Text>
             </View>
           ))
@@ -603,18 +616,19 @@ function PrepUsageTab({ prep }: { prep: any }) {
 // ─── method.tsx (Tier 2 — needs prep_recipe_methods table) ──────────────
 function PrepMethodPlaceholder({ prepName }: { prepName: string }) {
   const C = useCmdColors();
+  const T = useT();
   return (
     <ScrollView contentContainerStyle={{ padding: 22, gap: 14 }}>
       <View>
-        <Text style={[Type.h1, { color: C.fg }]}>{prepName} · method</Text>
+        <Text style={[Type.h1, { color: C.fg }]}>{T('section.prepRecipes.methodTitle', { name: prepName })}</Text>
         <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-          Cook steps, yield check, HACCP cooling log.
+          {T('section.prepRecipes.methodSubtitle')}
         </Text>
       </View>
       <View style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 22, alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NOT YET WIRED</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>{T('section.prepRecipes.notYetWired')}</Text>
         <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 460 }}>
-          Needs a `prep_recipe_methods` table — coming in a follow-up migration.
+          {T('section.prepRecipes.methodNotWiredBody')}
         </Text>
       </View>
     </ScrollView>
