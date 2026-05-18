@@ -2550,6 +2550,53 @@ export async function copyBrandCatalog(sourceBrandId: string, targetBrandId: str
   return typeof data === 'number' ? data : 0;
 }
 
+// ─── CROSS-BRAND ROW COPY (Spec 049) ────────────────────────────────
+//
+// Per-row variant of the whole-catalog `copyBrandCatalog` above. The
+// caller selects N source rows (by id) from one brand and copies them
+// into another brand. Super-admin only; skip-on-conflict semantics
+// match the whole-catalog precedent. Server-side RPC writes one
+// audit_log row in the target brand per successful call.
+
+export type CatalogCopyTable = 'catalog_ingredients' | 'vendors';
+
+export interface CopyCatalogResult {
+  /** Count of rows that landed in the target brand. */
+  copied: number;
+  /** Count of source rows skipped due to (brand_id, lower(name)) conflict. */
+  skipped: number;
+  /** First N (≤ 20) of the skipped source row names, for a precise toast. */
+  skippedNames: string[];
+}
+
+export async function copyCatalogRows(
+  sourceBrandId: string,
+  targetBrandId: string,
+  table: CatalogCopyTable,
+  sourceIds: string[],
+): Promise<CopyCatalogResult> {
+  const { data, error } = await supabase.rpc('copy_catalog_rows', {
+    p_source_brand_id: sourceBrandId,
+    p_target_brand_id: targetBrandId,
+    p_table:           table,
+    p_source_ids:      sourceIds,
+  });
+  if (error) throw error;
+  // PostgREST unwraps the composite type into a single object. Tolerate
+  // null/missing fields defensively in case of an empty-selection edge
+  // case where the RPC returns the (0, 0, '{}') short-circuit row.
+  const row = (data ?? {}) as {
+    copied?: number;
+    skipped?: number;
+    skipped_names?: string[] | null;
+  };
+  return {
+    copied: row.copied ?? 0,
+    skipped: row.skipped ?? 0,
+    skippedNames: row.skipped_names ?? [],
+  };
+}
+
 // ─── BRAND LIFECYCLE (Spec 012c) ────────────────────────────────────
 //
 // Five SECURITY DEFINER RPCs gated by auth_is_super_admin() server-side.

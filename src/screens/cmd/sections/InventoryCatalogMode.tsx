@@ -15,6 +15,7 @@ import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../../components/cmd/IngredientFormDrawer';
 import { SelectField } from '../../../components/cmd/IngredientForm';
 import { ExportCsvDrawer } from '../../../components/cmd/ExportCsvDrawer';
+import { CopyToBrandDialog } from '../../../components/cmd/CopyToBrandDialog';
 import { relativeTime } from '../../../utils/relativeTime';
 import { confirmAction } from '../../../utils/confirmAction';
 import { CANONICAL_UNITS } from '../../../utils/unitConversion';
@@ -23,6 +24,7 @@ import Toast from 'react-native-toast-message';
 import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../types';
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
+import { useIsSuperAdmin } from '../../../hooks/useRole';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { unitLabel } from '../../../utils/enumLabels';
@@ -76,6 +78,8 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const ingredientCats = useStore((s) => s.ingredientCategories);
   const getItemStatus  = useStore((s) => s.getItemStatus);
   const deleteItem     = useStore((s) => s.deleteItem);
+  const brand          = useStore((s) => s.brand);
+  const isSuperAdmin   = useIsSuperAdmin();
 
   const [filterText, setFilterText]         = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
@@ -84,6 +88,18 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const [newDrawerOpen, setNewDrawerOpen]   = React.useState(false);
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
   const [exportOpen, setExportOpen]         = React.useState(false);
+
+  // Spec 049 — cross-brand copy. Super-admin only. Selection is keyed
+  // on group.key (= lowercase name) so it survives filter changes but
+  // resets when the user navigates away. The dialog reads
+  // `selectedCatalogIds` derived from the picked groups via the
+  // primary row's catalogId.
+  const [selectedKeys, setSelectedKeys] = React.useState<Set<string>>(() => new Set());
+  const [copyDialogOpen, setCopyDialogOpen] = React.useState(false);
+  // When the user clicks the per-row "Copy to brand…" overflow item we
+  // need to seed the dialog with that single group, not the bulk
+  // selection set. `singleRowGroup` holds that override; null = bulk.
+  const [singleRowGroup, setSingleRowGroup] = React.useState<Group | null>(null);
 
   const groups = React.useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
@@ -191,6 +207,48 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
       )
     : null;
 
+  // Spec 049 — selected groups → catalog ids + names for the dialog.
+  // Filter to groups that still exist in the current `groups` view
+  // (the user may have applied a filter that hid some selected rows;
+  // we still want to copy them, but we skip stragglers without a
+  // catalogId since the RPC keys on catalog_ingredients.id, not the
+  // per-store inventory_items.id).
+  const groupsByKey = React.useMemo(() => {
+    const m = new Map<string, Group>();
+    for (const g of groups) m.set(g.key, g);
+    return m;
+  }, [groups]);
+
+  const copyTargets = React.useMemo(() => {
+    // Single-row override path (per-row overflow item) — use that one
+    // group's catalogId. Bulk path: every key in selectedKeys.
+    const keysToUse = singleRowGroup
+      ? [singleRowGroup.key]
+      : Array.from(selectedKeys);
+    const ids: string[] = [];
+    const names: string[] = [];
+    for (const k of keysToUse) {
+      const g = groupsByKey.get(k);
+      if (!g) continue;
+      const catId = g.primary.catalogId;
+      if (!catId) continue;
+      ids.push(catId);
+      names.push(g.name);
+    }
+    return { ids, names };
+  }, [singleRowGroup, selectedKeys, groupsByKey]);
+
+  const toggleSelected = React.useCallback((key: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const sourceBrandId = brand?.id || '';
+
   return (
     <>
       {/* List pane */}
@@ -271,6 +329,46 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
               />
             ) : null}
           </ScrollView>
+          {/* Spec 049 — bulk-copy pill (super-admin only). Visible whenever
+              the selection set is non-empty; hidden for non-super-admin
+              roles entirely, so admin/master never see the affordance. */}
+          {isSuperAdmin && selectedKeys.size > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSingleRowGroup(null);
+                setCopyDialogOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={T('dialog.copyToBrand.bulkPillIngredients', { count: selectedKeys.size })}
+              style={{
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                backgroundColor: C.accent,
+                borderRadius: CmdRadius.sm,
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>
+                {T('dialog.copyToBrand.bulkPillIngredients', { count: selectedKeys.size })}
+              </Text>
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setSelectedKeys(new Set());
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear selection"
+                hitSlop={6}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg, opacity: 0.7 }}>
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ) : null}
         </View>
         <FlatList
           style={{ flex: 1, minHeight: 0 }}
@@ -283,6 +381,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
           }
           renderItem={({ item: g }) => {
             const isSel = g.key === selectedName;
+            const isChecked = selectedKeys.has(g.key);
             const groupStatus = aggStatus(getItemStatus, g.rows);
             const avgCost = g.totalStock > 0
               ? g.weightedCost / g.totalStock
@@ -296,6 +395,10 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
             const localizedCategory = catEntry
               ? getLocalizedName({ name: catEntry.name, i18nNames: catEntry.i18nNames }, locale)
               : g.category;
+            // Spec 049 — Per-row "Copy to brand…" affordance only renders
+            // for super-admin AND only when the group's primary row has
+            // a brand-level catalog id (legacy seeds may lack it).
+            const canCopy = isSuperAdmin && !!g.primary.catalogId && !!sourceBrandId;
             return (
               <TouchableOpacity
                 onPress={() => onSelectName(g.key)}
@@ -312,6 +415,37 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* Spec 049 — multi-select checkbox (super-admin only).
+                      onPress stops propagation so toggling the checkbox
+                      doesn't also flip the row-selection. */}
+                  {isSuperAdmin ? (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        toggleSelected(g.key);
+                      }}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={T('dialog.copyToBrand.selectRowAria')}
+                      accessibilityState={{ checked: isChecked }}
+                      hitSlop={6}
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 3,
+                        borderWidth: 1,
+                        borderColor: isChecked ? C.accent : C.borderStrong,
+                        backgroundColor: isChecked ? C.accent : 'transparent',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {isChecked ? (
+                        <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg, lineHeight: 12 }}>
+                          ✓
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  ) : null}
                   <StatusDot status={groupStatus} />
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
                     {localizedName}
@@ -330,6 +464,29 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                       : T('section.inventory.inStores', { count: g.storeCount })}
                   </Text>
                   <View style={{ flex: 1 }} />
+                  {canCopy ? (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        setSingleRowGroup(g);
+                        setCopyDialogOpen(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={T('dialog.copyToBrand.rowActionLabel')}
+                      hitSlop={4}
+                      style={{
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 3,
+                        borderWidth: 1,
+                        borderColor: C.borderStrong,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 9.5, color: C.fg2, letterSpacing: 0.3 }}>
+                        COPY
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: g.unfinished ? C.danger : C.fg, fontVariant: ['tabular-nums'] }}>
                     {avgCost > 0 ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}` : T('section.inventory.noCost')}
                   </Text>
@@ -538,6 +695,33 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
         onClose={() => setEditDrawerOpen(false)}
       />
       <ExportCsvDrawer visible={exportOpen} onClose={() => setExportOpen(false)} />
+
+      {/* Spec 049 — cross-brand copy dialog. Only mounted when the user
+          has selected at least one row (bulk path) or clicked a per-row
+          overflow item (single path). Render-guarded on isSuperAdmin
+          AND a non-empty target list — the dialog itself shows an
+          "no other brands available" empty state if the picker comes up
+          short. */}
+      {isSuperAdmin && sourceBrandId ? (
+        <CopyToBrandDialog
+          visible={copyDialogOpen}
+          sourceBrandId={sourceBrandId}
+          table="catalog_ingredients"
+          sourceIds={copyTargets.ids}
+          sourceNames={copyTargets.names}
+          onClose={() => {
+            setCopyDialogOpen(false);
+            setSingleRowGroup(null);
+          }}
+          onSuccess={() => {
+            // Clear the bulk selection on success so the pill goes away.
+            // The single-row override is also dropped in onClose, but we
+            // do it here too for the success path explicitly.
+            setSelectedKeys(new Set());
+            setSingleRowGroup(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

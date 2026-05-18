@@ -144,6 +144,33 @@
     "createFailed": "Error al crear",
     "loadFailed": "Error al cargar"
   },
+  "dialog": {
+    "copyToBrand": {
+      "title": "Copiar a marca",
+      "headerLabel": "COPIAR",
+      "subtitleIngredients": "Copiar {count} ingrediente(s) a otra marca. La edición permanece en la marca de origen; las dos filas son independientes tras la copia.",
+      "subtitleVendors": "Copiar {count} proveedor(es) a otra marca. La edición permanece en la marca de origen; las dos filas son independientes tras la copia.",
+      "itemsHeader": "Lo que se copiará",
+      "moreCount": "+ {count} más",
+      "pickBrandHeader": "Elegir marca de destino",
+      "skipNoticeHeader": "Omitir en conflicto",
+      "skipNotice": "Se omitirán los elementos que ya existan en la marca de destino.",
+      "cancel": "CANCELAR",
+      "confirm": "COPIAR",
+      "copying": "COPIANDO…",
+      "successToast": "{copied} copiados, {skipped} omitidos",
+      "errorToast": "Error al copiar",
+      "noBrandsAvailable": "no hay otras marcas disponibles",
+      "bulkPillIngredients": "Copiar {count} a marca…",
+      "bulkPillVendors": "Copiar {count} a marca…",
+      "rowActionLabel": "Copiar a marca…",
+      "selectRowAria": "Seleccionar fila",
+      "tableIngredients": "ingredientes",
+      "tableVendors": "proveedores",
+      "readyToCopy": "{count} elemento(s) listos",
+      "pickFirst": "elige una marca de destino para habilitar"
+    }
+  },
   "section": {
     "dashboard": {
       "title": "Panel",

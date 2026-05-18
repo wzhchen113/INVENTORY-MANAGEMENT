@@ -144,6 +144,33 @@
     "createFailed": "Create failed",
     "loadFailed": "Load failed"
   },
+  "dialog": {
+    "copyToBrand": {
+      "title": "Copy to brand",
+      "headerLabel": "COPY",
+      "subtitleIngredients": "Copy {count} ingredient(s) into another brand. Authoring stays in the source brand; the two rows are independent after the copy.",
+      "subtitleVendors": "Copy {count} vendor(s) into another brand. Authoring stays in the source brand; the two rows are independent after the copy.",
+      "itemsHeader": "What will be copied",
+      "moreCount": "+ {count} more",
+      "pickBrandHeader": "Pick target brand",
+      "skipNoticeHeader": "Skip-on-conflict",
+      "skipNotice": "Existing items in the target brand will be skipped.",
+      "cancel": "CANCEL",
+      "confirm": "COPY",
+      "copying": "COPYING…",
+      "successToast": "{copied} copied, {skipped} skipped",
+      "errorToast": "Copy failed",
+      "noBrandsAvailable": "no other brands available",
+      "bulkPillIngredients": "Copy {count} to brand…",
+      "bulkPillVendors": "Copy {count} to brand…",
+      "rowActionLabel": "Copy to brand…",
+      "selectRowAria": "Select row",
+      "tableIngredients": "ingredients",
+      "tableVendors": "vendors",
+      "readyToCopy": "{count} item(s) ready",
+      "pickFirst": "pick a target brand to enable"
+    }
+  },
   "section": {
     "dashboard": {
       "title": "Dashboard",

@@ -11,8 +11,11 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { VendorFormDrawer } from '../../../components/cmd/VendorFormDrawer';
+import { CopyToBrandDialog } from '../../../components/cmd/CopyToBrandDialog';
 import { confirmAction } from '../../../utils/confirmAction';
 import { useT } from '../../../hooks/useT';
+import { useIsSuperAdmin } from '../../../hooks/useRole';
+import type { Vendor } from '../../../types';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -25,11 +28,46 @@ export default function VendorsSection() {
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
   const deleteVendor = useStore((s) => s.deleteVendor);
+  const brand = useStore((s) => s.brand);
+  const isSuperAdmin = useIsSuperAdmin();
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('profile.tsx');
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
   const [newDrawerOpen, setNewDrawerOpen] = React.useState(false);
+
+  // Spec 049 — cross-brand copy. Selection is keyed on vendor.id (the
+  // brand-level vendors row id — which is exactly what the RPC's
+  // p_source_ids accepts).
+  const [selectedVendorIds, setSelectedVendorIds] = React.useState<Set<string>>(() => new Set());
+  const [copyDialogOpen, setCopyDialogOpen] = React.useState(false);
+  const [singleRowVendor, setSingleRowVendor] = React.useState<Vendor | null>(null);
+
+  const sourceBrandId = brand?.id || '';
+
+  const toggleSelected = React.useCallback((id: string) => {
+    setSelectedVendorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const copyTargets = React.useMemo(() => {
+    const idsToUse = singleRowVendor
+      ? [singleRowVendor.id]
+      : Array.from(selectedVendorIds);
+    const ids: string[] = [];
+    const names: string[] = [];
+    for (const id of idsToUse) {
+      const v = vendors.find((vv) => vv.id === id);
+      if (!v) continue;
+      ids.push(v.id);
+      names.push(v.name);
+    }
+    return { ids, names };
+  }, [singleRowVendor, selectedVendorIds, vendors]);
 
   React.useEffect(() => {
     if (selectedId && vendors.find((v) => v.id === selectedId)) return;
@@ -61,25 +99,71 @@ export default function VendorsSection() {
             paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: C.border,
-            flexDirection: 'row',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
+            gap: 8,
           }}
         >
-          <Text style={[Type.h2, { color: C.fg }]}>{T('section.vendors.title')}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-              {T('section.vendors.active', { count: vendors.length })}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setNewDrawerOpen(true)}
-              style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
-              accessibilityRole="button"
-              accessibilityLabel={T('section.vendors.newAria')}
-            >
-              <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
-            </TouchableOpacity>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Text style={[Type.h2, { color: C.fg }]}>{T('section.vendors.title')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                {T('section.vendors.active', { count: vendors.length })}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setNewDrawerOpen(true)}
+                style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.vendors.newAria')}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>+ NEW</Text>
+              </TouchableOpacity>
+            </View>
           </View>
+          {/* Spec 049 — bulk-copy pill (super-admin only). Visible when
+              the selection set is non-empty; hidden entirely for non-
+              super-admin roles. */}
+          {isSuperAdmin && selectedVendorIds.size > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSingleRowVendor(null);
+                setCopyDialogOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={T('dialog.copyToBrand.bulkPillVendors', { count: selectedVendorIds.size })}
+              style={{
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                backgroundColor: C.accent,
+                borderRadius: CmdRadius.sm,
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>
+                {T('dialog.copyToBrand.bulkPillVendors', { count: selectedVendorIds.size })}
+              </Text>
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setSelectedVendorIds(new Set());
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear selection"
+                hitSlop={6}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg, opacity: 0.7 }}>
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ) : null}
         </View>
         <FlatList
           style={{ flex: 1, minHeight: 0 }}
@@ -87,6 +171,8 @@ export default function VendorsSection() {
           keyExtractor={(v) => v.id}
           renderItem={({ item: v }) => {
             const isSel = v.id === selectedId;
+            const isChecked = selectedVendorIds.has(v.id);
+            const canCopy = isSuperAdmin && !!sourceBrandId;
             return (
               <TouchableOpacity
                 onPress={() => setSelectedId(v.id)}
@@ -102,7 +188,63 @@ export default function VendorsSection() {
                   gap: 3,
                 }}
               >
-                <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{v.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* Spec 049 — multi-select checkbox (super-admin only). */}
+                  {isSuperAdmin ? (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        toggleSelected(v.id);
+                      }}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={T('dialog.copyToBrand.selectRowAria')}
+                      accessibilityState={{ checked: isChecked }}
+                      hitSlop={6}
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 3,
+                        borderWidth: 1,
+                        borderColor: isChecked ? C.accent : C.borderStrong,
+                        backgroundColor: isChecked ? C.accent : 'transparent',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {isChecked ? (
+                        <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg, lineHeight: 12 }}>
+                          ✓
+                        </Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  ) : null}
+                  <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }}>
+                    {v.name}
+                  </Text>
+                  {canCopy ? (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        setSingleRowVendor(v);
+                        setCopyDialogOpen(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={T('dialog.copyToBrand.rowActionLabel')}
+                      hitSlop={4}
+                      style={{
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 3,
+                        borderWidth: 1,
+                        borderColor: C.borderStrong,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 9.5, color: C.fg2, letterSpacing: 0.3 }}>
+                        COPY
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
                 <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
                   {(v.categories || []).join(', ').toLowerCase() || T('section.vendors.noCategories')}
                 </Text>
@@ -286,6 +428,26 @@ export default function VendorsSection() {
         vendor={sel}
         onClose={() => setEditDrawerOpen(false)}
       />
+
+      {/* Spec 049 — cross-brand vendor copy dialog. Render-guarded on
+          super-admin AND a non-empty source brand. */}
+      {isSuperAdmin && sourceBrandId ? (
+        <CopyToBrandDialog
+          visible={copyDialogOpen}
+          sourceBrandId={sourceBrandId}
+          table="vendors"
+          sourceIds={copyTargets.ids}
+          sourceNames={copyTargets.names}
+          onClose={() => {
+            setCopyDialogOpen(false);
+            setSingleRowVendor(null);
+          }}
+          onSuccess={() => {
+            setSelectedVendorIds(new Set());
+            setSingleRowVendor(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

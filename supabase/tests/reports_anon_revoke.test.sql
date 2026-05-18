@@ -7,7 +7,7 @@
 -- `auth_can_see_store(store_id)`-alone-is-sufficient-for-writes lesson
 -- at GRANT time (before any RLS evaluation).
 --
--- 11 RPCs covered (each: anon lacks EXECUTE):
+-- 12 RPCs covered (each: anon lacks EXECUTE):
 --   • report_run(text, uuid, jsonb)                — dispatcher
 --   • report_run_stub(uuid, jsonb)                 — spec 016
 --   • report_run_cogs(uuid, jsonb)                 — spec 017
@@ -20,6 +20,8 @@
 --   • submit_inventory_count(uuid, uuid, text, timestamptz, text, jsonb, text)  — spec 019
 --   • staff_submit_eod(uuid, uuid, date, text, text, jsonb, uuid)               — spec 020 (only
 --     granted to service_role; anon still lacks EXECUTE)
+--   • copy_catalog_rows(uuid, uuid, text, uuid[])  — spec 049 (super-admin
+--     gated; anon still lacks EXECUTE at the GRANT layer)
 --
 -- Background: Postgres' default `EXECUTE TO PUBLIC` lets `anon` (which
 -- inherits from PUBLIC) bypass a bare `... from anon` revoke, so each
@@ -42,7 +44,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(11);
+select plan(12);
 
 -- ─── (1) report_run dispatcher ────────────────────────────────
 select ok(
@@ -117,6 +119,19 @@ select ok(
     'EXECUTE'
   ),
   'anon lacks EXECUTE on staff_submit_eod (service_role-only)'
+);
+
+-- ─── (12) copy_catalog_rows ───────────────────────────────────
+-- Spec 049: super-admin only; granted to authenticated, revoked from
+-- public + anon. Anon must lack EXECUTE at the GRANT layer regardless
+-- of the in-function auth_is_super_admin() gate.
+select ok(
+  not has_function_privilege(
+    'anon',
+    'public.copy_catalog_rows(uuid, uuid, text, uuid[])',
+    'EXECUTE'
+  ),
+  'anon lacks EXECUTE on copy_catalog_rows (super_admin-only)'
 );
 
 select * from finish();

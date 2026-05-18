@@ -144,6 +144,33 @@
     "createFailed": "创建失败",
     "loadFailed": "加载失败"
   },
+  "dialog": {
+    "copyToBrand": {
+      "title": "复制到品牌",
+      "headerLabel": "复制",
+      "subtitleIngredients": "将 {count} 个食材复制到另一品牌。编辑权限仍属于源品牌；复制后两行相互独立。",
+      "subtitleVendors": "将 {count} 个供应商复制到另一品牌。编辑权限仍属于源品牌；复制后两行相互独立。",
+      "itemsHeader": "将复制的项目",
+      "moreCount": "另有 {count} 项",
+      "pickBrandHeader": "选择目标品牌",
+      "skipNoticeHeader": "冲突时跳过",
+      "skipNotice": "目标品牌中已存在的项目将被跳过。",
+      "cancel": "取消",
+      "confirm": "复制",
+      "copying": "复制中…",
+      "successToast": "已复制 {copied} 项,跳过 {skipped} 项",
+      "errorToast": "复制失败",
+      "noBrandsAvailable": "没有可用的其他品牌",
+      "bulkPillIngredients": "将 {count} 项复制到品牌…",
+      "bulkPillVendors": "将 {count} 项复制到品牌…",
+      "rowActionLabel": "复制到品牌…",
+      "selectRowAria": "选择行",
+      "tableIngredients": "食材",
+      "tableVendors": "供应商",
+      "readyToCopy": "{count} 项已准备好",
+      "pickFirst": "请先选择目标品牌"
+    }
+  },
   "section": {
     "dashboard": {
       "title": "仪表板",
