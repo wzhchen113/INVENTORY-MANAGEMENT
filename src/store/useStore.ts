@@ -357,6 +357,16 @@ interface StoreActions {
    *  (no-persist hydrator). */
   hydrateLocale: (value: Locale) => void;
 
+  /** Spec 044 — apply the brand slice WITHOUT persisting. Used by
+   *  App.tsx after getSession() returns to seed the `brand` slice from
+   *  the AuthResult so the TitleBar renders the correct `<INITIALS>://`
+   *  prefix on first paint instead of flashing `inv://` until
+   *  `setCurrentStore`'s downstream async load lands ~50-200 ms later.
+   *  Mirrors `hydrateLocale` / `hydrateSidebarLayoutOverride` in shape —
+   *  sync, idempotent, no DB write. `null` clears the slice (super_admin
+   *  with no brand_id, soft-deleted brand, or RLS-denied embed). */
+  hydrateBrand: (brand: { id: string; name: string } | null) => void;
+
   // Sidebar layout (Spec 008)
   /**
    * Apply a sidebar override value WITHOUT persisting — used at boot to
@@ -2120,6 +2130,17 @@ export const useStore = create<FullStore>((set, get) => ({
   // it back to the column.
   hydrateLocale: (next) => {
     set({ locale: next });
+  },
+
+  // Spec 044 — no-persist brand-slice hydrator. Mirrors hydrateLocale.
+  // App.tsx calls this BEFORE login() so the TitleBar's store-picker
+  // prefix renders the right brand initials (e.g. `2P://towson`) on the
+  // very first paint, instead of flashing `inv://towson` while the
+  // setCurrentStore → loadFromSupabase chain finishes ~50-200 ms later.
+  // The async refresh from loadFromSupabase overwrites with the same
+  // brand row (visually a no-op); we just buy the first-paint frame.
+  hydrateBrand: (brand) => {
+    set({ brand });
   },
 
   // Spec 008: no-persist hydrator. Mirrors setDarkMode — used by the

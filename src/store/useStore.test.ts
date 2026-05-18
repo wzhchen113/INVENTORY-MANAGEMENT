@@ -227,3 +227,71 @@ describe('deleteProfile', () => {
     );
   });
 });
+
+// ─── Spec 044 — hydrateBrand no-persist action ───────────────────────
+// Mirrors hydrateLocale / hydrateSidebarLayoutOverride. Pure sync
+// `set({ brand })`; no DB write, no toast. Four cases pin the slice
+// shape:
+//   (1) seeds a brand row → slice reflects it on the next read
+//   (2) accepts null → slice clears (super_admin / soft-deleted brand /
+//       RLS-denied embed)
+//   (3) pure local hydrator — no toast, no db.* call
+//   (4) idempotent — calling twice with the same value is a no-op
+//       (relevant because App.tsx fires it on every session-restore)
+describe('hydrateBrand (spec 044)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useStore.setState(INITIAL_STATE, true);
+  });
+
+  it('seeds the brand slice from the AuthResult shape', () => {
+    expect(useStore.getState().brand).toBeNull();
+
+    useStore.getState().hydrateBrand({ id: 'brand-1', name: '2AM PROJECT' });
+
+    expect(useStore.getState().brand).toEqual({
+      id: 'brand-1',
+      name: '2AM PROJECT',
+    });
+  });
+
+  it('accepts null to clear the slice (super_admin / soft-deleted / RLS-denied)', () => {
+    useStore.setState({ brand: { id: 'brand-1', name: '2AM PROJECT' } });
+    expect(useStore.getState().brand).not.toBeNull();
+
+    useStore.getState().hydrateBrand(null);
+
+    expect(useStore.getState().brand).toBeNull();
+  });
+
+  it('does not fire any side-effect toast or DB call (pure local hydrator)', () => {
+    useStore.getState().hydrateBrand({ id: 'brand-1', name: '2AM PROJECT' });
+
+    // Pure local hydrator — no info / error toast.
+    expect(toastShowMock).not.toHaveBeenCalled();
+    // No db.* mock should fire either — assert against a representative
+    // helper from the file-level db mock. Locks the "pure local set()"
+    // contract: any future refactor that accidentally fan-outs to a DB
+    // call would surface here. fetchStores is representative because
+    // every store-init code path eventually goes through it.
+    const db = require('../lib/db');
+    expect(db.fetchStores).not.toHaveBeenCalled();
+    expect(db.fetchAllForStore).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent — calling twice with the same value is a no-op', () => {
+    // Relevant because App.tsx fires hydrateBrand on every session-restore,
+    // including post-login refreshes that re-read the same profile row.
+    useStore.getState().hydrateBrand({ id: 'brand-1', name: '2AM PROJECT' });
+    const afterFirst = useStore.getState().brand;
+    expect(afterFirst).toEqual({ id: 'brand-1', name: '2AM PROJECT' });
+
+    useStore.getState().hydrateBrand({ id: 'brand-1', name: '2AM PROJECT' });
+    const afterSecond = useStore.getState().brand;
+
+    // Slice unchanged across the second call. Equality is structural —
+    // pure `set({ brand })` may produce a new reference but the shape
+    // must match.
+    expect(afterSecond).toEqual(afterFirst);
+  });
+});

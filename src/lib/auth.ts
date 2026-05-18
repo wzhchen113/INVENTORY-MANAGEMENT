@@ -22,6 +22,13 @@ export interface AuthResult {
    *  (e.g. signed out). Callers should apply this to the store after
    *  login via `hydrateLocale`. */
   locale?: 'en' | 'es' | 'zh-CN';
+  /** Spec 044: brand-prefix fast-path. Populated via PostgREST embed
+   *  against profiles.brand_id → brands(id, name). `null` when the user
+   *  has no brand (super_admin), when the brand is soft-deleted, or when
+   *  RLS denies the embedded read. Callers should pass this to the store
+   *  via `hydrateBrand(result.brand ?? null)` BEFORE `login()` so the
+   *  TitleBar prefix renders the correct brand initials on first paint. */
+  brand?: { id: string; name: string } | null;
 }
 
 /** Defensive shape guard for profiles.sidebar_layout. We treat any
@@ -78,9 +85,15 @@ export async function getSession(): Promise<AuthResult> {
 
 /** Fetch user profile + store access from DB */
 async function fetchProfile(userId: string): Promise<AuthResult> {
+  // Spec 044 — embed brands(id, name) via the profiles.brand_id FK so the
+  // store can seed the `brand` slice synchronously after getSession() returns,
+  // letting the TitleBar render the correct `<INITIALS>://` prefix on first
+  // paint instead of flashing `inv://`. PostgREST silently returns null for
+  // the embedded relation when RLS denies the read (super_admin, soft-deleted
+  // brand) — desired behavior per the spec 044 design.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('*')
+    .select('*, brands(id, name)')
     .eq('id', userId)
     .single();
 
@@ -113,6 +126,22 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     brandId: profile.brand_id ?? null,
   };
 
+  // Spec 044 — normalize the embedded `brands` relation. PostgREST returns
+  // either an object (FK pointing at a single row), null (no FK / RLS-denied
+  // embed / soft-deleted), or in rare cases an array. Defensively coerce to
+  // `{ id, name } | null` and never throw — the brand slice consumers tolerate
+  // null (TitleBar falls back to the legacy `inv://` prefix).
+  // supabase-js doesn't type PostgREST embeds on freeform selects; cast required.
+  const embedded = (profile as any).brands;
+  // PostgREST returns `null` for RLS-denied embeds and `[]` for a many-to-one
+  // FK with no match. `embedded[0]` is `undefined` for the empty-array case
+  // and falls through to the `brandRaw && ...` falsy check → `null`.
+  const brandRaw = Array.isArray(embedded) ? embedded[0] : embedded;
+  const brand: { id: string; name: string } | null =
+    brandRaw && typeof brandRaw.id === 'string' && typeof brandRaw.name === 'string'
+      ? { id: brandRaw.id, name: brandRaw.name }
+      : null;
+
   return {
     user,
     error: null,
@@ -123,6 +152,8 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     // Spec 038: per-user chrome-language preference; defaults to 'en'
     // if the column is missing or holds an unexpected value.
     locale: coerceLocale(profile.locale),
+    // Spec 044: brand-prefix fast-path. See AuthResult.brand doc for null cases.
+    brand,
   };
 }
 

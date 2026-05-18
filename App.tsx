@@ -149,6 +149,7 @@ export default function App() {
   const setDarkMode = useStore((s) => s.setDarkMode);
   const hydrateSidebarLayoutOverride = useStore((s) => s.hydrateSidebarLayoutOverride);
   const hydrateLocale = useStore((s) => s.hydrateLocale);
+  const hydrateBrand = useStore((s) => s.hydrateBrand);
 
   // Hold first paint until Inter Tight + JetBrains Mono are registered, so
   // numeric values don't flash in the system font then snap to mono.
@@ -197,6 +198,18 @@ export default function App() {
         // were. Re-apply after login completes.
         const cachedActiveBrand =
           result.user.role === 'super_admin' ? await readCachedActiveBrandAsync() : null;
+
+        // Spec 044 — seed the `brand` slice BEFORE login() so the TitleBar
+        // prefix renders the correct `<INITIALS>://` on first paint. Order
+        // matters: login() calls setCurrentStore(userStore) which triggers
+        // loadFromSupabase ~50-200 ms later; the async refresh overwrites
+        // with the same row (visually a no-op), but the synchronous hydrate
+        // here is what eliminates the `inv://` flash. `null` is fine for
+        // super_admin (no brand_id) and for the soft-deleted-brand edge
+        // case — TitleBar falls back to `inv://`.
+        // result.brand: undefined when signed out; null for super_admin /
+        // soft-deleted brand / RLS-denied embed; object for the happy path.
+        hydrateBrand(result.brand ?? null);
 
         login(result.user);
         // DB is the cross-device source of truth — overrides the cached value
