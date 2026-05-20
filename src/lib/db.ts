@@ -2744,25 +2744,25 @@ export async function fetchBrandDeletionLog(
   }));
 }
 
-/** Spec 012c §5 (Q-ARCH-1) — demote an admin/master profile to user
- *  AND clear `brand_id`. Both columns must change in a single UPDATE
- *  so (a) `profiles_role_brand_consistent` CHECK passes (role='user'
- *  allows any brand_id) and (b) the H5 pre-flight in `hard_delete_brand`
- *  stops counting this row toward the blocking total.
+/** Spec 050 — demote an admin/master profile to user AND clear
+ *  `brand_id`. Wraps `public.demote_profile_to_user(target_user_id uuid)`
+ *  (supabase/migrations/20260520000000_demote_profile_to_user_rpc.sql) so
+ *  the server is the authoritative gate for `caller.id != target.id`.
+ *  The RPC reads `auth.uid()` internally (no caller_id passed from the
+ *  client — defense against forgery) and refuses with SQLSTATE P0001
+ *  message `'cannot demote self'` if the caller targets their own row.
+ *  The role gate is enforced inline via `auth_is_privileged()` because
+ *  SECURITY DEFINER bypasses RLS — see the migration header for the
+ *  full ordering.
  *
- *  Direct PostgREST UPDATE per spec §5 architect default. RLS on
- *  profiles must permit super-admin to UPDATE. If RLS rejects, this
- *  raises an error which surfaces via notifyBackendError; backend-
- *  developer is on the hook to wrap as a SECURITY DEFINER RPC if so. */
+ *  Errors surface via notifyBackendError as a PostgrestError with the
+ *  stable refusal string. Sibling guard: `'cannot delete self'` at
+ *  supabase/functions/delete-user/index.ts:168-173. */
 export async function demoteProfileToUser(profileId: string): Promise<string> {
   const { data, error } = await supabase
-    .from('profiles')
-    .update({ role: 'user', brand_id: null })
-    .eq('id', profileId)
-    .select('id')
-    .single();
+    .rpc('demote_profile_to_user', { target_user_id: profileId });
   if (error) throw error;
-  return data.id;
+  return data as string;
 }
 
 /**

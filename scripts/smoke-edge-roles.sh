@@ -380,6 +380,97 @@ else
   fi
 fi
 
+################################################################################
+# Arm 7 — self-demote refusal (spec 050). Defense-in-depth.
+#
+# Reuses Arm 3's $ADMIN_BEARER (plain admin). Does NOT reuse Arm 4's
+# super_admin promotion — the self-demote check is meaningful at any
+# admin role (admin, master, super_admin), so the cheaper path is the
+# plain-admin login from Arm 3. Avoids contaminating Arm 4's
+# PROMOTED=1 / restore_admin machinery.
+#
+# PostgREST RPC error mapping: the function raises with SQLSTATE P0001
+# message 'cannot demote self'. PostgREST maps P0001 → HTTP 400. The
+# assertion below pins on BOTH the status code AND the message string —
+# if the version mapping shifts in a future Supabase upgrade, the
+# message assertion is the load-bearing test (same posture as Arm 6
+# from spec 031).
+#
+# State-mutation invariant: the admin row is re-queried after the
+# refusal. role and brand_id must be unchanged — confirms the refusal
+# fired BEFORE the UPDATE side-effect.
+################################################################################
+step "Arm 7: self-demote refusal (spec 050)"
+DEMOTE_RPC_URL="${SUPABASE_URL}/rest/v1/rpc/demote_profile_to_user"
+
+if [[ -z "${ADMIN_BEARER}" ]]; then
+  skip "self-demote arm" "no ADMIN_BEARER (Arm 3 login failed?)"
+else
+  ADMIN_UID=$(docker exec -i supabase_db_imr-inventory psql -tA \
+    -U postgres -d postgres \
+    -c "select id from auth.users where email='${ADMIN_EMAIL}' limit 1;" \
+    2>/dev/null | tr -d ' ')
+
+  if [[ -z "$ADMIN_UID" ]]; then
+    fail "could not resolve admin uid for ${ADMIN_EMAIL}"
+  else
+    # Snapshot pre-state for the state-mutation invariant. Arm 4 may
+    # have promoted admin@local.test to super_admin (brand_id=null) and
+    # then restore_admin reverts back to admin/brand_a on EXIT — but
+    # this arm runs BEFORE the trap fires, so the pre-state can be
+    # either (admin, brand_a) or (super_admin, null) depending on
+    # whether Arm 4 ran. We snapshot what's actually there.
+    PRE_ROLE=$(docker exec -i supabase_db_imr-inventory psql -tA \
+      -U postgres -d postgres \
+      -c "select role from public.profiles where id='${ADMIN_UID}';" \
+      2>/dev/null | tr -d ' ')
+    PRE_BRAND=$(docker exec -i supabase_db_imr-inventory psql -tA \
+      -U postgres -d postgres \
+      -c "select coalesce(brand_id::text, 'NULL') from public.profiles where id='${ADMIN_UID}';" \
+      2>/dev/null | tr -d ' ')
+
+    RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Authorization: Bearer ${ADMIN_BEARER}" \
+      -H "Content-Type: application/json" \
+      -d "{\"target_user_id\":\"${ADMIN_UID}\"}" \
+      "$DEMOTE_RPC_URL")
+    CODE=$(printf '%s' "$RESPONSE" | tail -1)
+    BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+
+    # PostgREST maps P0001 → HTTP 400. The body is a PostgrestError JSON:
+    #   {"code":"P0001","details":null,"hint":null,"message":"cannot demote self"}
+    # The message-string assertion is the load-bearing test (the status
+    # mapping can drift across Supabase versions; the string is the
+    # stable contract).
+    if [[ "$CODE" == "400" ]]; then
+      if printf '%s' "$BODY" | grep -qE '"message":"cannot demote self"'; then
+        pass "demote_profile_to_user RPC refused self (HTTP 400, $BODY)"
+      else
+        fail "expected message 'cannot demote self', got: ${BODY:0:200}"
+      fi
+    else
+      fail "expected 400, got $CODE: ${BODY:0:200}"
+    fi
+
+    # State-mutation invariant: admin row unchanged. Confirms the
+    # refusal fired BEFORE the UPDATE side-effect.
+    POST_ROLE=$(docker exec -i supabase_db_imr-inventory psql -tA \
+      -U postgres -d postgres \
+      -c "select role from public.profiles where id='${ADMIN_UID}';" \
+      2>/dev/null | tr -d ' ')
+    POST_BRAND=$(docker exec -i supabase_db_imr-inventory psql -tA \
+      -U postgres -d postgres \
+      -c "select coalesce(brand_id::text, 'NULL') from public.profiles where id='${ADMIN_UID}';" \
+      2>/dev/null | tr -d ' ')
+    if [[ "$POST_ROLE" == "$PRE_ROLE" && "$POST_BRAND" == "$PRE_BRAND" ]]; then
+      pass "post-check: admin role/brand_id unchanged (role=${POST_ROLE}, brand=${POST_BRAND})"
+    else
+      fail "post-check: admin mutated (role ${PRE_ROLE}→${POST_ROLE}, brand ${PRE_BRAND}→${POST_BRAND})"
+    fi
+  fi
+fi
+
 printf '\n'
 if [[ $FAILED -eq 0 ]]; then
   printf '\033[32m✓ all checks passed\033[0m\n'
