@@ -1,6 +1,8 @@
 # Spec 012b: Super-admin Cmd UI section + brand picker + admin invitation flow
 
-Status: READY_FOR_REVIEW
+Status: SHIP_READY
+
+> **Closeout (2026-05-20):** Shipped in commit `87e1edc` (2026-05-09). Release-proposal verdict was FIXES_NEEDED with a 16-item cleanup bundle (2 Criticals + 1 AC FAIL + 6 should-fix + 7 nits) that landed inside the same commit — verified in code: C1 `fetchAllUsers` sub-queries moved into `src/lib/db.ts` (helpers at lines 67, 78); C2 `BrandsSection` direct db.ts calls routed via `useStore.loadBrandStats`/`loadBrandAdmins` (`src/store/useStore.ts:683, 696`); S1 `catalogIngredientCount` populated in `mapBrandStats` (`src/lib/db.ts:2510`) and rendered at `BrandsSection.tsx:508/595/623`. Status field was never bumped at the time. OOS follow-ups: W-1/W-2 invitations RLS closed by `20260514150000_invitations_super_admin_rls.sql`; `inviteUserLegacy` shim deleted (spec 025); test framework gap closed by specs 022/023/033.
 
 **Type:** Frontend (Cmd UI). One small backend extension for the invitation
 table (add `brand_id`). No new RPCs unless the architect's design calls for

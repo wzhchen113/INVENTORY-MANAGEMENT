@@ -1,6 +1,8 @@
 # Spec 012a: Multi-brand schema + RLS + one-time data migration
 
-Status: READY_FOR_REVIEW
+Status: SHIP_READY
+
+> **Closeout (2026-05-20):** Shipped in commit `9bdb1b3` (2026-05-09); release-proposal verdict was SHIP_READY conditional on a pre-commit cleanup bundle that landed inside the same commit. Status field was never bumped at the time. Follow-up RLS gap on `invitations` (super_admin not in policies) was closed by migration `20260514150000_invitations_super_admin_rls.sql`.
 
 **Type:** Backend / database — schema, RLS hardening, one-time data backfill.
 **Sub-spec of:** [Spec 012 — Multi-brand tenancy umbrella](012-multi-brand-tenancy.md). The umbrella locks in the user-confirmed decisions; this sub-spec implements the **security boundary** alone.

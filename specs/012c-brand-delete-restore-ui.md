@@ -1,6 +1,8 @@
 # Spec 012c: Brand soft-delete + 30-day grace + restore + hard-delete cascade UX
 
-Status: READY_FOR_REVIEW
+Status: SHIP_READY
+
+> **Closeout (2026-05-20):** Shipped in commit `25c41f9` (2026-05-09). Release-proposal verdict was FIXES_NEEDED with a cleanup bundle (2 Criticals + 5 should-fix) that landed inside the same commit — verified in code: C1 double-toast removed in `handleSoftDelete` (`src/screens/cmd/sections/BrandsSection.tsx:168`); C2 `counts` renamed to `profileCounts` (`src/lib/db.ts:2637`); should-fix #5 `user_stores_links` → `user_stores` JSON key fixed (migration line 619). Status field was never bumped at the time. OOS follow-ups: W1 `callEdgeFunction` non-2xx surfacing closed by spec 032; W2 `demoteProfileToUser` SECURITY DEFINER hardening still pending (current shape: direct PostgREST UPDATE at `src/lib/db.ts:2757`).
 
 **Type:** Frontend (Cmd UI section + drawers + confirm modal) + backend (RPC and/or edge function for the cascade, optional new migration for FK cascade fixes + a deletion audit table).
 **Sub-spec of:** [Spec 012 — Multi-brand tenancy umbrella](012-multi-brand-tenancy.md). Final sub-spec; ships after [012a (schema + RLS)](012a-multi-brand-schema-rls.md) and [012b (super-admin Cmd UI + brand picker)](012b-super-admin-cmd-ui.md). Both are live in prod.

@@ -1,6 +1,8 @@
 # Spec 012: Multi-brand tenancy + super-admin + brand-scoped admin permissions (umbrella)
 
-Status: READY_FOR_ARCH
+Status: SUPERSEDED
+
+> **Closeout (2026-05-20):** This umbrella was split into 012a / 012b / 012c per the "Phasing / sub-spec split" section. All three sub-specs shipped (012a: commit `9bdb1b3`; 012b: commit `87e1edc`; 012c: commit `25c41f9`). The umbrella itself was never advanced to architect because that was the intended phasing — sub-specs each ran the full pipeline.
 
 > **Umbrella spec.** Scope is too large to ship as one PR. The architect is
 > expected to split this into sub-specs (suggested phasing in section
