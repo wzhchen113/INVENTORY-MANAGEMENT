@@ -339,9 +339,14 @@ const CustomUnitInput: React.FC<{
           <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.fg3 }}>×</Text>
         </TouchableOpacity>
       </View>
-      {(help || error) ? (
-        <Text style={{ fontFamily: mono(400), fontSize: 10, color: error ? C.danger : C.fg3 }}>
-          {error || help}
+      {help ? (
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+          {help}
+        </Text>
+      ) : null}
+      {error ? (
+        <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.danger }}>
+          {error}
         </Text>
       ) : null}
     </View>

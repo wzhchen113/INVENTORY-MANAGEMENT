@@ -1,4 +1,6 @@
 // src/components/cmd/IngredientForm.help-text.test.tsx — Spec 052 coverage.
+// Spec 054 added the fifth test below that blurs the inline input to
+// assert help + error coexist.
 //
 // Verifies the DEFAULT UNIT and PACK UNIT help/sublabel strings landed by
 // spec 052 render in BOTH the SelectField branch (initial render) AND the
@@ -198,5 +200,84 @@ describe('IngredientForm — spec 052 help text', () => {
     fireEvent.press(customRows[customRows.length - 1]);
 
     expect(screen.getAllByText(PACK_UNIT_HELP)).toHaveLength(1);
+  });
+
+  it('keeps the DEFAULT UNIT help string visible alongside the "required" error after blurring CustomUnitInput with an empty value', () => {
+    // Spec 054: when the inline TextInput blurs with empty value,
+    // validateCustomUnit returns { ok: false, error: 'required' } and the
+    // parent sets customError.default = 'required' without flipping
+    // customMode.default off. The component re-renders with both a
+    // non-empty `help` prop AND a non-empty `error` prop. Per spec 054
+    // both must coexist in the rendered tree (previously the
+    // `{error || help}` swap supplanted the help line).
+    function Harness() {
+      const [vals, setVals] = React.useState(blankValues());
+      return (
+        <IngredientForm
+          mode="new"
+          values={vals}
+          onChange={(next) =>
+            setVals(typeof next === 'function' ? (next as any)(vals) : next)
+          }
+        />
+      );
+    }
+    render(<Harness />);
+
+    // Open the DEFAULT UNIT dropdown and flip into CustomUnitInput.
+    const defaultDisplay = screen.getByText('enum.unit.each');
+    fireEvent.press(defaultDisplay);
+    const customRows = screen.getAllByText('+ custom…');
+    fireEvent.press(customRows[0]);
+
+    // Inline TextInput is now mounted with autoFocus. Find it by
+    // placeholder and fire a blur — handleCommit → validateCustomUnit('')
+    // → { ok: false, error: 'required' } → customError.default =
+    // 'required'.
+    const inlineInput = screen.getByPlaceholderText('e.g. case, box, tray');
+    fireEvent(inlineInput, 'blur');
+
+    // Both lines render simultaneously.
+    expect(screen.getAllByText(DEFAULT_UNIT_HELP)).toHaveLength(1);
+    expect(screen.getAllByText('required')).toHaveLength(1);
+  });
+
+  it('keeps the PACK UNIT help string visible alongside the "required" error after blurring CustomUnitInput with an empty value', () => {
+    // Spec 054 symmetry — `CustomUnitInput` is shared between DEFAULT
+    // UNIT and PACK UNIT custom branches, so the help+error coexistence
+    // fix architecturally covers both. This test asserts the PACK UNIT
+    // path explicitly so a future divergence between the two call sites
+    // would surface as a coverage regression.
+    function Harness() {
+      const [vals, setVals] = React.useState(blankValues());
+      return (
+        <IngredientForm
+          mode="new"
+          values={vals}
+          onChange={(next) =>
+            setVals(typeof next === 'function' ? (next as any)(vals) : next)
+          }
+        />
+      );
+    }
+    render(<Harness />);
+
+    // Open the PACK UNIT dropdown (uses the placeholder text because
+    // subUnitUnit is empty in blankValues) and flip into CustomUnitInput.
+    const packDisplay = screen.getByText('— pick pack unit —');
+    fireEvent.press(packDisplay);
+    const customRows = screen.getAllByText('+ custom…');
+    fireEvent.press(customRows[customRows.length - 1]);
+
+    // Inline TextInput is now mounted for PACK UNIT. Both PACK UNIT and
+    // (potentially) DEFAULT UNIT could have inputs with the same
+    // placeholder; PACK UNIT was opened last so its input is the most
+    // recently mounted — pick the last match.
+    const inlineInputs = screen.getAllByPlaceholderText('e.g. case, box, tray');
+    fireEvent(inlineInputs[inlineInputs.length - 1], 'blur');
+
+    // Both lines render simultaneously for PACK UNIT.
+    expect(screen.getAllByText(PACK_UNIT_HELP)).toHaveLength(1);
+    expect(screen.getAllByText('required')).toHaveLength(1);
   });
 });
