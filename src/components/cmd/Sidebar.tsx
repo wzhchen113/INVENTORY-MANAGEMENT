@@ -137,17 +137,6 @@ export const Sidebar: React.FC<Props> = ({
             </TouchableOpacity>
           )
         ) : null}
-        <View
-          style={{
-            paddingHorizontal: 6,
-            paddingVertical: 2,
-            borderRadius: CmdRadius.xs,
-            borderWidth: 1,
-            borderColor: C.border,
-          }}
-        >
-          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>{version}</Text>
-        </View>
       </View>
 
       {/* Command bar — hidden in edit mode to make room for the reset pill */}

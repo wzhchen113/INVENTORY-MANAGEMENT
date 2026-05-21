@@ -1,6 +1,8 @@
 import React from 'react';
-import { View, ViewStyle } from 'react-native';
-import { useCmdColors } from '../../theme/colors';
+import { View, Text, ViewStyle } from 'react-native';
+import { useCmdColors, CmdRadius } from '../../theme/colors';
+import { mono } from '../../theme/typography';
+import { APP_VERSION } from '../../utils/version';
 
 interface Props {
   left?: React.ReactNode;
@@ -42,7 +44,25 @@ export const CmdStatusBar: React.FC<Props> = ({
       ]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>{left}</View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>{right}</View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        {right}
+        {/* Version pill — always last on the right edge. Source of truth
+            is src/utils/version.ts (semver from package.json + git SHA
+            injected by Vercel at build time). */}
+        <View
+          style={{
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: CmdRadius.xs,
+            borderWidth: 1,
+            borderColor: C.border,
+          }}
+        >
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+            {APP_VERSION}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 };
