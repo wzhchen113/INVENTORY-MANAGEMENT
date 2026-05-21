@@ -27,6 +27,7 @@ import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { CommandPalette } from '../../components/cmd/CommandPalette';
 import { StatusDot as DotForBar } from '../../components/cmd/StatusDot';
 import { PaletteEntry } from '../../lib/cmdSelectors';
+import { APP_VERSION } from '../../utils/version';
 
 // Phase 2 dev sandbox. Mounted from App.tsx when EXPO_PUBLIC_NEW_UI=true && __DEV__.
 // Phase 5 will move this into CmdNavigator as a hidden dev route.
@@ -459,7 +460,7 @@ export default function CmdAtomsPreview() {
         onSelect={setTreeSel}
         paletteQuery={drawerQuery}
         onPaletteChange={setDrawerQuery}
-        subtitle="admin@local · v2.4"
+        subtitle={`admin@local · ${APP_VERSION}`}
         footerLeft={<Text style={[Type.statusBar, { color: C.fg3 }]}>● admin@local</Text>}
         footerRight={<Text style={[Type.statusBar, { color: C.fg3 }]}>EOD 18/24</Text>}
       />

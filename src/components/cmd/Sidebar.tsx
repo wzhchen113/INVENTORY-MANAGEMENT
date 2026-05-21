@@ -6,6 +6,7 @@ import { AccentTile } from './AccentTile';
 import { TreeGroup, TreeItem } from './TreeGroup';
 import { LocaleSwitcher } from './LocaleSwitcher';
 import { useT } from '../../hooks/useT';
+import { APP_VERSION } from '../../utils/version';
 
 export interface SidebarGroup {
   label: string;
@@ -57,7 +58,7 @@ export const Sidebar: React.FC<Props> = ({
   footerLeft,
   footerRight,
   width = 240,
-  version = 'v2.4',
+  version = APP_VERSION,
   editMode = false,
   onToggleEditMode,
   onGroupsChange,

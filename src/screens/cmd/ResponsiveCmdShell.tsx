@@ -20,6 +20,7 @@ import { BrandPicker } from '../../components/cmd/BrandPicker';
 import { useIsSuperAdmin } from '../../hooks/useRole';
 import { useT } from '../../hooks/useT';
 import { confirmAction } from '../../utils/confirmAction';
+import { APP_VERSION } from '../../utils/version';
 import InventoryDesktopLayout from './InventoryDesktopLayout';
 
 // Spec 011 §2 — top-level chrome wrapper. Owns:
@@ -381,7 +382,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           paletteQuery={paletteQuery}
           onPaletteChange={setPaletteQuery}
           paletteResults={paletteResults}
-          subtitle={`${currentUser?.email || T('chrome.guest')} · v2.4`}
+          subtitle={`${currentUser?.email || T('chrome.guest')} · ${APP_VERSION}`}
           footerLeft={sidebarFooterLeft}
           footerRight={sidebarFooterRight}
         />
