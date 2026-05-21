@@ -245,8 +245,8 @@ export const Sidebar: React.FC<Props> = ({
             borderTopColor: C.border,
           }}
         >
-          <View>{footerLeft}</View>
-          <View>{footerRight}</View>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>{footerLeft}</View>
+          <View style={{ flexShrink: 0 }}>{footerRight}</View>
         </View>
       ) : null}
     </View>

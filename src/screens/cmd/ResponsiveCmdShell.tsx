@@ -231,8 +231,12 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   ).size;
 
   const sidebarFooterLeft = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <Text style={[Type.statusBar, { color: C.fg3 }]}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}>
+      <Text
+        style={[Type.statusBar, { color: C.fg3, flexShrink: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         ● {currentUser?.name || T('chrome.guest')}
       </Text>
       <TouchableOpacity
@@ -245,6 +249,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           borderRadius: CmdRadius.xs,
           borderWidth: 1,
           borderColor: C.border,
+          flexShrink: 0,
         }}
       >
         <Text style={[Type.statusBar, { color: C.fg3 }]}>{T('chrome.signOut')}</Text>
@@ -254,18 +259,18 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
 
   const sidebarFooterRight = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <ThemeToggle />
       <Text style={[Type.statusBar, { color: C.fg3 }]}>
         {T('chrome.eodFooter', { submittedCount: submittedToday, totalCount: stores.length })}
       </Text>
     </View>
   );
 
-  // Rail footer: just the icon-row (theme toggle + locale switcher).
+  // Rail footer: locale switcher + sign-out. Theme toggle lives in the
+  // TitleBar's top-right cluster (next to the brand picker), not duplicated
+  // here.
   const railFooter = (
     <View style={{ alignItems: 'center', gap: 6 }}>
       <LocaleSwitcher />
-      <ThemeToggle />
       <TouchableOpacity
         onPress={() => confirmAction(T('chrome.signOutConfirm'), T('chrome.signOutBody'), logout)}
         accessibilityRole="button"
@@ -356,7 +361,12 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         <MobileTopAppBar
           onHamburgerPress={() => setMobileDrawerOpen(true)}
           title={section}
-          trailing={brandPickerCompact}
+          trailing={
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {brandPickerCompact}
+              <ThemeToggle />
+            </View>
+          }
         />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
         <MobileNavDrawer

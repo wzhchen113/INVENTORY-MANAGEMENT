@@ -6,6 +6,7 @@ import { mono } from '../../theme/typography';
 import { supabase } from '../../lib/supabase';
 import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
+import { ThemeToggle } from './ThemeToggle';
 
 interface Props {
   storeName: string;
@@ -227,6 +228,8 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
         : null}
       {/* Spec 012b — brand picker slot (super-admin only, gated upstream) */}
       {brandPicker ? <View>{brandPicker}</View> : null}
+      {/* Theme toggle — always visible, sits next to the brand picker. */}
+      <ThemeToggle />
       {/* Connection indicator */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         <View
