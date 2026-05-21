@@ -655,6 +655,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             width="33%"
             value={customDraft.default}
             error={customError.default}
+            help="the smallest unit you count one of (each, lb, oz, mL)"
             onChange={(v) => setCustomDraft((p) => ({ ...p, default: v }))}
             onCommit={() => {
               // Round-2 (C2) — build the known-lowercase keys live from
@@ -699,6 +700,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             monoFont
             width="33%"
             placeholder="— pick unit —"
+            help="the smallest unit you count one of (each, lb, oz, mL)"
           />
         )}
         <InputLine label="packs / order" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many packs at a time" />
@@ -710,7 +712,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             label="pack unit"
             value={customDraft.pack}
             error={customError.pack}
-            help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+            help={'the shipping wrapper — case, box, tray; For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
             onChange={(v) => setCustomDraft((p) => ({ ...p, pack: v }))}
             onCommit={() => {
               // Round-2 (C2) — known-lowercase keys for the pack-unit
@@ -764,7 +766,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             monoFont
             placeholder="— pick pack unit —"
             allowEmpty
-            help={'For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+            help={'the shipping wrapper — case, box, tray; For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
           />
         )}
       </View>
