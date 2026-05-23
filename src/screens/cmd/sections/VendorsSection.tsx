@@ -12,6 +12,7 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { VendorFormDrawer } from '../../../components/cmd/VendorFormDrawer';
 import { CopyToBrandDialog } from '../../../components/cmd/CopyToBrandDialog';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../../utils/confirmAction';
 import { useT } from '../../../hooks/useT';
 import { useIsSuperAdmin } from '../../../hooks/useRole';
@@ -30,6 +31,12 @@ export default function VendorsSection() {
   const deleteVendor = useStore((s) => s.deleteVendor);
   const brand = useStore((s) => s.brand);
   const isSuperAdmin = useIsSuperAdmin();
+  // Spec 055 — first-mount-with-no-cache skeleton. `storeLoading` is the
+  // global "talking to Supabase about your data" flag toggled by
+  // loadFromSupabase. Pair with `vendors.length === 0` so subsequent
+  // re-mounts with cached rows skip the skeleton (the top progress bar
+  // handles background refreshes).
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('profile.tsx');
@@ -79,6 +86,13 @@ export default function VendorsSection() {
     () => (sel ? inventory.filter((i) => i.vendorId === sel.id && i.storeId === currentStore.id) : []),
     [inventory, sel, currentStore.id],
   );
+
+  // Spec 055 first-mount skeleton — only fires on the initial load with
+  // an empty slice. After the first fetch resolves (success OR empty),
+  // subsequent re-mounts skip this branch.
+  if (storeLoading && vendors.length === 0) {
+    return <ListSkeleton rows={6} />;
+  }
 
   return (
     <>

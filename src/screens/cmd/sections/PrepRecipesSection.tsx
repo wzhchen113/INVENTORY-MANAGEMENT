@@ -11,6 +11,7 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { PrepRecipeFormDrawer } from '../../../components/cmd/PrepRecipeFormDrawer';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
 import { getConversionFactor } from '../../../utils/unitConversion';
@@ -39,6 +40,8 @@ export default function PrepRecipesSection() {
   const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const getIngredientLineCost = useStore((s) => s.getIngredientLineCost);
   const deletePrepRecipe = useStore((s) => s.deletePrepRecipe);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('prep.tsx');
@@ -109,6 +112,11 @@ export default function PrepRecipesSection() {
       };
     });
   }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost]);
+
+  // Spec 055 first-mount skeleton — initial load with empty slice.
+  if (storeLoading && prepRecipes.length === 0) {
+    return <ListSkeleton rows={6} />;
+  }
 
   return (
     <>

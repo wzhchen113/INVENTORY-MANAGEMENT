@@ -12,6 +12,7 @@ import { UploadCsvModal } from '../../../components/cmd/UploadCsvModal';
 import { RunImportModal } from '../../../components/cmd/RunImportModal';
 import { FetchBreadbotModal, ParsedRow } from '../../../components/cmd/FetchBreadbotModal';
 import { RecipePickerModal } from '../../../components/cmd/RecipePickerModal';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { relativeTime } from '../../../utils/relativeTime';
 import { ColumnMapping, computeDiff, DiffSummary } from '../../../lib/csvImport';
 import { BREADBOT_STORES, BackfillResult } from '../../../lib/posBreadbot';
@@ -43,6 +44,8 @@ export default function POSImportsSection() {
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
   const recipes = useStore((s) => s.recipes);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
   const posRecipeAliases = useStore((s) => s.posRecipeAliases);
   const importPOS = useStore((s) => s.importPOS);
   const upsertPosRecipeAliases = useStore((s) => s.upsertPosRecipeAliases);
@@ -105,6 +108,13 @@ export default function POSImportsSection() {
   );
   const unmappedTotal = rowsTotal - matchedTotal;
   const failedCount = imports.filter((im) => (im.items || []).length > 0 && (im.items || []).every((it) => !it.recipeMapped)).length;
+
+  // Spec 055 first-mount skeleton — show on initial load when the slice
+  // is empty. posImports is not loaded by fetchAllForStore today, so the
+  // skeleton is brief (most stores have at least one import); still safe.
+  if (storeLoading && posImports.length === 0) {
+    return <ListSkeleton rows={4} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

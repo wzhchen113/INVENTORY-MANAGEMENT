@@ -12,6 +12,7 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { RecipeFormDrawer } from '../../../components/cmd/RecipeFormDrawer';
 import { FilterInput } from '../../../components/cmd/FilterInput';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import RecipeCategoriesSection from './RecipeCategoriesSection';
 import type { Tab } from '../../../components/cmd/TabStrip';
 import { confirmAction } from '../../../utils/confirmAction';
@@ -56,6 +57,9 @@ export default function RecipesSection() {
   const getPrepRecipe = useStore((s) => s.getPrepRecipe);
   const getPrepRecipeCostPerUnit = useStore((s) => s.getPrepRecipeCostPerUnit);
   const deleteRecipe = useStore((s) => s.deleteRecipe);
+  // Spec 055 — first-mount skeleton when storeLoading is true and the
+  // recipes slice is still empty.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [tabId, setTabId] = React.useState('recipe.tsx');
@@ -164,6 +168,13 @@ export default function RecipesSection() {
     : m >= 70 ? C.ok
     : m >= 50 ? C.warn
     : C.danger;
+
+  // Spec 055 first-mount skeleton — only fires on the initial load when
+  // the recipes slice is still empty. After the first fetch resolves,
+  // subsequent re-mounts skip this branch.
+  if (storeLoading && recipes.length === 0) {
+    return <ListSkeleton rows={8} />;
+  }
 
   return (
     <>

@@ -8,6 +8,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { Avatar } from '../../../components/cmd/Avatar';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { relativeTime } from '../../../utils/relativeTime';
 import { WasteReason } from '../../../types';
 import { useT } from '../../../hooks/useT';
@@ -29,6 +30,8 @@ export default function WasteLogSection() {
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
   const logWaste = useStore((s) => s.logWaste);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [tabId, setTabId] = React.useState('log.tsx');
   const [reasonFilter, setReasonFilter] = React.useState<WasteReason | 'all'>('all');
@@ -104,6 +107,13 @@ export default function WasteLogSection() {
     setNote('');
     setSubmitting(false);
   };
+
+  // Spec 055 first-mount skeleton — wasteLog slice loads as part of the
+  // store's loadFromSupabase fan-out; check the global flag + slice
+  // emptiness so background refreshes don't re-show the skeleton.
+  if (storeLoading && wasteLog.length === 0) {
+    return <ListSkeleton rows={6} />;
+  }
 
   return (
     <>

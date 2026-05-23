@@ -6,6 +6,7 @@ import { useStore } from '../../../store/useStore';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { Avatar } from '../../../components/cmd/Avatar';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { useT } from '../../../hooks/useT';
 import { useLocale, type Locale } from '../../../hooks/useLocale';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
@@ -71,6 +72,8 @@ export default function AuditLogSection() {
   const T = useT();
   const auditLog = useStore((s) => s.auditLog);
   const currentStore = useStore((s) => s.currentStore);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [tabId, setTabId] = React.useState('feed.tsx');
 
@@ -82,6 +85,11 @@ export default function AuditLogSection() {
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     [auditLog, currentStore.id],
   );
+
+  // Spec 055 first-mount skeleton — slice empty + initial fetch in flight.
+  if (storeLoading && auditLog.length === 0) {
+    return <ListSkeleton rows={8} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

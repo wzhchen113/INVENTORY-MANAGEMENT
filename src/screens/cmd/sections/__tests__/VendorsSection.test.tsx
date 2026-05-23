@@ -65,6 +65,11 @@ jest.mock('../../../../hooks/useRole', () => ({
 // rows by default; tests that need a row seed it explicitly via
 // `seedVendors`. brand has a non-empty id so `sourceBrandId` is truthy
 // (the per-row canCopy guard checks `!!sourceBrandId`).
+//
+// Spec 055 — `storeLoading` is included so the first-mount skeleton
+// branch (`storeLoading && vendors.length === 0`) is reachable in tests.
+// Default false (after first fetch) so the existing copy-affordance tests
+// continue to exercise the populated list path.
 jest.mock('../../../../store/useStore', () => {
   const state: any = {
     vendors: [],
@@ -72,6 +77,7 @@ jest.mock('../../../../store/useStore', () => {
     currentStore: { id: 'store-1' },
     currentUser: { id: 'user-1', role: 'admin' },
     brand: { id: 'brand-source' },
+    storeLoading: false,
     deleteVendor: jest.fn(),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
@@ -138,6 +144,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockUseIsSuperAdmin.mockReturnValue(false);
   seedVendors([]);
+  // Spec 055 — reset storeLoading between tests so the skeleton branch
+  // doesn't bleed across the copy-affordance describe blocks.
+  mockState.storeLoading = false;
 });
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -224,5 +233,67 @@ describe('VendorsSection — cross-brand copy affordances gate (Spec 049)', () =
         screen.getByText(/dialog\.copyToBrand\.bulkPillVendors/),
       ).toBeTruthy();
     });
+  });
+});
+
+// ── Spec 055 — first-mount skeleton coverage (AC8 + AC9) ───────────────
+//
+// VendorsSection's only data slice is `vendors`, making it the cleanest
+// representative for the spec-mandated `storeLoading && slice.length === 0`
+// predicate. The same predicate appears in all 10 sections per the
+// architect's cheat-sheet (spec §5) — proving the predicate fires correctly
+// here gives us confidence in the structural pattern.
+//
+// AC8 (positive): skeleton renders when the first fetch hasn't returned.
+// AC9 (negative): skeleton does NOT render when the slice already has rows,
+//                 even if `storeLoading` flips true again (this is the
+//                 regression guard that prevents skeleton-flash on every
+//                 realtime-driven background refresh).
+
+describe('VendorsSection — first-mount skeleton (Spec 055 AC8 / AC9)', () => {
+  it('AC8: renders the ListSkeleton when storeLoading is true AND vendors is empty', () => {
+    mockState.storeLoading = true;
+    seedVendors([]); // empty slice — first-mount-with-no-cache
+
+    render(<VendorsSection />);
+
+    // The ListSkeleton renders a View with accessibilityRole="progressbar"
+    // and accessibilityLabel="Loading". Asserting on the label is the most
+    // direct check that the skeleton (and not the populated list pane)
+    // rendered.
+    expect(screen.getByLabelText('Loading')).toBeTruthy();
+
+    // Confirm no list-pane chrome rendered alongside the skeleton.
+    // The list pane has no "Loading" label, so finding it here means we
+    // landed in the skeleton branch.
+    expect(screen.queryAllByLabelText('Loading').length).toBe(1);
+  });
+
+  it('AC9: does NOT render the skeleton when vendors has rows, even if storeLoading is true', () => {
+    // This is the predicate that prevents skeleton-flash on every realtime
+    // tick: background refreshes set storeLoading=true briefly, but the
+    // slice already has cached data, so the skeleton must stay hidden.
+    mockState.storeLoading = true;
+    seedVendors([{ id: 'vendor-1', name: 'Sysco' }]);
+
+    render(<VendorsSection />);
+
+    // No skeleton label.
+    expect(screen.queryByLabelText('Loading')).toBeNull();
+    // The vendor row IS rendered — proves we fell through to the list pane.
+    expect(screen.getAllByText('Sysco').length).toBeGreaterThan(0);
+  });
+
+  it('AC9 (sanity): does NOT render the skeleton when storeLoading is false', () => {
+    // After the first fetch resolves (storeLoading=false), even an empty
+    // slice should not render the skeleton — the section's own empty-state
+    // chrome takes over. Without this check, AC8's positive assertion could
+    // be passing for the wrong reason (e.g. an unconditional skeleton).
+    mockState.storeLoading = false;
+    seedVendors([]);
+
+    render(<VendorsSection />);
+
+    expect(screen.queryByLabelText('Loading')).toBeNull();
   });
 });

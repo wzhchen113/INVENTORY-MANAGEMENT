@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
 import { ThemeToggle } from './ThemeToggle';
+import { LoadingBar } from './LoadingBar';
 
 interface Props {
   storeName: string;
@@ -109,8 +110,16 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
         alignItems: 'center',
         paddingHorizontal: 12,
         gap: 12,
+        // `position: 'relative'` is the anchor for the LoadingBar overlay
+        // below — absolute positioning needs a positioned ancestor or it
+        // climbs to the document body.
+        position: 'relative',
       }}
     >
+      {/* Spec 055 — global in-flight indicator. Renders only when a
+          db.ts call is active; web-only (bails on native). Mounted as
+          the first child so its absolute positioning is unambiguous. */}
+      <LoadingBar />
       {/* Traffic lights — cosmetic */}
       <View style={{ flexDirection: 'row', gap: 6 }}>
         <View style={{ width: 11, height: 11, borderRadius: 99, backgroundColor: '#FF5F57' }} />

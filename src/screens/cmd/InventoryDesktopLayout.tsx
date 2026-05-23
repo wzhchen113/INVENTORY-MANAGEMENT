@@ -26,6 +26,7 @@ import { InventoryRow } from '../../components/cmd/InventoryRow';
 import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
+import { ListSkeleton } from '../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../utils/confirmAction';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
@@ -86,6 +87,9 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   const currentStore = useStore((s) => s.currentStore);
   const getItemStatus = useStore((s) => s.getItemStatus);
   const deleteItem = useStore((s) => s.deleteItem);
+  // Spec 055 — first-mount skeleton flag for the Inventory branch
+  // specifically. Other sections gate on their own slices internally.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const [filterText, setFilterText]   = React.useState('');
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
@@ -243,6 +247,11 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
               />
             }
           />
+        ) : storeLoading && storeInventory.length === 0 ? (
+          // Spec 055 first-mount skeleton — Inventory per-store branch.
+          // Show on initial load with empty slice; subsequent re-mounts
+          // with cached rows skip this branch.
+          <ListSkeleton rows={10} />
         ) : (
           <>
             {/* List pane */}

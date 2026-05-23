@@ -8,6 +8,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { Sparkline } from '../../../components/cmd/Sparkline';
 import { Heatmap, HeatmapRow } from '../../../components/cmd/Heatmap';
 import { ExpiringItemsModal } from '../../../components/cmd/ExpiringItemsModal';
+import { GridSkeleton } from '../../../components/cmd/GridSkeleton';
 import { relativeTime } from '../../../utils/relativeTime';
 import * as db from '../../../lib/db';
 import { useT } from '../../../hooks/useT';
@@ -120,6 +121,9 @@ export default function DashboardSection() {
   const stores = useStore((s) => s.stores);
   const users = useStore((s) => s.users);
   const getItemStatus = useStore((s) => s.getItemStatus);
+  // Spec 055 — first-mount skeleton flag. Dashboard reads multiple
+  // slices; check `inventory` as the most representative one.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   // Single-tab strip per Decision D4. Stubs for by_store/variance would be
   // dead UI; kept the existing single-tab pattern from v1 instead.
@@ -293,6 +297,11 @@ export default function DashboardSection() {
 
   const fcDeltaPp = currentFc - TARGET_FOOD_COST_PCT;
   const fcTone = fcDeltaPp > 1 ? C.danger : fcDeltaPp > 0 ? C.warn : C.ok;
+
+  // Spec 055 first-mount skeleton — dashboard is grid-shaped.
+  if (storeLoading && inventory.length === 0) {
+    return <GridSkeleton rows={2} cols={3} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

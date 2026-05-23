@@ -4,6 +4,7 @@ import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { NewReportModal } from '../../../components/cmd/NewReportModal';
+import { GridSkeleton } from '../../../components/cmd/GridSkeleton';
 import { useStore } from '../../../store/useStore';
 import { relativeTime } from '../../../utils/relativeTime';
 import { ReportDefinition } from '../../../types';
@@ -85,6 +86,8 @@ export default function ReportsSection() {
   const deleteReportDefinition = useStore((s) => s.deleteReportDefinition);
   const runReport = useStore((s) => s.runReport);
   const loadLatestRun = useStore((s) => s.loadLatestRun);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
 
   const myReports = React.useMemo(
     () => savedReports.filter((r) => r.storeId === currentStore.id),
@@ -247,6 +250,11 @@ export default function ReportsSection() {
   const selectedSupportsBy = selectedIsLive && selectedTemplate?.id !== 'variance' && selectedTemplate?.id !== 'custom';
   const selectedSupportsRange = selectedIsLive && selectedTemplate?.id !== 'custom';
   const selectedOverride = selectedDefinitionId ? overrides.get(selectedDefinitionId) : undefined;
+
+  // Spec 055 first-mount skeleton — grid-shaped for saved reports tiles.
+  if (storeLoading && savedReports.length === 0) {
+    return <GridSkeleton rows={2} cols={3} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

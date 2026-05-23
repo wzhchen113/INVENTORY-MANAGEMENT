@@ -198,6 +198,13 @@ export const LightCmd = {
   dangerBg:     '#FCEBEB',
   info:         '#185FA5',
   infoBg:       '#E6F1FB',
+  // Spec 055 — global loading indicator (TopProgressBar in TitleBar).
+  // `loadingBar` is the idle/active stripe; `loadingBarSlow` is the
+  // "taking longer than usual" warn shade that kicks in at the 5s mark.
+  // Reuse `accent` / `warn` so the chrome stays consistent with the rest
+  // of the Cmd palette.
+  loadingBar:     '#3F7C20',
+  loadingBarSlow: '#854F0B',
 };
 
 export const DarkCmd: typeof LightCmd = {
@@ -221,6 +228,10 @@ export const DarkCmd: typeof LightCmd = {
   dangerBg:     'rgba(224,72,72,0.15)',
   info:         '#5AA8F0',
   infoBg:       'rgba(90,168,240,0.15)',
+  // Spec 055 — matches LightCmd loadingBar / loadingBarSlow rationale,
+  // tuned for the dark surface.
+  loadingBar:     '#7DD668',
+  loadingBarSlow: '#E0A030',
 };
 
 export function useCmdColors() {

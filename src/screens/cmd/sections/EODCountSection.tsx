@@ -17,6 +17,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ComingSoonPanel } from '../../../components/cmd/ComingSoonPanel';
 import { AddCountModal } from '../../../components/cmd/AddCountModal';
 import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorScheduleModal';
+import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { EODEntry, EODSubmission } from '../../../types';
 import OrderScheduleSection from './OrderScheduleSection';
 
@@ -80,6 +81,8 @@ export default function EODCountSection() {
   const currentUser = useStore((s) => s.currentUser);
   const submitEOD = useStore((s) => s.submitEOD);
   const orderSchedule = useStore((s) => s.orderSchedule);
+  // Spec 055 — first-mount skeleton flag.
+  const storeLoading = useStore((s) => s.storeLoading);
   // Backend-developer adds these store actions in spec 007's backend slice.
   // Same optimistic-then-revert pattern as setOrderSchedule.
   const addOrderScheduleEntry = useStore((s) => s.addOrderScheduleEntry);
@@ -568,6 +571,13 @@ export default function EODCountSection() {
         </Text>
       </View>
     );
+  }
+
+  // Spec 055 first-mount skeleton — eodSubmissions slice loads in the
+  // store's loadFromSupabase fan-out; show a list skeleton until the
+  // first fetch resolves (success OR empty).
+  if (storeLoading && eodSubmissions.length === 0) {
+    return <ListSkeleton rows={4} />;
   }
 
   return (
