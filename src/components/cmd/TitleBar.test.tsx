@@ -56,13 +56,13 @@ jest.mock('../../hooks/useT', () => ({
   useT: () => (key: string) => key,
 }));
 
-// supabase — TitleBar reads `supabase.realtime.channels` in the connection
-// indicator's interval. Stub the bare shape it needs.
-jest.mock('../../lib/supabase', () => ({
+// useConnectionStatus (spec 057) — TitleBar consumes the hook to drive
+// its connection indicator. The hook itself is unit-tested in
+// useConnectionStatus.test.ts; this test only needs a fixed return so
+// the indicator branch is well-formed (no assertions on copy / color).
+jest.mock('../../hooks/useConnectionStatus', () => ({
   __esModule: true,
-  supabase: {
-    realtime: { channels: [] },
-  },
+  useConnectionStatus: () => true,
 }));
 
 // useStore — provide just the keys TitleBar selects. The store is a Zustand

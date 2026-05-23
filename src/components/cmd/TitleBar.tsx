@@ -3,9 +3,9 @@ import { View, Text, Platform, TouchableOpacity, Pressable } from 'react-native'
 import { createPortal } from 'react-dom';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
-import { supabase } from '../../lib/supabase';
 import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
+import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { ThemeToggle } from './ThemeToggle';
 import { LoadingBar } from './LoadingBar';
 
@@ -24,8 +24,9 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 
 // Per design: web-only desktop top bar 32px. Three macOS traffic lights
 // (cosmetic only — do NOT wire to window controls), centered breadcrumb,
-// connection indicator on the right reading directly from supabase.realtime
-// channel state (per G4 — no separate hook).
+// connection indicator on the right reading from `useConnectionStatus`
+// (spec 057 — formerly inlined here, extracted to honor the
+// no-`lib/supabase`-imports-in-components convention).
 //
 // The `inv://<slug>` segment of the breadcrumb is a store switcher: click
 // to drop a menu of stores the user has access to (admin/master see all,
@@ -66,6 +67,15 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
     return initials || 'inv';
   }, [brandNameByBrandId]);
 
+  // Spec 057 — connection-indicator hook. MUST be called BEFORE the
+  // `Platform.OS !== 'web'` early return below, otherwise React's
+  // Rules-of-Hooks invariant (same call order every render) breaks if a
+  // future code path renders this component on native. The hook
+  // self-gates its `setInterval` side-effect on platform, so the poller
+  // never starts on native and the optimistic `useState(true)` default
+  // is the only value seen there.
+  const connected = useConnectionStatus();
+
   if (Platform.OS !== 'web') return null;
 
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master' || currentUser?.role === 'super_admin';
@@ -81,23 +91,6 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
   const tail = [section.toLowerCase(), itemSlug ? slugify(itemSlug) : null]
     .filter(Boolean)
     .join(' — ');
-
-  const [connected, setConnected] = React.useState<boolean>(true);
-  React.useEffect(() => {
-    const tick = () => {
-      const channels: any[] = (supabase as any).realtime?.channels || [];
-      // 'joined' or 'subscribed' are healthy states; default optimistic if no
-      // channels yet (e.g. before any subscription is created).
-      if (channels.length === 0) {
-        setConnected(true);
-        return;
-      }
-      setConnected(channels.some((c) => c.state === 'joined' || c.state === 'subscribed'));
-    };
-    const id = setInterval(tick, 2000);
-    tick();
-    return () => clearInterval(id);
-  }, []);
 
   return (
     <View

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCmdColors } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
+import { LoadingBar } from './LoadingBar';
 
 interface Props {
   /** Hamburger button press handler. Always shown. */
@@ -41,8 +42,17 @@ export const MobileTopAppBar: React.FC<Props> = ({
         backgroundColor: C.panel,
         borderBottomWidth: 1,
         borderBottomColor: C.border,
+        // `position: 'relative'` is the anchor for the LoadingBar overlay
+        // below — absolute positioning needs a positioned ancestor or it
+        // climbs to the document body. Mirrors TitleBar.tsx:116.
+        position: 'relative',
       }}
     >
+      {/* Spec 056 — global in-flight indicator on the phone-tier shell.
+          Renders only when a db.ts call is active; web-only (LoadingBar
+          bails on native). Mounted as the first child so its absolute
+          positioning is unambiguous (mirrors TitleBar.tsx:119-122). */}
+      <LoadingBar />
       <View
         style={{
           height: 44,
