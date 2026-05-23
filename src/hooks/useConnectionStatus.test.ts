@@ -21,9 +21,10 @@
 // this override the hook's effect would bail and every "polling fires"
 // assertion below would fail. The native-bail test flips this back to
 // `ios` in an isolated module scope.
-jest.mock('react-native', () => ({
+jest.mock('react-native/Libraries/Utilities/Platform', () => ({
   __esModule: true,
-  Platform: { OS: 'web', select: (obj: any) => obj.web ?? obj.default },
+  default: { OS: 'web', select: (obj: any) => obj.web ?? obj.default },
+  OS: 'web',
 }));
 
 // The mocked `supabase.realtime.channels` array is mutable; each test
@@ -232,8 +233,9 @@ describe('useConnectionStatus — cleanup', () => {
 // leak, and the `useState(true)` default is the only value downstream
 // consumers ever see on native.
 //
-// Implementation note: the file-level `jest.mock('react-native', ...)`
-// pins `Platform.OS = 'web'` for the rest of the suite. Mutating the
+// Implementation note: the file-level
+// `jest.mock('react-native/Libraries/Utilities/Platform', ...)` pins
+// `Platform.OS = 'web'` for the rest of the suite. Mutating the
 // already-imported `Platform.OS` property in-place here flips the gate
 // to native; we restore the original value in a `finally` to keep the
 // other describe blocks unaffected even if `renderHook` throws.
@@ -241,7 +243,7 @@ describe('useConnectionStatus — cleanup', () => {
 describe('useConnectionStatus — native platform bail', () => {
   test('does NOT call setInterval on native and returns the optimistic default', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Platform } = require('react-native') as { Platform: { OS: string } };
+    const Platform = require('react-native/Libraries/Utilities/Platform').default as { OS: string };
     const originalOS = Platform.OS;
     Platform.OS = 'ios';
 
