@@ -1,47 +1,136 @@
-// src/hooks/useConnectionStatus.test.ts — Spec 057.
+// src/hooks/useConnectionStatus.test.ts — Spec 059.
 //
-// Unit test for the connection-status polling hook extracted from
-// `TitleBar.tsx`. The hook IS the codified `lib/supabase` boundary —
-// per spec 057 §5a and the hybrid-mocking rule, this test MAY mock
-// `lib/supabase` directly even though component tests below this
-// boundary must not.
+// Unit tests for the EVENT-DRIVEN connection-status hook. The spec 057
+// poll-based shape (setInterval(2000) + mutating
+// `supabase.realtime.channels`) has been replaced with subscriptions to
+// the underlying Phoenix Socket's onOpen / onClose / onError callbacks.
+// The hook IS the codified `lib/supabase` boundary — per spec 057 §5a
+// and the hybrid-mocking rule, this test MAY mock `lib/supabase`
+// directly even though component tests below this boundary must not.
 //
-// Strategy: jest.useFakeTimers() to drive the 2000ms poll
-// deterministically; the mocked `supabase.realtime.channels` array is
-// mutable, so tests mutate it between ticks and advance the timer to
-// flush the hook's `setConnected`. Mirrors the `inflight.test.ts`
-// pattern.
+// Strategy: mock `lib/supabase` with an event-emitter shape — each
+// `onOpen` / `onClose` / `onError` mock stores the callback and returns
+// a unique ref string; `off(refs)` filters the captured handlers. Tests
+// dispatch events by manually invoking the captured callbacks inside
+// `act()`; the hook's setState flips synchronously because no real
+// timer is in the loop. Mirrors the `inflight.test.ts` act() pattern.
 
 // ─── Mocks (must precede any hook import) ──────────────────────────────
 
-// Force Platform.OS = 'web' for the bulk of the suite. Spec 057 pass-2
-// gated the hook's `useEffect` side-effect on `Platform.OS === 'web'`
-// (see the native-bail describe block below for that branch). The
-// jest-expo unit-project default haste platform is `ios`, so without
-// this override the hook's effect would bail and every "polling fires"
-// assertion below would fail. The native-bail test flips this back to
-// `ios` in an isolated module scope.
+// Force Platform.OS = 'web' for the bulk of the suite. The hook's
+// `useEffect` body bails on native; the native-bail describe block
+// flips this back to `ios` in an isolated scope (spec 058 alignment).
 jest.mock('react-native/Libraries/Utilities/Platform', () => ({
   __esModule: true,
   default: { OS: 'web', select: (obj: any) => obj.web ?? obj.default },
   OS: 'web',
 }));
 
-// The mocked `supabase.realtime.channels` array is mutable; each test
-// assigns it via the `setChannels` helper below. The mock factory is
-// hoisted by jest, so the array reference must live inside the factory
-// — we expose it through a getter so the test body can swap the array
-// at will.
+// Event-emitter mock shape (spec 059 §8a). Replaces the spec 057
+// `__setChannels` helper. The mock factory is hoisted by jest, so all
+// captured state lives inside the factory closure — exposed through
+// `__getCapturedHandlers` / `__setInitialConnected` / `__getOffSpy`
+// for the test body.
 jest.mock('../lib/supabase', () => {
-  const state: { channels: { state: string }[] } = { channels: [] };
+  let nextRefId = 1;
+  const handlers: { open: Function[]; close: Function[]; error: Function[] } = {
+    open: [],
+    close: [],
+    error: [],
+  };
+  // refMap is used by `off(refs)` to remove a specific registration
+  // by its ref string. Storing { kind, cb } makes the filter cheap.
+  const refMap = new Map<string, { kind: 'open' | 'close' | 'error'; cb: Function }>();
+
+  // Default initial-seed state — `connectionState: 'connecting'`
+  // biases the hook's seed rule toward optimistic-true. Tests that
+  // need a different seed call `__setInitialConnected(opts)` BEFORE
+  // calling `renderHook`.
+  const seedState: { isConnected: boolean; connectionState: string } = {
+    isConnected: false,
+    connectionState: 'connecting',
+  };
+
+  const offSpy = jest.fn((refs: string[]) => {
+    for (const ref of refs) {
+      const entry = refMap.get(ref);
+      if (!entry) continue;
+      const arr = handlers[entry.kind];
+      const idx = arr.indexOf(entry.cb);
+      if (idx >= 0) arr.splice(idx, 1);
+      refMap.delete(ref);
+    }
+  });
+
+  const onOpenSpy = jest.fn((cb: Function) => {
+    const ref = String(nextRefId++);
+    handlers.open.push(cb);
+    refMap.set(ref, { kind: 'open', cb });
+    return ref;
+  });
+  const onCloseSpy = jest.fn((cb: Function) => {
+    const ref = String(nextRefId++);
+    handlers.close.push(cb);
+    refMap.set(ref, { kind: 'close', cb });
+    return ref;
+  });
+  const onErrorSpy = jest.fn((cb: Function) => {
+    const ref = String(nextRefId++);
+    handlers.error.push(cb);
+    refMap.set(ref, { kind: 'error', cb });
+    return ref;
+  });
+
+  const socket = {
+    onOpen: onOpenSpy,
+    onClose: onCloseSpy,
+    onError: onErrorSpy,
+    off: offSpy,
+  };
+
+  const realtime = {
+    isConnected: jest.fn(() => seedState.isConnected),
+    connectionState: jest.fn(() => seedState.connectionState),
+    socketAdapter: {
+      getSocket: jest.fn(() => socket),
+    },
+  };
+
   return {
     __esModule: true,
-    supabase: {
-      realtime: state,
+    supabase: { realtime },
+    // Test-only escape hatches — NOT part of the production export.
+    __getCapturedHandlers() {
+      return handlers;
     },
-    // Test-only escape hatch — NOT part of the production export.
-    __setChannels(next: { state: string }[]) {
-      state.channels = next;
+    __setInitialConnected(opts: { isConnected?: boolean; connectionState?: string }) {
+      if (typeof opts.isConnected === 'boolean') seedState.isConnected = opts.isConnected;
+      if (typeof opts.connectionState === 'string') seedState.connectionState = opts.connectionState;
+    },
+    __getOffSpy() {
+      return offSpy;
+    },
+    __getOnOpenSpy() {
+      return onOpenSpy;
+    },
+    __getOnCloseSpy() {
+      return onCloseSpy;
+    },
+    __getOnErrorSpy() {
+      return onErrorSpy;
+    },
+    __resetMock() {
+      handlers.open.length = 0;
+      handlers.close.length = 0;
+      handlers.error.length = 0;
+      refMap.clear();
+      nextRefId = 1;
+      seedState.isConnected = false;
+      seedState.connectionState = 'connecting';
+      offSpy.mockClear();
+      onOpenSpy.mockClear();
+      onCloseSpy.mockClear();
+      onErrorSpy.mockClear();
     },
   };
 });
@@ -49,229 +138,394 @@ jest.mock('../lib/supabase', () => {
 import { act, renderHook } from '@testing-library/react-native';
 import { useConnectionStatus } from './useConnectionStatus';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { __setChannels } = require('../lib/supabase') as {
-  __setChannels: (next: { state: string }[]) => void;
+const {
+  __getCapturedHandlers,
+  __setInitialConnected,
+  __getOffSpy,
+  __getOnOpenSpy,
+  __getOnCloseSpy,
+  __getOnErrorSpy,
+  __resetMock,
+} = require('../lib/supabase') as {
+  __getCapturedHandlers(): { open: Function[]; close: Function[]; error: Function[] };
+  __setInitialConnected(opts: { isConnected?: boolean; connectionState?: string }): void;
+  __getOffSpy(): jest.Mock;
+  __getOnOpenSpy(): jest.Mock;
+  __getOnCloseSpy(): jest.Mock;
+  __getOnErrorSpy(): jest.Mock;
+  __resetMock(): void;
 };
 
 beforeEach(() => {
-  jest.useFakeTimers();
-  __setChannels([]);
+  __resetMock();
 });
 
-afterEach(() => {
-  jest.useRealTimers();
-});
+// ─── empty-channels rewrite — initial seed via connectionState ─────────
+//
+// Case 1: optimistic-true seed when socket reports
+// `isConnected: false` + `connectionState: 'connecting'` (the normal
+// startup state — socket is in-flight, indicator should be green).
+//
+// Case 2: open-state seed stays true with no events fired.
 
-// ─── empty channels → optimistic true ──────────────────────────────────
-
-describe('useConnectionStatus — empty-channels branch', () => {
-  test('returns true on initial mount with no channels', () => {
+describe('useConnectionStatus — initial seed branch', () => {
+  test("seed returns true on initial mount with isConnected=false + state='connecting'", () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'connecting' });
     const { result } = renderHook(() => useConnectionStatus());
-    // The hook's initial useState is true; the synchronous initial
-    // tick after setInterval also yields true (empty array branch).
+    // The hook's useState lazy initializer reads connectionState ===
+    // 'connecting' → biases optimistic-true. AC4 preserved.
     expect(result.current).toBe(true);
   });
 
-  test('stays true across ticks while channels stay empty', () => {
+  test("stays true across `act()` flushes when no event has fired", () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
     const { result } = renderHook(() => useConnectionStatus());
     expect(result.current).toBe(true);
-    act(() => { jest.advanceTimersByTime(2000); });
+    // Flush any pending React work — no events have been dispatched so
+    // the value cannot have changed.
+    act(() => {});
     expect(result.current).toBe(true);
-    act(() => { jest.advanceTimersByTime(2000); });
-    expect(result.current).toBe(true);
-  });
-});
-
-// ─── healthy states (single channel) ───────────────────────────────────
-
-describe('useConnectionStatus — healthy single-channel states', () => {
-  test("returns true when the only channel is in state 'joined'", () => {
-    __setChannels([{ state: 'joined' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    // Initial tick fires synchronously after setInterval; flush any
-    // pending state updates by advancing 0ms.
-    expect(result.current).toBe(true);
-  });
-
-  test("returns true when the only channel is in state 'subscribed'", () => {
-    __setChannels([{ state: 'subscribed' }]);
-    const { result } = renderHook(() => useConnectionStatus());
+    act(() => {});
     expect(result.current).toBe(true);
   });
 });
 
-// ─── unhealthy states (single channel) ─────────────────────────────────
+// ─── healthy-state event dispatch ──────────────────────────────────────
+//
+// Case 3: onOpen → true (from seed)
+// Case 4: onOpen after onClose → true (proves latch correctness)
 
-describe('useConnectionStatus — unhealthy single-channel states', () => {
-  test("returns false when the only channel is in state 'closed'", () => {
-    __setChannels([{ state: 'closed' }]);
+describe('useConnectionStatus — onOpen flips connected to true', () => {
+  test('dispatching captured onOpen callback flips connected to true', () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'closed' });
     const { result } = renderHook(() => useConnectionStatus());
-    // The initial useState(true) default is overwritten by the
-    // synchronous initial tick — which reads channels.length === 1
-    // and falls into the .some() branch, yielding false.
+    // Seed: connectionState='closed' → false.
+    expect(result.current).toBe(false);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.open[0]();
+    });
+    expect(result.current).toBe(true);
+  });
+
+  test('onOpen fires after a prior onClose → flips back to true', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.close[0]();
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      handlers.open[0]();
+    });
+    expect(result.current).toBe(true);
+  });
+});
+
+// ─── unhealthy-state event dispatch ────────────────────────────────────
+//
+// Case 5: onClose → false
+// Case 6: onError → false
+
+describe('useConnectionStatus — onClose / onError flip connected to false', () => {
+  test('dispatching captured onClose callback flips connected to false', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.close[0]();
+    });
     expect(result.current).toBe(false);
   });
 
-  test("returns false when the only channel is in state 'errored'", () => {
-    __setChannels([{ state: 'errored' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    expect(result.current).toBe(false);
-  });
-});
-
-// ─── mixed-state aggregation ───────────────────────────────────────────
-
-describe('useConnectionStatus — mixed-state aggregation', () => {
-  test("returns true when ANY channel is 'joined' (mixed with closed)", () => {
-    __setChannels([{ state: 'joined' }, { state: 'closed' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    expect(result.current).toBe(true);
-  });
-
-  test("returns false when NO channel is in a healthy state", () => {
-    __setChannels([{ state: 'closed' }, { state: 'errored' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    expect(result.current).toBe(false);
-  });
-});
-
-// ─── polling — picks up channel mutations between ticks ────────────────
-
-describe('useConnectionStatus — polling picks up mutations', () => {
-  test('flips false when the only channel transitions to closed', () => {
-    __setChannels([{ state: 'joined' }]);
+  test('dispatching captured onError callback flips connected to false', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
     const { result } = renderHook(() => useConnectionStatus());
     expect(result.current).toBe(true);
 
-    // Mutate the channel state — production code path mirrors the
-    // realtime client mutating the same array reference. Our mock
-    // swaps the array contents, which is equivalent for the hook's
-    // poll because the hook re-reads `supabase.realtime.channels` on
-    // every tick.
-    __setChannels([{ state: 'closed' }]);
-    act(() => { jest.advanceTimersByTime(2000); });
-    expect(result.current).toBe(false);
-  });
-
-  test('flips true when a previously-closed channel re-joins', () => {
-    __setChannels([{ state: 'closed' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    expect(result.current).toBe(false);
-
-    __setChannels([{ state: 'joined' }]);
-    act(() => { jest.advanceTimersByTime(2000); });
-    expect(result.current).toBe(true);
-  });
-
-  test('cadence is exactly 2000ms (1999ms does not tick, 2000ms does)', () => {
-    __setChannels([{ state: 'joined' }]);
-    const { result } = renderHook(() => useConnectionStatus());
-    expect(result.current).toBe(true);
-
-    __setChannels([{ state: 'closed' }]);
-    // One ms shy of the 2s threshold — the interval has not fired.
-    act(() => { jest.advanceTimersByTime(1999); });
-    expect(result.current).toBe(true);
-    // Cross the threshold — the interval fires and flips the state.
-    act(() => { jest.advanceTimersByTime(1); });
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.error[0]();
+    });
     expect(result.current).toBe(false);
   });
 });
 
-// ─── cleanup — clearInterval fires on unmount ──────────────────────────
+// ─── sequence/latch aggregation ────────────────────────────────────────
+//
+// Case 7: open → close → open (latches per-event correctly)
+// Case 8: close → error (both map to false; no spurious flip)
 
-describe('useConnectionStatus — cleanup', () => {
-  test('clearInterval is called on unmount with the setInterval id', () => {
-    // Spy BEFORE renderHook so the spy captures the setInterval id
-    // the hook installs.
-    const setSpy = jest.spyOn(global, 'setInterval');
-    const clearSpy = jest.spyOn(global, 'clearInterval');
+describe('useConnectionStatus — sequence and latch', () => {
+  test('open → close → open sequence latches correctly through each event', () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'closed' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(false);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.open[0]();
+    });
+    expect(result.current).toBe(true);
+
+    act(() => {
+      handlers.close[0]();
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      handlers.open[0]();
+    });
+    expect(result.current).toBe(true);
+  });
+
+  test('close → error sequence — both map to false (no spurious flip)', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.close[0]();
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      handlers.error[0]();
+    });
+    expect(result.current).toBe(false);
+  });
+});
+
+// ─── synchronous flip — AC3 ────────────────────────────────────────────
+//
+// Case 9: onClose flips false synchronously inside act() (no
+//         advanceTimers needed — proves the event-driven path doesn't
+//         hide behind a polling boundary).
+// Case 10: onOpen flips true synchronously inside act() from a
+//          false seed.
+
+describe('useConnectionStatus — synchronous flip inside act()', () => {
+  test('onClose flips false in the same act() flush, no timer advancement', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+
+    const handlers = __getCapturedHandlers();
+    // Single act() — no jest.advanceTimersByTime call between the
+    // dispatch and the assertion. AC3 invariant.
+    act(() => {
+      handlers.close[0]();
+    });
+    expect(result.current).toBe(false);
+  });
+
+  test('onOpen flips true in the same act() flush, no timer advancement', () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'closed' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(false);
+
+    const handlers = __getCapturedHandlers();
+    act(() => {
+      handlers.open[0]();
+    });
+    expect(result.current).toBe(true);
+  });
+});
+
+// ─── AC2: no setInterval anywhere in the hook ──────────────────────────
+//
+// Case 11 (rewritten): the new implementation must NEVER call
+// `setInterval`. Spy on the global and assert zero calls — directly
+// enforces AC2 at runtime, not just by grep.
+
+describe('useConnectionStatus — AC2 no setInterval', () => {
+  test('setInterval is never called by the hook (event-driven, not polled)', () => {
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+    try {
+      __setInitialConnected({ isConnected: true, connectionState: 'open' });
+      const { unmount } = renderHook(() => useConnectionStatus());
+
+      // The hook is purely event-driven — no timer-based scheduling.
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+
+      unmount();
+
+      // Even on unmount, no timer-based scheduling should appear.
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+    } finally {
+      setIntervalSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+});
+
+// ─── AC6: cleanup calls socket.off([refs]) once with all three refs ────
+//
+// Case 12 (rewritten): mount the hook → onOpen/onClose/onError each
+// return a ref string → on unmount, `socket.off` is called exactly
+// once with all three refs in the array.
+
+describe('useConnectionStatus — AC6 cleanup', () => {
+  test('socket.off is called once on unmount with all three captured refs', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
 
     const { unmount } = renderHook(() => useConnectionStatus());
 
-    // The hook should have installed exactly one interval.
-    expect(setSpy).toHaveBeenCalledTimes(1);
-    // setInterval returns either a number (browser) or a Timeout
-    // (node); we just need to verify clearInterval receives whatever
-    // setInterval returned.
-    const intervalId = setSpy.mock.results[0]?.value;
-    expect(intervalId).toBeDefined();
+    // Three subscriptions installed on mount.
+    expect(__getOnOpenSpy()).toHaveBeenCalledTimes(1);
+    expect(__getOnCloseSpy()).toHaveBeenCalledTimes(1);
+    expect(__getOnErrorSpy()).toHaveBeenCalledTimes(1);
+
+    // Capture the refs returned by each of the three subscriptions —
+    // these are the refs the hook collected internally.
+    const openRef = __getOnOpenSpy().mock.results[0]?.value;
+    const closeRef = __getOnCloseSpy().mock.results[0]?.value;
+    const errorRef = __getOnErrorSpy().mock.results[0]?.value;
+    expect(openRef).toBeDefined();
+    expect(closeRef).toBeDefined();
+    expect(errorRef).toBeDefined();
+
+    // off() not yet called.
+    expect(__getOffSpy()).not.toHaveBeenCalled();
 
     unmount();
 
-    expect(clearSpy).toHaveBeenCalledTimes(1);
-    expect(clearSpy).toHaveBeenCalledWith(intervalId);
-
-    setSpy.mockRestore();
-    clearSpy.mockRestore();
+    // Exactly once on unmount, called with the array of three refs in
+    // the same order they were subscribed.
+    expect(__getOffSpy()).toHaveBeenCalledTimes(1);
+    expect(__getOffSpy()).toHaveBeenCalledWith([openRef, closeRef, errorRef]);
   });
+});
 
-  test('after unmount, advancing timers does not trigger further state reads', () => {
-    __setChannels([{ state: 'joined' }]);
+// ─── post-unmount no-op ────────────────────────────────────────────────
+//
+// Case 13 (rewritten): after unmount, manually invoking a captured
+// callback that the test still holds a reference to does not flip
+// `result.current`. Two invariants exercised:
+//   1. `socket.off` was called on unmount, so in real-world dispatch
+//      the handler would no longer be in `stateChangeCallbacks`.
+//   2. Even if a stale callback reference were somehow invoked, React
+//      has unmounted the component — result.current is whatever it
+//      was at the moment of unmount.
+
+describe('useConnectionStatus — post-unmount no-op', () => {
+  test('invoking a captured callback after unmount does not flip result.current', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const handlers = __getCapturedHandlers();
+
     const { result, unmount } = renderHook(() => useConnectionStatus());
     expect(result.current).toBe(true);
 
+    // Capture the close handler reference BEFORE unmount.
+    const capturedClose = handlers.close[0];
+    expect(capturedClose).toBeDefined();
+
     unmount();
 
-    // Flip channels to a failing state; if the interval were still
-    // running it would re-trigger setConnected, but cleared intervals
-    // are no-ops — and result.current reflects the last committed
-    // render, which is still true.
-    __setChannels([{ state: 'closed' }]);
-    act(() => { jest.advanceTimersByTime(10000); });
+    // off() was called — the handler is no longer in the registry.
+    expect(__getOffSpy()).toHaveBeenCalledTimes(1);
+
+    // The test still holds a stale reference. Invoking it does not
+    // flip the unmounted hook's last-committed value (which is `true`
+    // from the seed). We wrap in act() to silence any spurious
+    // warning even though no React tree exists to update.
+    act(() => {
+      capturedClose();
+    });
     expect(result.current).toBe(true);
   });
 });
 
-// ─── native bail — setInterval skipped, optimistic default observed ────
+// ─── native bail — spec 058 alignment continued ────────────────────────
 //
-// Spec 057 pass-2 (code-reviewer Critical): the hook MUST be callable
-// unconditionally on every render so its position above the
-// `Platform.OS !== 'web'` early return in TitleBar.tsx satisfies React's
-// Rules of Hooks. The gate moved INSIDE the `useEffect` body — the
-// `setInterval` is skipped entirely on iOS / Android so no resource
-// leak, and the `useState(true)` default is the only value downstream
-// consumers ever see on native.
-//
-// Implementation note: the file-level
-// `jest.mock('react-native/Libraries/Utilities/Platform', ...)` pins
-// `Platform.OS = 'web'` for the rest of the suite. Mutating the
-// already-imported `Platform.OS` property in-place here flips the gate
-// to native; we restore the original value in a `finally` to keep the
-// other describe blocks unaffected even if `renderHook` throws.
+// Case 14 (structurally unchanged): native bail guard stays as the
+// first statement of the `useEffect` body. The test mutates
+// `Platform.OS` to `'ios'`, then asserts:
+//   - `socket.onOpen` / `onClose` / `onError` are NOT called (effect
+//     bailed before reaching them).
+//   - `result.current === true` (optimistic seed observed; the seed
+//     is true whether or not the socket reports closed because the
+//     `useEffect` bails on native — but we keep the seed explicit by
+//     setting `connectionState: 'open'` for clarity).
+//   - `setInterval` not called either (regression invariant from
+//     spec 058's original "no polling on native" assertion).
 
-describe('useConnectionStatus — native platform bail', () => {
-  test('does NOT call setInterval on native and returns the optimistic default', () => {
+describe('useConnectionStatus — native platform bail (spec 058 alignment)', () => {
+  test('does NOT subscribe to socket events on native, returns optimistic default', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Platform = require('react-native/Libraries/Utilities/Platform').default as { OS: string };
     const originalOS = Platform.OS;
     Platform.OS = 'ios';
 
-    const setSpy = jest.spyOn(global, 'setInterval');
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
 
     try {
-      // Channels intentionally populated with an unhealthy state — if
-      // the native bail were broken and the poller ran, `result.current`
-      // would flip to `false`. The optimistic `true` default proves the
-      // effect bailed before scheduling the interval.
-      __setChannels([{ state: 'closed' }]);
+      // Even with a seed that would render `false` on web, the native
+      // bail keeps the value at the lazy-initializer result. The seed
+      // rule: connectionState='connecting' → true; on native the
+      // useEffect bails BEFORE reaching the subscriptions, so the
+      // seed is the only value consumers see.
+      __setInitialConnected({ isConnected: false, connectionState: 'connecting' });
 
       const { result, unmount } = renderHook(() => useConnectionStatus());
 
-      // setInterval must NOT have been called from the hook on native.
-      expect(setSpy).not.toHaveBeenCalled();
-      // The optimistic default (`useState(true)`) is what callers see.
-      expect(result.current).toBe(true);
-
-      // Advancing the fake timer beyond the 2s cadence must not flip
-      // the state — there's no interval to fire.
-      act(() => { jest.advanceTimersByTime(10000); });
+      // Subscription calls must NOT have been invoked from the hook
+      // on native — the effect bails as the first statement.
+      expect(__getOnOpenSpy()).not.toHaveBeenCalled();
+      expect(__getOnCloseSpy()).not.toHaveBeenCalled();
+      expect(__getOnErrorSpy()).not.toHaveBeenCalled();
+      // setInterval must NOT have been called either — the hook no
+      // longer uses it, and the native bail prevents ALL side-effects.
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      // Optimistic default observed.
       expect(result.current).toBe(true);
 
       unmount();
     } finally {
       Platform.OS = originalOS;
-      setSpy.mockRestore();
+      setIntervalSpy.mockRestore();
     }
+  });
+});
+
+// ─── initial-seed three-branch decision rule ───────────────────────────
+//
+// Case 15 (new — spec 059 §4 / Q4): exercises the seed rule's three
+// branches explicitly. AC4 says "optimistic true on initial mount"
+// under normal startup; the seed rule biases to true unless the
+// socket is EXPLICITLY closed/closing.
+
+describe('useConnectionStatus — initial-seed three-branch rule (Q4)', () => {
+  test('isConnected=true → seed true regardless of connectionState', () => {
+    __setInitialConnected({ isConnected: true, connectionState: 'open' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+  });
+
+  test("isConnected=false + connectionState='connecting' → seed true (optimistic)", () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'connecting' });
+    const { result } = renderHook(() => useConnectionStatus());
+    expect(result.current).toBe(true);
+  });
+
+  test("isConnected=false + connectionState='closed' → seed false (explicitly down)", () => {
+    __setInitialConnected({ isConnected: false, connectionState: 'closed' });
+    const { result } = renderHook(() => useConnectionStatus());
+    // The seed rule maps 'closed' to false — the indicator honestly
+    // shows amber when the indicator mounts after an established
+    // disconnect.
+    expect(result.current).toBe(false);
   });
 });
