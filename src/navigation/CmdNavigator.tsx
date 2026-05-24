@@ -132,21 +132,49 @@ function CmdPaletteHost() {
   );
 }
 
-export default function CmdNavigator() {
+/**
+ * Spec 063 — the inner navigator body, exported separately from the
+ * standalone default export. `RoleRouter` mounts the SINGLE
+ * `<NavigationContainer>` for the merged admin+staff app and renders
+ * `AdminStack` inside that container when an admin session is active.
+ *
+ * The render tree is identical to the pre-merge default export — only
+ * the container ownership moves up one level. `currentUser` still
+ * gates the Login/Register vs. AuthedRoot fork; RoleRouter only mounts
+ * this component when an admin/master/super_admin session exists, so
+ * in practice the `currentUser` truthy branch is what renders.
+ * The Login/Register branch is preserved for the standalone default
+ * export (rollback safety) and for the unlikely race where
+ * `currentUser` transiently flips back to null while AdminStack is
+ * mounted.
+ */
+export function AdminStack() {
   const currentUser = useStore((s) => s.currentUser);
+  return (
+    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+      {currentUser ? (
+        <RootStack.Screen name="App" component={AuthedRoot} />
+      ) : (
+        <>
+          <RootStack.Screen name="Login" component={LoginScreen} />
+          <RootStack.Screen name="Register" component={RegisterScreen} />
+        </>
+      )}
+    </RootStack.Navigator>
+  );
+}
 
+/**
+ * Standalone-mounted CmdNavigator — wraps `AdminStack` in its own
+ * `<NavigationContainer>` for back-compat. Spec 063 introduces
+ * `RoleRouter` as the new App.tsx mount point; this default export is
+ * preserved so a future rollback (or a dev tool that imports
+ * `CmdNavigator` directly) keeps working without code changes.
+ */
+export default function CmdNavigator() {
   return (
     <NavigationContainer ref={navRef}>
-      <RootStack.Navigator screenOptions={{ headerShown: false }}>
-        {currentUser ? (
-          <RootStack.Screen name="App" component={AuthedRoot} />
-        ) : (
-          <>
-            <RootStack.Screen name="Login" component={LoginScreen} />
-            <RootStack.Screen name="Register" component={RegisterScreen} />
-          </>
-        )}
-      </RootStack.Navigator>
+      <AdminStack />
     </NavigationContainer>
   );
 }

@@ -34,3 +34,45 @@ jest.mock(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
+
+// Spec 063 — mocks merged in from imr-staff/jest.setup.js so the staff
+// EOD count tests (now under src/screens/staff/) keep their behavior
+// post-merge.
+
+// NetInfo — used by the staff app's useConnectionStatus hook on native.
+// Hand-rolled stubs match what imr-staff shipped.
+jest.mock('@react-native-community/netinfo', () => ({
+  __esModule: true,
+  default: {
+    addEventListener: jest.fn(() => () => {}),
+    fetch: jest.fn(() =>
+      Promise.resolve({ isConnected: true, isInternetReachable: true }),
+    ),
+  },
+}));
+
+// react-native-safe-area-context — needed by EODCount which mounts
+// SafeAreaView. Returns a plain provider in tests.
+jest.mock('react-native-safe-area-context', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  return {
+    SafeAreaProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    SafeAreaView: ({ children, ...props }: { children?: React.ReactNode } & Record<string, unknown>) =>
+      React.createElement('SafeAreaView', props, children),
+    useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  };
+});
+
+// Deterministic randomUUID for the staff EOD queue tests (spec 062 — the
+// queue's client_uuid is the dedupe key, so the test snapshots compare
+// stable UUIDs). Admin tests rely on supabase mocks rather than the
+// global crypto, so this override is safe globally.
+const _g = globalThis as { crypto?: { randomUUID?: () => string } };
+if (!_g.crypto) _g.crypto = {};
+let _uuidCounter = 0;
+_g.crypto.randomUUID = jest.fn(() => {
+  _uuidCounter += 1;
+  return `00000000-0000-4000-8000-${String(_uuidCounter).padStart(12, '0')}`;
+});

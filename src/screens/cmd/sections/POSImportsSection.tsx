@@ -985,6 +985,7 @@ function MappingTab() {
       () => {
         removePosRecipeAlias(posName);
       },
+      'Remove',
     );
   }, [removePosRecipeAlias]);
 

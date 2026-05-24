@@ -2,7 +2,7 @@
 
 ## What this is
 
-Admin web/native app for the 2AM PROJECT restaurant brand — inventory, recipes, sales, and brand-catalog management for store managers. Sibling apps (staff app, customer PWA) live elsewhere; this repo only contains the admin surface. See [package.json](package.json), [app.json](app.json), [README.md](README.md).
+Admin + staff app for the 2AM PROJECT restaurant brand — inventory, recipes, sales, brand-catalog management for managers AND end-of-day count entry for staff. Customer PWA remains a sibling app and will fold in via a future spec. See [package.json](package.json), [app.json](app.json), [README.md](README.md).
 
 ## Stack
 
@@ -31,13 +31,22 @@ Admin web/native app for the 2AM PROJECT restaurant brand — inventory, recipes
 ## Project structure
 
 ```
-App.tsx                       # Root; mounts CmdNavigator.
+App.tsx                       # Root; mounts RoleRouter.
 src/
-  navigation/                 # CmdNavigator (desktop shell)
+  navigation/                 # CmdNavigator (admin desktop shell), RoleRouter (role gate)
   screens/
-    cmd/sections/             # Desktop Cmd UI sections (current target)
-  store/                      # Zustand store (useStore.ts)
-  lib/                        # db.ts (PostgREST/RPC), webPush.ts, ...
+    cmd/sections/             # Desktop Cmd UI sections (admin Cmd UI)
+    staff/                    # Staff EOD count app — peer to cmd/ (spec 063)
+      components/             #   staff-local Button, Input, Banner, etc.
+      hooks/                  #   useConnectionStatus, useEodSubmit
+      i18n/                   #   staff-only catalog (auth, eod, chrome, store)
+      lib/                    #   eodQueue, types, notifyBackendError, uuid
+      navigation/             #   StaffStack (inner)
+      screens/                #   EODCount, StorePicker
+      store/                  #   useStaffStore (Zustand, slice-isolated)
+      theme.ts                #   staff-local light-only theme
+  store/                      # Admin Zustand store (useStore.ts)
+  lib/                        # db.ts, authGate.ts, sessionRestore.ts, supabase.ts, ...
   hooks/                      # useRealtimeSync, useRole, useColors, ...
   theme/                      # Light/Dark/Cmd palettes + token files
   utils/                      # confirmAction.ts (cross-platform), helpers
@@ -50,11 +59,11 @@ scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runn
 
 ## Conventions already in use
 
-- **Cmd UI is the only client.** [App.tsx](App.tsx) mounts `CmdNavigator` unconditionally. Spec 025 deleted the legacy `AppNavigator`, `featureFlags.ts`, and the `EXPO_PUBLIC_NEW_UI` flag-gated fork.
-- **DB access centralized.** All PostgREST/RPC traffic flows through [src/lib/db.ts](src/lib/db.ts) (~64 KB single file). snake_case → camelCase via local `mapItem`-style helpers.
-- **Optimistic-then-revert + toast.** Backend errors surfaced via `notifyBackendError` ([src/store/useStore.ts:23](src/store/useStore.ts)) — `console.warn` + `react-native-toast-message`.
-- **Realtime sync.** Debounced 400 ms reload across two channels (`store-{id}` + `brand-{id}`) — [src/hooks/useRealtimeSync.ts](src/hooks/useRealtimeSync.ts), wired from [src/navigation/CmdNavigator.tsx:87](src/navigation/CmdNavigator.tsx).
-- **Role hook is a placeholder.** [src/hooks/useRole.ts](src/hooks/useRole.ts) returns `'admin'` for everyone — intentional because staff use a separate app.
+- **Role-routed shell.** [App.tsx](App.tsx) mounts `RoleRouter` ([src/navigation/RoleRouter.tsx](src/navigation/RoleRouter.tsx)) which dispatches between the `AdminStack` (admin Cmd UI) and the `StaffStack` (staff EOD app) based on `profiles.role`. Spec 063 folded the formerly-sibling `imr-staff` repo back into this one — the staff surface now lives at [src/screens/staff/](src/screens/staff/) as a peer to [src/screens/cmd/](src/screens/cmd/). Spec 025 had previously deleted the older `AppNavigator` + `EXPO_PUBLIC_NEW_UI` flag.
+- **DB access centralized.** All PostgREST/RPC traffic flows through [src/lib/db.ts](src/lib/db.ts) (~64 KB single file). snake_case → camelCase via local `mapItem`-style helpers. **Documented carve-outs** (allowed to call `supabase.from/rpc` directly outside `db.ts`): [src/lib/auth.ts](src/lib/auth.ts) and [src/lib/webPush.ts](src/lib/webPush.ts) (pre-existing); [src/lib/authGate.ts](src/lib/authGate.ts) and [src/lib/sessionRestore.ts](src/lib/sessionRestore.ts) (spec 063 — auth-path probes that fire BEFORE the store is initialized, so they can't go through the slice + tracked() chain); and the entire [src/screens/staff/](src/screens/staff/) subtree (spec 063 — verbatim port from the imr-staff repo; a future spec may migrate these into `db.ts` but the merge intentionally landed without rewriting them).
+- **Optimistic-then-revert + toast.** Backend errors surfaced via `notifyBackendError` ([src/store/useStore.ts:23](src/store/useStore.ts)) — `console.warn` + `react-native-toast-message`. The staff subtree has its own `notifyBackendError` ([src/screens/staff/lib/notifyBackendError.ts](src/screens/staff/lib/notifyBackendError.ts)) that's imported as `notifyStaffBackendError` in App.tsx to avoid the symbol clash.
+- **Realtime sync.** Debounced 400 ms reload across two channels (`store-{id}` + `brand-{id}`) — [src/hooks/useRealtimeSync.ts](src/hooks/useRealtimeSync.ts), wired from [src/navigation/CmdNavigator.tsx:87](src/navigation/CmdNavigator.tsx). Staff stack does not use realtime in v1 (per spec 062).
+- **Role hook semantics.** [src/hooks/useRole.ts](src/hooks/useRole.ts) returns `'admin'` for everyone INSIDE the admin Cmd UI surface, because the role-routed shell only mounts that surface for admin roles. The real role check happens at the `RoleRouter` boundary against `profiles.role` from the auth session.
 - **Theming.** Token files under [src/theme/](src/theme/) with separate Light/Dark/Cmd palettes; hooks `useColors()` / `useCmdColors()`. Dark-mode pref cached in localStorage / AsyncStorage and synced to `profiles.dark_mode`.
 - **Cross-platform confirm.** [src/utils/confirmAction.ts](src/utils/confirmAction.ts) routes to `window.confirm` on web vs `Alert.alert` on native.
 - **Edge function auth split.** JWT-protected by default; `staff-*` and `pwa-catalog` set `verify_jwt = false` and validate a service-token bearer themselves — [supabase/config.toml:381](supabase/config.toml).

@@ -267,6 +267,7 @@ export default function RecipeCategoriesSection() {
           text2: name,
         });
       },
+      'Delete',
     );
   };
 

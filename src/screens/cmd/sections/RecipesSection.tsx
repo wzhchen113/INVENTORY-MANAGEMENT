@@ -360,6 +360,7 @@ export default function RecipesSection() {
                             setSelectedId(null);
                             Toast.show({ type: 'success', text1: T('section.recipes.deletedToast'), text2: sel.menuItem });
                           },
+                          'Delete',
                         );
                       }}
                       style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}

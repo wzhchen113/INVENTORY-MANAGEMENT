@@ -310,6 +310,7 @@ export default function VendorsSection() {
                           setSelectedId(null);
                           Toast.show({ type: 'success', text1: T('section.vendors.deletedToast'), text2: sel.name });
                         },
+                        'Delete',
                       );
                     }}
                     style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}

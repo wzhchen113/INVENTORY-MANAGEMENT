@@ -14,6 +14,7 @@ const RN_TRANSPILE_DEPS = [
   'react-native',
   '@react-native',
   '@react-native-async-storage',
+  '@react-native-community',
   '@react-navigation',
   'expo',
   'expo-modules-core',
@@ -78,6 +79,13 @@ module.exports = {
         '<rootDir>/src/hooks/**/*.test.ts',
         // Spec 038 — i18n catalog parity + t() fallback.
         '<rootDir>/src/i18n/**/*.test.ts',
+        // Spec 063 — staff app's pure-TS tests (queue, store, hooks, i18n)
+        // landed under src/screens/staff/ during the imr-staff merge.
+        // Run them in the unit project (no DOM needed).
+        '<rootDir>/src/screens/staff/lib/**/*.test.ts',
+        '<rootDir>/src/screens/staff/store/**/*.test.ts',
+        '<rootDir>/src/screens/staff/hooks/**/*.test.ts',
+        '<rootDir>/src/screens/staff/i18n/**/*.test.ts',
       ],
     },
     {

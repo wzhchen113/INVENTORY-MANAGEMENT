@@ -1,15 +1,34 @@
 // src/screens/LoginScreen.tsx
+//
+// Spec 063 — the shared sign-in portal for both admin and staff users.
+// After `signIn()` resolves with a user, the handler branches on
+// `result.user.role`:
+//   - `'user'`        → run `checkAuthGate` + seed `useStaffStore`.
+//                       (Staff path; RoleRouter dispatches to StaffStack.)
+//   - admin/master/super_admin → call `useStore.login(user)` as before.
+//                       (Admin path; RoleRouter dispatches to AdminStack.)
+//
+// The gate-failure messages come from the STAFF i18n catalog
+// (`src/screens/staff/i18n`) — they're staff-specific copy and don't
+// belong in the admin catalog. Imported here under the `tStaff` alias
+// to make the call-site explicit.
+
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import Toast from 'react-native-toast-message';
 import { WebScrollView } from '../components/WebScrollView';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
+import { checkAuthGate } from '../lib/authGate';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { USERS, STORES } from '../data/seed';
+import { useStaffStore } from './staff/store/useStaffStore';
+import { readActiveStoreId, writeActiveStoreId } from './staff/lib/eodQueue';
+import { t as tStaff } from './staff/i18n';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -43,9 +62,49 @@ export default function LoginScreen() {
       const result = await signIn(email.trim(), password);
       if (result.error) {
         setError(result.error);
-      } else if (result.user) {
-        login(result.user);
+        return;
       }
+      if (!result.user) return;
+
+      // Spec 063 §8 — branch on role.
+      if (result.user.role === 'user') {
+        // Staff path. Run the shared auth gate (role + user_stores)
+        // and seed `useStaffStore`. The admin store is NOT touched.
+        const gate = await checkAuthGate(result.user.id, {
+          notStaff: tStaff('auth.error.notStaff'),
+          noStores: tStaff('auth.error.noStores'),
+          generic: tStaff('auth.error.generic'),
+        });
+        if (!gate.ok) {
+          // checkAuthGate already signed the user out on not-staff /
+          // no-stores. Surface the same toast strings spec 062 shipped
+          // and stop here — the user re-tries from a clean signed-out
+          // state.
+          Toast.show({ type: 'error', text1: gate.message, position: 'bottom' });
+          return;
+        }
+        // Restore active store from prior session.
+        const persisted = await readActiveStoreId();
+        const matched = persisted ? gate.stores.find((s) => s.storeId === persisted) : null;
+        if (matched) {
+          useStaffStore.getState().setActiveStore({ id: matched.storeId, name: matched.storeName });
+        } else if (gate.stores.length === 1) {
+          const only = gate.stores[0];
+          useStaffStore.getState().setActiveStore({ id: only.storeId, name: only.storeName });
+        } else {
+          await writeActiveStoreId(null).catch(() => {});
+          useStaffStore.getState().setActiveStore(null);
+        }
+        useStaffStore.getState().setAuthState({
+          kind: 'signed-in',
+          userId: result.user.id,
+          stores: gate.stores,
+        });
+        return;
+      }
+
+      // Admin path — existing behaviour.
+      login(result.user);
     } catch (e: any) {
       setError(e.message || 'Login failed');
     } finally {

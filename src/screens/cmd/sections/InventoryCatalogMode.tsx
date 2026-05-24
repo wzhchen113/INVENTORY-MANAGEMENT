@@ -536,6 +536,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                           onSelectName(null);
                           Toast.show({ type: 'success', text1: T('section.inventory.deletedToast'), text2: T('section.inventory.deletedToastDetail', { name: sel.name, count: sel.rows.length }) });
                         },
+                        'Delete',
                       );
                     }}
                     style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.danger, borderRadius: CmdRadius.sm }}
@@ -968,6 +969,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
         deleteIngredientConversion(conv.id);
         Toast.show({ type: 'success', text1: T('section.inventory.conversionDeleted') });
       },
+      'Delete',
     );
   };
 

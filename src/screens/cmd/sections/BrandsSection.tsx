@@ -851,6 +851,7 @@ function MembersTab({
       async () => {
         await demoteProfileToUser(u.id);
       },
+      'Demote',
     );
   };
 

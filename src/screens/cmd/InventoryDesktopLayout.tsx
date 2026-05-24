@@ -349,6 +349,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                         setSelectedName(null);
                         Toast.show({ type: 'success', text1: 'Deleted', text2: item.name });
                       },
+                      'Delete',
                     );
                   }}
                   onCountPress={() => {

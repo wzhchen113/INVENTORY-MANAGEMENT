@@ -237,6 +237,7 @@ export default function CategoriesSection() {
         deleteIngredientCategory(name);
         Toast.show({ type: 'success', text1: T('section.categories.deleted'), text2: name });
       },
+      'Delete',
     );
   };
 
