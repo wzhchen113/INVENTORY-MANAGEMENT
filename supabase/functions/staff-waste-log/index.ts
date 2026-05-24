@@ -1,30 +1,24 @@
-// Phase 13d — staff-app waste-log ship-in.
-// POST /staff-waste-log
+// Spec 061 — staff-waste-log deprecation.
 //
-// Body:
-//   {
-//     "client_uuid":   "uuid",
-//     "store_id":      "uuid",
-//     "ingredient_id": "uuid",
-//     "quantity":      number,
-//     "unit":          "string?",
-//     "reason":        "expired" | "dropped" | "overproduction" | "quality" | "other",
-//     "notes":         "string?",
-//     "submitted_by":  "staff:user-id"
-//   }
+// As of spec 061, the staff app talks to Supabase directly via per-user
+// JWT. Waste-log is OUT OF SCOPE for the v1 staff app (only EOD count
+// ships), so this Edge Function is permanently retired without a
+// per-user-JWT replacement. A future spec may re-enable waste-log for
+// staff by re-GRANTing public.staff_log_waste() to authenticated (the
+// sibling RPC at 20260504000002_staff_log_waste_rpc.sql is still
+// service_role-only as of spec 061).
 //
-// 200 OK: { waste_id, stock_after }
-// 409 Conflict: { waste_id, conflict: true } — client_uuid was already processed
-// 400 / 404 / 500 — validation / lookup / DB
+// All routes (including OPTIONS preflight) return HTTP 410 with a
+// descriptive JSON body pointing at the spec. The function stays
+// deployed (verify_jwt = false retained in supabase/config.toml) so any
+// stale caller fails LOUD with an actionable error rather than 404'ing
+// or hitting a CORS-preflight-401 ambiguity.
 //
-// All writes happen inside staff_log_waste() Postgres function — atomic.
+// CORS headers are preserved identical to the v1 body so a hypothetical
+// browser caller's preflight doesn't fail at the CORS layer (which
+// would mask the 410 with a confusing console error).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const STAFF_SERVICE_TOKEN = Deno.env.get("STAFF_SERVICE_TOKEN") || "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,88 +26,18 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-
-function checkAuth(req: Request): Response | null {
-  const auth = req.headers.get("Authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!STAFF_SERVICE_TOKEN) return json({ error: "STAFF_SERVICE_TOKEN unset on server" }, 500);
-  if (token !== STAFF_SERVICE_TOKEN) return json({ error: "invalid service token" }, 401);
-  return null;
-}
-
-const VALID_REASONS = new Set(["expired", "dropped", "overproduction", "quality", "other"]);
-
-interface Body {
-  client_uuid?: string;
-  store_id?: string;
-  ingredient_id?: string;
-  quantity?: number;
-  unit?: string;
-  reason?: string;
-  notes?: string;
-  submitted_by?: string;
-}
-
-function validate(b: Body): string | null {
-  if (!b.store_id) return "store_id required";
-  if (!b.ingredient_id) return "ingredient_id required";
-  if (typeof b.quantity !== "number" || !Number.isFinite(b.quantity) || b.quantity <= 0) {
-    return "quantity must be a positive number";
+Deno.serve((req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
-  if (!b.reason || !VALID_REASONS.has(b.reason)) {
-    return `reason must be one of: ${Array.from(VALID_REASONS).join(", ")}`;
-  }
-  if (!b.submitted_by) return "submitted_by required";
-  return null;
-}
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
-
-  const authFail = checkAuth(req);
-  if (authFail) return authFail;
-
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "invalid JSON body" }, 400);
-  }
-
-  const validationErr = validate(body);
-  if (validationErr) return json({ error: validationErr }, 400);
-
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  const { data, error } = await admin.rpc("staff_log_waste", {
-    p_client_uuid: body.client_uuid || null,
-    p_store_id: body.store_id,
-    p_ingredient_id: body.ingredient_id,
-    p_quantity: body.quantity,
-    p_unit: body.unit || null,
-    p_reason: body.reason,
-    p_notes: body.notes || null,
-    p_submitted_by: body.submitted_by,
-  });
-
-  if (error) {
-    // Postgres P0002 (no_data_found) → ingredient not at store
-    if ((error as any).code === "P0002") {
-      return json({ error: "ingredient not found at store" }, 404);
-    }
-    console.error("[staff-waste-log] rpc error:", error);
-    return json({ error: "rpc failed", detail: error.message }, 500);
-  }
-
-  if (data?.conflict) {
-    return json({ waste_id: data.waste_id, conflict: true, reason: data.reason }, 409);
-  }
-
-  return json({ waste_id: data.waste_id, stock_after: data.stock_after });
+  return new Response(
+    JSON.stringify({
+      error: "staff-waste-log: deprecated as of spec 061 — staff app now talks to Supabase directly via per-user JWT",
+      reference: "specs/061-staff-app-eod-count.md",
+    }),
+    {
+      status: 410,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
 });
