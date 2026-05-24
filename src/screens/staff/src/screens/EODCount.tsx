@@ -1,0 +1,679 @@
+// src/screens/EODCount.tsx — the EOD count screen.
+//
+// Spec 062 §B5 + §B6 + §B7. Header (store + today's date), vendor
+// switcher (only if today's order_schedule lists >1 vendor),
+// scrollable item list with decimal-pad inputs, submit button,
+// pre-fill banner from any existing submission for
+// (active_store_id, today, selected_vendor_id).
+//
+// Vendor logic: spec 062's "vendor_day_filter" is the order_schedule
+// table from spec 007 — rows at (store_id, day_of_week, vendor_id) for
+// today's weekday. We query directly.
+//
+// Date is captured at SUBMIT time, not mount time (§11 risk (c)):
+// EODCount reads the today_iso string in onSubmit, not at first
+// render.
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import Toast from 'react-native-toast-message';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Banner } from '../components/Banner';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
+import { ListRow } from '../components/ListRow';
+import { QueueIndicator } from '../components/QueueIndicator';
+import { confirmAction } from '../lib/confirmAction';
+import { supabase } from '../lib/supabase';
+import { notifyBackendError } from '../lib/notifyBackendError';
+import { currentUserId, useStore } from '../store/useStore';
+import { useEodSubmit } from '../hooks/useEodSubmit';
+import { t } from '../i18n';
+import { colors, radius, spacing, typography } from '../theme';
+import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
+
+const WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+function todayWeekday(d = new Date()): string {
+  return WEEKDAYS[d.getDay()];
+}
+
+function todayIso(d = new Date()): string {
+  // yyyy-mm-dd in local time.
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function todayHeaderLabel(d = new Date()): string {
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return t('eod.header.today', { weekday, monthDay });
+}
+
+function submittedAtHHMM(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
+// ── data fetch helpers ───────────────────────────────────────────
+
+async function fetchVendorsForToday(
+  storeId: string,
+  dayOfWeek: string,
+): Promise<Vendor[]> {
+  // order_schedule has (store_id, day_of_week, vendor_id, vendor_name).
+  // Read schedule rows; join the vendors table to get the canonical
+  // name (vendor_name on order_schedule is a denormalized snapshot).
+  const { data, error } = await supabase
+    .from('order_schedule')
+    .select('vendor_id, vendor_name, vendor:vendors(id, name)')
+    .eq('store_id', storeId)
+    .eq('day_of_week', dayOfWeek);
+  if (error) throw error;
+  type Row = {
+    vendor_id: string | null;
+    vendor_name: string | null;
+    vendor: { id: string; name: string } | { id: string; name: string }[] | null;
+  };
+  const rows = (data ?? []) as Row[];
+  const out: Vendor[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const v = Array.isArray(r.vendor) ? r.vendor[0] : r.vendor;
+    const id = v?.id ?? r.vendor_id;
+    const name = v?.name ?? r.vendor_name ?? '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name });
+  }
+  return out;
+}
+
+async function fetchItemsForVendor(
+  storeId: string,
+  vendorId: string,
+): Promise<EodItem[]> {
+  // inventory_items at the store filtered by vendor_id, joined to
+  // catalog_ingredients for the canonical display name + unit.
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('id, vendor_id, catalog:catalog_ingredients(name, unit)')
+    .eq('store_id', storeId)
+    .eq('vendor_id', vendorId)
+    .order('id', { ascending: true });
+  if (error) throw error;
+  type Row = {
+    id: string;
+    vendor_id: string | null;
+    catalog: { name: string | null; unit: string | null } | { name: string | null; unit: string | null }[] | null;
+  };
+  const rows = (data ?? []) as Row[];
+  return rows.map((r) => {
+    const c = Array.isArray(r.catalog) ? r.catalog[0] : r.catalog;
+    return {
+      id: r.id,
+      vendorId: r.vendor_id,
+      name: c?.name ?? '',
+      unit: c?.unit ?? '',
+    };
+  });
+}
+
+async function fetchExistingSubmission(
+  storeId: string,
+  dateIso: string,
+  vendorId: string,
+): Promise<ExistingSubmission | null> {
+  const { data, error } = await supabase
+    .from('eod_submissions')
+    .select('id, submitted_at, eod_entries(item_id, actual_remaining)')
+    .eq('store_id', storeId)
+    .eq('date', dateIso)
+    .eq('vendor_id', vendorId)
+    .maybeSingle();
+  if (error) {
+    // maybeSingle returns 406 if >1 rows match — log and treat as
+    // no-existing.
+    if ((error as { code?: string }).code === 'PGRST116') return null;
+    throw error;
+  }
+  if (!data) return null;
+  type Row = {
+    id: string;
+    submitted_at: string;
+    eod_entries: Array<{ item_id: string; actual_remaining: number | string | null }>;
+  };
+  const row = data as Row;
+  const entries: EodEntry[] = (row.eod_entries ?? []).map((e) => ({
+    item_id: e.item_id,
+    count: e.actual_remaining == null ? 0 : Number(e.actual_remaining),
+  }));
+  return {
+    submission_id: row.id,
+    submitted_at: row.submitted_at,
+    entries,
+  };
+}
+
+// ── screen ───────────────────────────────────────────────────────
+
+export function EODCount() {
+  const activeStore = useStore((s) => s.activeStore);
+  const stores = useStore((s) =>
+    s.authState.kind === 'signed-in' ? s.authState.stores : [],
+  );
+  const userId = useStore((s) => currentUserId(s.authState));
+  const setAuthState = useStore((s) => s.setAuthState);
+  const setActiveStore = useStore((s) => s.setActiveStore);
+
+  const { submit, pending, draining } = useEodSubmit();
+
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+  const [items, setItems] = useState<EodItem[]>([]);
+  const [existing, setExisting] = useState<ExistingSubmission | null>(null);
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState<boolean>(true);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [forbidden, setForbidden] = useState<boolean>(false);
+
+  const todayLabel = useMemo(() => todayHeaderLabel(), []);
+  const canSwitchStore = stores.length > 1;
+
+  // ─── load vendors for today on mount / when active store changes ──
+  useEffect(() => {
+    if (!activeStore) return;
+    setLoading(true);
+    setForbidden(false);
+    fetchVendorsForToday(activeStore.id, todayWeekday())
+      .then((vs) => {
+        setVendors(vs);
+        setSelectedVendorId(vs[0]?.id ?? null);
+      })
+      .catch((err) => {
+        notifyBackendError('fetchVendorsForToday', err);
+        setVendors([]);
+        setSelectedVendorId(null);
+      })
+      .finally(() => setLoading(false));
+  }, [activeStore]);
+
+  // ─── load items + existing submission when vendor changes ─────────
+  useEffect(() => {
+    if (!activeStore || !selectedVendorId) {
+      setItems([]);
+      setExisting(null);
+      setCounts({});
+      return;
+    }
+    setLoading(true);
+    Promise.all([
+      fetchItemsForVendor(activeStore.id, selectedVendorId),
+      fetchExistingSubmission(activeStore.id, todayIso(), selectedVendorId),
+    ])
+      .then(([nextItems, nextExisting]) => {
+        setItems(nextItems);
+        setExisting(nextExisting);
+        // Pre-fill counts from existing submission if any
+        const seed: Record<string, string> = {};
+        if (nextExisting) {
+          for (const e of nextExisting.entries) {
+            seed[e.item_id] = String(e.count);
+          }
+        }
+        setCounts(seed);
+      })
+      .catch((err) => {
+        notifyBackendError('fetchItemsForVendor', err);
+        setItems([]);
+        setExisting(null);
+        setCounts({});
+      })
+      .finally(() => setLoading(false));
+  }, [activeStore, selectedVendorId]);
+
+  // ─── header actions ───────────────────────────────────────────────
+  const onSignOut = useCallback(() => {
+    confirmAction(
+      t('chrome.signOut.confirmTitle'),
+      t('chrome.signOut.confirmMessage'),
+      async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (err) {
+          notifyBackendError('signOut', err);
+        }
+        // Queue is NOT cleared per spec — intent_user_id boundary
+        // preserves items across sign-out.
+        setActiveStore(null);
+        // Surface the "signed out" toast directly — the AuthState
+        // 'signed-out' branch is plain, callers fire toasts at the
+        // failure / transition site.
+        Toast.show({
+          type: 'success',
+          text1: t('chrome.signedOut'),
+          position: 'bottom',
+        });
+        setAuthState({ kind: 'signed-out' });
+      },
+      t('chrome.signOut.label'),
+    );
+  }, [setAuthState, setActiveStore]);
+
+  const onSwitchStore = useCallback(() => {
+    if (!canSwitchStore) return;
+    setActiveStore(null);
+  }, [canSwitchStore, setActiveStore]);
+
+  // ─── submit ───────────────────────────────────────────────────────
+  const onSubmit = useCallback(async () => {
+    if (!activeStore || !selectedVendorId || submitting) return;
+    if (items.length === 0) return;
+    // Build entries — only include rows the user entered or rows that
+    // were pre-filled from existing submission. Skip blank rows so the
+    // RPC isn't bloated; the spec doesn't require backfill of zeros.
+    const entries: EodEntry[] = items
+      .map((it) => {
+        const raw = counts[it.id];
+        if (raw == null || raw === '') return null;
+        const parsed = Number(raw);
+        if (Number.isNaN(parsed)) return null;
+        return { item_id: it.id, count: parsed };
+      })
+      .filter((x): x is EodEntry => x !== null);
+    if (entries.length === 0) {
+      Toast.show({
+        type: 'error',
+        text1: t('eod.toast.failed'),
+        text2: t('eod.toast.noCountsEntered'),
+        position: 'bottom',
+      });
+      return;
+    }
+    // Date captured at SUBMIT time (§11 risk (c)).
+    const dateIso = todayIso();
+
+    setSubmitting(true);
+    try {
+      const outcome = await submit({
+        store_id: activeStore.id,
+        date: dateIso,
+        vendor_id: selectedVendorId,
+        entries,
+      });
+      if (outcome.kind === 'success') {
+        Toast.show({
+          type: 'success',
+          text1: t('eod.toast.submitted'),
+          position: 'bottom',
+        });
+        // Refresh existing to show the "Last submitted at HH:MM" banner.
+        try {
+          const fresh = await fetchExistingSubmission(
+            activeStore.id,
+            dateIso,
+            selectedVendorId,
+          );
+          setExisting(fresh);
+        } catch {
+          // ignore — primary action succeeded
+        }
+      } else if (outcome.kind === 'success-replay') {
+        Toast.show({
+          type: 'success',
+          text1: t('eod.toast.alreadySubmitted'),
+          position: 'bottom',
+        });
+      } else if (outcome.kind === 'forbidden') {
+        setForbidden(true);
+      } else if (outcome.kind === 'queued') {
+        Toast.show({
+          type: 'success',
+          text1: t('eod.toast.queued'),
+          position: 'bottom',
+        });
+        // Clear inputs so the user moves on — spec §B7.
+        setCounts({});
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: outcome.message,
+          position: 'bottom',
+        });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }, [activeStore, selectedVendorId, items, counts, submit, submitting]);
+
+  if (!activeStore) {
+    // Shouldn't render — RootStack swaps to picker when activeStore
+    // is null. Defensive empty state.
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.empty}>
+          <ActivityIndicator />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const submittedTime = existing ? submittedAtHHMM(existing.submitted_at) : null;
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <Pressable
+            onPress={onSwitchStore}
+            disabled={!canSwitchStore}
+            accessibilityRole={canSwitchStore ? 'button' : 'none'}
+            accessibilityLabel={canSwitchStore ? t('chrome.switchStore') : undefined}
+            testID="eod-store-name"
+            style={({ pressed }) => [
+              styles.storePressable,
+              pressed && canSwitchStore ? styles.storePressed : null,
+            ]}
+          >
+            <Text
+              style={[styles.storeName, !canSwitchStore && styles.storeNameStatic]}
+              numberOfLines={1}
+            >
+              {activeStore.name}
+            </Text>
+            <Text style={styles.todayLabel}>{todayLabel}</Text>
+          </Pressable>
+          <Pressable
+            onPress={onSignOut}
+            style={({ pressed }) => [styles.signOutBtn, pressed ? styles.signOutPressed : null]}
+            accessibilityRole="button"
+            accessibilityLabel={t('chrome.signOut.label')}
+            testID="eod-sign-out"
+          >
+            <Text style={styles.signOutText}>{t('chrome.signOut.label')}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Forbidden banner */}
+      {forbidden ? <Banner tone="error" text={t('eod.error.forbidden')} /> : null}
+
+      {/* Pre-fill banner */}
+      {existing && submittedTime ? (
+        <Banner
+          tone="info"
+          text={t('eod.banner.lastSubmitted', { time: submittedTime })}
+          testID="eod-prefill-banner"
+        />
+      ) : null}
+
+      {/* Vendor switcher — only shown if >1 vendor scheduled today */}
+      {vendors.length > 1 ? (
+        <View style={styles.vendorSwitcher}>
+          <FlatList
+            horizontal
+            data={vendors}
+            keyExtractor={(v) => v.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.vendorChipRow}
+            renderItem={({ item }) => {
+              const active = item.id === selectedVendorId;
+              return (
+                <Pressable
+                  onPress={() => setSelectedVendorId(item.id)}
+                  testID={`vendor-chip-${item.id}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[styles.vendorChip, active ? styles.vendorChipActive : null]}
+                >
+                  <Text
+                    style={[
+                      styles.vendorChipText,
+                      active ? styles.vendorChipTextActive : null,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                </Pressable>
+              );
+            }}
+          />
+        </View>
+      ) : null}
+
+      {/* Items list */}
+      {loading ? (
+        <View style={styles.loadingPane}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : vendors.length === 0 ? (
+        <View style={styles.emptyPane}>
+          <Text style={styles.emptyText}>{t('eod.vendor.noneToday')}</Text>
+        </View>
+      ) : items.length === 0 ? (
+        <View style={styles.emptyPane}>
+          <Text style={styles.emptyText}>{t('eod.list.empty')}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.id}
+          contentContainerStyle={styles.itemList}
+          renderItem={({ item }) => (
+            <ListRow
+              testID={`eod-item-row-${item.id}`}
+              leading={
+                <View>
+                  <Text style={styles.itemName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  {item.unit ? (
+                    <Text style={styles.itemUnit}>{item.unit}</Text>
+                  ) : null}
+                </View>
+              }
+              trailing={
+                <Input
+                  value={counts[item.id] ?? ''}
+                  onChangeText={(txt) =>
+                    setCounts((prev) => ({ ...prev, [item.id]: txt }))
+                  }
+                  keyboardType="decimal-pad"
+                  // react-native-web maps inputMode to the underlying
+                  // <input>; native ignores it. Both belt-and-suspenders.
+                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                  placeholder="0"
+                  testID={`eod-item-input-${item.id}`}
+                  style={styles.countInput}
+                  accessibilityLabel={`Count for ${item.name}`}
+                />
+              }
+            />
+          )}
+        />
+      )}
+
+      {/* Footer — queue indicator + submit */}
+      <View style={styles.footer}>
+        <QueueIndicator pending={pending} draining={draining} testID="eod-queue-indicator" />
+        <View style={styles.submitWrap}>
+          <Button
+            label={submitting ? t('eod.submitting') : t('eod.submit')}
+            onPress={onSubmit}
+            disabled={items.length === 0 || forbidden}
+            loading={submitting}
+            testID="eod-submit"
+          />
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  storePressable: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  storePressed: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  storeName: {
+    fontSize: typography.title,
+    fontWeight: typography.bold,
+    color: colors.primary,
+  },
+  storeNameStatic: {
+    color: colors.text,
+  },
+  todayLabel: {
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  signOutBtn: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  signOutPressed: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  signOutText: {
+    fontSize: typography.body,
+    color: colors.error,
+    fontWeight: typography.semibold,
+  },
+  vendorSwitcher: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  vendorChipRow: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  vendorChip: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  vendorChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  vendorChipText: {
+    fontSize: typography.body,
+    color: colors.text,
+    fontWeight: typography.medium,
+  },
+  vendorChipTextActive: {
+    color: colors.textOnPrimary,
+    fontWeight: typography.semibold,
+  },
+  loadingPane: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyPane: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  emptyText: {
+    fontSize: typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  itemList: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+  },
+  itemName: {
+    fontSize: typography.bodyLarge,
+    fontWeight: typography.semibold,
+    color: colors.text,
+  },
+  itemUnit: {
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  countInput: {
+    width: 96,
+    textAlign: 'right',
+  },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  submitWrap: {
+    width: '100%',
+  },
+});

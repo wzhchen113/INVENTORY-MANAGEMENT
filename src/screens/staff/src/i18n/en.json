@@ -1,0 +1,73 @@
+{
+  "auth": {
+    "signIn": {
+      "title": "Sign in",
+      "subtitle": "I.M.R Staff",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in..."
+    },
+    "error": {
+      "invalidCreds": "Invalid email or password",
+      "notStaff": "This app is for staff only",
+      "noStores": "No store assignments — contact your manager",
+      "generic": "Sign-in failed — try again"
+    }
+  },
+  "store": {
+    "picker": {
+      "title": "Select your store",
+      "subtitle": "You have access to {count} stores"
+    }
+  },
+  "eod": {
+    "header": {
+      "today": "Today · {weekday}, {monthDay}"
+    },
+    "vendor": {
+      "label": "Vendor",
+      "noneToday": "No vendor scheduled for today"
+    },
+    "list": {
+      "empty": "No items configured for this vendor"
+    },
+    "submit": "Submit",
+    "submitting": "Submitting...",
+    "banner": {
+      "lastSubmitted": "Last submitted at {time} — your changes will overwrite",
+      "alreadySubmitted": "Already submitted — your counts match the existing submission"
+    },
+    "toast": {
+      "submitted": "Submitted",
+      "alreadySubmitted": "Already submitted — your counts match the existing submission",
+      "failed": "Submission failed — try again",
+      "noCountsEntered": "No counts entered",
+      "queued": "Queued — will sync when online",
+      "allSynced": "All counts synced"
+    },
+    "error": {
+      "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."
+    }
+  },
+  "chrome": {
+    "queue": {
+      "pending": "{count} pending",
+      "queuedRow": "Queued — will sync when online",
+      "draining": "Syncing...",
+      "needsAttention": "Sync failed — please try again",
+      "syncErrorBanner": "Could not sync — your access to {date} / {vendor} changed."
+    },
+    "switchStore": "Switch store",
+    "signOut": {
+      "label": "Sign out",
+      "confirmTitle": "Sign out?",
+      "confirmMessage": "Queued counts will sync next time you sign in."
+    },
+    "signedOut": "Signed out",
+    "errorBoundary": {
+      "title": "Something went wrong",
+      "message": "Your counts are saved. Please restart the app."
+    }
+  }
+}
