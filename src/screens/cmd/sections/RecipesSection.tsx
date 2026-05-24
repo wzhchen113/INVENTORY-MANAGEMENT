@@ -13,6 +13,7 @@ import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { RecipeFormDrawer } from '../../../components/cmd/RecipeFormDrawer';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
+import { MenuCapacityBadge } from '../../../components/cmd/MenuCapacityBadge';
 import RecipeCategoriesSection from './RecipeCategoriesSection';
 import type { Tab } from '../../../components/cmd/TabStrip';
 import { confirmAction } from '../../../utils/confirmAction';
@@ -287,6 +288,13 @@ export default function RecipesSection() {
                       )}
                     </>
                   ) : null}
+                </View>
+                {/* Spec 060 — per-recipe capacity badge. Renders nothing
+                    while the menuCapacity slice is loading; flips to a
+                    pill (red at 0, amber when a touched ingredient is
+                    low) or neutral text once the RPC resolves. */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MenuCapacityBadge recipeId={r.id} />
                 </View>
               </TouchableOpacity>
             );

@@ -26,7 +26,8 @@
       "reports": "Informes",
       "dbInspector": "Inspector de BD",
       "usersAccess": "Usuarios y acceso",
-      "brands": "Marcas"
+      "brands": "Marcas",
+      "menuImpact": "Impacto del menú"
     },
     "actions": {
       "resetConfirmTitle": "¿Restablecer barra lateral por defecto?",
@@ -958,6 +959,46 @@
       "deleted": "Categoría eliminada",
       "inUseToast": "Categoría en uso",
       "inUseToastBody": "\"{name}\" está en {count} artículos — reasigna primero."
+    },
+    "menuImpact": {
+      "title": "Impacto del menú",
+      "subtitle": "Capacidad por plato calculada en el servidor. Más afectados primero.",
+      "totalCount": "{count} total",
+      "filteredCount": "{filtered} / {total}",
+      "showImpactedOnly": "mostrar solo afectados",
+      "showAll": "mostrar todos",
+      "colMenuItem": "plato",
+      "colMakeableQty": "se puede hacer",
+      "colBindingIngredient": "limitado por",
+      "colLowCount": "ingr. bajos",
+      "colBrand": "marca",
+      "noRecipe": "sin receta definida",
+      "limitedByNone": "—",
+      "unknownCapacity": "desconocida",
+      "unitMismatchIndicator": "~",
+      "unitMismatchTooltip": "Aproximado — la unidad del ingrediente de la receta no coincide con la del catálogo.",
+      "truncatedIndicator": "?",
+      "truncatedTooltip": "Aproximado — la cadena de recetas de prep excedió el límite de profundidad (5).",
+      "emptyNoRecipes": "no hay platos en esta marca",
+      "emptyLoading": "cargando impacto del menú…",
+      "emptyAllFull": "todos los platos completamente abastecidos",
+      "limitedByLeafLabel": "{name}",
+      "shortfallSuffix": "(faltan {qty} {unit})"
+    }
+  },
+  "component": {
+    "menuCapacityBadge": {
+      "noRecipe": "sin receta definida",
+      "noRecipeAria": "sin receta definida",
+      "unknown": "?",
+      "unknownAria": "capacidad desconocida",
+      "canMake": "se pueden hacer {count}",
+      "insufficientAria": "stock insuficiente para esta receta",
+      "lowAria": "usa un ingrediente con stock bajo",
+      "unitMismatchAria": "aproximado, unidad no coincide",
+      "truncatedAria": "aproximado, cadena de prep profunda",
+      "unitMismatchTooltip": "Aproximado — la unidad del ingrediente de la receta no coincide con la del catálogo.",
+      "truncatedTooltip": "Aproximado — la cadena de recetas de prep excedió el límite de profundidad (5)."
     }
   },
   "tabStrip": {

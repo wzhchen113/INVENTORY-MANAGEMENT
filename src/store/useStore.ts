@@ -6,7 +6,7 @@ import {
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
-  Brand, InventoryCountKind, ReorderPayload,
+  Brand, InventoryCountKind, ReorderPayload, MenuCapacityRow,
   LocalizedNames, RecipeCategory, IngredientCategory,
 } from '../types';
 import {
@@ -436,6 +436,24 @@ interface StoreActions {
    */
   loadReorderSuggestions: (asOfDate?: string) => Promise<void>;
 
+  /**
+   * Spec 060 — server-computed per-recipe capacity for the active
+   * store. Fires `compute_menu_capacity` via `db.fetchMenuCapacity`
+   * and reduces the array → `Record<recipeId, MenuCapacityRow>` for
+   * O(1) lookups in `RecipesSection`'s inline badge.
+   *
+   * Called fire-and-forget by `loadFromSupabase` (not awaited so
+   * first paint never blocks on capacity). On error, sets
+   * `menuCapacity` to `{}` and routes through `notifyBackendError`
+   * so the user gets a toast. The badge falls back to rendering
+   * nothing when the slice is empty.
+   *
+   * No realtime wiring is needed — the same `loadFromSupabase`
+   * triggered by every onSync re-fires this. The 400ms debounce in
+   * `useRealtimeSync` already absorbs bursty inventory writes.
+   */
+  loadMenuCapacity: (storeId?: string) => Promise<void>;
+
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
@@ -522,6 +540,13 @@ export const useStore = create<FullStore>((set, get) => ({
   reorderPayload: null as ReorderPayload | null,
   reorderLoading: false,
   reorderError: null as string | null,
+  // Spec 060 — server-computed per-recipe capacity for the active
+  // store. Empty `{}` until `loadFromSupabase` triggers the
+  // fire-and-forget `loadMenuCapacity(sid)` tail. Cleared on store
+  // switch in the same `set({...})` block that resets the reorder
+  // slice — so the prior store's numbers never flash in the new
+  // store's RecipesSection.
+  menuCapacity: {} as Record<string, MenuCapacityRow>,
   // Spec 012b — super-admin brand context. NULL = "All brands" mode,
   // hidden for non-super-admin (the picker doesn't render).
   currentBrandId: null,
@@ -964,6 +989,10 @@ export const useStore = create<FullStore>((set, get) => ({
           ...(allData[0]?.ingredientCategories?.length ? { ingredientCategories: allData[0].ingredientCategories } : {}),
           ...(allData[0]?.ingredientConversions ? { ingredientConversions: allData[0].ingredientConversions } : {}),
           posRecipeAliases: allData.flatMap((d) => d?.posRecipeAliases || []),
+          // Spec 060 — capacity is per-store; cross-store rollup is OOS.
+          // Clear so a switch from a real store to "All Stores" doesn't
+          // leave stale numbers visible in RecipesSection's badge.
+          menuCapacity: {},
         });
         return;
       }
@@ -1007,7 +1036,17 @@ export const useStore = create<FullStore>((set, get) => ({
         reorderPayload: null,
         reorderLoading: false,
         reorderError: null,
+        // Spec 060 — wipe per-recipe capacity on store switch so the
+        // prior store's badges don't flash. The fire-and-forget
+        // `loadMenuCapacity(sid)` below repopulates asynchronously;
+        // RecipesSection's badge renders nothing in the gap.
+        menuCapacity: {},
       });
+      // Spec 060 — fire-and-forget capacity load. NOT awaited so the
+      // first paint never blocks on the RPC (typical ~40-50ms on seed,
+      // but a slow link could blow past `storeLoading`'s window).
+      // Errors route through `notifyBackendError` inside the action.
+      get().loadMenuCapacity(sid);
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
 
@@ -2333,6 +2372,34 @@ export const useStore = create<FullStore>((set, get) => ({
       const message = e?.message || String(e);
       console.warn('[Supabase] loadReorderSuggestions:', message);
       set({ reorderLoading: false, reorderError: message });
+    }
+  },
+
+  // Spec 060 — load server-computed per-recipe capacity for the
+  // active store. Called fire-and-forget by `loadFromSupabase`. Reduces
+  // the array → keyed object so the inline badge in `RecipesSection`
+  // can do O(1) lookups by recipeId.
+  //
+  // The `__all__` super-admin view skips this load (capacity is
+  // per-store; cross-store rollup is out of scope per spec).
+  //
+  // No optimistic behavior — this is a pure read. On error, we wipe
+  // the slice to `{}` (so the badge degrades to "render nothing"
+  // rather than showing stale numbers from a prior store) and toast
+  // via `notifyBackendError`.
+  loadMenuCapacity: async (storeId) => {
+    const sid = storeId || get().currentStore?.id;
+    if (!sid || sid === '__all__') return;
+    try {
+      const rows = await db.fetchMenuCapacity(sid);
+      const keyed: Record<string, MenuCapacityRow> = {};
+      for (const r of rows) {
+        if (r.recipeId) keyed[r.recipeId] = r;
+      }
+      set({ menuCapacity: keyed });
+    } catch (e: any) {
+      set({ menuCapacity: {} });
+      notifyBackendError('Load menu capacity', e);
     }
   },
 

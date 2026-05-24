@@ -26,7 +26,8 @@
       "reports": "报表",
       "dbInspector": "数据库检查器",
       "usersAccess": "用户与权限",
-      "brands": "品牌"
+      "brands": "品牌",
+      "menuImpact": "菜单影响"
     },
     "actions": {
       "resetConfirmTitle": "重置侧边栏为默认?",
@@ -958,6 +959,46 @@
       "deleted": "分类已删除",
       "inUseToast": "分类正在使用中",
       "inUseToastBody": "\"{name}\" 出现在 {count} 个项目中 — 请先重新分配。"
+    },
+    "menuImpact": {
+      "title": "菜单影响",
+      "subtitle": "服务器计算的每个菜品的可制作数量。受影响最严重的排在前面。",
+      "totalCount": "共 {count} 项",
+      "filteredCount": "{filtered} / {total}",
+      "showImpactedOnly": "仅显示受影响",
+      "showAll": "显示全部",
+      "colMenuItem": "菜品",
+      "colMakeableQty": "可制作",
+      "colBindingIngredient": "受限于",
+      "colLowCount": "低库存原料",
+      "colBrand": "品牌",
+      "noRecipe": "未定义配方",
+      "limitedByNone": "—",
+      "unknownCapacity": "未知",
+      "unitMismatchIndicator": "~",
+      "unitMismatchTooltip": "近似值 — 配方原料单位与目录单位不匹配。",
+      "truncatedIndicator": "?",
+      "truncatedTooltip": "近似值 — 备菜配方链超过深度上限 (5)。",
+      "emptyNoRecipes": "该品牌没有菜品",
+      "emptyLoading": "正在加载菜单影响…",
+      "emptyAllFull": "所有菜品库存充足",
+      "limitedByLeafLabel": "{name}",
+      "shortfallSuffix": "(还需 {qty} {unit})"
+    }
+  },
+  "component": {
+    "menuCapacityBadge": {
+      "noRecipe": "未定义配方",
+      "noRecipeAria": "未定义配方",
+      "unknown": "?",
+      "unknownAria": "容量未知",
+      "canMake": "可制作 {count} 份",
+      "insufficientAria": "此配方库存不足",
+      "lowAria": "使用了一种低库存原料",
+      "unitMismatchAria": "近似值，单位不匹配",
+      "truncatedAria": "近似值，备菜链较深",
+      "unitMismatchTooltip": "近似值 — 配方原料单位与目录单位不匹配。",
+      "truncatedTooltip": "近似值 — 备菜配方链超过深度上限 (5)。"
     }
   },
   "tabStrip": {

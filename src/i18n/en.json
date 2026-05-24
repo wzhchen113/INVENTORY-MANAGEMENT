@@ -26,7 +26,8 @@
       "reports": "Reports",
       "dbInspector": "DB inspector",
       "usersAccess": "Users & access",
-      "brands": "Brands"
+      "brands": "Brands",
+      "menuImpact": "Menu impact"
     },
     "actions": {
       "resetConfirmTitle": "Reset sidebar to default?",
@@ -958,6 +959,46 @@
       "deleted": "Category deleted",
       "inUseToast": "Category in use",
       "inUseToastBody": "\"{name}\" is on {count} items — reassign first."
+    },
+    "menuImpact": {
+      "title": "Menu impact",
+      "subtitle": "Server-computed capacity per menu item. Most-impacted first.",
+      "totalCount": "{count} total",
+      "filteredCount": "{filtered} / {total}",
+      "showImpactedOnly": "show impacted only",
+      "showAll": "show all",
+      "colMenuItem": "menu item",
+      "colMakeableQty": "makeable",
+      "colBindingIngredient": "limited by",
+      "colLowCount": "low ingr.",
+      "colBrand": "brand",
+      "noRecipe": "no recipe defined",
+      "limitedByNone": "—",
+      "unknownCapacity": "unknown",
+      "unitMismatchIndicator": "~",
+      "unitMismatchTooltip": "Approximate — recipe ingredient unit does not match catalog unit.",
+      "truncatedIndicator": "?",
+      "truncatedTooltip": "Approximate — prep recipe chain exceeded depth cap (5).",
+      "emptyNoRecipes": "no menu items in this brand",
+      "emptyLoading": "loading menu impact…",
+      "emptyAllFull": "all menu items fully stocked",
+      "limitedByLeafLabel": "{name}",
+      "shortfallSuffix": "(need {qty} {unit} more)"
+    }
+  },
+  "component": {
+    "menuCapacityBadge": {
+      "noRecipe": "no recipe defined",
+      "noRecipeAria": "no recipe defined",
+      "unknown": "?",
+      "unknownAria": "unknown capacity",
+      "canMake": "can make {count}",
+      "insufficientAria": "insufficient stock for this recipe",
+      "lowAria": "uses a low-stock ingredient",
+      "unitMismatchAria": "approximate, unit mismatch",
+      "truncatedAria": "approximate, deep prep chain",
+      "unitMismatchTooltip": "Approximate — recipe ingredient unit does not match catalog unit.",
+      "truncatedTooltip": "Approximate — prep recipe chain exceeded depth cap (5)."
     }
   },
   "tabStrip": {

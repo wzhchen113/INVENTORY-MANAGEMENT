@@ -41,6 +41,7 @@ import ReorderSection from './sections/ReorderSection';
 import POsSection from './sections/POsSection';
 import RecipesSection from './sections/RecipesSection';
 import PrepRecipesSection from './sections/PrepRecipesSection';
+import MenuImpactSection from './sections/MenuImpactSection';
 import ReconciliationSection from './sections/ReconciliationSection';
 import POSImportsSection from './sections/POSImportsSection';
 import AuditLogSection from './sections/AuditLogSection';
@@ -196,6 +197,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <RecipesSection />
         ) : section === 'PrepRecipes' ? (
           <PrepRecipesSection />
+        ) : section === 'MenuImpact' ? (
+          <MenuImpactSection />
         ) : section === 'Reconciliation' ? (
           <ReconciliationSection />
         ) : section === 'POSImports' ? (

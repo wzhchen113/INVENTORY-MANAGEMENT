@@ -536,6 +536,15 @@ export interface AppState {
   reorderPayload: ReorderPayload | null;
   reorderLoading: boolean;
   reorderError: string | null;
+  /**
+   * Spec 060 — server-computed per-recipe capacity for the active
+   * store. Keyed by `recipeId` for O(1) lookup from
+   * `RecipesSection`'s inline badge. Populated as a fire-and-forget
+   * tail of `loadFromSupabase`; cleared (set to `{}`) on store
+   * switch so the prior store's numbers never leak. The shape is
+   * the `MenuCapacityRow` returned by `db.fetchMenuCapacity`.
+   */
+  menuCapacity: Record<string, MenuCapacityRow>;
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
@@ -739,6 +748,48 @@ export interface ReorderPayload {
     stockFallbackVendorCount: number;
   };
   warnings: Array<{ code: string; message: string }>;
+}
+
+/**
+ * Spec 060 — one row per recipe from `compute_menu_capacity` RPC.
+ * Mapped from snake_case → camelCase in `db.fetchMenuCapacity`.
+ *
+ * Field semantics:
+ *  - `hasRecipe=false` → no BOM defined; UI renders "no recipe
+ *    defined" in place of the capacity number.
+ *  - `makeableQty` is `null` when no constraint binds (no BOM,
+ *    or prep chain with zero leaf ingredients). For
+ *    `hasRecipe=true && makeableQty=null` the badge renders
+ *    nothing; the no-recipe label is gated by `hasRecipe`.
+ *  - `bindingCatalogId` always points at a LEAF ingredient
+ *    (a raw catalog row), even when the constraint surfaced
+ *    through a prep recipe. The UI shows "limited by: flour"
+ *    not "limited by: sauce X".
+ *  - `bindingShortfall` is "how much more of the binding
+ *    ingredient is needed to make ONE more of this menu item",
+ *    in the catalog's unit, clamped at >= 0.
+ *  - `lowIngredientCount` is the count of DISTINCT catalog
+ *    ingredients (direct + transitive prep leaves) with
+ *    `current_stock < par_level` in the caller's store; rows
+ *    with `par_level <= 0` / NULL are excluded (cf. spec edge case).
+ *  - `hasUnitMismatch=true` → at least one recipe line declared
+ *    a unit string different from the catalog's. UI qualifies
+ *    the number with `~`. See spec 060 §2 — server-side unit
+ *    conversion is deferred to a future cleanup.
+ *  - `truncated=true` → recursive prep walk hit the depth-5 cap
+ *    with graph left to explore. UI qualifies with `?`.
+ */
+export interface MenuCapacityRow {
+  recipeId: string;
+  storeId: string;
+  hasRecipe: boolean;
+  makeableQty: number | null;
+  bindingCatalogId: string | null;
+  bindingCatalogName: string | null;
+  bindingShortfall: number | null;
+  lowIngredientCount: number;
+  hasUnitMismatch: boolean;
+  truncated: boolean;
 }
 
 export interface AppNotification {

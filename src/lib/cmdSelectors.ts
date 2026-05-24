@@ -175,6 +175,9 @@ const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string }> = [
   { name: 'Recipes',         labelKey: 'sidebar.items.menuItemsBom' },
   { name: 'Restock',         labelKey: 'sidebar.items.restock' },
   { name: 'Reorder',         labelKey: 'sidebar.items.reorder' },
+  // Spec 060 — Menu impact section. First entry in the INSIGHTS sidebar
+  // group; the palette entry keeps it discoverable via ⌘K.
+  { name: 'MenuImpact',      labelKey: 'sidebar.items.menuImpact' },
   { name: 'Reconciliation',  labelKey: 'sidebar.items.reconciliation' },
   { name: 'POSImports',      labelKey: 'sidebar.items.posImports' },
   { name: 'AuditLog',        labelKey: 'sidebar.items.auditLog' },
@@ -1081,6 +1084,11 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
       {
         label: T('sidebar.groups.insights'),
         items: [
+          // Spec 060 — first item in INSIGHTS per architect's design.
+          // applySidebarOverride merges this in for users without a saved
+          // override; users with a saved override get this id appended
+          // to whichever group the merge picks (default-group fallback).
+          { id: 'MenuImpact',      label: T('sidebar.items.menuImpact') },
           { id: 'Reconciliation',  label: T('sidebar.items.reconciliation') },
           { id: 'POSImports',      label: T('sidebar.items.posImports') },
           { id: 'AuditLog',        label: T('sidebar.items.auditLog') },

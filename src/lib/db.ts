@@ -37,6 +37,7 @@ import {
   SidebarLayoutOverride, POSImport, Brand, User,
   InventoryCount, InventoryCountKind, InventoryCountSummary,
   ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
+  MenuCapacityRow,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -2708,6 +2709,58 @@ function mapReorderVendor(v: any): ReorderVendor {
     items,
     vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
   };
+}
+
+// ─── MENU CAPACITY ──────────────────────────────────────────────────────
+//
+// Spec 060 — server-computed per-recipe capacity for the active store.
+//
+// The RPC walks the recipe BOM transitively through prep recipes and
+// returns one row per recipe with `makeableQty` + the binding catalog
+// ingredient (or NULL when the recipe has no BOM defined).
+//
+// Units are NOT normalized server-side — same posture as
+// `report_run_variance` / `report_reorder_list`. The `hasUnitMismatch`
+// flag surfaces recipes whose ingredient lines declare a unit string
+// different from the catalog's; the UI qualifies the badge with `~`
+// when set so the user knows the number is approximate.
+//
+// The `truncated` flag surfaces when the recursive prep DAG hit the
+// depth-5 cap with unexplored graph remaining — the UI renders a `?`
+// suffix. The depth cap is the project-standard cycle-protection
+// mechanism (mirror of `report_run_variance_multivendor`).
+//
+// Shape (`MenuCapacityRow`) lives in `src/types/index.ts` next to
+// `ReorderPayload` so the Zustand AppState slot can reference it
+// without a circular import back to `db.ts`. We re-export it here
+// for callers that grouped the type with the fetcher (architect's
+// original design located the interface in `db.ts`).
+
+export type { MenuCapacityRow };
+
+export async function fetchMenuCapacity(
+  storeId: string,
+): Promise<MenuCapacityRow[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('compute_menu_capacity', { p_store_id: storeId })
+      .abortSignal(signal);
+
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    return rows.map((r: any): MenuCapacityRow => ({
+      recipeId:           String(r?.recipe_id ?? ''),
+      storeId:            String(r?.store_id ?? storeId),
+      hasRecipe:          Boolean(r?.has_recipe ?? false),
+      makeableQty:        r?.makeable_qty == null ? null : Number(r.makeable_qty),
+      bindingCatalogId:   r?.binding_catalog_id ? String(r.binding_catalog_id) : null,
+      bindingCatalogName: r?.binding_catalog_name == null ? null : String(r.binding_catalog_name),
+      bindingShortfall:   r?.binding_shortfall == null ? null : Number(r.binding_shortfall),
+      lowIngredientCount: Number(r?.low_ingredient_count ?? 0),
+      hasUnitMismatch:    Boolean(r?.has_unit_mismatch ?? false),
+      truncated:          Boolean(r?.truncated ?? false),
+    }));
+  }, { kind: 'read', label: 'fetchMenuCapacity' });
 }
 
 // ─── BRAND + CATALOG ────────────────────────────────────────────────────
