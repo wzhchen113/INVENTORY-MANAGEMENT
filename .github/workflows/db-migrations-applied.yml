@@ -1,0 +1,257 @@
+# .github/workflows/db-migrations-applied.yml — Spec 064.
+#
+# Detect-only drift gate between local supabase/migrations/*.sql and
+# prod's supabase_migrations.schema_migrations. Hard-fails if a local
+# migration is missing from prod (the bug that prompted this spec —
+# spec 060 sat un-pushed for three weeks, then a frontend RPC call
+# failed in prod). Warns (exit 0) if prod has an entry not in repo
+# (dashboard SQL editor drift).
+#
+# Sibling to test.yml. Does NOT modify it.
+
+name: db-migrations-applied
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least-privilege. Matches test.yml. The gate reads source +
+# reads prod migration state via supabase-CLI management API. No write.
+permissions:
+  contents: read
+
+# Same Node-24 action-runtime opt-in as test.yml (spec 047). Required
+# for actions/checkout@v4 + supabase/setup-cli@v1 to keep working past
+# GitHub's ~June 2026 force-default.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  gate:
+    name: Migrations applied to prod
+    runs-on: ubuntu-latest
+    # supabase-CLI cold-boot via setup-cli + one management-API call.
+    # No `supabase start`. ~30-60s typical. 5 min is generous.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Check secret availability (skip on fork PRs)
+        id: check_secret
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          # Both secrets must be set for the gate to function. Either
+          # missing → skip with a clear summary message so engineers
+          # setting up the repo for the first time aren't confused by
+          # the supabase CLI's unhelpful empty-project-ref error.
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_PROJECT_ID" ]; then
+            missing=""
+            [ -z "$SUPABASE_ACCESS_TOKEN" ] && missing="${missing}- \`SUPABASE_ACCESS_TOKEN\`\n"
+            [ -z "$SUPABASE_PROJECT_ID" ]  && missing="${missing}- \`SUPABASE_PROJECT_ID\`\n"
+            {
+              echo "## Skipped: required secret(s) unset"
+              echo ""
+              echo "This run does not have access to the Supabase"
+              echo "management API (likely a fork PR — GitHub restricts"
+              echo "secret access for forks by default — or a first-"
+              echo "time repo setup that hasn't added the secrets yet)."
+              echo ""
+              echo "Missing:"
+              echo ""
+              printf '%b' "$missing"
+              echo ""
+              echo "The migration-applied gate will re-run on the next"
+              echo "push to \`main\` where the secrets are available."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+      - name: Link to prod
+        if: steps.check_secret.outputs.skipped != 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
+
+      - name: Compare local migrations vs. prod
+        if: steps.check_secret.outputs.skipped != 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 1. Local set: timestamp prefix from each .sql filename.
+          #    `|| true` keeps `set -euo pipefail` from exiting 1 if
+          #    the directory is empty (e.g. a fresh repo with no
+          #    migrations — AC-Det-6 edge case). `grep -c ^` is then
+          #    used downstream to detect the truly-empty case.
+          (ls supabase/migrations/*.sql 2>/dev/null \
+            | xargs -n1 basename \
+            | grep -oE '^[0-9]{14}' \
+            | sort -u > /tmp/local_versions.txt) || true
+          [ -f /tmp/local_versions.txt ] || touch /tmp/local_versions.txt
+
+          # 2. Capture full table so we can derive both directions.
+          #    Pipe stderr to /dev/null to keep the "Connecting to
+          #    remote database..." info line out of the parse target.
+          supabase migration list --linked 2>/dev/null > /tmp/cli_output.txt
+
+          # Pre-create the awk output sinks so the comm/sort steps
+          # below always find a file even when one column is empty.
+          : > /tmp/cli_local.txt
+          : > /tmp/cli_remote.txt
+
+          # 3. Awk parser (see backend design §Awk parser).
+          awk -F'|' '
+            # Skip header row
+            $1 ~ /LOCAL/ { next }
+            # Skip divider row
+            $1 ~ /^[[:space:]]*-+/ { next }
+            # Skip blank lines
+            NF < 2 { next }
+            {
+              # Trim whitespace from columns 1 (LOCAL) and 2 (REMOTE).
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+              # Skip rows where both are empty (defensive).
+              if ($1 == "" && $2 == "") next
+              # Only emit if it looks like a 14-digit timestamp.
+              if ($1 ~ /^[0-9]{14}$/) print $1 > "/tmp/cli_local.txt"
+              if ($2 ~ /^[0-9]{14}$/) print $2 > "/tmp/cli_remote.txt"
+            }
+          ' /tmp/cli_output.txt
+
+          # 4. Sort uniq the remote set. The sink was pre-created above
+          #    so we don't need a missing-file fallback here — any real
+          #    I/O error from sort surfaces under `set -euo pipefail`.
+          sort -u /tmp/cli_remote.txt > /tmp/remote_versions.txt
+
+          # 4b. Defense-in-depth: cross-check filesystem-derived local
+          #     set (step 1) against the CLI's LOCAL column (step 3).
+          #     The architect required this to catch a hypothetical CLI
+          #     regression that silently drops local rows. Both sets
+          #     SHOULD be identical; divergence becomes a step-summary
+          #     warning but does NOT fail the gate (warn-only by spec).
+          sort -u /tmp/cli_local.txt > /tmp/cli_local_sorted.txt
+          if ! diff -q /tmp/local_versions.txt /tmp/cli_local_sorted.txt > /dev/null 2>&1; then
+            {
+              echo ""
+              echo "## Local-set divergence (filesystem vs CLI)"
+              echo ""
+              echo "The CLI's reported LOCAL column does not match"
+              echo "\`ls supabase/migrations/*.sql\`. Likely a CLI"
+              echo "regression or unexpected file in the migrations"
+              echo "directory. Filesystem set is treated as canonical"
+              echo "for the drift comparison below."
+              echo ""
+              echo "Filesystem-only (treated as canonical):"
+              comm -23 /tmp/local_versions.txt /tmp/cli_local_sorted.txt \
+                | sed 's/^/- `/;s/$/`/'
+              echo ""
+              echo "CLI-only:"
+              comm -13 /tmp/local_versions.txt /tmp/cli_local_sorted.txt \
+                | sed 's/^/- `/;s/$/`/'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # 5. Direction 1: local files not in prod.
+          comm -23 /tmp/local_versions.txt /tmp/remote_versions.txt \
+            > /tmp/local_not_in_remote.txt
+
+          # 6. Direction 2: prod entries not in repo.
+          comm -13 /tmp/local_versions.txt /tmp/remote_versions.txt \
+            > /tmp/remote_not_in_local.txt
+
+          HARD_FAIL=0
+
+          if [ -s /tmp/local_not_in_remote.txt ]; then
+            HARD_FAIL=1
+            count=$(wc -l < /tmp/local_not_in_remote.txt | tr -d ' ')
+            {
+              echo "## Migrations not applied to prod"
+              echo ""
+              echo "**${count} local migration(s) are missing from prod's schema_migrations:**"
+              echo ""
+              # Map each version back to its full filename for clarity.
+              while IFS= read -r version; do
+                fname=$(ls "supabase/migrations/${version}"_*.sql 2>/dev/null \
+                  | head -n1 \
+                  | xargs -n1 basename)
+                if [ -n "$fname" ]; then
+                  echo "- \`${fname}\`"
+                else
+                  echo "- \`${version}\` (filename not found)"
+                fi
+              done < /tmp/local_not_in_remote.txt
+              echo ""
+              echo "### Recovery"
+              echo ""
+              echo "Run from a clean checkout of \`main\`:"
+              echo ""
+              echo "    npx supabase db push --linked"
+              echo ""
+              echo "Then push the resulting commit (if any) and re-run"
+              echo "this workflow. See [spec 064](../../specs/064-ci-migrations-applied-gate.md)"
+              echo "for context."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s /tmp/remote_not_in_local.txt ]; then
+            count=$(wc -l < /tmp/remote_not_in_local.txt | tr -d ' ')
+            {
+              echo ""
+              echo "## Prod has migrations not in this repo"
+              echo ""
+              echo "**${count} migration version(s) exist in prod's"
+              echo "schema_migrations with no matching local file"
+              echo "(likely dashboard SQL editor drift):**"
+              echo ""
+              while IFS= read -r version; do
+                echo "- \`${version}\`"
+              done < /tmp/remote_not_in_local.txt
+              echo ""
+              echo "### Action"
+              echo ""
+              echo "Either:"
+              echo ""
+              echo "- back-fill the prod migration into a local file"
+              echo "  with the matching timestamp prefix, then re-push"
+              echo "  (\`npx supabase db push\` is a no-op for already-"
+              echo "  applied versions but registers the file with the"
+              echo "  CLI), OR"
+              echo "- if the prod row was a mistake, revert it via psql"
+              echo "  or the dashboard and remove the entry from"
+              echo "  \`schema_migrations\`."
+              echo ""
+              echo "This is a soft warning — the PR can still merge."
+              echo "See [spec 064](../../specs/064-ci-migrations-applied-gate.md)"
+              echo "for context."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ "$HARD_FAIL" -eq 1 ]; then
+            exit 1
+          fi
+
+          # Both directions clean. Emit a one-line success note.
+          if [ ! -s /tmp/local_not_in_remote.txt ] \
+             && [ ! -s /tmp/remote_not_in_local.txt ]; then
+            local_count=$(wc -l < /tmp/local_versions.txt | tr -d ' ')
+            remote_count=$(wc -l < /tmp/remote_versions.txt | tr -d ' ')
+            {
+              echo "## Migrations in sync"
+              echo ""
+              echo "Local: ${local_count} files. Prod: ${remote_count}"
+              echo "applied. No drift detected."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

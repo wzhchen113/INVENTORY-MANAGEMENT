@@ -88,7 +88,7 @@ scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runn
 
 **Gaps and unknowns**
 - **Test framework.** See [tests/README.md](tests/README.md) — three tracks (jest, pgTAP DB tests, shell smokes). v1 ships infra + 1-2 example tests per track; retroactive coverage of past Criticals is a follow-up.
-- **CI workflow on disk.** [.github/workflows/test.yml](.github/workflows/test.yml) runs jest + base/test typechecks + pgTAP DB tests (Specs 022/024/025; Spec 047 added the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workflow-level opt-in). The `db-migrations-applied.yml` gate originally referenced in the README was never landed — see the Resolved questions section below.
+- **CI workflows on disk.** Two active gates: [.github/workflows/test.yml](.github/workflows/test.yml) (jest + typechecks + pgTAP; Specs 022/024/025; Spec 047 added the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workflow-level opt-in) and [.github/workflows/db-migrations-applied.yml](.github/workflows/db-migrations-applied.yml) (bi-directional migration drift, spec 064).
 - **Empty placeholders.** [.claude/agents/_archive/](.claude/agents/_archive/) and [.claude/worktrees/](.claude/worktrees/) are empty by design ([specs/](specs/) is now populated with 47 specs).
 - **Identity drift.** [app.json](app.json) `slug` is `towson-inventory` while [package.json](package.json) name and brand are `imr-inventory` / "2AM PROJECT".
 - **Stray asset.** `2AM_Project_Menu_Ingredients.xlsx` (19 KB) sits at repo root, not referenced by code.
@@ -206,7 +206,12 @@ Ad-hoc work that doesn't belong in the pipeline gets `next_agent: NONE` from the
 These were open questions during the initial audit. Answers below are now project policy.
 
 ### CI workflow
-[.github/workflows/test.yml](.github/workflows/test.yml) is the active CI gate (jest, base typecheck, test-graph typecheck, pgTAP DB tests). The `db-migrations-applied.yml` gate originally referenced in the README was meant to be added during the audit but blocked by a `workflow`-scoped token-permission issue and never landed. Agents: do not assume a `migrations-applied` CI gate runs — if working on database migrations, manually verify migrations are applied. The standing `test.yml` covers code+schema-as-tested but not "every migration ran against prod-shape."
+Two workflow files gate every PR and push to `main`:
+
+1. [.github/workflows/test.yml](.github/workflows/test.yml) — jest, base typecheck, test-graph typecheck, pgTAP DB tests.
+2. [.github/workflows/db-migrations-applied.yml](.github/workflows/db-migrations-applied.yml) — bi-directional drift check between `supabase/migrations/*.sql` and prod's `supabase_migrations.schema_migrations`. Hard-fails if a local migration is missing from prod (the bug spec 064 was written to catch). Warns (exit 0) if prod has an entry not in repo (dashboard SQL editor drift). Configured via repo secrets `SUPABASE_ACCESS_TOKEN` + `SUPABASE_PROJECT_ID`; no DB password required. Fork-PR posture: skip-with-summary when the secret is unset.
+
+**Historical note:** The `db-migrations-applied` gate was originally deferred during the audit, attributed to a `workflow`-scoped token-permission issue. The fix in spec 064: this gate only READS migration state via the management API — it never writes a workflow file at runtime — so the `workflow:write` scope the original blocker required is not needed here. Landed in spec 064.
 
 ### Data layer (active vs. legacy)
 **Active:** Supabase is the data layer. `src/store/useStore.ts` is the current store.
