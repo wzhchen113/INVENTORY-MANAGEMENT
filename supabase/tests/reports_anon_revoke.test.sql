@@ -7,7 +7,7 @@
 -- `auth_can_see_store(store_id)`-alone-is-sufficient-for-writes lesson
 -- at GRANT time (before any RLS evaluation).
 --
--- 12 RPCs covered (each: anon lacks EXECUTE):
+-- 13 RPCs covered (each: anon lacks EXECUTE):
 --   • report_run(text, uuid, jsonb)                — dispatcher
 --   • report_run_stub(uuid, jsonb)                 — spec 016
 --   • report_run_cogs(uuid, jsonb)                 — spec 017
@@ -22,6 +22,9 @@
 --     granted to service_role; anon still lacks EXECUTE)
 --   • copy_catalog_rows(uuid, uuid, text, uuid[])  — spec 049 (super-admin
 --     gated; anon still lacks EXECUTE at the GRANT layer)
+--   • compute_menu_capacity(uuid)                  — spec 060 (belt-and-
+--     suspenders for spec 067; arm 10 of compute_menu_capacity.test.sql
+--     covers the same assertion via the same catalog pattern)
 --
 -- Background: Postgres' default `EXECUTE TO PUBLIC` lets `anon` (which
 -- inherits from PUBLIC) bypass a bare `... from anon` revoke, so each
@@ -44,7 +47,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(12);
+select plan(13);
 
 -- ─── (1) report_run dispatcher ────────────────────────────────
 select ok(
@@ -132,6 +135,16 @@ select ok(
     'EXECUTE'
   ),
   'anon lacks EXECUTE on copy_catalog_rows (super_admin-only)'
+);
+
+-- ─── (13) compute_menu_capacity ───────────────────────────────
+-- Spec 060: per-store gated via auth_can_see_store; revoked from
+-- public + anon. Belt-and-suspenders coverage alongside arm 10 of
+-- supabase/tests/compute_menu_capacity.test.sql (which uses the
+-- same catalog pattern; see spec 067).
+select ok(
+  not has_function_privilege('anon', 'public.compute_menu_capacity(uuid)', 'EXECUTE'),
+  'anon lacks EXECUTE on compute_menu_capacity'
 );
 
 select * from finish();

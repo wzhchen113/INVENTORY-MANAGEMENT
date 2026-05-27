@@ -24,10 +24,13 @@
 --      low_ingredient_count = 2.
 --  (9) Prep transitive zero: menu → prep_x → leaf at stock 0.
 --      makeable_qty=0, binding_catalog_id points at the LEAF.
--- (10) RLS gate: a user with no user_stores grant for the target
+--  (9) RLS gate: a user with no user_stores grant for the target
 --      store raises SQLSTATE 42501.
--- (11) Anon revoke: SET ROLE anon → permission denied.
--- (12) Perf: < 100ms on the seed for one of the 4 seed stores.
+-- (10) Anon revoke (spec 067): catalog-query via
+--      has_function_privilege — does NOT use `set local role anon`
+--      because that anti-pattern crashed Postgres in CI on
+--      SECURITY DEFINER + recursive CTE invocations (see spec 045
+--      precedent + spec 067 diagnosis).
 --
 -- Hermetic isolation: file wraps in begin; ... rollback; so the seed
 -- is untouched. New rows (catalog_ingredients, inventory_items,
@@ -434,20 +437,18 @@ select throws_ok(
 );
 
 -- ─── (10) anon revoke ──────────────────────────────────────────
-set local role anon;
-select throws_ok(
-  format(
-    $q$select * from public.compute_menu_capacity(%L::uuid)$q$,
-    current_setting('test.frederick_id', true)
-  ),
-  '42501',
-  null,
-  '(10) anon: permission denied (REVOKE EXECUTE)'
+-- Catalog-querying assertion (NOT `set local role anon` + throws_ok).
+-- See `supabase/tests/reports_anon_revoke.test.sql` lines 31-42 for the
+-- spec 045 implementation note: the runtime-role-switch pattern
+-- segfaults Postgres in CI under the newer pg-version image, cascading
+-- into recovery-mode failures in subsequent alphabetical tests. The
+-- catalog-state assertion below verifies the same end-state contract
+-- (anon has no EXECUTE on `compute_menu_capacity(uuid)`) without
+-- invoking Postgres' permission-denial code path at runtime.
+select ok(
+  not has_function_privilege('anon', 'public.compute_menu_capacity(uuid)', 'EXECUTE'),
+  '(10) anon: REVOKE EXECUTE on compute_menu_capacity(uuid) is intact'
 );
-
--- pgTAP throws_ok matches SQLSTATE; for `permission denied for
--- function ...` the SQLSTATE is also 42501 — same wire shape as the
--- auth-gate path. Good enough for the contract.
 
 select * from finish();
 rollback;
