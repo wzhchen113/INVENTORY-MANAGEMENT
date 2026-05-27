@@ -144,7 +144,7 @@ select ok(
 -- same catalog pattern; see spec 067).
 select ok(
   not has_function_privilege('anon', 'public.compute_menu_capacity(uuid)', 'EXECUTE'),
-  '(13) anon: REVOKE EXECUTE on compute_menu_capacity(uuid) is intact'
+  'anon lacks EXECUTE on compute_menu_capacity'
 );
 
 select * from finish();

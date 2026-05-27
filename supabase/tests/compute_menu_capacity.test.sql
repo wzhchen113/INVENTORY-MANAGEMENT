@@ -24,10 +24,13 @@
 --      low_ingredient_count = 2.
 --  (9) Prep transitive zero: menu → prep_x → leaf at stock 0.
 --      makeable_qty=0, binding_catalog_id points at the LEAF.
--- (10) RLS gate: a user with no user_stores grant for the target
+--  (9) RLS gate: a user with no user_stores grant for the target
 --      store raises SQLSTATE 42501.
--- (11) Anon revoke: SET ROLE anon → permission denied.
--- (12) Perf: < 100ms on the seed for one of the 4 seed stores.
+-- (10) Anon revoke (spec 067): catalog-query via
+--      has_function_privilege — does NOT use `set local role anon`
+--      because that anti-pattern crashed Postgres in CI on
+--      SECURITY DEFINER + recursive CTE invocations (see spec 045
+--      precedent + spec 067 diagnosis).
 --
 -- Hermetic isolation: file wraps in begin; ... rollback; so the seed
 -- is untouched. New rows (catalog_ingredients, inventory_items,

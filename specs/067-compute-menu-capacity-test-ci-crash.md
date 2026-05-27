@@ -1,6 +1,6 @@
 # Spec 067: Diagnose + fix `compute_menu_capacity.test.sql` CI Postgres crash
 
-Status: READY_FOR_BUILD
+Status: READY_FOR_REVIEW
 
 Owner: (unassigned)
 
