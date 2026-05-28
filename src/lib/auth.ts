@@ -362,7 +362,19 @@ export async function registerInvitedUser(
     // Create profile with real auth user ID. Spec 012b — brand_id is
     // load-bearing: the profiles_role_brand_consistent CHECK from 012a
     // requires admin profiles to have a brand_id, and 'user' / NULL roles
-    // accept either. Pass through whatever the invitation row carries.
+    // accept either.
+    //
+    // Spec 069 — for role='user' (staff) invites the invitation row's
+    // brand_id is NULL (InviteUserDrawer sends brandId: null for staff), which
+    // left staff NULL-brand and unable to read brand-scoped catalog data in the
+    // EOD app (the catalog_ingredients / vendors embeds returned null). We now
+    // stamp brand_id from resolved_brand_id — the brand the invitation's store
+    // assignments resolve to, computed server-side by get_pending_invitation
+    // (SECURITY DEFINER, so it bypasses RLS; a client-side stores read here
+    // would be RLS-blocked because the user_stores rows below are inserted
+    // AFTER this profile INSERT). Admin invites are UNCHANGED: they already
+    // carry a non-NULL invitation.brand_id (and resolved_brand_id COALESCEs to
+    // it), so the role!=='user' branch passes brand_id straight through.
     const { error: profileError } = await supabase.from('profiles').insert({
       id: authData.user.id,
       name: invitation.name,
@@ -370,7 +382,9 @@ export async function registerInvitedUser(
       initials: invitation.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase(),
       color: '#378ADD',
       status: 'active',
-      brand_id: invitation.brand_id ?? null,
+      brand_id: invitation.role === 'user'
+        ? (invitation.resolved_brand_id ?? invitation.brand_id ?? null)
+        : (invitation.brand_id ?? null),
     });
 
     if (profileError) {
