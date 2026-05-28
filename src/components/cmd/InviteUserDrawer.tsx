@@ -75,6 +75,41 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
   // comes from useStore.brand?.id.
   const brandId = brand?.id ?? null;
 
+  // Spec 068 §2 — the STORES multi-select must be scoped to the active
+  // brand, not the global store cache. `useStore.stores` is a global
+  // cache reused across the app (db.ts fetchStores has no brand filter),
+  // so we filter at the consumer. When no brand is active (super-admin
+  // "All brands" view, brandId === null) this is empty and we render the
+  // brand-required notice below instead of the checkbox list.
+  const brandStores = React.useMemo(
+    () => stores.filter((s) => s.brandId === brandId),
+    [stores, brandId],
+  );
+
+  // Spec 068 §2 — stale-selection hygiene. `storeIds` persists in form
+  // state across a header brand-switch while the drawer is open. Since
+  // options are now brand-filtered, a store checked under the OLD brand
+  // would be invisible but still in `storeIds`, inflating the counter and
+  // leaking a cross-brand store name into the handleSave email join.
+  // Prune `storeIds` to the active brand's store set whenever the brand
+  // changes (mirrors the visible-keyed reset effect above).
+  React.useEffect(() => {
+    if (!visible) return;
+    const allowed = new Set(brandStores.map((s) => s.id));
+    setValues((p) => {
+      const pruned = p.storeIds.filter((id) => allowed.has(id));
+      // Avoid a no-op state write (and the extra render) when nothing
+      // was stale — keeps the effect idempotent across re-renders.
+      return pruned.length === p.storeIds.length ? p : { ...p, storeIds: pruned };
+    });
+    // Keyed on brandId, not brandStores, so the prune fires once per
+    // brand switch rather than on every `stores` cache refresh.
+    // `brandStores` identity changes only when brandId changes (the
+    // useMemo above), so keying on brandId here is equivalent — if that
+    // useMemo's deps ever change, revisit this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId, visible]);
+
   const requiredValid =
     values.email.trim().length > 0 &&
     values.name.trim().length > 0 &&
@@ -94,8 +129,12 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
   const handleSave = async () => {
     if (!requiredValid || submitting) return;
     setSubmitting(true);
+    // Spec 068 §2 — resolve names against the brand-filtered list, not
+    // the global `stores`, so a stale storeId from a brand-switch can't
+    // leak a cross-brand store name into the invite email. Defense in
+    // depth; the prune effect + filtered options already prevent it.
     const storeNames = values.storeIds
-      .map((id) => stores.find((s) => s.id === id)?.name)
+      .map((id) => brandStores.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(', ');
     const result = await inviteUser({
@@ -364,11 +403,39 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
             >
               Stores
             </Text>
-            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
-              · {values.storeIds.length} of {stores.length} selected
-            </Text>
+            {brandId ? (
+              // Counter only makes sense once a brand is active — in the
+              // no-brand view there's nothing to select, so "0 of 0" would
+              // be noise alongside the no-brand notice below.
+              <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>
+                · {values.storeIds.length} of {brandStores.length} selected
+              </Text>
+            ) : null}
           </View>
-          {stores.length === 0 ? (
+          {!brandId ? (
+            // Spec 068 §2 — no-brand notice (super-admin "All brands"
+            // view). Distinct from the "No stores visible yet" copy
+            // below: that copy tells the operator the invite can still
+            // proceed, which is wrong here — without a brand there is no
+            // brand-scoped store set to pick from. Modeled on the
+            // admin-role brand-required warning block above.
+            <View
+              style={{
+                backgroundColor: C.warnBg,
+                borderRadius: CmdRadius.sm,
+                borderWidth: 1,
+                borderColor: C.warn,
+                padding: 12,
+              }}
+            >
+              <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.warn }}>
+                Switch into a brand first to assign stores
+              </Text>
+              <Text style={{ fontFamily: sans(400), fontSize: 11.5, color: C.fg2, marginTop: 4 }}>
+                Store access is scoped to a single brand. Pick a brand from the header brand picker, then re-open this drawer to choose its stores.
+              </Text>
+            </View>
+          ) : brandStores.length === 0 ? (
             <View
               style={{
                 backgroundColor: C.warnBg,
@@ -387,7 +454,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
             </View>
           ) : (
             <View style={{ gap: 4 }}>
-              {stores.map((s) => {
+              {brandStores.map((s) => {
                 const isSelected = values.storeIds.includes(s.id);
                 return (
                   <TouchableOpacity

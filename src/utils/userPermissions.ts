@@ -51,6 +51,67 @@ export function canDeleteUser(args: {
 }
 
 /**
+ * Spec 068 §3 — derive the stores a user can access, for the store-chip
+ * display in `UsersSection.tsx` `UserRow`. Extracted as a pure helper
+ * (spec-033 precedent) so the access predicate is testable in isolation
+ * and reusable.
+ *
+ * Before this spec, `UserRow` rendered the ENTIRE global `stores` array
+ * for any admin-tier row, which is why an admin scoped to one brand
+ * (e.g. Bobby, admin + 2AM) showed store chips for stores in OTHER
+ * brands (Baltimore Seafood). The bug was a pure display artifact — the
+ * underlying `user_stores` data is clean (spec 068 §0) — but it
+ * misrepresented every admin's real access.
+ *
+ * The predicate mirrors the `auth_can_see_store()` brand-scoped
+ * visibility model (migration 20260517040000_…):
+ *
+ *   - `super_admin` — sees EVERY brand. Their `brandId` is NULL, so a
+ *     `brandId`-match filter would yield an empty list ("no stores
+ *     assigned"), which under-reports. Render ALL stores: it is truthful
+ *     (they see everything) and the caller already has the array.
+ *   - `admin` / `master` — effective store visibility is brand-WIDE, not
+ *     their literal `user_stores` rows. An admin scoped to brand X can
+ *     operationally see every store in brand X. Render that brand's
+ *     stores (`s.brandId === user.brandId`). Rendering literal
+ *     `user_stores` here would UNDER-report (Bobby has one grant but sees
+ *     all four 2AM stores). Showing OTHER brands' stores was the bug.
+ *   - `user` (staff) — access IS the literal `user_stores` grants; render
+ *     `stores ∩ user.stores`. Unchanged from the prior behavior.
+ *
+ * Pure: no React, no Zustand, no network. Same inputs → same output.
+ *
+ * @param user      the row's `{ role, brandId, stores }` (brandId may be
+ *                  null for super_admin / legacy staff; stores is the
+ *                  literal user_stores id list).
+ * @param allStores the candidate store set (the caller passes the global
+ *                  `useStore.stores`; it is already session-brand-scoped
+ *                  for a non-super viewer, so the filter is the active
+ *                  guard only when a super-admin is viewing a multi-brand
+ *                  store cache).
+ * @returns the subset of `allStores` the user can access.
+ */
+export function deriveAccessibleStores<S extends { id: string; brandId: string }>(
+  user: Pick<User, 'role' | 'brandId' | 'stores'>,
+  allStores: ReadonlyArray<S>,
+): S[] {
+  if (user.role === 'super_admin') {
+    // Sees every brand — render the whole array (truthful, not under-reported).
+    return [...allStores];
+  }
+  if (user.role === 'admin' || user.role === 'master') {
+    // Brand-wide access via auth_can_see_store(); render the brand's stores.
+    // A super_admin would have brandId === null and is handled above; an
+    // admin/master with a null brandId (shouldn't happen per
+    // profiles_role_brand_consistent) yields an empty list, which is the
+    // correct "no brand → no brand-scoped stores" signal.
+    return allStores.filter((s) => s.brandId === user.brandId);
+  }
+  // `user` (staff) — literal user_stores grants.
+  return allStores.filter((s) => user.stores.includes(s.id));
+}
+
+/**
  * Spec 031 — derive last-of-role flags from a user list. Counts rows
  * per role; returns true when the count is <= 1 (zero or one — the
  * defensive empty-array case still hides the DELETE button rather than

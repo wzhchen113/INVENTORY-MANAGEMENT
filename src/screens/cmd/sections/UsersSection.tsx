@@ -11,7 +11,7 @@ import { InviteUserDrawer } from '../../../components/cmd/InviteUserDrawer';
 import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
 import { User } from '../../../types';
 import { useIsMaster } from '../../../hooks/useRole';
-import { canDeleteUser, deriveLastOfRole } from '../../../utils/userPermissions';
+import { canDeleteUser, deriveLastOfRole, deriveAccessibleStores } from '../../../utils/userPermissions';
 import { useT } from '../../../hooks/useT';
 import { roleLabel, userStatusLabel } from '../../../utils/enumLabels';
 
@@ -290,12 +290,16 @@ function UserRow({
     ? !isSelf && user.role !== 'master' && user.role !== 'super_admin'
     : user.role === 'user' && !isSelf;
 
-  // Store-access chips: admin / master see all stores; store users see
-  // only their assigned stores. Mirrors legacy AdminScreens.tsx:1566.
-  const accessibleStores =
-    user.role === 'master' || user.role === 'admin' || user.role === 'super_admin'
-      ? stores
-      : stores.filter((s) => user.stores.includes(s.id));
+  // Store-access chips: brand-scoped per the user's role (spec 068 §3).
+  //   - super_admin sees every brand → all stores.
+  //   - admin / master have brand-WIDE access (auth_can_see_store) →
+  //     the stores of their OWN brand, NOT the entire global list.
+  //   - store users (`user` role) → their literal user_stores grants.
+  // Previously rendered the whole `stores` array for any admin-tier row,
+  // so an admin scoped to one brand showed other brands' store chips
+  // (the Bobby display artifact). Extracted to `deriveAccessibleStores`
+  // for unit coverage (spec-033 precedent).
+  const accessibleStores = deriveAccessibleStores(user, stores);
 
   return (
     <View

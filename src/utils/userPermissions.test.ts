@@ -12,7 +12,7 @@
 // expression; each deriveLastOfRole case isolates one input-shape
 // boundary.
 
-import { canDeleteUser, deriveLastOfRole } from './userPermissions';
+import { canDeleteUser, deriveLastOfRole, deriveAccessibleStores } from './userPermissions';
 
 describe('canDeleteUser', () => {
   // Reusable baseline — every case overrides what it cares about.
@@ -199,5 +199,84 @@ describe('deriveLastOfRole', () => {
       { role: 'super_admin' as const },
     ];
     expect(deriveLastOfRole(users)).toEqual({ super_admin: false, master: true });
+  });
+});
+
+describe('deriveAccessibleStores', () => {
+  // Spec 068 §3 + §12.2. The store-chip access predicate for
+  // `UsersSection.tsx` `UserRow`. Mirrors the prod brand→store
+  // allocation in the spec problem statement:
+  //   - 2AM PROJECT (brand '2a…') → 4 stores: Charles, Frederick,
+  //     Reisters, Towson.
+  //   - Baltimore Seafood (brand 'e1…') → 1 store: Baltimore Seafood.
+  const STORE_2AM = [
+    { id: 'charles',   brandId: '2a', name: 'Charles' },
+    { id: 'frederick', brandId: '2a', name: 'Frederick' },
+    { id: 'reisters',  brandId: '2a', name: 'Reisters' },
+    { id: 'towson',    brandId: '2a', name: 'Towson' },
+  ];
+  const STORE_BSF = [{ id: 'baltimore', brandId: 'e1', name: 'Baltimore Seafood' }];
+  // The global store cache a super-admin would have loaded across brands.
+  const ALL_STORES = [...STORE_2AM, ...STORE_BSF];
+
+  it('renders ALL stores for a super_admin (sees every brand)', () => {
+    // super_admin.brandId is null; a brandId-match filter would wrongly
+    // yield an empty list. The whole array is the truthful answer.
+    const result = deriveAccessibleStores(
+      { role: 'super_admin', brandId: null, stores: [] },
+      ALL_STORES,
+    );
+    expect(result).toEqual(ALL_STORES);
+  });
+
+  it("renders the admin's OWN brand stores, not the global list (Bobby's case)", () => {
+    // Bobby: admin, brand 2AM ('2a'), literal user_stores grant of just
+    // Towson. The fix must show his FOUR 2AM stores (brand-wide access
+    // via auth_can_see_store), NOT five (the old all-stores bug) and NOT
+    // one (his literal grant), and NEVER Baltimore Seafood.
+    const bobby = { role: 'admin' as const, brandId: '2a', stores: ['towson'] };
+    const result = deriveAccessibleStores(bobby, ALL_STORES);
+    expect(result).toEqual(STORE_2AM);
+    expect(result).toHaveLength(4);
+    expect(result.map((s) => s.id)).not.toContain('baltimore');
+  });
+
+  it("renders the master's OWN brand stores (same brand-wide rule as admin)", () => {
+    const result = deriveAccessibleStores(
+      { role: 'master', brandId: 'e1', stores: [] },
+      ALL_STORES,
+    );
+    expect(result).toEqual(STORE_BSF);
+  });
+
+  it('renders only the literal user_stores grants for a `user` (staff) row', () => {
+    // Staff access IS the literal user_stores list — unchanged behavior.
+    const result = deriveAccessibleStores(
+      { role: 'user', brandId: null, stores: ['towson', 'reisters'] },
+      ALL_STORES,
+    );
+    // sort() so the assertion checks set membership, not allStores-vs-grant
+    // iteration order (filter preserves allStores order — an implementation
+    // detail this test shouldn't pin).
+    expect(result.map((s) => s.id).sort()).toEqual(['reisters', 'towson'].sort());
+  });
+
+  it('returns an empty list for a `user` row with no grants', () => {
+    const result = deriveAccessibleStores(
+      { role: 'user', brandId: null, stores: [] },
+      ALL_STORES,
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('returns an empty list for an admin whose brand has no stores in the cache', () => {
+    // An admin scoped to a brand with no loaded stores → no chips. This
+    // is the correct "no brand-scoped stores" signal, not a fallback to
+    // the global list.
+    const result = deriveAccessibleStores(
+      { role: 'admin', brandId: 'unknown-brand', stores: ['towson'] },
+      ALL_STORES,
+    );
+    expect(result).toEqual([]);
   });
 });
