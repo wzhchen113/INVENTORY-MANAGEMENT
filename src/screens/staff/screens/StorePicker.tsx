@@ -4,15 +4,20 @@
 // persisted active store. Tap navigates to EODCount via the navigation
 // state machine (RootStack reads authState + activeStore to render the
 // correct screen).
+//
+// Spec 070: an off-white field with each store as a soft card (via the
+// restyled ListRow) separated by inter-card spacing, plus a trailing
+// chevron to signal tap-affordance. Colors from `useStaffColors()`.
 
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { ListRow } from '../components/ListRow';
 import { selectStaffStores, useStaffStore } from '../store/useStaffStore';
 import { t } from '../i18n';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography, useStaffColors } from '../theme';
 import type { UserStore } from '../lib/types';
 
 export function StorePicker() {
+  const c = useStaffColors();
   const stores = useStaffStore(selectStaffStores);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
 
@@ -21,12 +26,12 @@ export function StorePicker() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.bg }]}>
       <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
+        <Text style={[styles.title, { color: c.text }]} accessibilityRole="header">
           {t('store.picker.title')}
         </Text>
-        <Text style={styles.subtitle}>
+        <Text style={[styles.subtitle, { color: c.textSecondary }]}>
           {t('store.picker.subtitle', { count: stores.length })}
         </Text>
       </View>
@@ -34,15 +39,19 @@ export function StorePicker() {
         data={stores}
         keyExtractor={(item) => item.storeId}
         contentContainerStyle={styles.list}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => (
           <ListRow
             onPress={() => onSelect(item)}
             testID={`store-row-${item.storeId}`}
             accessibilityLabel={`Select store ${item.storeName}`}
             leading={
-              <Text style={styles.rowText} numberOfLines={1}>
+              <Text style={[styles.rowText, { color: c.text }]} numberOfLines={1}>
                 {item.storeName}
               </Text>
+            }
+            trailing={
+              <Text style={[styles.chevron, { color: c.textTertiary }]}>›</Text>
             }
           />
         )}
@@ -54,7 +63,6 @@ export function StorePicker() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   header: {
     paddingHorizontal: spacing.xl,
@@ -64,20 +72,25 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.headline,
     fontWeight: typography.bold,
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   subtitle: {
     fontSize: typography.body,
-    color: colors.textSecondary,
   },
   list: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xxl,
+  },
+  separator: {
+    height: spacing.md,
   },
   rowText: {
     fontSize: typography.bodyLarge,
     fontWeight: typography.semibold,
-    color: colors.text,
+  },
+  chevron: {
+    fontSize: typography.headline,
+    fontWeight: typography.regular,
   },
 });

@@ -37,7 +37,7 @@ import { notifyBackendError } from '../lib/notifyBackendError';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t } from '../i18n';
-import { colors, radius, spacing, typography } from '../theme';
+import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
 import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
 
 const WEEKDAYS = [
@@ -180,6 +180,7 @@ async function fetchExistingSubmission(
 // ── screen ───────────────────────────────────────────────────────
 
 export function EODCount() {
+  const c = useStaffColors();
   const activeStore = useStaffStore((s) => s.activeStore);
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
@@ -372,9 +373,9 @@ export function EODCount() {
     // Shouldn't render — RootStack swaps to picker when activeStore
     // is null. Defensive empty state.
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: c.bgAlt }]}>
         <View style={styles.empty}>
-          <ActivityIndicator />
+          <ActivityIndicator color={c.primary} />
         </View>
       </SafeAreaView>
     );
@@ -383,9 +384,20 @@ export function EODCount() {
   const submittedTime = existing ? submittedAtHHMM(existing.submitted_at) : null;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    // Root is the recessed `bgAlt` field — the surface header/footer bars
+    // and the white item cards stand off it. (spec 070 fix-pass: the
+    // earlier `bg`≈`surface` pairing made the cards invisible.)
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.bgAlt }]}
+      edges={['top', 'bottom']}
+    >
       {/* Header */}
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: c.surface, borderBottomColor: c.border },
+        ]}
+      >
         <View style={styles.headerRow}>
           <Pressable
             onPress={onSwitchStore}
@@ -395,25 +407,32 @@ export function EODCount() {
             testID="eod-store-name"
             style={({ pressed }) => [
               styles.storePressable,
-              pressed && canSwitchStore ? styles.storePressed : null,
+              pressed && canSwitchStore ? { backgroundColor: c.surfaceAlt } : null,
             ]}
           >
             <Text
-              style={[styles.storeName, !canSwitchStore && styles.storeNameStatic]}
+              style={[styles.storeName, { color: canSwitchStore ? c.primary : c.text }]}
               numberOfLines={1}
             >
               {activeStore.name}
             </Text>
-            <Text style={styles.todayLabel}>{todayLabel}</Text>
+            <Text style={[styles.todayLabel, { color: c.textSecondary }]}>
+              {todayLabel}
+            </Text>
           </Pressable>
           <Pressable
             onPress={onSignOut}
-            style={({ pressed }) => [styles.signOutBtn, pressed ? styles.signOutPressed : null]}
+            style={({ pressed }) => [
+              styles.signOutBtn,
+              pressed ? { backgroundColor: c.surfaceAlt } : null,
+            ]}
             accessibilityRole="button"
             accessibilityLabel={t('chrome.signOut.label')}
             testID="eod-sign-out"
           >
-            <Text style={styles.signOutText}>{t('chrome.signOut.label')}</Text>
+            <Text style={[styles.signOutText, { color: c.error }]}>
+              {t('chrome.signOut.label')}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -432,7 +451,12 @@ export function EODCount() {
 
       {/* Vendor switcher — only shown if >1 vendor scheduled today */}
       {vendors.length > 1 ? (
-        <View style={styles.vendorSwitcher}>
+        <View
+          style={[
+            styles.vendorSwitcher,
+            { backgroundColor: c.surface, borderBottomColor: c.border },
+          ]}
+        >
           <FlatList
             horizontal
             data={vendors}
@@ -447,12 +471,21 @@ export function EODCount() {
                   testID={`vendor-chip-${item.id}`}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  style={[styles.vendorChip, active ? styles.vendorChipActive : null]}
+                  style={[
+                    styles.vendorChip,
+                    {
+                      backgroundColor: active ? c.primary : c.surface,
+                      borderColor: active ? c.primary : c.border,
+                    },
+                  ]}
                 >
                   <Text
                     style={[
                       styles.vendorChipText,
-                      active ? styles.vendorChipTextActive : null,
+                      {
+                        color: active ? c.textOnPrimary : c.text,
+                        fontWeight: active ? typography.semibold : typography.medium,
+                      },
                     ]}
                     numberOfLines={1}
                   >
@@ -468,31 +501,38 @@ export function EODCount() {
       {/* Items list */}
       {loading ? (
         <View style={styles.loadingPane}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={c.primary} />
         </View>
       ) : vendors.length === 0 ? (
         <View style={styles.emptyPane}>
-          <Text style={styles.emptyText}>{t('eod.vendor.noneToday')}</Text>
+          <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+            {t('eod.vendor.noneToday')}
+          </Text>
         </View>
       ) : items.length === 0 ? (
         <View style={styles.emptyPane}>
-          <Text style={styles.emptyText}>{t('eod.list.empty')}</Text>
+          <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+            {t('eod.list.empty')}
+          </Text>
         </View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(i) => i.id}
           contentContainerStyle={styles.itemList}
+          ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
           renderItem={({ item }) => (
             <ListRow
               testID={`eod-item-row-${item.id}`}
               leading={
                 <View>
-                  <Text style={styles.itemName} numberOfLines={2}>
+                  <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
                     {item.name}
                   </Text>
                   {item.unit ? (
-                    <Text style={styles.itemUnit}>{item.unit}</Text>
+                    <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
+                      {item.unit}
+                    </Text>
                   ) : null}
                 </View>
               }
@@ -518,7 +558,12 @@ export function EODCount() {
       )}
 
       {/* Footer — queue indicator + submit */}
-      <View style={styles.footer}>
+      <View
+        style={[
+          styles.footer,
+          { backgroundColor: c.surface, borderTopColor: c.border },
+        ]}
+      >
         <QueueIndicator pending={pending} draining={draining} testID="eod-queue-indicator" />
         <View style={styles.submitWrap}>
           <Button
@@ -537,7 +582,6 @@ export function EODCount() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   empty: {
     flex: 1,
@@ -548,8 +592,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
   },
   headerRow: {
     flexDirection: 'row',
@@ -564,43 +606,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: radius.sm,
   },
-  storePressed: {
-    backgroundColor: colors.surfaceAlt,
-  },
   storeName: {
     fontSize: typography.title,
     fontWeight: typography.bold,
-    color: colors.primary,
-  },
-  storeNameStatic: {
-    color: colors.text,
   },
   todayLabel: {
     fontSize: typography.caption,
-    color: colors.textSecondary,
     marginTop: 2,
   },
   signOutBtn: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radius.sm,
-    minHeight: 44,
+    minHeight: touchTarget.min,
     justifyContent: 'center',
-  },
-  signOutPressed: {
-    backgroundColor: colors.surfaceAlt,
   },
   signOutText: {
     fontSize: typography.body,
-    color: colors.error,
     fontWeight: typography.semibold,
   },
   vendorSwitcher: {
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   vendorChipRow: {
     paddingHorizontal: spacing.lg,
@@ -611,23 +639,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
     minHeight: 36,
     justifyContent: 'center',
   },
-  vendorChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
   vendorChipText: {
     fontSize: typography.body,
-    color: colors.text,
-    fontWeight: typography.medium,
-  },
-  vendorChipTextActive: {
-    color: colors.textOnPrimary,
-    fontWeight: typography.semibold,
   },
   loadingPane: {
     flex: 1,
@@ -642,22 +658,22 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: typography.body,
-    color: colors.textSecondary,
     textAlign: 'center',
   },
   itemList: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  itemSeparator: {
+    height: spacing.sm,
   },
   itemName: {
     fontSize: typography.bodyLarge,
     fontWeight: typography.semibold,
-    color: colors.text,
   },
   itemUnit: {
     fontSize: typography.caption,
-    color: colors.textSecondary,
     marginTop: 2,
   },
   countInput: {
@@ -668,9 +684,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
-    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
     gap: spacing.sm,
   },
   submitWrap: {

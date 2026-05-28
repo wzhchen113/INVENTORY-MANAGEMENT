@@ -2,9 +2,12 @@
 //
 // Used by EODCount above the submit button. Reads pending count via
 // useEodSubmit's reactive selector. Shows nothing when count is zero.
+//
+// Spec 070: success-tinted pill, colors from `useStaffColors()`. Sits
+// inside the footer card so it carries no elevation of its own.
 
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing, typography } from '../theme';
+import { radius, spacing, typography, useStaffColors } from '../theme';
 import { t } from '../i18n';
 
 type Props = {
@@ -14,18 +17,19 @@ type Props = {
 };
 
 export function QueueIndicator({ pending, draining, testID }: Props) {
+  const c = useStaffColors();
   if (pending === 0 && !draining) return null;
   const label = draining
     ? t('chrome.queue.draining')
     : t('chrome.queue.pending', { count: pending });
   return (
-    <View testID={testID} style={styles.pill}>
+    <View testID={testID} style={[styles.pill, { backgroundColor: c.successBg }]}>
       {draining ? (
-        <ActivityIndicator color={colors.success} size="small" />
+        <ActivityIndicator color={c.success} size="small" />
       ) : (
-        <View style={styles.dot} />
+        <View style={[styles.dot, { backgroundColor: c.success }]} />
       )}
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, { color: c.success }]}>{label}</Text>
     </View>
   );
 }
@@ -37,7 +41,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: colors.successBg,
     borderRadius: radius.pill,
     alignSelf: 'flex-start',
   },
@@ -45,11 +48,9 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.success,
   },
   label: {
     fontSize: typography.caption,
-    color: colors.success,
     fontWeight: typography.semibold,
   },
 });

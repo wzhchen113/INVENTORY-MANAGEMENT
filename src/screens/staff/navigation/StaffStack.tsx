@@ -37,7 +37,7 @@ import { StorePicker } from '../screens/StorePicker';
 import { EODCount } from '../screens/EODCount';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useStaffStore } from '../store/useStaffStore';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography, useStaffColors } from '../theme';
 
 // Re-export the cold-start helper so callers (App.tsx + StaffStack.test.tsx)
 // can target one canonical implementation. Spec 063 §11.2.
@@ -46,17 +46,30 @@ export { restoreSession } from '../../../lib/sessionRestore';
 const Stack = createStackNavigator();
 
 function Splash() {
+  const c = useStaffColors();
   return (
-    <View style={styles.splash}>
-      <Text style={styles.splashTitle}>I.M.R Staff</Text>
-      <ActivityIndicator color={colors.primary} />
+    <View style={[styles.splash, { backgroundColor: c.bg }]}>
+      <Text style={[styles.splashTitle, { color: c.text }]}>I.M.R Staff</Text>
+      <ActivityIndicator color={c.primary} />
     </View>
   );
 }
 
 export function StaffStack() {
+  const c = useStaffColors();
   const authState = useStaffStore((s) => s.authState);
   const activeStore = useStaffStore((s) => s.activeStore);
+
+  // Scene background scoped to the staff navigator ONLY (spec 070 §7) —
+  // NOT a NavigationContainer `theme` prop. The container lives in
+  // RoleRouter and is shared with the admin stack; theming it there
+  // would bleed into AdminStack. Setting `cardStyle` here keeps React
+  // Navigation's default white scene from flashing behind a dark-mode
+  // screen during transitions.
+  const screenOptions = {
+    headerShown: false,
+    cardStyle: { backgroundColor: c.bg },
+  } as const;
 
   // ─── Render branch ──────────────────────────────────────────────
   // Spec 063: RoleRouter only mounts StaffStack when the staff user
@@ -71,21 +84,21 @@ export function StaffStack() {
     authState.kind === 'signed-out'
   ) {
     content = (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="Splash" component={Splash} />
       </Stack.Navigator>
     );
   } else if (activeStore) {
     // signed-in with an active store — EOD screen.
     content = (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="EODCount" component={EODCount} />
       </Stack.Navigator>
     );
   } else {
     // signed-in without an active store — picker.
     content = (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="StorePicker" component={StorePicker} />
       </Stack.Navigator>
     );
@@ -100,7 +113,6 @@ export function StaffStack() {
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.lg,
@@ -108,6 +120,5 @@ const styles = StyleSheet.create({
   splashTitle: {
     fontSize: typography.headline,
     fontWeight: typography.bold,
-    color: colors.text,
   },
 });

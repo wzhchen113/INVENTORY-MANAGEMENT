@@ -4,15 +4,38 @@
 // at App.tsx so a render error doesn't drop the user into a blank
 // screen. Persistent storage (the offline queue) is the source of
 // truth for queued counts; an in-memory crash doesn't lose them.
+//
+// Spec 070: a class component can't call hooks, so the themed fallback
+// UI is extracted into the `ErrorFallback` function component (which
+// calls `useStaffColors()`); the class `render()` returns it on error.
+// The boundary's getDerivedStateFromError / componentDidCatch logic is
+// untouched.
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing, typography } from '../theme';
+import { spacing, typography, useStaffColors } from '../theme';
 import { t } from '../i18n';
 
 type Props = { children: ReactNode };
 
 type State = { hasError: boolean };
+
+function ErrorFallback() {
+  const c = useStaffColors();
+  return (
+    <View
+      style={[styles.fallback, { backgroundColor: c.bg }]}
+      accessibilityRole="alert"
+    >
+      <Text style={[styles.title, { color: c.text }]}>
+        {t('chrome.errorBoundary.title')}
+      </Text>
+      <Text style={[styles.message, { color: c.textSecondary }]}>
+        {t('chrome.errorBoundary.message')}
+      </Text>
+    </View>
+  );
+}
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -34,12 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
-      return (
-        <View style={styles.fallback} accessibilityRole="alert">
-          <Text style={styles.title}>{t('chrome.errorBoundary.title')}</Text>
-          <Text style={styles.message}>{t('chrome.errorBoundary.message')}</Text>
-        </View>
-      );
+      return <ErrorFallback />;
     }
     return this.props.children;
   }
@@ -48,7 +66,6 @@ export class ErrorBoundary extends Component<Props, State> {
 const styles = StyleSheet.create({
   fallback: {
     flex: 1,
-    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
@@ -56,15 +73,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.headline,
     fontWeight: typography.bold,
-    color: colors.text,
     marginBottom: spacing.md,
     textAlign: 'center',
   },
   message: {
     fontSize: typography.body,
-    color: colors.textSecondary,
     textAlign: 'center',
     maxWidth: 320,
-    lineHeight: 22,
+    lineHeight: typography.lineHeightBody,
   },
 });
