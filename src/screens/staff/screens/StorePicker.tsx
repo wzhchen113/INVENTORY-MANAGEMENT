@@ -1,4 +1,4 @@
-// src/screens/StorePicker.tsx — vertical list of stores (tap to select).
+// src/screens/staff/screens/StorePicker.tsx — vertical list of stores (tap to select).
 //
 // Spec 062 §B4 — shown when user_stores returns >1 rows and no valid
 // persisted active store. Tap navigates to EODCount via the navigation
@@ -8,8 +8,16 @@
 // Spec 070: an off-white field with each store as a soft card (via the
 // restyled ListRow) separated by inter-card spacing, plus a trailing
 // chevron to signal tap-affordance. Colors from `useStaffColors()`.
+//
+// Spec 071: root element is `SafeAreaView` from
+// `react-native-safe-area-context` with `edges={['top', 'bottom']}` so the
+// title row sits below the device status bar / notch and the last list row
+// sits above the home indicator. Mirrors EODCount.tsx:390. The App-level
+// SafeAreaProvider in App.tsx:336 supplies the insets; do NOT nest another
+// provider here — it would shadow the outer one and zero the insets.
 
 import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ListRow } from '../components/ListRow';
 import { selectStaffStores, useStaffStore } from '../store/useStaffStore';
 import { t } from '../i18n';
@@ -26,7 +34,11 @@ export function StorePicker() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: c.bg }]}
+      edges={['top', 'bottom']}
+      testID="store-picker-root"
+    >
       <View style={styles.header}>
         <Text style={[styles.title, { color: c.text }]} accessibilityRole="header">
           {t('store.picker.title')}
@@ -56,7 +68,7 @@ export function StorePicker() {
           />
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
