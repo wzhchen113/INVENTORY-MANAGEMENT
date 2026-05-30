@@ -29,6 +29,7 @@ const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info'
   'Prep recipe saved':'muted',
   'Prep recipe deleted':'danger',
   'Stock adjusted':   'ok',
+  'Order missed':     'warn',
 };
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -62,6 +63,7 @@ function inferKind(e: AuditEvent): string {
   if (a === 'EOD entry') return 'count';
   if (a === 'Stock adjusted') return 'stock';
   if (a === 'User invite') return 'user';
+  if (a === 'Order missed') return 'order';
   return 'other';
 }
 

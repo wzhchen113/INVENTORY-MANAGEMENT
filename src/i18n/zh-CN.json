@@ -1102,7 +1102,8 @@
       "recipeDeleted":     "删除配方",
       "prepRecipeSaved":   "保存备菜配方",
       "prepRecipeDeleted": "删除备菜配方",
-      "stockAdjusted":     "调整库存"
+      "stockAdjusted":     "调整库存",
+      "orderMissed":       "漏单"
     },
     "inventoryCountKind": {
       "spot":     "抽查",

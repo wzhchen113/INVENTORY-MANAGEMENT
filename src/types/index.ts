@@ -451,7 +451,8 @@ export type AuditAction =
   | 'Recipe deleted'
   | 'Prep recipe saved'
   | 'Prep recipe deleted'
-  | 'Stock adjusted';
+  | 'Stock adjusted'
+  | 'Order missed';
 
 export interface Store {
   id: string;

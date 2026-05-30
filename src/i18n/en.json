@@ -1102,7 +1102,8 @@
       "recipeDeleted":     "deleted recipe",
       "prepRecipeSaved":   "saved prep recipe",
       "prepRecipeDeleted": "deleted prep recipe",
-      "stockAdjusted":     "adjusted stock"
+      "stockAdjusted":     "adjusted stock",
+      "orderMissed":       "order missed"
     },
     "inventoryCountKind": {
       "spot":     "Spot",

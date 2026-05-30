@@ -22,6 +22,7 @@ const KEY_BY_ACTION: Record<AuditAction, string> = {
   'Prep recipe saved':   'prepRecipeSaved',
   'Prep recipe deleted': 'prepRecipeDeleted',
   'Stock adjusted':      'stockAdjusted',
+  'Order missed':        'orderMissed',
 };
 
 // Spec 039 — now takes T. Falls back to `action.toLowerCase()` for any

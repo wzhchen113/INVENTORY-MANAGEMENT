@@ -1102,7 +1102,8 @@
       "recipeDeleted":     "eliminó receta",
       "prepRecipeSaved":   "guardó receta de prep",
       "prepRecipeDeleted": "eliminó receta de prep",
-      "stockAdjusted":     "ajustó stock"
+      "stockAdjusted":     "ajustó stock",
+      "orderMissed":       "pedido omitido"
     },
     "inventoryCountKind": {
       "spot":     "Puntual",

@@ -75,6 +75,7 @@ describe('formatAuditAction', () => {
     'Prep recipe saved',
     'Prep recipe deleted',
     'Stock adjusted',
+    'Order missed',
   ];
 
   it('maps every AuditAction value to a non-empty translation in English', () => {
@@ -99,6 +100,16 @@ describe('formatAuditAction', () => {
   it('returns Chinese translation for wasteLog', () => {
     const T = tFor('zh-CN');
     expect(formatAuditAction({ action: 'Waste log' }, T)).toBe('记录损耗');
+  });
+
+  it('returns Spanish translation for orderMissed (spec 075)', () => {
+    const T = tFor('es');
+    expect(formatAuditAction({ action: 'Order missed' }, T)).toBe('pedido omitido');
+  });
+
+  it('returns Chinese translation for orderMissed (spec 075)', () => {
+    const T = tFor('zh-CN');
+    expect(formatAuditAction({ action: 'Order missed' }, T)).toBe('漏单');
   });
 });
 
