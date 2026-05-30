@@ -7,6 +7,7 @@ import {
 import type { SidebarGroup } from './sidebarLayout';
 import { useIsSuperAdmin, useIsMaster } from '../hooks/useRole';
 import { useT } from '../hooks/useT';
+import { getWeekWindow, isoDateRange, getLocalDateISO } from '../utils/weekWindow';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -745,6 +746,7 @@ export function computeAttentionQueue(
   orderSchedule: OrderSchedule,
   stores: Store[],
   getItemStatus: (i: InventoryItem) => ItemStatus,
+  timezone: string,
   now: Date = new Date(),
 ): AttentionItem[] {
   const out: AttentionItem[] = [];
@@ -846,18 +848,44 @@ export function computeAttentionQueue(
     });
   }
 
-  // ─── unconfirmed_po ───────────────────────────────────────
+  // ─── unconfirmed_po (spec 074 — Monday-reset window) ──────
   // Decision D6: "scheduled vendor with no matching orderSubmissions
-  // row > 3 days old". OrderSubmission has no confirmed/status field
-  // today, so the literal "PO not yet confirmed" check is impossible;
-  // we surface "we missed placing the order" as the operator-relevant
-  // signal. Deprecate this rule when a purchase_orders schema lands.
-  // Look back 3-7 days for a missed schedule entry.
-  for (let lookback = 4; lookback <= 7; lookback++) {
-    const past = new Date(now);
-    past.setDate(past.getDate() - lookback);
+  // row". OrderSubmission has no confirmed/status field today, so the
+  // literal "PO not yet confirmed" check is impossible; we surface
+  // "we missed placing the order" as the operator-relevant signal.
+  // Deprecate this rule when a purchase_orders schema lands.
+  //
+  // Window: [this week's Monday 00:00, today) in `timezone` — i.e. all
+  // weekdays in the current work-week strictly before today. Today is
+  // excluded because a vendor order scheduled for today may still be
+  // placed before EOD. Monday morning sees ZERO rows (window is empty:
+  // weekStart..yesterday is empty when today IS Monday).
+  //
+  // Why tz-aware HERE only — the other rules in this function
+  // (`eod_missing` lines 757-785, `food_cost_streak` lines 814-847)
+  // still derive their ISO dates tz-naively via
+  // `now.toISOString().slice(0,10)`. That's a pre-existing
+  // inconsistency the spec 074 architect intentionally left in place
+  // because windowing those rules to local-tz introduces collateral
+  // changes (food-cost streak is a rolling 7d by design; eod_missing
+  // is a same-day boolean). A future spec may unify them, but DO NOT
+  // "fix" the inconsistency drive-by — see spec 074 §"Out of scope".
+  //
+  // db.ts still loads a broader orderSubmissions window for the
+  // heatmap + food-cost surfaces; this is a presentation filter, not
+  // a loader change.
+  const { mondayStart, nextMondayStart } = getWeekWindow(timezone, now);
+  const weekISOs = isoDateRange(mondayStart, nextMondayStart);
+  const todayISOInTz = getLocalDateISO(timezone, now);
+  const pastISOsInWindow = weekISOs.filter((iso) => iso < todayISOInTz);
+  for (const pastISO of pastISOsInWindow) {
+    // Day-of-week from the ISO string itself — parse the literal
+    // YYYY-MM-DD as local-time components (same shape as the expiry
+    // block below at line 906) so we don't drift on UTC-offset edges.
+    const m = pastISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) continue;
+    const past = new Date(+m[1], +m[2] - 1, +m[3]);
     const pastDayName = DAY_NAMES[past.getDay()];
-    const pastISO = past.toISOString().slice(0, 10);
     const scheduled = orderSchedule[pastDayName] || [];
     for (const v of scheduled) {
       const matched = orderSubmissions.find(

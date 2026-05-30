@@ -121,6 +121,10 @@ export default function DashboardSection() {
   const stores = useStore((s) => s.stores);
   const users = useStore((s) => s.users);
   const getItemStatus = useStore((s) => s.getItemStatus);
+  // Spec 074 — brand-global timezone used to anchor the per-store
+  // attention queue's Monday-reset window. Per-store timezone is a
+  // future spec follow-up; today one tz covers all stores.
+  const timezone = useStore((s) => s.timezone);
   // Spec 055 — first-mount skeleton flag. Dashboard reads multiple
   // slices; check `inventory` as the most representative one.
   const storeLoading = useStore((s) => s.storeLoading);
@@ -286,10 +290,12 @@ export default function DashboardSection() {
         orderSchedule,
         stores,
         getItemStatus,
+        // Spec 074 — Monday-reset window for the unconfirmed_po rule.
+        timezone,
       );
     }
     return out;
-  }, [stores, inventory, allEod, allPos, orderSubmissions, orderSchedule, getItemStatus]);
+  }, [stores, inventory, allEod, allPos, orderSubmissions, orderSchedule, getItemStatus, timezone]);
 
   const today = new Date();
   const greeting =
