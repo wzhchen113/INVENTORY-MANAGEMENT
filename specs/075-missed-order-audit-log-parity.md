@@ -533,13 +533,22 @@ that an `authenticated` JWT cannot execute (4xx via PostgREST).
 
 ### pg_cron schedule
 
+> **As-shipped note (spec 077 doc patch):** the migration uses the `'UTC'`
+> form below, NOT the `America/New_York` form the original design sketched.
+> Architect post-impl review approved the divergence as functionally
+> identical at the 07:00 UTC schedule hour. NY midnight falls at 04:00 UTC
+> (EDT) / 05:00 UTC (EST) — i.e. the NY calendar date increments BEFORE the
+> 07:00 UTC fire time, so when the cron runs both UTC and NY are already on
+> the same calendar date and "yesterday in UTC" == "yesterday in NY". UTC is
+> simpler — no tz lookup at cron-fire time. This block reflects what shipped.
+
 ```
 select cron.schedule(
   'record-missed-orders-daily',
   '0 7 * * *',     -- 07:00 UTC = 03:00 ET (EST) or 02:00 ET (EDT)
   $$
   select public.record_missed_orders_for_day(
-    ( (now() at time zone 'America/New_York')::date - 1 )
+    ( (now() at time zone 'UTC') - interval '1 day' )::date
   );
   $$
 );
@@ -551,9 +560,12 @@ Schedule rationale:
   (worst-case midnight US East Coast) and before any reasonable start-of-
   next-day operator activity. The 1-hour DST drift is harmless — both 02:00
   and 03:00 ET fall in the post-close / pre-open window.
-- `now() at time zone 'America/New_York'` returns a `timestamp` (without
-  tz) in NY-wall-clock terms; `::date` extracts NY-local Y-M-D; `- 1` walks
-  back one day. This is "yesterday in NY-local terms".
+- `(now() at time zone 'UTC') - interval '1 day'` steps back 24h from the
+  current UTC instant; `::date` extracts the UTC Y-M-D. This is "yesterday
+  in UTC terms". At the 07:00 UTC fire time this equals "yesterday in
+  NY-local terms" (NY midnight is 04:00–05:00 UTC, before the 07:00 fire),
+  so the brand-wide TZ approximation below is unaffected by the UTC-vs-NY
+  choice.
 - The schedule body is plain SQL (no `net.http_post`), so no edge function
   deploys, no pg_net calls, no service-role token in the migration body.
 
@@ -602,8 +614,8 @@ declare
 begin
   for d in
     select generate_series(
-      ( (now() at time zone 'America/New_York')::date - 28 ),
-      ( (now() at time zone 'America/New_York')::date - 1 ),
+      ( (now() at time zone 'UTC')::date - 28 ),   -- as-shipped: UTC (see cron note above)
+      ( (now() at time zone 'UTC')::date - 1 ),
       interval '1 day'
     )::date
   loop

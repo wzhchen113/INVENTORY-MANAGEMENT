@@ -1,9 +1,11 @@
 // src/lib/cmdSelectors.unconfirmedPoWindow.test.ts — Spec 074 Track 1.
 //
 // Locks the Monday-reset behavior of `computeAttentionQueue`'s
-// `unconfirmed_po` rule. Other rules in the function are deliberately
-// NOT exercised here — they retain their pre-spec-074 windowing (see
-// inline comment in cmdSelectors.ts above the unconfirmed_po block).
+// `unconfirmed_po` rule. The sibling rules (eod_missing,
+// food_cost_streak) are exercised in `cmdSelectors.eodAndStreak.test.ts`
+// (spec 076) — as of that spec all three rules derive their ISO date
+// anchors via `getLocalDateISO(timezone, now)`, ratified by the inline
+// note within the unconfirmed_po block in cmdSelectors.ts.
 //
 // Every test pins `now: Date` and `timezone: string` explicitly via the
 // selector args — never call without injection or assertions go flaky
@@ -48,9 +50,11 @@ const stores: Store[] = [{
 
 const inventory: InventoryItem[] = [];
 
-// `getItemStatus` always returns 'fine' so the low_out_stock rule
-// stays silent and we can isolate unconfirmed_po assertions.
-const getItemStatus: (i: InventoryItem) => ItemStatus = () => 'fine' as ItemStatus;
+// `getItemStatus` always returns 'ok' so the low_out_stock rule
+// stays silent and we can isolate unconfirmed_po assertions. ('ok' is a
+// valid ItemStatus union member — no `as` cast needed. `inventory` is
+// empty here anyway, so this stub is never actually invoked.)
+const getItemStatus: (i: InventoryItem) => ItemStatus = () => 'ok';
 
 // Vendor V scheduled Mon..Fri. The acceptance criteria's "Wed 'today',
 // Mon/Tue past, Thu/Fri future" arrangement runs through this map.
