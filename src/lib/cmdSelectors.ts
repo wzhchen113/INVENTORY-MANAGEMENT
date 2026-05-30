@@ -750,10 +750,11 @@ export function computeAttentionQueue(
   now: Date = new Date(),
 ): AttentionItem[] {
   const out: AttentionItem[] = [];
-  const todayISO = now.toISOString().slice(0, 10);
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayISO = yesterday.toISOString().slice(0, 10);
+  const todayISO = getLocalDateISO(timezone, now);
+  const yesterdayISO = getLocalDateISO(
+    timezone,
+    new Date(now.getTime() - 24 * 60 * 60 * 1000),
+  );
   const store = stores.find((s) => s.id === storeId);
 
   // ─── eod_missing ──────────────────────────────────────────
@@ -816,9 +817,10 @@ export function computeAttentionQueue(
   // ─── food_cost_streak ─────────────────────────────────────
   // Trailing 7 days; count consecutive trailing days where pp >= 1
   // (i.e. running over target by ≥ 1 percentage point).
-  const startSeven = new Date(now);
-  startSeven.setDate(startSeven.getDate() - 6);
-  const startSevenISO = startSeven.toISOString().slice(0, 10);
+  const startSevenISO = getLocalDateISO(
+    timezone,
+    new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+  );
   const variancePp = computeStoreFoodCostVariancePp(
     storeId,
     startSevenISO,
@@ -861,15 +863,12 @@ export function computeAttentionQueue(
   // placed before EOD. Monday morning sees ZERO rows (window is empty:
   // weekStart..yesterday is empty when today IS Monday).
   //
-  // Why tz-aware HERE only — the other rules in this function
-  // (`eod_missing` lines 757-785, `food_cost_streak` lines 814-847)
-  // still derive their ISO dates tz-naively via
-  // `now.toISOString().slice(0,10)`. That's a pre-existing
-  // inconsistency the spec 074 architect intentionally left in place
-  // because windowing those rules to local-tz introduces collateral
-  // changes (food-cost streak is a rolling 7d by design; eod_missing
-  // is a same-day boolean). A future spec may unify them, but DO NOT
-  // "fix" the inconsistency drive-by — see spec 074 §"Out of scope".
+  // All three rules in this function (eod_missing, food_cost_streak,
+  // unconfirmed_po) derive their ISO date anchors via
+  // getLocalDateISO(timezone, now) — ratified by spec 076. The
+  // back-step for yesterday / start-of-7d is computed by subtracting
+  // whole-day milliseconds from `now` BEFORE the getLocalDateISO
+  // call so the day arithmetic stays DST-safe.
   //
   // db.ts still loads a broader orderSubmissions window for the
   // heatmap + food-cost surfaces; this is a presentation filter, not
