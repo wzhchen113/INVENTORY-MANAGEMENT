@@ -50,6 +50,11 @@ export function StorePicker() {
       <FlatList
         data={stores}
         keyExtractor={(item) => item.storeId}
+        // flex: 1 keeps the list as the scroll container under the
+        // SafeAreaView (symmetry with EODCount's items list). With only
+        // a couple of stores this is invisible; with more it prevents
+        // body-scroll on web / overflow on native.
+        style={styles.listBody}
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => (
@@ -74,7 +79,12 @@ export function StorePicker() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // Absolute-fill the React Navigation card (the nearest positioned
+    // ancestor) instead of `flex: 1`. See EODCount.tsx#container for
+    // the full rationale — same shape, same reason. With only a couple
+    // of stores this is invisible today; the symmetry keeps it
+    // bulletproof if Towson/Frederick grow.
+    ...StyleSheet.absoluteFillObject,
   },
   header: {
     paddingHorizontal: spacing.xl,
@@ -88,6 +98,9 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.body,
+  },
+  listBody: {
+    flex: 1,
   },
   list: {
     paddingHorizontal: spacing.lg,

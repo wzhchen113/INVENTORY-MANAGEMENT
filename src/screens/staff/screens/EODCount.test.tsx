@@ -4,6 +4,7 @@
 // the entire submit+queue orchestration; supabase.from() is stubbed
 // for the vendor / item / existing-submission reads.
 
+import { FlatList } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import Toast from 'react-native-toast-message';
 
@@ -292,5 +293,33 @@ describe('EODCount', () => {
     } finally {
       global.Date = RealDate;
     }
+  });
+});
+
+describe('EODCount — spec 072 scroll-pinned-footer', () => {
+  it('items FlatList carries style with flex: 1 (scroll container guard)', async () => {
+    // Regression guard for spec 072 AC3. The fix adds `style={styles.itemListBody}`
+    // (flex: 1) to the items FlatList so it becomes the scroll container instead
+    // of growing past the viewport and hiding the Submit footer on web. If a future
+    // edit removes this style or sets flex: 0, Submit is pushed below the fold again
+    // on any vendor with more items than the viewport height.
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: null, error: null },
+    ];
+    const { UNSAFE_getAllByType, findByTestId } = render(<EODCount />);
+    // Wait until the populated FlatList (items) has rendered.
+    await findByTestId('eod-item-row-item-1');
+    const flatLists = UNSAFE_getAllByType(FlatList);
+    // The items FlatList is the last FlatList in the tree (vendor switcher
+    // is horizontal; items list is vertical with style={styles.itemListBody}).
+    const itemsList = flatLists[flatLists.length - 1];
+    const styleProp = itemsList.props.style;
+    const styles: Record<string, unknown>[] = Array.isArray(styleProp)
+      ? (styleProp as unknown[]).flat(Infinity) as Record<string, unknown>[]
+      : [styleProp as Record<string, unknown>];
+    const flex = styles.filter(Boolean).map((s) => s.flex).find((v) => v !== undefined);
+    expect(flex).toBe(1);
   });
 });

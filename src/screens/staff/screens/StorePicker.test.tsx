@@ -13,6 +13,7 @@
 // and `el.props.edges === ['top', 'bottom']` without standing up a real
 // provider in the test tree.
 
+import { FlatList } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StorePicker } from './StorePicker';
@@ -111,5 +112,25 @@ describe('StorePicker — spec 071 safe-area root', () => {
     // root swap — a screen-reader user navigating by heading must still
     // land on this title.
     expect(getByRole('header')).toBeTruthy();
+  });
+});
+
+describe('StorePicker — spec 072 scroll-pinned-footer', () => {
+  it('stores FlatList carries style with flex: 1 (scroll container guard)', () => {
+    // Regression guard for spec 072 AC3. The fix adds `style={styles.listBody}`
+    // (flex: 1) to the stores FlatList so it becomes the scroll container
+    // instead of growing and causing body-scroll on web. If a future edit
+    // removes this style or sets flex: 0, the footer (Submit / Sign Out)
+    // escapes below the viewport again on long lists.
+    const { UNSAFE_getAllByType } = render(<StorePicker />);
+    const flatLists = UNSAFE_getAllByType(FlatList);
+    // There is exactly one FlatList in StorePicker (the stores list).
+    const storeList = flatLists[0];
+    const styleProp = storeList.props.style;
+    const styles: Record<string, unknown>[] = Array.isArray(styleProp)
+      ? (styleProp as unknown[]).flat(Infinity) as Record<string, unknown>[]
+      : [styleProp as Record<string, unknown>];
+    const flex = styles.filter(Boolean).map((s) => s.flex).find((v) => v !== undefined);
+    expect(flex).toBe(1);
   });
 });

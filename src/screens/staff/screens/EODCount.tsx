@@ -519,6 +519,15 @@ export function EODCount() {
         <FlatList
           data={items}
           keyExtractor={(i) => i.id}
+          // flex: 1 claims the leftover vertical space between the pinned
+          // header (+ banners + vendor switcher) and the pinned footer
+          // (queue indicator + Submit) so the list scrolls *inside* that
+          // strip instead of pushing the footer below the viewport. Web
+          // without this falls back to body-scroll and hides Submit;
+          // native overflows the SafeAreaView. The empty/loading panes
+          // above already use `flex: 1` — this restores symmetry on the
+          // populated branch.
+          style={styles.itemListBody}
           contentContainerStyle={styles.itemList}
           ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
           renderItem={({ item }) => (
@@ -581,7 +590,17 @@ export function EODCount() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // Absolute-fill the React Navigation card (the nearest positioned
+    // ancestor) instead of relying on `flex: 1` in the flow. On
+    // react-native-web, RN-Navigation's screen-wrapper sets
+    // `min-height: 100%` + `flex: 0 0 auto`, which lets it GROW with
+    // content past the viewport — that pushes the pinned footer
+    // (Submit) below the fold and turns the page into body-scroll. The
+    // absoluteFillObject sizes us to the Card (≈100vh), so the inner
+    // FlatList (also flex: 1) becomes the scroll container and the
+    // header/footer stay pinned. Native Yoga treats the same shape
+    // identically; SafeAreaView's `edges` padding still applies.
+    ...StyleSheet.absoluteFillObject,
   },
   empty: {
     flex: 1,
@@ -659,6 +678,9 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: typography.body,
     textAlign: 'center',
+  },
+  itemListBody: {
+    flex: 1,
   },
   itemList: {
     paddingHorizontal: spacing.lg,
