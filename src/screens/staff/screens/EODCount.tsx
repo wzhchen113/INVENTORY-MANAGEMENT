@@ -373,7 +373,10 @@ export function EODCount() {
     // Shouldn't render — RootStack swaps to picker when activeStore
     // is null. Defensive empty state.
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.bgAlt }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: c.bgAlt }]}
+        edges={['top', 'bottom']}
+      >
         <View style={styles.empty}>
           <ActivityIndicator color={c.primary} />
         </View>
