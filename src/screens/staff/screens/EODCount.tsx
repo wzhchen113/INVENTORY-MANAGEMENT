@@ -520,6 +520,7 @@ export function EODCount() {
         </View>
       ) : (
         <FlatList
+          testID="eod-item-list"
           data={items}
           keyExtractor={(i) => i.id}
           // flex: 1 claims the leftover vertical space between the pinned

@@ -130,6 +130,7 @@ export const TreeGroup: React.FC<Props> = ({
         return (
           <TouchableOpacity
             key={item.id}
+            testID={`nav-${item.id}`}
             onPress={item.onPress}
             disabled={item.restricted}
             activeOpacity={0.85}

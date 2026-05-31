@@ -624,6 +624,7 @@ export default function ReorderSection() {
             {showExport ? (
               <>
                 <TouchableOpacity
+                  testID="reorder-export-csv"
                   onPress={onCsvPress}
                   accessibilityRole="button"
                   accessibilityLabel="Export CSV"
@@ -638,6 +639,7 @@ export default function ReorderSection() {
                   <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>CSV</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  testID="reorder-export-pdf"
                   onPress={onPdfPress}
                   accessibilityRole="button"
                   accessibilityLabel="Export PDF"
@@ -654,6 +656,7 @@ export default function ReorderSection() {
               </>
             ) : null}
             <TouchableOpacity
+              testID="reorder-refresh"
               onPress={refresh}
               disabled={reorderLoading}
               accessibilityRole="button"

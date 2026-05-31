@@ -20,15 +20,24 @@
 // THIS run's email, never an absolute row count.
 //
 // Navigation: the Cmd shell has no URL/linking; sections switch via sidebar
-// clicks. We click the "Users & access" sidebar label (stable i18n string)
-// to reach the Users section, then assert against the §7 testIDs.
+// clicks. We click the Users nav item via its stable testID (spec 079
+// flake-kill — no i18n-fragile label text) to reach the Users section, then
+// assert against the §7 testIDs.
 //
-// Selector contract (frozen §7): users-root, users-invite-trigger
-// (UsersSection); invite-email, invite-name, invite-role-{user|admin},
-// invite-submit (InviteUserDrawer).
+// DURABLE EFFECT (spec 079 AC-INV-DEPTH-1): spec 078 asserted only that the
+// drawer closes. Spec 079 deepens this to assert the invited user landed —
+// the run-unique email TEXT renders as a row in the Users list. That is the
+// ONE place a getByText is correct: it asserts content the test itself
+// created (the unique email), not navigation chrome, so it is not
+// i18n-fragile and needs no new testID. Keyed off THIS run's email
+// (uniqueInviteEmail), never an absolute row count (AC-INV2 isolation).
+//
+// Selector contract: users-root, users-invite-trigger (UsersSection);
+// invite-email, invite-name, invite-role-{user|admin}, invite-submit
+// (InviteUserDrawer) — all 078 §7; nav-Users (079 §6 SIDEBAR_NAV).
 
 import { test, expect } from '@playwright/test';
-import { SIDEBAR_LABEL, STORAGE_STATE, uniqueInviteEmail } from './fixtures/constants';
+import { SIDEBAR_NAV, STORAGE_STATE, uniqueInviteEmail } from './fixtures/constants';
 
 // Master storageState — see the WHY MASTER block in the file header.
 test.use({ storageState: STORAGE_STATE.master });
@@ -40,8 +49,11 @@ test.describe('invite user', () => {
     await page.goto('/');
     await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
 
-    // Switch to the Users section via the sidebar label (no section URL).
-    await page.getByText(SIDEBAR_LABEL.users, { exact: true }).first().click();
+    // Switch to the Users section via the stable nav testID (no section URL,
+    // no i18n-fragile label text). nav-Users only renders for master/super-
+    // admin (the section is master-gated, Spec 030) — which is why this spec
+    // runs under the master storageState.
+    await page.getByTestId(SIDEBAR_NAV.users).click();
     await expect(page.getByTestId('users-root')).toBeVisible();
 
     // Open the invite drawer.
@@ -63,10 +75,20 @@ test.describe('invite user', () => {
 
     // Success signal: the drawer closes on a successful invite
     // (InviteUserDrawer calls onClose() after the success toast), so the
-    // email field is removed from the DOM. This is the most robust signal —
-    // the success toast auto-dismisses, but the drawer-close is durable.
+    // email field is removed from the DOM. The success toast auto-dismisses,
+    // but the drawer-close is durable.
     await expect(page.getByTestId('invite-email')).toHaveCount(0);
     // And we're back on the Users section.
     await expect(page.getByTestId('users-root')).toBeVisible();
+
+    // AC-INV-DEPTH-1 (durable effect): the invited user now appears in the
+    // Users list — the run-unique email TEXT renders as a row. This proves
+    // the invite landed server-side, not merely that the drawer closed.
+    // Keyed off THIS run's email (AC-INV2 isolation preserved) — NOT a count.
+    // This is the one correct getByText in the suite: it matches content the
+    // test itself created, so it is not i18n/copy-fragile. (The new row's id
+    // is not addressable post-invite without a service lookup; the email-text
+    // assertion is AC-INV-DEPTH-1's own documented fallback and is cleaner.)
+    await expect(page.getByText(email, { exact: false })).toBeVisible();
   });
 });

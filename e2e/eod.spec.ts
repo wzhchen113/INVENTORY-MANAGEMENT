@@ -17,14 +17,27 @@
 // Navigation: manager has two stores → the staff session lands on
 // StorePicker. Each test taps the Towson store-row-{id} to reach EODCount.
 //
-// Selector contract (frozen §7): store-picker-root, store-row-{id}
-// (StorePicker); eod-store-name, vendor-chip-{id}, eod-item-input-{id},
-// eod-item-row-{id}, eod-submit, eod-queue-indicator (EODCount). All EOD
-// selectors already exist today (audited in design §7) — no net-new EOD
-// testID is required for AC-EOD1.
+// SPEC 079 DEEPENINGS:
+//   • AC-EOD-PERSIST (in the online case): after the queue drains, reload the
+//     SAME (store, vendor, today) and assert the eod-prefill-banner renders
+//     (UI-only persistence proof), THEN one belt-and-suspenders service-role
+//     read of eod_submissions for (Towson, today, US FOOD) confirming the row
+//     + the filled item's value (7). The ONE service-role assertion in the
+//     suite — everything else stays UI-only.
+//   • AC-072 (scroll guard, separate describe at 375×812): on the populated
+//     US FOOD list (31 Towson items) assert Submit stays in-viewport, the
+//     eod-item-list is the internal scroll container, and the body does NOT
+//     body-scroll. Web-only react-native-web layout regression class; jest
+//     cannot reproduce a viewport-sized DOM.
+//
+// Selector contract: store-picker-root, store-row-{id} (StorePicker);
+// eod-store-name, vendor-chip-{id}, eod-item-input-{id}, eod-item-row-{id},
+// eod-submit, eod-queue-indicator, eod-prefill-banner (EODCount — all 078 §7,
+// banner pre-079); eod-item-list (079 §6 #1 — FROZEN, the scroll container).
 
 import { test, expect, type Page } from '@playwright/test';
 import { SEED, STAFF_QUEUE_KEY, STORAGE_STATE } from './fixtures/constants';
+import { serviceRoleClient, todayIso } from './fixtures/db';
 
 test.use({ storageState: STORAGE_STATE.staff });
 
@@ -40,17 +53,37 @@ test.describe('staff EOD', () => {
     }, STAFF_QUEUE_KEY);
   });
 
-  // Walk StorePicker → EODCount by tapping the Towson row, then assert the
-  // fixture actually produced a populated screen (vendor chips + at least
-  // one item input). Returns the first item-input testid so callers can
-  // type a count into a real, rendered row (not a guessed id).
+  // Walk to EODCount on Towson, then assert the fixture actually produced a
+  // populated screen (vendor chips + at least one item input). Returns the
+  // first item-input testid so callers can type a count into a real, rendered
+  // row (not a guessed id).
+  //
+  // Lands on one of TWO states (handle both — this is also what makes the
+  // AC-EOD-PERSIST reload work): a FRESH context has no persisted active
+  // store (the setup project saved storageState while on StorePicker, never
+  // selecting a store), so the StorePicker renders and we tap the Towson row.
+  // But once a store is selected, setActiveStore persists it to localStorage
+  // (imr-staff:active-store:v1), so a RELOAD in the same context restores it
+  // and lands DIRECTLY on EODCount, skipping the picker. Branch on whichever
+  // appears first so a re-navigation (the persistence reload) is robust.
   async function gotoTowsonEod(page: Page): Promise<string> {
     await page.goto('/');
-    await expect(page.getByTestId('store-picker-root')).toBeVisible();
-    await page.getByTestId(`store-row-${SEED.towsonStoreId}`).click();
 
-    // EODCount header confirms we left the picker.
-    await expect(page.getByTestId('eod-store-name')).toBeVisible();
+    // Whichever of {StorePicker, EODCount-header} renders first wins. On a
+    // fresh context it's the picker; on a reload-with-persisted-store it's
+    // the EOD header. Auto-retrying expect on the OR-locator avoids a fixed
+    // wait (flake checklist #2).
+    const picker = page.getByTestId('store-picker-root');
+    const eodHeader = page.getByTestId('eod-store-name');
+    await expect(picker.or(eodHeader).first()).toBeVisible();
+
+    if (await picker.isVisible()) {
+      await page.getByTestId(`store-row-${SEED.towsonStoreId}`).click();
+    }
+
+    // EODCount header confirms we're on the count screen (either we tapped
+    // the row, or the reload restored the active store directly).
+    await expect(eodHeader).toBeVisible();
 
     // Fixture sanity: two vendors scheduled → the chip switcher renders.
     // Asserting the chips exist guards against a silently-vacuous test if
@@ -73,20 +106,73 @@ test.describe('staff EOD', () => {
     return testid;
   }
 
-  test('AC-EOD1: online submit clears the queue indicator', async ({ page }) => {
+  test('AC-EOD1 + AC-EOD-PERSIST: online submit persists (banner on reload + service read)', async ({
+    page,
+  }) => {
     const inputTestId = await gotoTowsonEod(page);
 
-    // Enter a count into the first rendered item.
+    // Enter a count into the first rendered item. The online case fills '7'
+    // (the offline case fills '5') so a stale-row read can never match the
+    // wrong case (design ordering call-out).
     await page.getByTestId(inputTestId).fill('7');
 
     // Submit button is disabled when items.length === 0; we have items.
     await expect(page.getByTestId('eod-submit')).toBeEnabled();
     await page.getByTestId('eod-submit').click();
 
-    // Online success: the queue indicator never holds a pending item (it
-    // renders null when pending===0 && !draining). Assert it settles absent
-    // — i.e. nothing got stuck in the queue.
+    // ── Synchronize on the ONLINE submit completing. For an ONLINE submit the
+    // item goes straight to the RPC (it is NOT queued), so the queue indicator
+    // is vacuously absent from the start — asserting toHaveCount(0) on it does
+    // NOT wait for the RPC and would let a reload race the in-flight submit.
+    // The deterministic success signal is the eod-prefill-banner appearing
+    // IN-PLACE: onSubmit re-runs fetchExistingSubmission + setExisting on
+    // success (EODCount.tsx:333-340), which renders the banner without a
+    // reload. Waiting on it here means the RPC has landed AND the row is
+    // server-readable before we navigate.
+    await expect(page.getByTestId('eod-prefill-banner')).toBeVisible();
+    // And it submitted online, not queued (the indicator never populated).
     await expect(page.getByTestId('eod-queue-indicator')).toHaveCount(0);
+
+    // ── AC-EOD-PERSIST-1 (UI-only PRIMARY): reload the SAME (store, vendor,
+    // today) and assert the eod-prefill-banner ("Last submitted at HH:MM")
+    // STILL renders — proving the submission persisted SERVER-SIDE (durable
+    // across a fresh boot), not just in the prior page's in-memory state. On
+    // reload the persisted active-store key lands us directly on EODCount;
+    // gotoTowsonEod handles both that and the picker path, re-selecting US
+    // FOOD so we hit the same (store, today, vendor) tuple the submit wrote.
+    await gotoTowsonEod(page);
+    await expect(page.getByTestId('eod-prefill-banner')).toBeVisible();
+
+    // ── AC-EOD-PERSIST-2/3 (the ONE service-role read — belt-and-suspenders):
+    // read eod_submissions for (Towson, today, US FOOD) and assert the row +
+    // the entry for the item we filled + its value (7). Keyed off THIS run's
+    // submitted value and the (store, date, vendor) tuple — NOT a count of
+    // submissions — so it converges on a non-reset local DB (staff_submit_eod
+    // upserts on that tuple; a re-run overwrites rather than duplicates).
+    // todayIso() mirrors EODCount.todayIso() byte-for-byte so the date key
+    // matches what the app wrote across a midnight boundary.
+    const db = serviceRoleClient();
+    const { data, error } = await db
+      .from('eod_submissions')
+      .select('id, eod_entries(item_id, actual_remaining)')
+      .eq('store_id', SEED.towsonStoreId)
+      .eq('date', todayIso())
+      .eq('vendor_id', SEED.vendorUsFoodId)
+      .maybeSingle();
+    expect(error).toBeNull();
+    expect(
+      data,
+      'expected an eod_submissions row for (Towson, today, US FOOD)',
+    ).not.toBeNull();
+
+    // The entry for the item we filled (itemId parsed from the input testid:
+    // 'eod-item-input-<uuid>' → <uuid>). Presence + value, not a row count.
+    const itemId = inputTestId.replace('eod-item-input-', '');
+    type Entry = { item_id: string; actual_remaining: number | string | null };
+    const entries = (data!.eod_entries ?? []) as Entry[];
+    const entry = entries.find((e) => e.item_id === itemId);
+    expect(entry, `expected an eod_entries row for item ${itemId}`).toBeDefined();
+    expect(Number(entry!.actual_remaining)).toBe(7); // the value THIS run submitted
   });
 
   test('AC-EOD2/3: offline submit queues, reconnect drains', async ({
@@ -133,6 +219,61 @@ test.describe('staff EOD', () => {
     // error fired (AC-EOD2's explicit requirement).
     await expect(page.getByTestId('eod-queue-indicator')).toHaveCount(0, {
       timeout: 30_000,
+    });
+  });
+
+  // ── AC-072: spec-072 scroll guard (web-only layout regression) ──────────
+  // Scoped to a MOBILE viewport (375×812 — exactly what main Claude
+  // hand-verified). REQUIRED: the suite default is Desktop Chrome (1280×720),
+  // where 31 items do NOT overshoot and the body never scrolls, so the test
+  // would pass VACUOUSLY and guard nothing. test.use here applies the phone
+  // viewport ONLY to this nested describe (the online/offline cases above
+  // stay desktop). Risk #1 in the design: forget the viewport override and
+  // the guard is silently meaningless — the scrollHeight > clientHeight
+  // tripwire below fails loudly if the override is ever dropped.
+  test.describe('spec-072 scroll guard (mobile viewport)', () => {
+    test.use({ viewport: { width: 375, height: 812 } });
+
+    test('AC-072: Submit stays in-viewport; list scrolls internally, body does not', async ({
+      page,
+    }) => {
+      // Populated US FOOD list (31 Towson items) → guaranteed overshoot at
+      // 812px height. gotoTowsonEod already asserts an eod-item-input-* is
+      // visible, so items definitely rendered before we probe.
+      await gotoTowsonEod(page);
+
+      // Tripwire FIRST (design §1 pre-assertion guard): the list must actually
+      // overshoot, else every assertion below is vacuous. If the OQ-4 fixture
+      // stops running OR the viewport override is dropped, this fails loudly.
+      const list = page.getByTestId('eod-item-list');
+      await expect(list).toBeVisible();
+      const scroll = await list.evaluate((el) => ({
+        overflowY: getComputedStyle(el).overflowY,
+        scrollH: el.scrollHeight,
+        clientH: el.clientHeight,
+      }));
+
+      // AC-072-2a: the items list IS the internal scroll container — it can
+      // scroll (overflow-y auto/scroll) AND it has overflow (scrollHeight >
+      // clientHeight, the overshoot proof).
+      expect(['auto', 'scroll']).toContain(scroll.overflowY);
+      expect(scroll.scrollH).toBeGreaterThan(scroll.clientH);
+
+      // AC-072-1: the Submit footer stays IN-VIEWPORT (the literal property
+      // spec 072 fixed — footer not pushed below the fold). Its bottom edge
+      // is at or above the fold (1px sub-pixel tolerance).
+      const box = await page.getByTestId('eod-submit').boundingBox();
+      expect(box).not.toBeNull();
+      const viewport = page.viewportSize()!; // { width: 375, height: 812 }
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+
+      // AC-072-2b: the document body does NOT body-scroll — the complementary
+      // negative that distinguishes "list scrolls internally" from "page
+      // scrolls." Together 2a + 2b pin "list scrolls, page does not."
+      const bodyScrolls = await page.evaluate(
+        () => document.body.scrollHeight > window.innerHeight + 1, // 1px tolerance
+      );
+      expect(bodyScrolls).toBe(false);
     });
   });
 });

@@ -70,15 +70,20 @@ export function uniqueInviteEmail(): string {
   return `e2e-invite+${RUN_ID}@local.test`;
 }
 
-// ─── Admin sidebar section labels (src/i18n/en.json) ────────────────────
+// ─── Admin sidebar section nav testIDs (spec 079 §6 #2 — flake-kill) ─────
 // The Cmd shell has no URL/linking config (RoleRouter ships without it);
-// sections are switched via in-shell state driven by sidebar clicks. The
-// specs navigate by clicking these visible labels (the architect's §7 adds
-// section-ROOT testIDs for the assertion targets, not the sidebar nav
-// items — navigating by stable i18n label text is the documented approach).
-export const SIDEBAR_LABEL = {
-  dashboard: 'Dashboard',
-  reorder: 'Reorder',
-  auditLog: 'Audit log',
-  users: 'Users & access',
+// sections switch via in-shell state driven by sidebar clicks. Spec 078
+// navigated by clicking the visible i18n LABEL text, which is fragile to
+// copy/i18n changes AND can match a stray occurrence of the same string
+// elsewhere on screen (forcing a brittle `.first()`). Spec 079 added a
+// stable `nav-${item.id}` testID to the navigable sidebar TouchableOpacity
+// (src/components/cmd/TreeGroup.tsx — the FROZEN §6 contract), so the specs
+// navigate by `getByTestId(SIDEBAR_NAV.x)` — no label text, no i18n coupling,
+// no `.first()`. The ids are stable code constants from cmdSelectors.ts
+// (`Dashboard` / `Reorder` / `AuditLog` / `Users`), NOT the display labels.
+export const SIDEBAR_NAV = {
+  dashboard: 'nav-Dashboard',
+  reorder: 'nav-Reorder',
+  auditLog: 'nav-AuditLog',
+  users: 'nav-Users',
 } as const;

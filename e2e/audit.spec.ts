@@ -6,10 +6,12 @@
 // invite) may appear — the assertion must NOT depend on an exact row count
 // (AC-AUDIT1). A presence assertion on the section root satisfies this.
 //
-// Selector contract (frozen §7): audit-root.
+// Navigation: stable sidebar nav testID (spec 079 flake-kill).
+//
+// Selector contract: audit-root (078 §7); nav-AuditLog (079 §6 SIDEBAR_NAV).
 
 import { test, expect } from '@playwright/test';
-import { SIDEBAR_LABEL, STORAGE_STATE } from './fixtures/constants';
+import { SIDEBAR_NAV, STORAGE_STATE } from './fixtures/constants';
 
 test.use({ storageState: STORAGE_STATE.admin });
 
@@ -17,7 +19,7 @@ test('AC-AUDIT1: audit log section renders', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
 
-  await page.getByText(SIDEBAR_LABEL.auditLog, { exact: true }).first().click();
+  await page.getByTestId(SIDEBAR_NAV.auditLog).click();
 
   // Presence, not count — tolerant of rows the invite spec may have added.
   await expect(page.getByTestId('audit-root')).toBeVisible();

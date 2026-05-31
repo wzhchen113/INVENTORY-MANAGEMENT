@@ -458,23 +458,63 @@ composing into a working flow. The other three tracks never exercise the
 running app through a browser (component tests mock at the `src/lib/db.ts`
 boundary).
 
-### What it covers (v1, phased)
+### What it covers
 
-- **Phase 1 — auth.** Real UI sign-in for the admin branch (lands on the
-  Cmd shell) and the staff branch (`manager@local.test`, role=`user`, lands
-  on the StorePicker), plus a bad-credentials case.
-- **Phase 2 — staff EOD + offline queue.** Online submit, then the
-  offline → queue → drain cycle via `context.setOffline()` (the staff
-  connectivity hook reads `navigator.onLine` / the DOM `online`/`offline`
-  events on web, which `setOffline` flips).
-- **Phase 3 — invite-user.** Admin opens the Users section, fills the
-  invite drawer, submits, and asserts the drawer closes on success.
-- **Phase 4 — dashboard / reorder / audit-log.** Read-heavy structural
-  assertions (the section-root container renders), not seed-value
-  assertions.
-- **Cross-cutting — dark mode.** One `colorScheme: 'dark'` smoke that also
-  seeds the `darkMode` localStorage pref and asserts the shell paints a
-  dark background.
+Spec 078 landed the framework + broad-but-shallow v1 coverage; spec 079
+deepened the highest-value flows from "does it render?" to "does it behave?"
+and flake-proofed every spec (see the flake checklist below).
+
+- **auth.** Real UI sign-in for the admin branch (lands on the Cmd shell) and
+  the staff branch (`manager@local.test`, role=`user`, lands on the
+  StorePicker), plus a bad-credentials case.
+- **staff EOD + offline queue.** Online submit, then the offline → queue →
+  drain cycle via `context.setOffline()` (the staff connectivity hook reads
+  `navigator.onLine` / the DOM `online`/`offline` events on web, which
+  `setOffline` flips). **Spec 079 deepenings:** (a) the online case now proves
+  **persistence** — it reloads the same (store, vendor, today) and asserts the
+  `eod-prefill-banner` ("Last submitted at HH:MM") renders, then does the
+  suite's ONE service-role read (below) to confirm the row + the filled
+  value; (b) a separate **scroll guard** at a 375×812 mobile viewport asserts
+  the Submit footer stays in-viewport and the `eod-item-list` scrolls
+  internally while the document body does not (the spec-072 react-native-web
+  layout regression — jest cannot reproduce a viewport-sized DOM).
+- **invite-user.** Master opens the Users section, fills the invite drawer,
+  submits, and asserts the drawer closes on success. **Spec 079 deepening:** a
+  **durable-effect** assertion that the run-unique invited email
+  (`e2e-invite+<runId>@local.test`) renders as a row in the Users list —
+  keyed off this run's email, never a row count.
+- **dashboard / reorder / audit-log.** Read-heavy structural assertions (the
+  section-root container renders), not seed-value assertions. **Spec 079
+  deepening (reorder):** exercises the action surface that exists — clicks
+  **Refresh** (outside the export gate; the guaranteed floor) and asserts the
+  loading→loaded transition completes, and defensively asserts the CSV/PDF
+  export controls are enabled when the selected store's reorder payload has
+  vendors. No durable DB mutation is asserted (the Reorder section has none —
+  no mark-ordered / generate-PO). No file-download event is asserted
+  (excluded from v1 as a flake surface).
+- **dark mode.** One `colorScheme: 'dark'` smoke that also seeds the
+  `darkMode` localStorage pref and asserts the shell paints a dark background.
+
+### The single service-role read (the lone UI-only exception)
+
+Every E2E assertion is UI-only / black-box EXCEPT one: the EOD persistence
+case (`e2e/eod.spec.ts`) performs a single **service-role read** of
+`eod_submissions` for (Towson, today, US FOOD) as a belt-and-suspenders proof
+that the online submit persisted server-side. The `eod-prefill-banner` reload
+assertion is the UI-only PRIMARY persistence signal; the service read is the
+ONE precise spot-check on the highest-value persistence flow. It is the lone
+exception to the UI-only rule and is **not a pattern to spread** — every other
+spec stays black-box.
+
+The read goes through `e2e/fixtures/db.ts` `serviceRoleClient()` — the shared
+service-role client (LOCAL stack only, guarded by `assertLocalStack`) that
+`global-setup.ts` (the order_schedule fixture) and `global-teardown.ts` also
+use. Spec 079 EXTRACTED this helper from `global-setup.ts` into
+`e2e/fixtures/db.ts` (a third consumer landed) — the client, the key, and the
+prod-URL guard are unchanged; it was de-duplicated, not newly introduced. The
+read keys off the (store, date, vendor) tuple + the value this run submitted
+(not a row count), so it converges on a non-reset local DB — `staff_submit_eod`
+upserts on that tuple, so a re-run overwrites rather than duplicates.
 
 ### Where tests live
 
@@ -494,7 +534,8 @@ e2e/
   reorder.spec.ts             ← Phase 4 reorder
   audit.spec.ts               ← Phase 4 audit log
   dark-mode.spec.ts           ← cross-cutting dark-mode smoke
-  fixtures/constants.ts       ← seed UUIDs, demo accounts, storageState paths
+  fixtures/constants.ts       ← seed UUIDs, demo accounts, storageState paths, SIDEBAR_NAV
+  fixtures/db.ts              ← shared service-role client + assertLocalStack + todayIso (079)
   .auth/                      ← per-role storageState JSON (gitignored)
   tsconfig.json               ← scopes TS for the e2e tree (base excludes e2e/**)
 ```
@@ -521,9 +562,19 @@ and the config sets `testIdAttribute: 'data-testid'`, so
 directly. Spec 078 added the missing selectors on the login inputs, the Cmd
 shell anchor, the Dashboard/Reorder/AuditLog/Users section roots, the Users
 invite trigger, and the InviteUserDrawer fields (the EOD selectors already
-existed). Section navigation in the Cmd shell has no URL/linking, so specs
-switch sections by clicking the stable sidebar **label text** (e.g.
-"Dashboard"); the *assertion* targets are always the section-root testIDs.
+existed). Spec 079 added the `nav-${item.id}` sidebar nav testIDs
+(`nav-Dashboard` / `nav-Reorder` / `nav-AuditLog` / `nav-Users`), the
+`eod-item-list` scroll-container testID, and the `reorder-export-csv` /
+`reorder-export-pdf` / `reorder-refresh` action testIDs.
+
+**Navigate by `getByTestId`, never `getByText`.** Section navigation in the
+Cmd shell has no URL/linking; spec 078 originally clicked the stable sidebar
+**label text**, but spec 079 replaced that with the `nav-*` testIDs
+(`e2e/fixtures/constants.ts` `SIDEBAR_NAV`) — label text is i18n/copy-fragile
+and can match a stray occurrence of the same string elsewhere on screen. The
+ONE place a `getByText` is correct is the invite durable-effect assertion,
+which matches the run-unique email the test itself created (test-authored
+content, not chrome). The *assertion* targets are always testIDs.
 
 ### Data-isolation strategy
 
@@ -561,6 +612,45 @@ keep a stale queue from poisoning later runs:
 
 If a future refactor moves the queue out of `localStorage` (e.g. to
 IndexedDB), guard #2 must follow.
+
+### Flake-proofing checklist (Track 4)
+
+Every E2E spec MUST follow these. The suite must hold <5% flake to earn the
+AC-PROMO1 promotion; one flaky spec blocks the 20-green streak for the whole
+suite. (Spec 079 added this checklist as the durable artifact that keeps the
+suite clean as it grows.)
+
+1. **Navigate by `getByTestId`, never `getByText`.** Sidebar sections use the
+   `nav-<SectionId>` testIDs (`nav-Dashboard`, `nav-Reorder`, `nav-AuditLog`,
+   `nav-Users`). Label text is i18n/copy-fragile and can match a stray
+   occurrence elsewhere on screen. Reference: `e2e/fixtures/constants.ts`
+   `SIDEBAR_NAV`.
+2. **No fixed `waitForTimeout`/sleep.** Use web-first auto-retrying assertions
+   (`await expect(locator).toBeVisible()` / `.toHaveCount(0)` / `.toBeEnabled()`)
+   or `expect.poll(...)` for non-DOM conditions (e.g. `navigator.onLine`).
+   A fixed sleep is either too short (flake) or too slow (wasted CI time).
+3. **Assert the destination before interacting.** After any navigation, assert
+   the target `*-root` testID is visible before clicking inside it. Never
+   assume "the click worked."
+4. **Assert absence with `toHaveCount(0)`, never a timeout.** Proving a thing
+   is gone (queue drained, drawer closed) uses `expect(locator).toHaveCount(0)`
+   (auto-retries up to the expect timeout), not a sleep-then-check.
+5. **Each test starts from clean per-test state.** Playwright gives each test a
+   fresh `BrowserContext` (fresh localStorage). storageState carries auth ONLY
+   (the setup project never submits EOD). The EOD specs additionally clear the
+   offline-queue key (`imr-staff:eod-queue:v1`) in `beforeEach` via
+   `addInitScript` — defense against localStorage bleed.
+6. **Key mutating-flow assertions off THIS run's unique input, never an
+   absolute row count.** Invite uses `e2e-invite+<runId>@local.test`; EOD reads
+   the row for `(store, today, vendor)` and asserts presence + the value this
+   run submitted. A non-reset local DB must not break a re-run.
+7. **Reproduce viewport-specific layout at the right viewport.** The scroll
+   guard runs at 375×812 (`test.use({ viewport })`); the default Desktop Chrome
+   viewport would pass it vacuously.
+8. **Service-role DB access stays in the `e2e/` tree** via
+   `e2e/fixtures/db.ts` `serviceRoleClient()` (LOCAL-stack only, guarded by
+   `assertLocalStack`). It is the lone exception to UI-only assertions and is
+   used by exactly one assertion (EOD persistence). Do not spread it.
 
 ### CI + promotion criteria
 

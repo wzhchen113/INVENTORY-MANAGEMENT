@@ -24,46 +24,23 @@
 // is never logged and never written to a Playwright artifact — only the
 // row count is logged. The runtime DB touch lives in test code (the e2e/
 // tree), so it does not widen the src/lib/db.ts centralization rule.
+//
+// Spec 079: the service-role client + the `assertLocalStack` guard were
+// EXTRACTED to e2e/fixtures/db.ts (a third consumer — the EOD persistence
+// read — landed). This file now imports them; behavior is identical.
 
-import { createClient } from '@supabase/supabase-js';
 import { SEED, WEEKDAYS } from './fixtures/constants';
-
-// Well-known LOCAL stack values (stable across `supabase start`); both
-// env-overridable so a remote test branch is a CI-secret swap, not a code
-// change (OQ-1). The service-role key bypasses RLS for the fixture insert.
-const SUPABASE_URL =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
-const SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+import { serviceRoleClient } from './fixtures/db';
 
 const VENDORS: Array<{ id: string; name: string }> = [
   { id: SEED.vendorUsFoodId, name: 'US FOOD' },
   { id: SEED.vendorRestaurantDepotId, name: 'RESTAURANT DEPOT' },
 ];
 
-// Prod-URL guard (security-auditor Low, spec 078 fix-pass): this fixture
-// writes rows with a service-role key. Refuse to run against anything but
-// the local stack, so a stray prod `EXPO_PUBLIC_SUPABASE_URL` in a dev's
-// shell can never be targeted. Set `E2E_ALLOW_REMOTE=1` to intentionally
-// point at a remote test branch (the deferred OQ-1 path). Exported so the
-// teardown reuses the identical guard.
-export function assertLocalStack(url: string): void {
-  if (process.env.E2E_ALLOW_REMOTE) return;
-  if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(url)) {
-    throw new Error(
-      `[e2e] refusing to run a service-role fixture against non-local URL "${url}". ` +
-        `This guard prevents a stray prod EXPO_PUBLIC_SUPABASE_URL from being targeted. ` +
-        `Set E2E_ALLOW_REMOTE=1 to intentionally target a remote stack (OQ-1).`,
-    );
-  }
-}
-
 async function globalSetup(): Promise<void> {
-  assertLocalStack(SUPABASE_URL);
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  // serviceRoleClient() runs the assertLocalStack prod-URL guard on
+  // construction, so the fixture can never target a non-local stack.
+  const admin = serviceRoleClient();
 
   // One row per (Towson, weekday, vendor). The unique constraint
   // order_schedule_store_day_vendor_unique is (store_id, day_of_week,

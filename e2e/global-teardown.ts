@@ -23,25 +23,20 @@
 // `supabase db reset` — but the order_schedule fixture was the one concrete
 // cross-track collision, and it's cleaned here.
 
-import { createClient } from '@supabase/supabase-js';
+// Spec 079: the service-role client + the assertLocalStack guard live in
+// e2e/fixtures/db.ts now (extracted from global-setup.ts). Import from there
+// instead of cross-importing the setup file. serviceRoleClient() runs the
+// same prod-URL guard on construction, so this teardown can never delete
+// against a non-local stack — behavior identical to the spec-078 version.
 import { SEED } from './fixtures/constants';
-import { assertLocalStack } from './global-setup';
-
-const SUPABASE_URL =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
-const SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+import { serviceRoleClient } from './fixtures/db';
 
 const FIXTURE_VENDOR_IDS = [SEED.vendorUsFoodId, SEED.vendorRestaurantDepotId];
 
 async function globalTeardown(): Promise<void> {
-  // Same guard as global-setup — never delete against a non-local stack.
-  assertLocalStack(SUPABASE_URL);
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  // serviceRoleClient() runs the assertLocalStack prod-URL guard — never
+  // delete against a non-local stack.
+  const admin = serviceRoleClient();
 
   const { error } = await admin
     .from('order_schedule')
