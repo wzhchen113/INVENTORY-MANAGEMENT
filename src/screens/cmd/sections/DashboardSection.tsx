@@ -20,7 +20,13 @@ import {
   AttentionItem,
   TARGET_FOOD_COST_PCT_DEFAULT,
 } from '../../../lib/cmdSelectors';
-import type { EODSubmission, POSImport, Store, User } from '../../../types';
+import type { EODSubmission, OrderSchedule, OrderSubmission, POSImport, Store, User } from '../../../types';
+
+// Spec 081 D4 — stable empty schedule for a store with no fetched rows.
+// Module-const so the queueByStore loop reuses one identity instead of
+// allocating a fresh `{}` per iteration. Shape matches the store's default
+// `orderSchedule` (a weekday-keyed Record).
+const EMPTY_ORDER_SCHEDULE: OrderSchedule = {};
 
 // Architect §5 / Decision D3 — per-store food-cost target. Imported from
 // cmdSelectors to keep one source of truth; per-store target config is a
@@ -149,6 +155,16 @@ export default function DashboardSection() {
   // if it bites in practice.
   const [crossStoreEod, setCrossStoreEod] = React.useState<EODSubmission[]>([]);
   const [crossStorePos, setCrossStorePos] = React.useState<POSImport[]>([]);
+  // Spec 081 — cross-store order schedule + submissions, same caveat as the
+  // EOD/POS slices above. orderSchedule is store-keyed → weekday-keyed so
+  // each card can be passed its own store's schedule (the bug 081 fixes:
+  // every card previously used the focal store's slice).
+  const [crossStoreOrderSchedule, setCrossStoreOrderSchedule] = React.useState<
+    Record<string, OrderSchedule>
+  >({});
+  const [crossStoreOrderSubmissions, setCrossStoreOrderSubmissions] = React.useState<
+    OrderSubmission[]
+  >([]);
 
   React.useEffect(() => {
     const storeIds = stores.map((s) => s.id);
@@ -167,6 +183,18 @@ export default function DashboardSection() {
         if (!cancelled) setCrossStorePos(rows);
       })
       .catch((e: any) => console.warn('[Dashboard] fetchPosImportsForStores:', e?.message || e));
+    // Spec 081 — same effect, same `since` (D3: 14-day lookback is a strict
+    // superset of the unconfirmed_po Monday-reset window), same cancelled guard.
+    db.fetchOrderScheduleForStores(storeIds)
+      .then((byStore) => {
+        if (!cancelled) setCrossStoreOrderSchedule(byStore);
+      })
+      .catch((e: any) => console.warn('[Dashboard] fetchOrderScheduleForStores:', e?.message || e));
+    db.fetchOrderSubmissionsForStores(storeIds, since)
+      .then((rows) => {
+        if (!cancelled) setCrossStoreOrderSubmissions(rows);
+      })
+      .catch((e: any) => console.warn('[Dashboard] fetchOrderSubmissionsForStores:', e?.message || e));
     return () => {
       cancelled = true;
     };
@@ -187,6 +215,22 @@ export default function DashboardSection() {
     const others = crossStorePos.filter((p) => p.storeId !== currentStore.id);
     return [...others, ...posImports];
   }, [crossStorePos, posImports, currentStore.id]);
+
+  // Spec 081 — flat cross-store submissions with the focal slice merged over
+  // the top, so the focal card stays realtime-fresh. computeAttentionQueue
+  // self-filters by `o.storeId === storeId`, so the flat list is passed as-is.
+  const allOrderSubmissions = React.useMemo<OrderSubmission[]>(() => {
+    const others = crossStoreOrderSubmissions.filter((o) => o.storeId !== currentStore.id);
+    return [...others, ...orderSubmissions];
+  }, [crossStoreOrderSubmissions, orderSubmissions, currentStore.id]);
+
+  // Spec 081 (Risk 6) — spread the cross-store map FIRST, then OVERRIDE the
+  // focal id with the live focal `orderSchedule` slice so the realtime-fresh
+  // focal schedule wins over the (possibly staler) mount-time cross-store copy.
+  const scheduleByStore = React.useMemo<Record<string, OrderSchedule>>(
+    () => ({ ...crossStoreOrderSchedule, [currentStore.id]: orderSchedule }),
+    [crossStoreOrderSchedule, orderSchedule, currentStore.id],
+  );
 
   // ─── KPI metrics (focal store + cross-store roll-up where data is available)
   const focalInventory = React.useMemo(
@@ -286,8 +330,11 @@ export default function DashboardSection() {
         inventory,
         allEod,
         allPos,
-        orderSubmissions,
-        orderSchedule,
+        // Spec 081 — each card gets its OWN store's slice (was the focal-only
+        // orderSubmissions/orderSchedule). The flat submissions list self-filters
+        // by storeId inside the selector; the schedule is dereferenced per store.
+        allOrderSubmissions,
+        scheduleByStore[s.id] ?? EMPTY_ORDER_SCHEDULE,
         stores,
         getItemStatus,
         // Spec 074 — Monday-reset window for the unconfirmed_po rule.
@@ -295,7 +342,7 @@ export default function DashboardSection() {
       );
     }
     return out;
-  }, [stores, inventory, allEod, allPos, orderSubmissions, orderSchedule, getItemStatus, timezone]);
+  }, [stores, inventory, allEod, allPos, allOrderSubmissions, scheduleByStore, getItemStatus, timezone]);
 
   const today = new Date();
   const greeting =

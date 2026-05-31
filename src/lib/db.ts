@@ -37,7 +37,7 @@ import {
   SidebarLayoutOverride, POSImport, Brand, User,
   InventoryCount, InventoryCountKind, InventoryCountSummary,
   ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
-  MenuCapacityRow,
+  MenuCapacityRow, OrderSchedule, OrderSubmission,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -1087,57 +1087,107 @@ export async function createPurchaseOrder(params: {
   }, { kind: 'write', label: 'createPurchaseOrder' });
 }
 
+// Shared row→object mapper for a `purchase_orders` select that uses the
+// column projection below (the same one fetchRecentPurchaseOrders and
+// fetchOrderSubmissionsForStores both request). Extracted per spec 081 D5 so
+// the two callers stay byte-identical — one source of truth for the snake→
+// camel mapping. The returned object is a SUPERSET of `OrderSubmission`
+// (it also carries vendorId/totalCost/status/etc. that the interface doesn't
+// declare), which is why both callers type their return as `any[]` /
+// `OrderSubmission[]` over this shape. The three fields the unconfirmed_po
+// predicate (cmdSelectors.ts:890-895) reads — storeId, date, vendorName —
+// are all populated here.
+function mapPurchaseOrderRow(r: any) {
+  // Prefer reference_date (day-card's calendar date); fall back to UTC day
+  // of created_at for pre-migration rows that somehow slipped through.
+  const refDate: string = r.reference_date || (r.created_at ? r.created_at.split('T')[0] : '');
+  // Derive day-of-week from refDate so it always matches the card. UTC-safe
+  // because refDate is a pure YYYY-MM-DD string with no tz component.
+  let day = '';
+  if (refDate) {
+    const [y, m, d] = refDate.split('-').map(Number);
+    if (!Number.isNaN(y + m + d)) {
+      day = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    }
+  }
+  // Pre-format submittedAt ("1:27 AM") using the app's default NY tz so the
+  // Orders detail modal footer ("Submitted by <Name> at <time>") has values
+  // after a refresh. Fresh-submits populate these client-side; rehydration
+  // went through this path with blanks before.
+  const submittedAt = r.created_at
+    ? new Date(r.created_at).toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
+      })
+    : '';
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    vendorId: r.vendor_id,
+    vendorName: r.vendor?.name || '',
+    submittedBy: r.creator?.name || '',
+    submittedByUserId: r.created_by,
+    submittedAt,
+    totalCost: Number(r.total_cost) || 0,
+    date: refDate,
+    referenceDate: refDate,
+    timestamp: r.created_at,
+    status: r.status,
+    day,
+  };
+}
+
 export async function fetchRecentPurchaseOrders(storeId: string, days = 14): Promise<any[]> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   return useInflight.getState().track(async (signal) => {
-  const { data, error } = await supabase
-    .from('purchase_orders')
-    .select('id, store_id, vendor_id, vendor:vendors(name), created_by, creator:profiles!created_by(name), created_at, reference_date, status, total_cost')
-    .eq('store_id', storeId)
-    .gte('created_at', cutoff.toISOString())
-    .order('created_at', { ascending: false })
-    .abortSignal(signal);
-  if (error) { console.warn('[Supabase] fetchRecentPurchaseOrders:', error.message); return []; }
-  return (data || []).map((r: any) => {
-    // Prefer reference_date (day-card's calendar date); fall back to UTC day
-    // of created_at for pre-migration rows that somehow slipped through.
-    const refDate: string = r.reference_date || (r.created_at ? r.created_at.split('T')[0] : '');
-    // Derive day-of-week from refDate so it always matches the card. UTC-safe
-    // because refDate is a pure YYYY-MM-DD string with no tz component.
-    let day = '';
-    if (refDate) {
-      const [y, m, d] = refDate.split('-').map(Number);
-      if (!Number.isNaN(y + m + d)) {
-        day = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-      }
-    }
-    // Pre-format submittedAt ("1:27 AM") using the app's default NY tz so the
-    // Orders detail modal footer ("Submitted by <Name> at <time>") has values
-    // after a refresh. Fresh-submits populate these client-side; rehydration
-    // went through this path with blanks before.
-    const submittedAt = r.created_at
-      ? new Date(r.created_at).toLocaleTimeString('en-US', {
-          hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
-        })
-      : '';
-    return {
-      id: r.id,
-      storeId: r.store_id,
-      vendorId: r.vendor_id,
-      vendorName: r.vendor?.name || '',
-      submittedBy: r.creator?.name || '',
-      submittedByUserId: r.created_by,
-      submittedAt,
-      totalCost: Number(r.total_cost) || 0,
-      date: refDate,
-      referenceDate: refDate,
-      timestamp: r.created_at,
-      status: r.status,
-      day,
-    };
-  });
+    const { data, error } = await supabase
+      .from('purchase_orders')
+      .select('id, store_id, vendor_id, vendor:vendors(name), created_by, creator:profiles!created_by(name), created_at, reference_date, status, total_cost')
+      .eq('store_id', storeId)
+      .gte('created_at', cutoff.toISOString())
+      .order('created_at', { ascending: false })
+      .abortSignal(signal);
+    if (error) { console.warn('[Supabase] fetchRecentPurchaseOrders:', error.message); return []; }
+    return (data || []).map(mapPurchaseOrderRow);
   }, { kind: 'read', label: 'fetchRecentPurchaseOrders' });
+}
+
+// Spec 081 — cross-store sibling of fetchRecentPurchaseOrders (above). Source
+// table is `purchase_orders` (NOT "order_submissions" — that table does not
+// exist; the spec AC text mislabels it, see spec 081 Risk 1 + the source-table
+// correction section). The Dashboard attention-queue's `unconfirmed_po` rule
+// needs every store's submissions — not just the focal store's — so each store
+// card can match its own schedule against its own POs. `sinceDate` is an ISO
+// date string compared against created_at (the Dashboard reuses the same
+// 14-day lookback it passes to the EOD/POS fetchers; the selector's work-week
+// window trims anything outside this week anyway — spec 081 D3).
+//
+// Single-trip IN(...) select; RLS (auth_can_see_store on purchase_orders)
+// silently drops rows the caller can't see, so we don't pre-filter storeIds —
+// same posture as fetchEodSubmissionsForStores / fetchPosImportsForStores.
+// Returns [] on empty input or PostgREST error (degrade, don't throw — the
+// Dashboard must keep rendering its other rules). Each row carries
+// storeId/date/vendorName via the shared mapPurchaseOrderRow, which is exactly
+// what the unconfirmed_po predicate (cmdSelectors.ts:890-895) reads.
+export async function fetchOrderSubmissionsForStores(
+  storeIds: string[],
+  sinceDate: string,
+): Promise<OrderSubmission[]> {
+  if (storeIds.length === 0) return [];
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('purchase_orders')
+      .select('id, store_id, vendor_id, vendor:vendors(name), created_by, creator:profiles!created_by(name), created_at, reference_date, status, total_cost')
+      .in('store_id', storeIds)
+      .gte('created_at', sinceDate)
+      .order('created_at', { ascending: false })
+      .abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] fetchOrderSubmissionsForStores:', error.message);
+      return [];
+    }
+    return (data || []).map(mapPurchaseOrderRow) as OrderSubmission[];
+  }, { kind: 'read', label: 'fetchOrderSubmissionsForStores' });
 }
 
 // ─── VENDORS ─────────────────────────────────────────────────────────────
@@ -3417,6 +3467,51 @@ export async function fetchOrderSchedule(storeId: string): Promise<Record<string
     });
     return schedule;
   }, { kind: 'read', label: 'fetchOrderSchedule' });
+}
+
+// Spec 081 — cross-store sibling of fetchOrderSchedule (above). The single-store
+// version returns a weekday-keyed Record with NO store dimension, so the
+// Dashboard attention-queue can't tell one store's schedule from another's
+// (the bug spec 081 fixes). This returns a STORE-keyed map of those same
+// weekday-keyed schedules so each store card can be passed its own slice
+// (byStore[s.id]) into computeAttentionQueue.
+//
+// Single-trip IN(...) select; RLS (auth_can_see_store on order_schedule —
+// per order_schedule_super_admin_rls.sql:24-26) silently drops rows the caller
+// can't see, so we don't pre-filter storeIds — same posture as
+// fetchEodSubmissionsForStores / fetchPosImportsForStores. Returns {} on empty
+// input or PostgREST error (degrade, don't throw — unlike the single-store
+// fetchOrderSchedule, the cross-store caller must keep the Dashboard rendering
+// its other rules rather than crash). The per-vendor object shape
+// (vendorId/vendorName/deliveryDay) mirrors fetchOrderSchedule exactly.
+export async function fetchOrderScheduleForStores(
+  storeIds: string[],
+): Promise<Record<string, OrderSchedule>> {
+  if (storeIds.length === 0) return {};
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('order_schedule')
+      .select('*')
+      .in('store_id', storeIds)
+      .abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] fetchOrderScheduleForStores:', error.message);
+      return {};
+    }
+    const byStore: Record<string, OrderSchedule> = {};
+    (data || []).forEach((row: any) => {
+      const sid = row.store_id;
+      if (!byStore[sid]) byStore[sid] = {};
+      const schedule = byStore[sid];
+      if (!schedule[row.day_of_week]) schedule[row.day_of_week] = [];
+      schedule[row.day_of_week].push({
+        vendorId: row.vendor_id,
+        vendorName: row.vendor_name,
+        deliveryDay: row.delivery_day,
+      });
+    });
+    return byStore;
+  }, { kind: 'read', label: 'fetchOrderScheduleForStores' });
 }
 
 export async function saveOrderSchedule(storeId: string, day: string, vendors: any[]): Promise<void> {
