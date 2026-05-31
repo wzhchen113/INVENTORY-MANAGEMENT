@@ -358,7 +358,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     // Phone: top app-bar + body. Sidebar is the hamburger-driven
     // MobileNavDrawer. TitleBar is replaced with MobileTopAppBar (per §2).
     return (
-      <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
+      <View testID="cmd-shell-root" style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
         <MobileTopAppBar
           onHamburgerPress={() => setMobileDrawerOpen(true)}
           title={section}
@@ -397,7 +397,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     // and a collapse toggle in the Sidebar header). For Phase 1, we add
     // a small inline toggle button just above the body.
     return (
-      <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
+      <View testID="cmd-shell-root" style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
         <TitleBar
           storeName={currentStore?.name || T('chrome.store')}
           section={section}
@@ -455,7 +455,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   // Desktop — TitleBar + permanent Sidebar + body. Mirrors pre-Spec-011
   // chrome 1:1.
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
+    <View testID="cmd-shell-root" style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
       <TitleBar
         storeName={currentStore?.name || 'store'}
         section={section}

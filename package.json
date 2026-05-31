@@ -18,7 +18,10 @@
     "test:smoke": "bash scripts/smoke-edge.sh && bash scripts/smoke-rpc.sh && bash scripts/smoke-edge-roles.sh",
     "test:all": "npm test && npm run test:db",
     "typecheck": "tsc --noEmit",
-    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -62,6 +65,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "@playwright/test": "^1.60.0",
     "@testing-library/react-native": "^13.0.0",
     "@types/jest": "^29.5.12",
     "@types/papaparse": "^5.3.14",

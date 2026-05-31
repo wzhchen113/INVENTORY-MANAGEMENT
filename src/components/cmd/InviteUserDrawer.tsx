@@ -244,6 +244,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
         <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>CANCEL</Text>
       </TouchableOpacity>
       <TouchableOpacity
+        testID="invite-submit"
         onPress={handleSave}
         disabled={!requiredValid || submitting}
         accessibilityRole="button"
@@ -276,6 +277,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
     >
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <Field
+          testID="invite-email"
           label="Email"
           value={values.email}
           onChange={set('email')}
@@ -283,6 +285,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
           autoFocus
         />
         <Field
+          testID="invite-name"
           label="Display name"
           value={values.name}
           onChange={set('name')}
@@ -311,6 +314,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
                 return (
                   <TouchableOpacity
                     key={r}
+                    testID={`invite-role-${r}`}
                     onPress={() => set('role')(r)}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: isSelected }}
@@ -459,6 +463,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
                 return (
                   <TouchableOpacity
                     key={s.id}
+                    testID={`invite-store-${s.id}`}
                     onPress={() => toggleStore(s.id)}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: isSelected }}
@@ -511,13 +516,14 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
 
 // ─── Field input — same shape as InviteAdminDrawer's helper ─────────
 function Field({
-  label, value, onChange, placeholder, autoFocus,
+  label, value, onChange, placeholder, autoFocus, testID,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  testID?: string;
 }) {
   const C = useCmdColors();
   return (
@@ -534,6 +540,7 @@ function Field({
         {label}
       </Text>
       <TextInput
+        testID={testID}
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}

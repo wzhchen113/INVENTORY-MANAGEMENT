@@ -29,6 +29,13 @@ ios/
 supabase/.temp/
 supabase/.branches/
 
+# Playwright (spec 078) — generated artifacts + per-role storageState.
+# /e2e/.auth/ holds storageState JSON carrying live auth tokens; never commit.
+/test-results/
+/playwright-report/
+/blob-report/
+/e2e/.auth/
+
 # macOS Finder droppings
 .DS_Store
 **/.DS_Store

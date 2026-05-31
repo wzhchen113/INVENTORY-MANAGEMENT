@@ -14,6 +14,8 @@
     "**/*.test.tsx",
     "tests/**/*",
     "supabase/functions/**",
-    "scripts/**"
+    "scripts/**",
+    "e2e/**",
+    "playwright.config.ts"
   ]
 }

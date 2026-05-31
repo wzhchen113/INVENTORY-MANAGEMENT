@@ -94,7 +94,7 @@ export default function AuditLogSection() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+    <View testID="audit-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[
           { id: 'feed.tsx',     label: 'feed.tsx' },

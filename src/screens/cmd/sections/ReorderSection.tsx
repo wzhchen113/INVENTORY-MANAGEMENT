@@ -612,7 +612,7 @@ export default function ReorderSection() {
   }, [reorderPayload, currentStore]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+    <View testID="reorder-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[
           { id: 'reorder.tsx', label: 'reorder.tsx' },

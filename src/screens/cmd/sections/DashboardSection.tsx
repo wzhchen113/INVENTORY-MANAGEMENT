@@ -310,7 +310,7 @@ export default function DashboardSection() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+    <View testID="dashboard-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[{ id: 'overview.tsx', label: 'overview.tsx' }]}
         activeId={tabId}
@@ -332,7 +332,7 @@ export default function DashboardSection() {
         </View>
 
         {/* KPI strip — 5 tiles each with sparkline */}
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View testID="dashboard-kpis" style={{ flexDirection: 'row', gap: 10 }}>
           {/* SYNTHETIC_KPI_SERIES — sparkline + delta pill suppressed for the
               4 KPIs without daily rollups (delta would be misleading until
               we ship real historical aggregates). Only AVG FOOD COST % +

@@ -1,14 +1,16 @@
 # Tests
 
 Canonical docs for the test-framework infrastructure landed in
-[spec 022](../specs/022-test-framework-intro/spec.md). Three independent
-tracks, each covering a different layer:
+[spec 022](../specs/022-test-framework-intro/spec.md). Four independent
+tracks, each covering a different layer (Track 4 — browser E2E — added in
+[spec 078](../specs/078-e2e-playwright-framework.md)):
 
 | Track | What it covers                                            | Runner               | Where tests live                          |
 | ----- | --------------------------------------------------------- | -------------------- | ----------------------------------------- |
 | 1     | JS / TS unit + component (React Native) tests             | jest (jest-expo)     | colocated `*.test.ts(x)` next to source   |
 | 2     | Postgres RPC + RLS + trigger correctness                  | psql + pgTAP         | `supabase/tests/*.test.sql`               |
 | 3     | End-to-end RPC / edge-function shell smokes              | bash + curl + jq     | `scripts/smoke-*.sh`                      |
+| 4     | Browser E2E — the running web app through a real browser  | Playwright (chromium) | top-level `e2e/*.spec.ts`                 |
 
 Tracks 1 and 2 plus the Track-1a and Track-1b typecheck gates run in CI
 on every push and pull-request
@@ -33,9 +35,18 @@ npm run test:db
 # Track 3 — shell smokes (requires `npm run dev:db` running)
 npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh
 
+# Track 4 — browser E2E (requires `npm run dev:db` running; boots the web
+# server itself via playwright.config.ts `webServer`)
+npm run e2e                     # headless chromium
+npm run e2e:headed              # headed (watch the browser)
+npm run e2e:ui                  # Playwright UI mode (time-travel debugger)
+
 # Everything jest + DB:
 npm run test:all
 ```
+
+> **First-time E2E setup:** install the chromium browser binary once with
+> `npx playwright install --with-deps chromium`. CI does this per-run.
 
 There is also a typecheck-only pass for tests. Spec 024 promoted this
 from an editor-convenience script to a required CI gate (Track 1a above);
@@ -436,6 +447,147 @@ misdiagnosed:
 If a future smoke / DB test touches `supabase_realtime` publication
 membership, also see CLAUDE.md > Realtime publication gotcha.
 
+## Track 4 — Browser E2E (Playwright)
+
+Spec 078 added a fourth track: **browser E2E via Playwright**, run against
+the **web build** (react-native-web → the same surface Vercel ships). Both
+the admin Cmd UI and the staff EOD app run on react-native-web, so a single
+web-target suite covers the vast majority of application logic — a real
+signed-in session, the navigation shell, RLS, and the live Supabase stack
+composing into a working flow. The other three tracks never exercise the
+running app through a browser (component tests mock at the `src/lib/db.ts`
+boundary).
+
+### What it covers (v1, phased)
+
+- **Phase 1 — auth.** Real UI sign-in for the admin branch (lands on the
+  Cmd shell) and the staff branch (`manager@local.test`, role=`user`, lands
+  on the StorePicker), plus a bad-credentials case.
+- **Phase 2 — staff EOD + offline queue.** Online submit, then the
+  offline → queue → drain cycle via `context.setOffline()` (the staff
+  connectivity hook reads `navigator.onLine` / the DOM `online`/`offline`
+  events on web, which `setOffline` flips).
+- **Phase 3 — invite-user.** Admin opens the Users section, fills the
+  invite drawer, submits, and asserts the drawer closes on success.
+- **Phase 4 — dashboard / reorder / audit-log.** Read-heavy structural
+  assertions (the section-root container renders), not seed-value
+  assertions.
+- **Cross-cutting — dark mode.** One `colorScheme: 'dark'` smoke that also
+  seeds the `darkMode` localStorage pref and asserts the shell paints a
+  dark background.
+
+### Where tests live
+
+A top-level **`e2e/`** directory (Playwright convention; keeps the config,
+`.auth/` storageState, fixtures, and specs together and distinct from the
+jest colocation + the `supabase/tests/` pgTAP files):
+
+```
+playwright.config.ts          ← repo root (Playwright's default discovery)
+e2e/
+  global-setup.ts             ← OQ-4 runtime fixture (order_schedule rows)
+  auth.setup.ts               ← `setup` project: per-role storageState
+  auth.spec.ts                ← Phase 1 sign-in smoke (AC-S1/S2/S3)
+  eod.spec.ts                 ← Phase 2 EOD submit + offline queue
+  invite.spec.ts              ← Phase 3 invite-user
+  dashboard.spec.ts           ← Phase 4 dashboard
+  reorder.spec.ts             ← Phase 4 reorder
+  audit.spec.ts               ← Phase 4 audit log
+  dark-mode.spec.ts           ← cross-cutting dark-mode smoke
+  fixtures/constants.ts       ← seed UUIDs, demo accounts, storageState paths
+  .auth/                      ← per-role storageState JSON (gitignored)
+  tsconfig.json               ← scopes TS for the e2e tree (base excludes e2e/**)
+```
+
+### How to run locally
+
+```bash
+npm run dev:db                                      # 1. boot the local stack FIRST
+npx playwright install --with-deps chromium         # 2. one-time browser binary
+npm run e2e                                          # 3. run the suite
+```
+
+`npm run e2e` boots ONLY the Expo web dev server (via the config's
+`webServer`), not the DB stack — the dev stack + its data are yours.
+`e2e:headed` watches the browser; `e2e:ui` opens the time-travel debugger.
+Cold Metro bundling is slow on the first run (the `webServer.timeout` is
+180s); `reuseExistingServer` reuses a 8081 you already have up locally.
+
+### Selector strategy: `testID` → `data-testid`
+
+react-native-web maps RN `testID` props to the DOM `data-testid` attribute,
+and the config sets `testIdAttribute: 'data-testid'`, so
+`page.getByTestId('signin-email')` addresses an RN `testID="signin-email"`
+directly. Spec 078 added the missing selectors on the login inputs, the Cmd
+shell anchor, the Dashboard/Reorder/AuditLog/Users section roots, the Users
+invite trigger, and the InviteUserDrawer fields (the EOD selectors already
+existed). Section navigation in the Cmd shell has no URL/linking, so specs
+switch sections by clicking the stable sidebar **label text** (e.g.
+"Dashboard"); the *assertion* targets are always the section-root testIDs.
+
+### Data-isolation strategy
+
+Runs against the local `dev:db` stack + the committed `supabase/seed.sql`
+(same pattern as Tracks 2/3). The broad flows mutate data, so:
+
+- **CI runs `supabase db reset` once before the suite** — a clean,
+  deterministic seed every run. Locally, `npm run e2e` does NOT reset; local
+  re-run safety comes from uniquification (below).
+- **Invite uses a run-unique email** — `e2e-invite+<runId>@local.test` —
+  so a local re-run doesn't collide on a prior run's invited user. The
+  assertion keys off the success signal for that email, never a row count.
+- **EOD keys off the same run's queued item** (its `client_uuid` + the
+  queue-indicator state), which is naturally idempotent.
+- **The `order_schedule` weekday fixture** (`e2e/global-setup.ts`) is an
+  E2E-only runtime insert via a **service-role** client — NOT a seed edit.
+  The committed seed has zero `order_schedule` rows, so the EOD "today"
+  screen would otherwise render empty; the fixture schedules two vendors on
+  Towson for all seven weekdays (idempotent `on conflict do nothing`) so the
+  EOD specs always have vendor chips + items regardless of the run weekday.
+  The service-role key is the LOCAL stack's well-known demo key, env-sourced
+  (`SUPABASE_SERVICE_ROLE_KEY`), never committed, and only ever pointed at
+  the local/CI stack.
+
+### The poison-queue guard (storageState + the offline queue)
+
+Playwright `storageState` serializes `localStorage`, and the staff offline
+queue lives in `localStorage` under `imr-staff:eod-queue:v1`. Two guards
+keep a stale queue from poisoning later runs:
+
+1. The **auth-setup never submits EOD**, so the saved `staff.json` carries
+   auth tokens but no queue key.
+2. The **EOD specs clear the queue key in `beforeEach`** (via
+   `addInitScript`) — defense in depth.
+
+If a future refactor moves the queue out of `localStorage` (e.g. to
+IndexedDB), guard #2 must follow.
+
+### CI + promotion criteria
+
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs on every
+push and pull-request, **separate from `test.yml`** and **non-blocking** in
+v1 (advisory — a red run does NOT block merge or SHIP_READY; the CLAUDE.md
+"CI status check" rule is scoped to `test.yml` only). It mirrors `test.yml`'s
+`db` job stack boot, runs `supabase db reset`, installs the chromium binary,
+runs `npm run e2e`, and uploads the HTML report + traces as an artifact
+(`if: always()`).
+
+**Promotion to a required check (AC-PROMO1):** flip `e2e.yml` to gating only
+when BOTH hold, on the user's call — **≥ 20 consecutive green runs on
+`main`** AND **observed flake rate < 5%** (a run that goes green only on a
+Playwright retry counts as a flake; `trace: 'on-first-retry'` makes retries
+visible in the report). When promoted, the follow-up adds it to the
+required-checks set and extends the CLAUDE.md CI rule to name `e2e.yml`.
+
+### When NOT to add an E2E test
+
+- Pure DB constraint / trigger / RLS behavior → Track 2.
+- A unit of TypeScript logic with no browser surface → Track 1.
+- Native-only behavior (true device gestures, native push registration) —
+  out of scope; Playwright is web-only (locked decision).
+- Visual-regression / screenshot diffs — intentionally deferred (RN-web
+  pixel output is noisy across OS/font stacks).
+
 ## CI
 
 [`.github/workflows/test.yml`](../.github/workflows/test.yml) runs on
@@ -461,6 +613,12 @@ every push and every pull-request. Four jobs:
   required status check in v1; tighten once stability is observed.
 
 Track 3 is intentionally not wired into CI in v1 (per spec AC).
+
+Track 4 (browser E2E) runs in a **separate** workflow,
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) — NOT folded
+into `test.yml` (locked decision). It is **non-blocking** in v1 (advisory
+until the promotion criteria in the Track 4 section are met). See that
+section for the boot/reset/artifact shape and the gating-flip rule.
 
 ## Retroactive coverage status (spec 023)
 

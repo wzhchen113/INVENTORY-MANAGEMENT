@@ -126,13 +126,14 @@ export default function UsersSection() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+    <View testID="users-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[{ id: 'users.tsx', label: 'users.tsx' }]}
         activeId={tabId}
         onChange={setTabId}
         rightSlot={
           <TouchableOpacity
+            testID="users-invite-trigger"
             onPress={() => setInviteOpen(true)}
             accessibilityRole="button"
             accessibilityLabel="Invite user"
@@ -303,6 +304,7 @@ function UserRow({
 
   return (
     <View
+      testID={`user-row-${user.id}`}
       style={{
         flexDirection: 'row',
         alignItems: 'flex-start',

@@ -1,0 +1,27 @@
+// e2e/tsconfig.json — Spec 078. Scopes TypeScript for the Playwright suite.
+//
+// The repo's base tsconfig.json now EXCLUDES e2e/** (Playwright specs need
+// @playwright/test types + DOM globals for in-browser evaluate() callbacks
+// that the app graph shouldn't carry). This config is the inverse: it owns
+// the e2e tree's type-checking.
+//
+// `npm run e2e` does not typecheck (Playwright transpiles via esbuild at
+// runtime); this file exists for editor IntelliSense and an optional
+// explicit `tsc -p e2e/tsconfig.json --noEmit` pass. It intentionally does
+// NOT extend the Expo base — the e2e tree is plain Node + Playwright + DOM,
+// not a react-native-web bundle.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "@playwright/test"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["**/*.ts"]
+}

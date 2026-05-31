@@ -133,7 +133,7 @@ export default function LoginScreen() {
           <Text style={[styles.formTitle, { color: C.textPrimary }]}>Sign in</Text>
 
           {error ? (
-            <View style={[styles.errorBox, { backgroundColor: C.dangerBg }]}>
+            <View testID="signin-error" style={[styles.errorBox, { backgroundColor: C.dangerBg }]}>
               <Text style={[styles.errorText, { color: C.danger }]}>{error}</Text>
             </View>
           ) : null}
@@ -141,6 +141,7 @@ export default function LoginScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Email address</Text>
             <TextInput
+              testID="signin-email"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={email}
               onChangeText={setEmail}
@@ -154,6 +155,7 @@ export default function LoginScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Password</Text>
             <TextInput
+              testID="signin-password"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={password}
               onChangeText={setPassword}
