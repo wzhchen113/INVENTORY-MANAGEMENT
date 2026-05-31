@@ -3235,9 +3235,11 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       .abortSignal(signal),
     supabase
       .from('invitations')
+      // Spec 082: NO `used` filter here — email inference must source from
+      // ALL brand invitations (a registered user's invite is used=true).
+      // The `!used` subset is applied below, only for the pending rows.
       .select('id, email, name, role, store_ids, brand_id, used, expires_at, profile_id')
       .eq('brand_id', brandId)
-      .eq('used', false)
       .abortSignal(signal),
     supabase
       .from('stores')
@@ -3263,12 +3265,18 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
     storeLinks = links || [];
   }
 
-  // Cleanup #4 + #15 — profiles has no email column; we pull email from
-  // the invitation row that registered this profile. Prefer profile_id
-  // (set by consume_invitation when the user accepted the invite) and
-  // fall back to name match for legacy invitations whose profile_id is
-  // still the placeholder. profile_id wins because two admins sharing a
-  // display name would otherwise get swapped emails.
+  // Spec 082 — profiles has no email column; we infer each user's email
+  // from the invitation row that registered them. Maps are built from ALL
+  // brand invites (the query no longer filters used=false), so a used
+  // invite still feeds inference (that was the bug — see spec 082).
+  // Precedence below (inviteByProfileId ?? inviteByName): id-match wins.
+  // profile_id is set by consume_invitation on accept as of spec 082, and
+  // legacy (pre-082) rows are linked by the spec-082 backfill, so the
+  // id-match path now does real work and prevents two admins sharing a
+  // display name from getting swapped emails. name-match remains the
+  // fallback for any invite whose profile_id is still the
+  // '00000000-…' sentinel (unbackfillable — e.g. its auth user was
+  // deleted, or never-registered pending invites).
   const inviteByProfileId = new Map<string, any>();
   const inviteByName = new Map<string, any>();
   for (const inv of invites) {
@@ -3300,9 +3308,15 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
   });
 
   // Outstanding invitations: synthetic User rows with status='pending'.
-  // Skip ones already represented in profiles (matched by email).
+  // Spec 082: source ONLY the unconsumed (!used) invites here so a
+  // consumed invite never becomes a phantom pending row. (Email inference
+  // above still uses ALL invites.) Then skip ones already represented in
+  // profiles (matched by email) — consumed-for-active rows are excluded on
+  // two grounds now: they're !used-filtered out AND active rows finally
+  // have emails to dedup against.
+  const pendingInvites = invites.filter((inv: any) => !inv.used);
   const activeEmails = new Set(activeRows.map((u) => u.email.toLowerCase()).filter(Boolean));
-  const pendingRows: User[] = invites
+  const pendingRows: User[] = pendingInvites
     .filter((inv: any) => !activeEmails.has(inv.email.toLowerCase()))
     .map((inv: any) => ({
       id: `invitation:${inv.id}`,
