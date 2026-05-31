@@ -77,7 +77,21 @@ jobs:
         # are the local demo keys, NOT prod secrets — they are safe to
         # surface in CI logs, but we still avoid echoing the values (we pipe
         # straight into $GITHUB_ENV).
-        run: supabase status -o env | grep -E '^(ANON_KEY|SERVICE_ROLE_KEY)=' >> "$GITHUB_ENV"
+        #
+        # CRITICAL: `supabase status -o env` emits QUOTED values, e.g.
+        #   SERVICE_ROLE_KEY="eyJ..."
+        # Piping that line verbatim into $GITHUB_ENV carries the literal
+        # double-quotes INTO the env var, so the fixture's bearer token
+        # becomes `"eyJ..."` (quotes included) and PostgREST rejects it with
+        # "JWT cryptographic operation failed" (the spec 078 first-CI-run
+        # failure). The sed strips the surrounding quotes so the env var
+        # holds the bare JWT. Version-robust: keyed on the `KEY="value"`
+        # shape, not a specific CLI version.
+        run: |
+          supabase status -o env \
+            | grep -E '^(ANON_KEY|SERVICE_ROLE_KEY)=' \
+            | sed -E 's/^([A-Za-z_]+)="(.*)"$/\1=\2/' \
+            >> "$GITHUB_ENV"
 
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium

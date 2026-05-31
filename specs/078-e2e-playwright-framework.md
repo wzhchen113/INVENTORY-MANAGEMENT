@@ -1252,3 +1252,27 @@ flow must authenticate/operate as `master@local.test` (the spec already
 defines `DEMO.masterEmail`) to reach the master-gated invite flow. This is in
 the backend-developer's disjoint file set — flagged here, not patched, per the
 clean-split rule.
+
+---
+
+## Post-merge fix — e2e.yml first-CI-run failure (JWT quote contamination)
+
+The brand-new `e2e.yml`'s FIRST CI run (push 604dd45) failed — exactly the
+unproven-new-workflow risk flagged in the release proposal. Root cause: the
+"Export local stack keys" step ran `supabase status -o env | grep ... >>
+$GITHUB_ENV`, but `supabase status -o env` emits QUOTED values
+(`SERVICE_ROLE_KEY="eyJ..."`). Piping that verbatim into `$GITHUB_ENV`
+carried the literal double-quotes into the env var, so the OQ-4 fixture's
+service-role bearer became `"eyJ..."` (quotes included) and PostgREST
+rejected it: **"JWT cryptographic operation failed."** The keys themselves
+were correct (verified: the local stack's `SERVICE_ROLE_KEY` byte-matches
+the demo key the fixture hardcodes as fallback) — only the quote
+contamination broke it. test.yml never hit this because pgTAP connects via
+direct psql, not a service-role JWT.
+
+Fix: the export step now strips the surrounding quotes with
+`sed -E 's/^([A-Za-z_]+)="(.*)"$/\1=\2/'` before writing to `$GITHUB_ENV`.
+Version-robust (keyed on the `KEY="value"` shape, not a CLI version).
+Local `npm run e2e` was always green (it uses the hardcoded demo-key
+fallback, which matches the local stack) — the bug was CI-only, in the
+key-export path. Re-watch the e2e.yml run after this lands.
