@@ -1,6 +1,6 @@
 # Spec 080: E2E — dashboard attention-queue weekly-window guard
 
-Status: DEFERRED (architect RE-DEFER — Q5; see ## Backend / Frontend design)
+Status: READY_FOR_REVIEW (un-deferred — spec 081 removed the sole blocker; see ## Backend / Frontend design (un-deferred))
 
 ## Problem / context
 
@@ -606,7 +606,617 @@ correct home for the integration value 080 was reaching for.
 
 ---
 
-## Handoff
+## Backend / Frontend design (un-deferred)
+
+**Decision: BUILD — FULL (AC-080-IN + AC-080-OUT), with the positive Monday
+variant (assert All-clear, not `test.skip()`).** Status flipped `DEFERRED →
+READY_FOR_BUILD`. The prior RE-DEFER analysis above is preserved verbatim and
+remains an accurate record of the system as it was. This section appends the
+re-engagement: **spec 081 (commit `a6b699c`, CI green) removed the sole
+blocker** — the dashboard `unconfirmed_po` rule is now genuinely per-store, so
+a dedicated-store fixture deterministically drives its own card. Re-verified
+against the live 081 code below.
+
+### Re-confirmation 1 — the blocker is genuinely gone (end-to-end, verified)
+
+The RE-DEFER blocker was: *"`unconfirmed_po` renders the FOCAL store's schedule
+on EVERY card; the focal store is non-deterministic; so a dedicated-store
+fixture can't drive that store's card."* Spec 081 fixed exactly this. I traced
+the full data flow against the shipped code:
+
+1. **Cross-store fetch picks up the dedicated store.** `DashboardSection`
+   computes `storeIds = stores.map((s) => s.id)`
+   ([DashboardSection.tsx:170](../src/screens/cmd/sections/DashboardSection.tsx)),
+   where `stores` is the admin's full store list (admin sees all via
+   `auth_is_admin()` short-circuit in `auth_can_see_store()`). It calls
+   `db.fetchOrderScheduleForStores(storeIds)` + `db.fetchOrderSubmissionsForStores(storeIds, since)`
+   in the cross-store `useEffect`
+   ([DashboardSection.tsx:188-197](../src/screens/cmd/sections/DashboardSection.tsx)).
+   A dedicated `status='active'` store is therefore IN `storeIds` and IN both
+   `.in('store_id', storeIds)` selects
+   ([db.ts:3495](../src/lib/db.ts), [db.ts:1181](../src/lib/db.ts)).
+
+2. **The dedicated store's schedule lands keyed to ITS OWN id.**
+   `fetchOrderScheduleForStores` groups rows into
+   `byStore[row.store_id][row.day_of_week].push({vendorId, vendorName, deliveryDay})`
+   ([db.ts:3501-3513](../src/lib/db.ts)) — store A's rows can never bleed into
+   store B's bucket. `DashboardSection` then builds
+   `scheduleByStore = { ...crossStoreOrderSchedule, [currentStore.id]: orderSchedule }`
+   ([DashboardSection.tsx:230-232](../src/screens/cmd/sections/DashboardSection.tsx))
+   — the dedicated store (not focal) takes its slice straight from the
+   cross-store fetch.
+
+3. **Each card gets its own slice.** The per-store loop passes
+   `allOrderSubmissions` (flat, self-filtering) +
+   `scheduleByStore[s.id] ?? EMPTY_ORDER_SCHEDULE` into
+   `computeAttentionQueue(s.id, ...)`
+   ([DashboardSection.tsx:336-337](../src/screens/cmd/sections/DashboardSection.tsx)).
+   The rule reads `orderSchedule[pastDayName]` — now the *dedicated store's*
+   weekday schedule — and emits a row `id: ${storeId}:po:${vendorKey}:${pastISO}`,
+   `text: "${vendorName} order missed (${pastISO})"`, attributed to `s.id`
+   ([cmdSelectors.ts:888-904](../src/lib/cmdSelectors.ts)). The submissions
+   predicate self-filters `o.storeId === storeId`
+   ([cmdSelectors.ts:892](../src/lib/cmdSelectors.ts)), so the dedicated store's
+   miss derives iff there is NO matching `purchase_orders` row for
+   `(dedicatedStoreId, pastISO, vendorName)`.
+
+**Conclusion:** a dedicated store seeded with an `order_schedule` row on an
+in-window weekday + no matching `purchase_orders` row will render its OWN
+"order missed" row on its OWN card, independent of which store is focal. This
+matches the live verification the dispatcher reported (Frederick-only schedule
+→ `orderMissedTotal: 1` on Frederick's card only). **The crux is verified;
+the blocker is gone.** The non-determinism of `fetchStores` ordering
+([db.ts:44-58](../src/lib/db.ts), still no `.order()`) is now *harmless to this
+test* — focal-store identity no longer gates the dedicated card's content.
+
+### Re-confirmation 2 — LEAN vs FULL → FULL (now cleanly feasible)
+
+The RE-DEFER killed FULL because focal-schedule contamination made
+`toHaveCount(0)` un-assertable (a card showed the focal store's full schedule
+mixed in). **081 eliminates the contamination:** the dedicated store's card now
+shows ONLY rows derived from the dedicated store's own schedule. So the
+out-of-window assertion is clean: seed an in-window miss (asserted present) AND
+a before-this-Monday miss (asserted absent — the dedicated store's card will
+have an `attention-row-{dedId}:po:...:{lastWeekISO}` testID iff the window
+fails to filter it; `toHaveCount(0)` proves the spec-074 filter works in the
+real render).
+
+**Decision: FULL.** It is now the higher-value, no-longer-blocked option, and
+the second fixture date does NOT materially complicate the arithmetic (Q1 math
+below produces both dates from the same `getWeekWindow` call — the in-window
+date is the last element of the filtered week ISOs; the out-of-window date is
+`mondayStart - 1 day`, a one-liner). FULL proves *both directions* of the
+window (in-window renders, out-of-window is filtered) against the real DOM —
+the integration delta the spec was reaching for, and the property the jest
+layer proves only in isolation.
+
+### Re-confirmation 3 — date-arithmetic determinism (the remaining crux)
+
+The window predicate is `weekISOs.filter((iso) => iso < todayISOInTz)` where
+`weekISOs = isoDateRange(mondayStart, nextMondayStart)` and `todayISOInTz =
+getLocalDateISO(timezone, now)` ([cmdSelectors.ts:876-879](../src/lib/cmdSelectors.ts)).
+On Monday the filtered set is **empty** (no day in `[thisMonday, today)`).
+
+**Helper reuse (confirmed importable from `e2e/`).** `src/utils/weekWindow.ts`
+is dependency-free (`Intl` only — re-read in full this pass). `e2e/tsconfig.json`
+is plain Node + DOM, `moduleResolution: Bundler`, `include: ["**/*.ts"]`, no
+`exclude`/`rootDir` restriction on `../src`, and `npm run e2e` transpiles via
+esbuild (which resolves the relative import regardless of tsconfig). So the spec
+imports the **production** helpers — the test and the app agree on the window
+boundary by construction:
+
+```ts
+import { getWeekWindow, getLocalDateISO, isoDateRange } from '../src/utils/weekWindow';
+// (path: e2e/dashboard-window.spec.ts → ../src/utils/weekWindow; verify the
+//  relative depth at write time — one ../ from e2e/ to repo root, then src/…)
+```
+
+**Target dates (computed at fixture time, `now`-relative, store-tz):**
+
+```ts
+const tz = BRAND_TZ;                 // see "Timezone source" below
+const now = new Date();
+const { mondayStart, nextMondayStart } = getWeekWindow(tz, now);
+const todayISO = getLocalDateISO(tz, now);
+const weekISOs = isoDateRange(mondayStart, nextMondayStart);
+const inWindow = weekISOs.filter((iso) => iso < todayISO);   // [] on Monday
+const isMonday = inWindow.length === 0;
+
+// IN-window miss date: the LAST in-window ISO (closest to today → max distance
+// from the Monday edge, least sensitive to a near-midnight tz wobble).
+const inWindowISO = isMonday ? null : inWindow[inWindow.length - 1];
+
+// OUT-of-window miss date: the day BEFORE this week's Monday (= last week's
+// Sunday), guaranteed < mondayStart so the spec-074 filter must drop it.
+const beforeMonday = new Date(mondayStart.getTime());
+beforeMonday.setUTCDate(beforeMonday.getUTCDate() - 1);
+const outWindowISO = isoDateRange(beforeMonday, mondayStart)[0]; // single ISO
+```
+
+The schedule row's `day_of_week` is the TitleCase weekday of the target ISO,
+computed exactly as the app reads it. The app's `unconfirmed_po` predicate
+derives the weekday from the ISO via `new Date(+y, +m-1, +d).getDay()` →
+`DAY_NAMES[...]` ([cmdSelectors.ts:884-887](../src/lib/cmdSelectors.ts)). The
+fixture MUST mirror that — parse the ISO as **local** Y/M/D (NOT
+`new Date(iso)`, which is UTC-midnight and can shift the weekday) and index
+`WEEKDAYS` (already in `constants.ts:45`, the TitleCase array matching
+`order_schedule.day_of_week`):
+
+```ts
+const weekdayOf = (iso: string): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return WEEKDAYS[new Date(y, m - 1, d).getDay()];   // local parse — matches cmdSelectors
+};
+```
+
+**Timezone source.** The brand has ONE timezone (spec 074 follow-up #2); the
+dashboard anchors `computeAttentionQueue` on the brand-global `useStore.timezone`
+([DashboardSection.tsx](../src/screens/cmd/sections/DashboardSection.tsx) →
+`timezone` arg). The fixture and the test must use the **same** tz string the
+running app uses, or the window boundary can disagree near midnight. The default
+is `'America/New_York'` (the app's pervasive default — e.g. `mapPurchaseOrderRow`
+formats `submittedAt` in `America/New_York`, [db.ts:1119](../src/lib/db.ts)).
+**Backend-dev action:** confirm the runtime `useStore.getState().timezone`
+value the seeded admin session resolves to and pin the SAME constant
+(`BRAND_TZ`) in the spec; if it is the `America/New_York` default, hardcode that
+with a comment citing this design line. Do NOT read tz from `process.env` /
+system locale — it must match what the browser app computes, which is the store
+value, not the CI runner's locale.
+
+**Monday handling — positive variant (AC-080-IN-MONDAY-SKIP, better form).**
+When `isMonday` is true the in-window set is empty, so the dedicated store's
+card legitimately shows NO `unconfirmed_po` row. Rather than `test.skip()`
+(which proves nothing 1/7 of CI days), **assert the All-clear / no-missed-rows
+state**: on Monday, the dedicated store's card must have `toHaveCount(0)` on
+`attention-row-{dedId}:po:*` (no missed-order rows for that store). This turns
+Monday into a genuine Monday-reset proof and keeps the guard meaningful every
+day. (If the dedicated store has ONLY the `unconfirmed_po` fixture and no other
+attention condition, the card shows the literal "All clear ✓" empty-state
+([DashboardSection.tsx:951-955](../src/screens/cmd/sections/DashboardSection.tsx)),
+which the test MAY additionally assert — but the robust, rule-scoped assertion
+is `toHaveCount(0)` on the `unconfirmed_po` rows, which holds even if a future
+unrelated rule fires on that store.) **Note:** on Monday, seeding the in-window
+schedule row is a no-op for the assertion (there is no in-window date), so the
+fixture branches: on Monday, seed only enough to assert the empty/filtered state
+(the out-of-window row, which must STILL be absent — a strict superset of the
+non-Monday assertion). The out-of-window absence assertion (AC-080-OUT) holds on
+ALL seven weekdays, so FULL's `toHaveCount(0)` arm is the day-invariant floor;
+the in-window presence arm (AC-080-IN) is the Tue–Sun add-on.
+
+### Re-confirmation 4 — dedicated throwaway-store fixture + date-scoped teardown
+
+**Store + FK requirements (grounded in seed.sql + the brand trigger):**
+
+- **Store row:** `stores (id, brand_id, name, address, status, eod_deadline_time)`
+  — `id = SEED.e2eWindowStoreId` (new fixed constant, NOT random — so teardown
+  is exact), `brand_id = '2a000000-0000-0000-0000-000000000001'` (the seed
+  brand, inserted by `20260504060452_brand_catalog_p1_additive`), `status =
+  'active'` (so `fetchStores` returns it — [db.ts:49](../src/lib/db.ts)),
+  `name = 'E2E Window Store'`, an `address` string, `eod_deadline_time = '22:00'`.
+  Upsert `on conflict (id) do update` (idempotent; mirrors seed.sql:183).
+- **`user_stores` grant — OMIT (081 simplification, but with a caveat).** Under
+  081, the dedicated store's card renders its own schedule regardless of focal,
+  and admin sees the store via the `auth_is_admin()` short-circuit in
+  `auth_can_see_store()` ([per_store_rls_hardening.sql:31-41](../supabase/migrations/20260504173035_per_store_rls_hardening.sql))
+  WITHOUT a grant. So the grant is **not needed for visibility OR
+  focal-determinism** — both reasons the prior design cited are now moot.
+  Omitting it removes one FK-ordered teardown row. **HOWEVER** — if a grant IS
+  added (defensively or by a future edit), the `user_stores_brand_match` trigger
+  ([20260509000000_multi_brand_schema_rls.sql:357-386](../supabase/migrations/20260509000000_multi_brand_schema_rls.sql))
+  requires the store's `brand_id` to equal admin's `profiles.brand_id`
+  (= `2a000000-...0001`, seed.sql:67-68) or the insert RAISES. Since the store
+  is already seed-branded, a grant would pass — but it is unnecessary. **Decision:
+  omit the grant; the store's brand FK is mandatory regardless** (it is what
+  makes admin's RLS see the store and what a grant would require). If a reviewer
+  prefers the grant for intent-documentation, it is safe to add given the brand
+  match — architect's stated default is OMIT.
+- **Vendor — reuse a seed vendor.** `order_schedule` requires `vendor_id`
+  (FK → `vendors.id`) + `vendor_name` (denormalized NOT-NULL snapshot) +
+  `delivery_day` (NOT-NULL). Reuse `SEED.vendorUsFoodId` (already a brand-scoped
+  seed vendor) for `vendor_id`/`vendor_name='US FOOD'` — no new `vendors` row,
+  no extra teardown. (A net-new vendor is fine too but is an extra FK row;
+  reuse is leaner.)
+- **`inventory_items` — NOT required (spec-text correction).** AC-080-STORE
+  asks for "at least one `inventory_items` row … so the schedule-vs-submission
+  derivation has a real vendor to miss." **Re-reading the rule, this is
+  unnecessary:** `unconfirmed_po` iterates `orderSchedule[pastDayName]` and
+  checks `orderSubmissions` — it NEVER touches `inventory`
+  ([cmdSelectors.ts:888-904](../src/lib/cmdSelectors.ts)). The miss derives
+  purely from (schedule row present) + (no matching `purchase_orders` row).
+  **Decision: skip `inventory_items`** — drop AC-080-STORE's inventory clause as
+  over-specified. (Surfaced, not silently dropped: the spec's mental model
+  conflated `unconfirmed_po` with the inventory-keyed `low_out_stock`/`expiry`
+  rules; only the latter need inventory.) This removes another FK row from setup
+  and teardown.
+- **`order_schedule` rows:** one row per target date keyed to that date's
+  weekday — `{ store_id: SEED.e2eWindowStoreId, day_of_week: weekdayOf(iso),
+  vendor_id: SEED.vendorUsFoodId, vendor_name: 'US FOOD', delivery_day:
+  weekdayOf(iso) }`. Two unique constraints exist
+  (`order_schedule_store_day_vendor_unique` on `(store_id, day_of_week,
+  vendor_id)` — [spec007_order_schedule_unique.sql:77-78](../supabase/migrations/20260507214842_spec007_order_schedule_unique.sql)
+  — AND `order_schedule_store_id_day_of_week_vendor_name_key` on `(store_id,
+  day_of_week, vendor_name)` — [20260502071736_remote_schema.sql:179](../supabase/migrations/20260502071736_remote_schema.sql)).
+  Upsert with `onConflict: 'store_id,day_of_week,vendor_id', ignoreDuplicates:
+  true` (the global-setup precedent, [global-setup.ts:68-71](../e2e/global-setup.ts)).
+  **Caveat on FULL across weekdays:** if `weekdayOf(inWindowISO) ===
+  weekdayOf(outWindowISO)` (the in-window day and last-week-Sunday fall on the
+  same weekday name — they will NOT for adjacent weeks since they're 7+ days
+  apart in distinct weeks, but the *weekday name* could coincide e.g. both
+  "Saturday" if inWindow is this Saturday and out is last Sunday — no, those
+  differ; the real collision is impossible because in-window is Mon–Sat-of-this-
+  week and out is last-Sunday, and a single store+vendor+weekday row is unique),
+  the two `order_schedule` rows have DISTINCT `day_of_week` values by
+  construction (different calendar weeks → the in-window weekday ≠ last-Sunday
+  unless inWindow IS a Sunday, which it can't be — Sunday is the *last* day of
+  the week and `< today` only when today is past Sunday, i.e. never in this
+  week's window since the week ends Sunday). Net: the two schedule rows never
+  collide on the unique key. Backend-dev: assert distinctness defensively
+  anyway.
+- **No matching `purchase_orders`:** the fixture must NOT create a
+  `purchase_orders` row for `(SEED.e2eWindowStoreId, inWindowISO, 'US FOOD')`
+  — its ABSENCE is what makes the scheduled vendor a "miss." (The seed has no
+  POs for this brand-new store, so absence is the default; the teardown must
+  still defensively delete any `purchase_orders` for the dedicated store id in
+  case a prior run or stray write created one.) The out-of-window date likewise
+  has no matching PO; its row is filtered by the window, not by a submission
+  match, so its absence-on-card is the spec-074 proof.
+
+**Teardown — extend `global-teardown.ts`, store-scoped, FK-ordered,
+idempotent.** Add a block keyed on `SEED.e2eWindowStoreId`, after the existing
+Towson `order_schedule` cleanup. FK order (children before parent; both
+`order_schedule.store_id` and `purchase_orders.store_id` are `on delete cascade`
+per init_schema, but explicit deletes are clearer and don't rely on cascade):
+
+```
+delete purchase_orders where store_id = SEED.e2eWindowStoreId
+delete order_schedule  where store_id = SEED.e2eWindowStoreId
+delete user_stores     where store_id = SEED.e2eWindowStoreId   // no-op if grant omitted
+delete stores          where id       = SEED.e2eWindowStoreId   // parent last
+```
+
+Each delete is by the dedicated store id → idempotent (no-op when absent) and
+**cannot touch Towson or any of the four pgTAP seed stores** (different id), so
+the OQ-4 / `missed_order_audit_rpc` non-collision invariant holds. Same
+non-fatal `console.warn`-on-error posture as the existing block
+([global-teardown.ts:47-57](../e2e/global-teardown.ts)). **Decision: extend
+`global-teardown.ts`** (the PM default Q4) over a per-spec `afterAll`, because
+(a) all e2e DB hygiene already lives there, (b) it runs `serviceRoleClient()`'s
+prod-URL guard, and (c) it runs once after ALL projects, so a parallel
+re-run never races a per-spec teardown. The fixture INSERT, by contrast, should
+live in the **spec file's `test.beforeAll`** (NOT `global-setup.ts`) — because
+the target dates are `now`-relative and the spec already imports
+`weekWindow.ts`; co-locating setup with the assertions keeps the date math in
+one file, while teardown stays centralized for hygiene. (`global-setup.ts`
+seeds only the date-agnostic Towson `order_schedule`; the date-relative
+dedicated-store rows belong with the spec that computes the dates.)
+
+### Re-confirmation 5 — testID contract (FROZEN — the FE disjoint lane)
+
+Two net-new production `testID`s on `DashboardSection.tsx`, FROZEN as the
+contract between the frontend-developer (adds them) and the backend/harness-dev
+(consumes them):
+
+1. **`dashboard-store-card-{storeId}`** — on the per-store card wrapper `View`
+   at [DashboardSection.tsx:498](../src/screens/cmd/sections/DashboardSection.tsx)
+   (the `stores.map((s) => (<View key={s.id} style={{ flex: 1, minWidth: 240 }}>`
+   wrapper that already owns `s.id` in scope and wraps `<StoreCol>`). Interpolate
+   `s.id`: `testID={`dashboard-store-card-${s.id}`}`. **Refinement on the prior
+   design:** apply it to the `:498` wrapper (not the `StoreCol` root), because
+   `s.id` is already in scope there and the wrapper is the natural per-store
+   boundary — one-line change, no prop drilling into `StoreCol`.
+2. **`attention-row-{item.id}`** — on the queue-row `Wrapper` element at
+   [DashboardSection.tsx:973-974](../src/screens/cmd/sections/DashboardSection.tsx)
+   (which already has `key={item.id}` in scope). Interpolate `item.id`:
+   `testID={`attention-row-${item.id}`}`. The `unconfirmed_po` `item.id` is
+   `${storeId}:po:${vendorKey}:${pastISO}` ([cmdSelectors.ts:899](../src/lib/cmdSelectors.ts)),
+   so the test computes the exact expected testID from the SAME `storeId` +
+   `vendorKey` + `pastISO` it seeds — exact-match, no text/prose brittleness,
+   and `toHaveCount(0)` on the out-of-window id works. `vendorKey` is
+   `(v.vendorId || v.vendorName || 'vendor').toString()` — since the fixture
+   sets `vendor_id = SEED.vendorUsFoodId`, `vendorKey === SEED.vendorUsFoodId`.
+
+**Frozen choice rationale (unchanged from the prior design, now with a
+consumer):** `attention-row-{item.id}` (one interpolation, exact-match-able)
+over `attention-row-{rule}-{date}` (requires re-parsing the date). The card
+testID is required because text-only scoping across 5 cards is brittle; the row
+testID is required for the `toHaveCount(0)` out-of-window arm. Both are
+non-behavioral attributes; no jest test keys on their absence (reviewer
+spot-check per AC-080-DOC). These are the ONLY net-new production testIDs and
+are the FE's disjoint lane — the harness-dev touches ONLY `e2e/*` +
+`tests/README.md` + `constants.ts`.
+
+### The assertion (FULL, day-aware) — pseudocode for the harness-dev
+
+```
+test.use({ storageState: STORAGE_STATE.admin });
+
+test.beforeAll: serviceRoleClient() →
+  upsert dedicated store (brand 2a…01, status active)
+  upsert order_schedule row for outWindowISO's weekday  (always)
+  if (!isMonday) upsert order_schedule row for inWindowISO's weekday
+  // NO purchase_orders rows; NO inventory_items; NO user_stores grant
+
+test('AC-080-IN/OUT: spec-074 window renders per-store on the dedicated card'):
+  page.goto('/'); expect cmd-shell-root visible
+  getByTestId(SIDEBAR_NAV.dashboard).click()
+  expect getByTestId('dashboard-root') visible          // AC-080-FLAKE: assert before interacting
+  const card = getByTestId(`dashboard-store-card-${SEED.e2eWindowStoreId}`)
+  expect(card).toBeVisible()                             // dedicated card rendered
+
+  const outId = `${SEED.e2eWindowStoreId}:po:${SEED.vendorUsFoodId}:${outWindowISO}`
+  expect(card.getByTestId(`attention-row-${outId}`)).toHaveCount(0)   // AC-080-OUT — every weekday
+
+  if (!isMonday) {
+    const inId = `${SEED.e2eWindowStoreId}:po:${SEED.vendorUsFoodId}:${inWindowISO}`
+    expect(card.getByTestId(`attention-row-${inId}`)).toBeVisible()   // AC-080-IN — Tue–Sun
+  } else {
+    // Monday: window empty → no unconfirmed_po rows for this store
+    expect(card.locator('[data-testid^="attention-row-' + SEED.e2eWindowStoreId + ':po:"]'))
+      .toHaveCount(0)                                                  // AC-080-IN-MONDAY (positive)
+  }
+```
+
+Scope the row queries WITHIN the dedicated card (`card.getByTestId(...)`) so the
+assertion targets that store's rows only, not another card's. All assertions are
+web-first auto-retrying (`toBeVisible`/`toHaveCount`), no `waitForTimeout`, nav
+by `SIDEBAR_NAV.dashboard` testID — AC-080-FLAKE satisfied. The only conditional
+(`isMonday`) is computed deterministically from `getWeekWindow`, not from a
+caught timeout.
+
+### Data model / RLS / API / edge / db.ts / realtime / store — all unchanged
+
+- **Data model:** No migration. `order_schedule` and `purchase_orders` exist;
+  `stores`/`vendors` exist. The fixture writes via `serviceRoleClient()` in the
+  `e2e/` tree (does not widen the `src/lib/db.ts` centralization rule, per the
+  078/079 precedent).
+- **RLS:** No policy change. `order_schedule`/`purchase_orders` SELECT route
+  through `auth_can_see_store()`; admin sees the dedicated store via
+  `auth_is_admin()`. The fixture's service-role writes bypass RLS by design
+  (OQ-4 posture). No spec-053 permissive-lint concern.
+- **API contract / edge functions / `db.ts` surface:** **Unchanged — nothing
+  added.** This spec consumes the 081 helpers (`fetchOrderScheduleForStores`,
+  `fetchOrderSubmissionsForStores`) as already-shipped; it does NOT add or modify
+  any `db.ts` helper, RPC, view, or edge function. No `verify_jwt` surface.
+- **Realtime impact:** **None.** No publication-membership change → the CLAUDE.md
+  realtime-publication gotcha (`docker restart supabase_realtime_imr-inventory`)
+  is **N/A**. The dashboard's cross-store loaders are mount + `currentStore.id`
+  refresh (the 081 D4 caveat); the E2E reads the rendered card at mount, asserts
+  no realtime propagation.
+- **Frontend store impact:** **None to `useStore.ts`.** The only `src/` change is
+  the two net-new testIDs on `DashboardSection.tsx` (non-behavioral attributes).
+  The optimistic-then-revert / `notifyBackendError` pattern does NOT apply — no
+  mutation, UI-only read assertion (AC-080-Q6).
+
+### Risks and tradeoffs (un-deferred)
+
+1. **Timezone agreement (highest residual risk).** The fixture's date math and
+   the app's window boundary must use the SAME tz string. If the seeded admin
+   session's `useStore.timezone` is NOT `America/New_York`, hardcoding
+   `America/New_York` in the spec could disagree near midnight and flip the
+   in-window date by one day on a tz-boundary run. **Mitigation:** backend-dev
+   confirms the runtime `timezone` value and pins `BRAND_TZ` to match (Re-confirm
+   3). This is the one item that must be verified live, not assumed.
+2. **Near-midnight in-window edge.** Taking the LAST in-window ISO maximizes
+   distance from the Monday edge, but if `now` is within seconds of local
+   midnight the fixture-time `getWeekWindow` and the browser-time
+   `computeAttentionQueue` (which runs `getWeekWindow(now)` at render, a few
+   seconds later) could straddle midnight and disagree on `todayISO`. This is a
+   sub-second flake window inherent to any wall-clock E2E; it is the same class
+   of risk the spec-079 EOD persistence test accepts. Not worth a clock-freeze
+   harness for a non-required workflow. Documented, accepted.
+3. **Adding a 5th store to the seeded stack.** `fetchStores` has no `.order()`,
+   so a 5th store perturbs PostgREST physical order — but under 081 this no
+   longer affects the dedicated card's CONTENT (only which store is focal, which
+   no longer gates the dedicated card). The dedicated card always renders (admin
+   sees it) with its own schedule. No determinism risk from the extra store.
+   The teardown drops it so subsequent local pgTAP/`db reset` runs are clean.
+4. **pgTAP non-collision.** The dedicated store id is NOT one of the four
+   `missed_order_audit_rpc` anchors (Towson/Frederick/Charles/Reisters), and the
+   store-scoped teardown drops all its rows — so a local `npm run e2e` followed
+   by `scripts/test-db.sh` cannot see a stale dedicated-store `order_schedule`
+   row counted by `record_missed_orders_for_day`. The exact collision class
+   `global-teardown.ts` was built to prevent is avoided by construction.
+5. **Performance:** negligible. The 081 cross-store fetchers already fire; the
+   fixture adds ≤ 2 `order_schedule` rows on one store. No new query path.
+6. **Cold-start / migration ordering:** N/A — no edge function, no migration.
+
+### Spec-text corrections surfaced (not silently worked around)
+
+- **AC-080-STORE's `inventory_items` clause is over-specified** — `unconfirmed_po`
+  never reads `inventory`. Drop it (Re-confirm 4). The store + a seed vendor +
+  the `order_schedule` row(s) are sufficient.
+- **AC-080-STORE's `user_stores` grant is unnecessary under 081** — admin sees
+  the store via `auth_is_admin()` and focal-ness no longer gates the dedicated
+  card. Omit it; the store's brand FK (`2a…01`) is the only mandatory FK
+  (Re-confirm 4).
+- **Q5 / AC-080-IN-MONDAY-SKIP resolves to the positive Monday variant** (assert
+  the windowed-empty state, not `test.skip()`) — a strictly better Monday-reset
+  proof that keeps the guard meaningful all seven days (Re-confirm 3).
+- The prior RE-DEFER's recommended follow-up (add `fetchOrderScheduleForStores`/
+  `fetchOrderSubmissionsForStores`) **was implemented as spec 081** — the
+  durable artifact of the prior pass became the unblock.
+
+### Developer split (explicit + disjoint — frozen testID names are the contract)
+
+- **backend-developer — owns the `e2e/` tree + `tests/README.md` +
+  `constants.ts`.**
+  - Add `SEED.e2eWindowStoreId` (fixed UUID, NOT random) to
+    `e2e/fixtures/constants.ts`.
+  - New spec `e2e/dashboard-window.spec.ts`: import `getWeekWindow`/
+    `getLocalDateISO`/`isoDateRange` from `../src/utils/weekWindow` + `WEEKDAYS`/
+    `SEED`/`STORAGE_STATE`/`SIDEBAR_NAV` from `./fixtures/constants` +
+    `serviceRoleClient` from `./fixtures/db`. Compute `inWindowISO`/`outWindowISO`/
+    `isMonday` (Re-confirm 3), `test.beforeAll` fixture insert (store + seed-vendor
+    `order_schedule` rows, NO POs/inventory/grant), the FULL day-aware assertion
+    (the pseudocode above). Pin `BRAND_TZ` after confirming the runtime
+    `useStore.timezone` (Risk 1).
+  - Extend `e2e/global-teardown.ts` with the store-scoped, FK-ordered, idempotent
+    delete block keyed on `SEED.e2eWindowStoreId` (Re-confirm 4).
+  - `tests/README.md` Track-4 note: the window guard, the dedicated-store +
+    date-scoped-teardown isolation pattern (and WHY it avoids the four pgTAP seed
+    stores), and the positive-Monday-assertion pattern as a reusable
+    deterministic-clock E2E note (AC-080-DOC).
+  - Does NOT touch `src/` (consumes the frozen testIDs only).
+- **frontend-developer — owns `src/screens/cmd/sections/DashboardSection.tsx`.**
+  - Add `testID={`dashboard-store-card-${s.id}`}` to the per-store card wrapper
+    `View` at `:498`.
+  - Add `testID={`attention-row-${item.id}`}` to the queue-row `Wrapper` at
+    `:973`.
+  - Two one-line attribute additions, no behavior change, no other file.
+
+Disjoint boundary: frontend-developer owns the two testIDs in
+`DashboardSection.tsx`; backend/harness-developer owns everything in `e2e/` +
+`tests/README.md` + the `constants.ts` id. No shared file. The frozen testID
+names (`dashboard-store-card-{storeId}`, `attention-row-{item.id}`) are the
+contract between them — the FE adds them, the harness-dev consumes them
+verbatim.
+
+---
+
+## Files changed (backend/e2e)
+
+The backend/harness half (the `e2e/` tree + `tests/README.md` + the
+`constants.ts` id). The frontend-developer ran IN PARALLEL on the two FROZEN
+testIDs in `src/screens/cmd/sections/DashboardSection.tsx`
+(`dashboard-store-card-{storeId}` + `attention-row-{item.id}`) — that file is
+NOT in this list (disjoint lane). No `src/`, `db.ts`, `cmdSelectors.ts`,
+migration, RPC, or edge-function change on this half.
+
+e2e/ (Track 4 — Playwright):
+
+- `e2e/dashboard-window.spec.ts` — NEW. The FULL day-aware window guard. Imports
+  the production `weekWindow.ts` helpers (`getWeekWindow` / `getLocalDateISO` /
+  `isoDateRange`) so the test and the app agree on the window boundary by
+  construction. Computes `inWindowISO` (last filtered week ISO) / `outWindowISO`
+  (mondayStart − 1 day) / `isMonday` in `BRAND_TZ='America/New_York'` (pinned to
+  the verified runtime `useStore.timezone` default — Risk 1). `test.beforeAll`
+  seeds the dedicated store (brand `2a…01`, status active) + seed-vendor
+  `order_schedule` rows on the target weekday(s) (NO purchase_orders, NO
+  inventory_items, NO user_stores grant). Asserts: out-of-window row absent
+  (`toHaveCount(0)`, every weekday); in-window row visible (Tue–Sun); windowed-
+  empty (`toHaveCount(0)` on all `attention-row-{dedId}:po:*`) on Monday — the
+  positive Monday-reset variant, not `test.skip()`. Every row assertion is
+  scoped WITHIN the dedicated store's card.
+- `e2e/global-teardown.ts` — EXTENDED. Added a store-scoped, FK-ordered,
+  idempotent delete block keyed on `SEED.e2eWindowStoreId` (delete
+  `purchase_orders` + `order_schedule` for the store, then the `stores` row
+  last). Keyed on the dedicated id → can never touch Towson or the four pgTAP
+  `missed_order_audit_rpc` anchors. Same non-fatal `console.warn`-on-error
+  posture as the existing Towson block. File-header comment updated to note the
+  second cleanup.
+- `e2e/fixtures/constants.ts` — EXTENDED. Added `SEED.e2eWindowStoreId` (a FIXED,
+  non-anchor UUID `e2e00000-…-080`) so the teardown is exact and store-scoped.
+
+docs:
+
+- `tests/README.md` — Track-4 section: added the window-guard bullet (FULL, both
+  directions), the dedicated-store + date-scoped-teardown isolation pattern (and
+  WHY it must avoid the four pgTAP anchor stores), and the positive-Monday-
+  assertion pattern as a reusable deterministic-clock-E2E note. Added
+  `dashboard-window.spec.ts` to the `e2e/` directory tree.
+
+Verification performed (backend/e2e half):
+
+- `npx tsc --noEmit -p e2e/tsconfig.json` → exit 0.
+- `npx playwright test dashboard-window --list` → the spec parses and is
+  discovered (the production `weekWindow.ts` import resolves; module-level date
+  math runs during collection).
+- Fixture logic independently verified via a throwaway service-role script
+  (run from repo root, then deleted — not committed): replicated the spec's
+  exact date math + `beforeAll` insert, read back via service-role, ran the
+  `global-teardown.ts` deletes, and confirmed removal + idempotency. On the run
+  date (2026-05-31, a Sunday — the non-Monday path): in-window=2026-05-30
+  (Saturday), out-of-window=2026-05-24 (Sunday, last week); both
+  `order_schedule` rows landed on the correct weekdays for US FOOD; no
+  `purchase_orders` (the miss is real); the store is `status='active'` +
+  `brand_id=2a…01` (admin RLS sees it); teardown removed all rows + the store
+  and a second delete was a clean no-op. ALL CHECKS PASSED.
+- `scripts/test-db.sh` → 38/38 DB test files passed (the four anchor stores
+  undisturbed; teardown left the DB clean).
+- `npx jest` → 397 passed / 41 suites (untouched — no jest surface changed).
+- Full browser assertion NOT runnable on this half alone: the two
+  `getByTestId(...)` targets land via the frontend-developer's parallel testID
+  additions. Expected mid-parallel-build; the fixture half is independently
+  green as above.
+
+## Files changed (frontend/testID)
+
+The frontend half — the two FROZEN net-new production testIDs (AC-080-SEL,
+Q3), the only `src/` change in this spec. Disjoint lane from the backend/e2e
+half above (no `e2e/`, `db.ts`, `cmdSelectors.ts`, `constants.ts`, migration,
+or doc change on this half). Both are leaf-attribute additions on existing
+elements — production-inert (no behavior, layout, style, or conditional
+change). RN `testID` → DOM `data-testid` on web (consumed by the backend-dev's
+`getByTestId(...)` assertions).
+
+- `src/screens/cmd/sections/DashboardSection.tsx` — TWO testID attributes added:
+  - `testID={`dashboard-store-card-${s.id}`}` on the per-store card wrapper
+    `<View key={s.id}>` inside the `stores.map((s) => …)` attention-queue cards
+    row (the same `s.id` passed to `computeAttentionQueue(s.id, …)`). Was
+    DashboardSection.tsx:498; matched by element identity.
+  - `testID={`attention-row-${item.id}`}` on the per-row `<Wrapper key={item.id}>`
+    inside the `queue.map((item, i) => …)` loop. `item.id` is the
+    `AttentionItem` id (`string`), e.g. `${storeId}:po:${vendorKey}:${ISO}` for
+    `unconfirmed_po` rows. Was DashboardSection.tsx:973; matched by element
+    identity.
+
+Verification performed (frontend/testID half):
+
+- `npx tsc --noEmit -p tsconfig.json` → exit 0 (the two template literals
+  typecheck — `s.id` / `item.id` are both `string`).
+- `npx jest` → 397 passed / 41 suites (unchanged baseline — no test pins
+  structure against these attributes; the adds are inert).
+- `npx playwright test dashboard-window --project=chromium --project=setup`
+  → 4 passed (3 setup auth + the window spec). With both testIDs landed, the
+  backend-dev's assertions resolved their `getByTestId(...)` targets:
+  today=2026-05-31 (Sunday, non-Monday path) → in-window miss 2026-05-30
+  asserted present; out-of-window miss 2026-05-24 asserted absent
+  (`toHaveCount(0)`); scoped within the `dashboard-store-card-e2e00000-…-080`
+  card; date-scoped teardown ran clean (dedicated store removed, Towson
+  untouched). Both directions of the spec-074 window proven in a real DOM.
+- Visual no-regression: the `preview_*` MCP tools were not in this session's
+  loadout, so no manual `preview_screenshot` was captured. The passing
+  Playwright run (a real headless-Chromium render of `DashboardSection` against
+  the live local stack, with per-store cards + attention rows rendered and the
+  testID targets resolving) is a stronger real-DOM no-regression proof than a
+  static snapshot; both adds are leaf attributes on existing elements with no
+  layout surface to regress.
+
+---
+
+## Handoff (un-deferred)
+
+next_agent: backend-developer, frontend-developer
+prompt: Spec 080 is UN-DEFERRED (Status: READY_FOR_BUILD). Spec 081 (shipped,
+  CI green) removed the sole RE-DEFER blocker — the dashboard `unconfirmed_po`
+  rule is now genuinely per-store (`scheduleByStore[s.id]` +
+  `db.fetchOrderScheduleForStores`/`fetchOrderSubmissionsForStores`), verified
+  end-to-end against the live code, so a dedicated-store fixture deterministically
+  drives its OWN card. Build FULL (in-window present + out-of-window absent) with
+  the positive Monday variant (assert windowed-empty, not test.skip). Implement
+  against `## Backend / Frontend design (un-deferred)`.
+  backend-developer (the e2e fixture/spec/teardown): add `SEED.e2eWindowStoreId`
+  to `e2e/fixtures/constants.ts`; create `e2e/dashboard-window.spec.ts` importing
+  the production `weekWindow.ts` helpers, computing the `now`-relative in-window
+  (last filtered week ISO) + out-of-window (mondayStart-1) dates in `BRAND_TZ`
+  (CONFIRM the runtime `useStore.timezone` and pin it — Risk 1), a `test.beforeAll`
+  seeding the dedicated store (brand `2a…01`, status active) + seed-vendor
+  `order_schedule` rows (NO purchase_orders, NO inventory_items, NO user_stores
+  grant — the latter two are over-specified per the design); the FULL day-aware
+  assertion (pseudocode in the design); extend `global-teardown.ts` with the
+  store-scoped FK-ordered idempotent delete; add the `tests/README.md` Track-4
+  note. frontend-developer (the 2 net-new testIDs): add
+  `dashboard-store-card-${s.id}` to the card wrapper View (DashboardSection.tsx:498)
+  and `attention-row-${item.id}` to the queue-row Wrapper (DashboardSection.tsx:973)
+  — two one-line attribute additions, no behavior change. The frozen testID names
+  are the contract. After implementation, set Status: READY_FOR_REVIEW and list
+  files changed under `## Files changed`. Then confirm the latest `e2e.yml` run on
+  `main` is green per the CLAUDE.md push rule (AC-080-GREEN; a Monday run shows
+  the windowed-empty assertion, still green).
+payload_paths:
+  - specs/080-e2e-dashboard-attention-queue-window.md
+
+## Handoff (superseded RE-DEFER — preserved for trace)
 
 next_agent: NONE
 prompt: Spec 080 RE-DEFERRED by the architect (Status: DEFERRED). The design pass

@@ -38,6 +38,18 @@ export const SEED = {
   // (EODCount only shows the chip switcher when vendors.length > 1).
   vendorUsFoodId: '023cba00-1b67-4218-a906-cb18a8e62964',
   vendorRestaurantDepotId: '67b0d204-5e27-439a-bc06-3675444b3388',
+  // ─── Spec 080: dedicated throwaway store for the dashboard window guard ──
+  // A FIXED (NOT random) UUID for the e2e-only store dashboard-window.spec.ts
+  // creates + tears down, so its teardown is exact and store-scoped. It is
+  // deliberately NOT any of the four pgTAP `missed_order_audit_rpc` fixture
+  // anchors (Towson / Frederick / Charles / Reisters) — a persisted
+  // order_schedule row on a shared store would be counted by a later local
+  // `record_missed_orders_for_day` pgTAP run (the exact cross-track collision
+  // global-teardown.ts exists to prevent). The store is brand-scoped to the
+  // seed brand (2a000000-…0001) so admin's RLS sees it; under spec 081 the
+  // dashboard `unconfirmed_po` rule is genuinely per-store, so this store's
+  // card renders ITS OWN schedule regardless of which store is focal.
+  e2eWindowStoreId: 'e2e00000-0000-0000-0000-000000000080',
 } as const;
 
 // TitleCase full weekday strings — exactly what EODCount.todayWeekday()

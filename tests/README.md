@@ -494,6 +494,44 @@ and flake-proofed every spec (see the flake checklist below).
   (excluded from v1 as a flake surface).
 - **dark mode.** One `colorScheme: 'dark'` smoke that also seeds the
   `darkMode` localStorage pref and asserts the shell paints a dark background.
+- **dashboard attention-queue weekly window** (`e2e/dashboard-window.spec.ts`,
+  spec 080). Guards the spec-074 Monday-reset window on the per-store
+  `unconfirmed_po` ("VENDOR order missed (DATE)") rows in a real browser — the
+  integration-render layer over the ~8 deterministic jest tests
+  (`cmdSelectors.unconfirmedPoWindow.test.ts` + `weekWindow.test.ts`, which pin
+  the LOGIC and are untouched). FULL coverage: an in-window miss renders on the
+  dedicated store's card (`toBeVisible`), and a before-this-Monday miss is
+  FILTERED out (`toHaveCount(0)` — proving the window actually drops older
+  misses, both directions). Un-blocked by spec 081, which made the dashboard
+  rule genuinely per-store (`db.fetchOrderScheduleForStores` +
+  `scheduleByStore[s.id]`), so a dedicated-store fixture deterministically
+  drives its OWN card. Two isolation patterns this spec establishes for future
+  date-windowed E2Es:
+  - **Dedicated-store + date-scoped teardown.** The fixture creates a
+    throwaway store (`SEED.e2eWindowStoreId`, brand `2a…01`, status active) and
+    seeds `order_schedule` rows on the run-computed in/out-of-window weekdays —
+    it does NOT reuse Towson / Frederick / Charles / Reisters because all four
+    are pgTAP `missed_order_audit_rpc` fixture anchors, and a persisted
+    `order_schedule` row on a shared store would be counted by a later local
+    `record_missed_orders_for_day` pgTAP run (the exact cross-track collision
+    `global-teardown.ts` exists to prevent). `global-teardown.ts` drops the
+    dedicated store store-scoped + FK-ordered (children before parent), keyed on
+    the dedicated id so it can never touch the four anchors. The fixture INSERT
+    lives in the spec's `test.beforeAll` (NOT `global-setup.ts`) because the
+    target dates are `now`-relative and the spec already imports the production
+    `weekWindow.ts` helpers — co-locating setup with the date math keeps it in
+    one file, while teardown stays centralized for hygiene.
+  - **Positive-Monday assertion (reusable deterministic-clock-E2E note).** The
+    spec-074 window `[thisMonday, today)` is EMPTY on Monday morning, so a
+    naive in-window assertion would have nothing to assert 1/7 of CI days.
+    Rather than `test.skip()` on Monday (which proves nothing that day), this
+    spec asserts the windowed-EMPTY state — zero `unconfirmed_po` rows on the
+    dedicated card even though it has a scheduled+unsubmitted vendor on the
+    out-of-window date. That turns Monday into a genuine Monday-reset proof and
+    keeps the guard meaningful every day. The `isMonday` branch is computed
+    deterministically from the same `getWeekWindow` the fixture uses (flake
+    checklist #2 — never a caught timeout). A future date-windowed E2E should
+    follow this positive-empty pattern rather than skipping on the empty day.
 
 ### The single service-role read (the lone UI-only exception)
 
@@ -531,6 +569,7 @@ e2e/
   eod.spec.ts                 ← Phase 2 EOD submit + offline queue
   invite.spec.ts              ← Phase 3 invite-user
   dashboard.spec.ts           ← Phase 4 dashboard
+  dashboard-window.spec.ts    ← spec 080 attention-queue weekly-window guard
   reorder.spec.ts             ← Phase 4 reorder
   audit.spec.ts               ← Phase 4 audit log
   dark-mode.spec.ts           ← cross-cutting dark-mode smoke

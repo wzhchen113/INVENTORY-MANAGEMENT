@@ -495,7 +495,7 @@ export default function DashboardSection() {
         {/* Per-store columns — 4-up wrapping grid with attention queues */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
           {stores.map((s) => (
-            <View key={s.id} style={{ flex: 1, minWidth: 240 }}>
+            <View key={s.id} testID={`dashboard-store-card-${s.id}`} style={{ flex: 1, minWidth: 240 }}>
               <StoreCol
                 store={s}
                 queue={queueByStore[s.id] || []}
@@ -972,6 +972,7 @@ const StoreCol: React.FC<StoreColProps> = ({
             return (
               <Wrapper
                 key={item.id}
+                testID={`attention-row-${item.id}`}
                 {...wrapperProps}
                 style={{
                   flexDirection: 'row',
