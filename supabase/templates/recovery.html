@@ -1,0 +1,24 @@
+<!--
+  Spec 085 — LOCAL-DEV recovery email template (token_hash flow).
+
+  The default Supabase recovery template emits {{ .ConfirmationURL }}, which is
+  the GoTrue /verify?token=pkce_... link that 302-redirects to ?code= (PKCE).
+  PKCE fails CROSS-DEVICE (verifier lives in the admin's browser, not the
+  target's — proven empirically). This template instead emits a token_hash link
+  redeemed by verifyOtp({ token_hash, type: 'recovery' }), which is stateless
+  and works cross-device.
+
+  This is the LOCAL-STACK mirror of the PROD dashboard email-template edit,
+  which is a USER-OWNED step (Auth → Email Templates → Reset Password). See
+  spec 085 "Flow decision + manual steps".
+
+  The link points at the recovery landing route on the running Expo web origin.
+  {{ .RedirectTo }} is the redirect_to passed by resolveRecoveryRedirectUrl()
+  (http://localhost:8081/reset-password locally).
+-->
+<h2>Reset your password</h2>
+<p>Follow this link to set a new password for your account:</p>
+<p>
+  <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a>
+</p>
+<p>If you did not request this, you can safely ignore this email.</p>

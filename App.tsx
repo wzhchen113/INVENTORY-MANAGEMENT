@@ -12,6 +12,7 @@ import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
 import RoleRouter from './src/navigation/RoleRouter';
+import RecoveryGate from './src/navigation/RecoveryGate';
 import { useStaffStore } from './src/screens/staff/store/useStaffStore';
 import { checkAuthGate } from './src/lib/authGate';
 import { hydrateQueue, migrateQueueIfNeeded, readActiveStoreId, writeActiveStoreId } from './src/screens/staff/lib/eodQueue';
@@ -335,7 +336,15 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: bodyBg }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <RoleRouter />
+        {/* Spec 085 — RecoveryGate inspects the launch URL on boot and renders
+            the set-new-password screen INSTEAD of RoleRouter when an admin-
+            initiated recovery link is opened. It is a sibling render branch
+            OUTSIDE RoleRouter's single NavigationContainer (no react-navigation
+            `linking` is enabled). On a non-recovery boot it renders RoleRouter
+            unchanged. */}
+        <RecoveryGate>
+          <RoleRouter />
+        </RecoveryGate>
         <Toast />
       </SafeAreaProvider>
     </GestureHandlerRootView>

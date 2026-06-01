@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { User, SidebarLayoutOverride } from '../types';
 import { isValidOverride } from './sidebarLayout';
 import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup } from './db';
+import { resolveRecoveryRedirectUrl } from './recoveryRedirect';
 
 export interface AuthResult {
   user: User | null;
@@ -540,7 +541,15 @@ export async function deleteUser(userId: string): Promise<{ error: string | null
  */
 export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    // Spec 085 — pass a per-platform `redirectTo` so the recovery link lands on
+    // OUR /reset-password screen instead of falling back to the dashboard Site
+    // URL (the localhost:3000 bug). resolveRecoveryRedirectUrl() returns the
+    // prod web URL (EXPO_PUBLIC_WEB_RECOVERY_URL) / web-dev origin / native
+    // scheme URL depending on Platform.OS. Return shape is UNCHANGED so
+    // UsersSection's toast handling at the call site is untouched.
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: resolveRecoveryRedirectUrl(),
+    });
     if (error) return { error: error.message };
     return { error: null };
   } catch (e: any) {

@@ -153,7 +153,20 @@ enabled = true
 # in emails.
 site_url = "http://127.0.0.1:3000"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# Spec 085 — local-dev recovery redirect targets. The web-dev branch of
+# resolveRecoveryRedirectUrl() points at the running Expo web origin
+# (http://localhost:8081/reset-password); GoTrue requires the redirect to be in
+# this allowlist or it silently falls back to site_url. These entries are
+# LOCAL-STACK ONLY — the PROD redirect allowlist is a user-owned dashboard step
+# (see spec 085 "Manual Supabase-dashboard steps"). Wildcard path so the
+# /reset-password marker route is covered regardless of trailing params.
+additional_redirect_urls = [
+  "https://127.0.0.1:3000",
+  "http://localhost:8081",
+  "http://localhost:8081/**",
+  "http://127.0.0.1:8081",
+  "http://127.0.0.1:8081/**",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -240,6 +253,16 @@ otp_expiry = 3600
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
+
+# Spec 085 — LOCAL-DEV recovery email template (token_hash flow). The default
+# template emits {{ .ConfirmationURL }} (a /verify?token=pkce_... link that
+# redirects to ?code=); PKCE fails cross-device, so we emit a token_hash link
+# redeemed by verifyOtp instead. This is the LOCAL mirror of the PROD dashboard
+# email-template edit (USER-OWNED — Auth → Email Templates → Reset Password).
+# See spec 085 "Flow decision + manual steps".
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

@@ -25,6 +25,11 @@ const RN_TRANSPILE_DEPS = [
   'expo-sharing',
   'expo-sqlite',
   'expo-notifications',
+  // Spec 085 — expo-linking ships untranspiled ESM; auth.ts now imports it
+  // (transitively via recoveryRedirect.ts), so every suite that imports
+  // auth.ts needs it transformed. Symptom without this entry: "Cannot use
+  // import statement outside a module" from inside expo-linking/build.
+  'expo-linking',
   '@expo',
   '@expo-google-fonts',
   'react-native-svg',
