@@ -114,16 +114,33 @@ export async function fetchStoreIdsForBrand(brandId: string): Promise<Set<string
 /**
  * Spec 012b cleanup #1 — extracted from auth.ts. Pulls (email, profile_id,
  * name, brand_id) for invitation rows used to infer email for active
- * profiles. When `brandId` is supplied (cleanup #16) the query is scoped at
- * the SQL layer instead of pulling the whole table.
+ * profiles.
+ *
+ * Spec 083 — the brand filter is DELIBERATELY NOT applied. This query exists
+ * only for *email inference*: fetchAllUsers (src/lib/auth.ts) indexes the
+ * returned rows by profile_id (winning) then name, and that per-user match —
+ * not a brand filter — is what scopes each invitation to the correct person.
+ * The old `.eq('brand_id', brandId)` was a table-read narrowing (cleanup #16)
+ * that HID NULL-brand invitations from inference: Bobby's and Charles's
+ * invitations carry brand_id = NULL while their profiles carry a real brand,
+ * so any brand-scoped Users view dropped their invitation and rendered
+ * "(email not loaded)" (the spec-083 bug). Reading the whole invitations table
+ * is acceptable — it is a tiny, low-cardinality table, not a hot path — and
+ * makes inference resilient to any future NULL-brand invitation. The brand
+ * scope of WHICH users appear is unchanged: fetchAllUsers still filters the
+ * profiles query by brand_id.
+ *
+ * The `brandId?` param is RETAINED for call-site compatibility (one caller —
+ * fetchAllUsers at src/lib/auth.ts) but is currently UNUSED.
  */
 export async function fetchInvitationsForUserLookup(
   brandId?: string,
 ): Promise<Array<{ email: string; profile_id: string | null; name: string; brand_id: string | null }>> {
   return useInflight.getState().track(async (signal) => {
-    let q = supabase.from('invitations').select('email, profile_id, name, brand_id');
-    if (brandId) q = q.eq('brand_id', brandId);
-    const { data } = await q.abortSignal(signal);
+    const { data } = await supabase
+      .from('invitations')
+      .select('email, profile_id, name, brand_id')
+      .abortSignal(signal);
     return (data || []) as any[];
   }, { kind: 'read', label: 'fetchInvitationsForUserLookup' });
 }
