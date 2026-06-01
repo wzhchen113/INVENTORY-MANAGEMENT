@@ -3253,10 +3253,16 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
     supabase
       .from('invitations')
       // Spec 082: NO `used` filter here — email inference must source from
-      // ALL brand invitations (a registered user's invite is used=true).
-      // The `!used` subset is applied below, only for the pending rows.
+      // ALL invitations (a registered user's invite is used=true); the `!used`
+      // subset is applied below, only for the pending rows.
+      // Spec 084: NO `.eq('brand_id', brandId)` either — a NULL-brand invitation
+      // would otherwise be hidden from inference (the symmetric blind spot to
+      // spec 083's fetchInvitationsForUserLookup). The per-row profile_id/name
+      // match below scopes inference to the correct person; the brand scope of
+      // the PENDING rows is re-applied in-memory at `pendingInvites` (strict
+      // inv.brand_id === brandId) so a NULL-brand UNCONSUMED invite never leaks
+      // in as a phantom pending row for a brand it doesn't belong to.
       .select('id, email, name, role, store_ids, brand_id, used, expires_at, profile_id')
-      .eq('brand_id', brandId)
       .abortSignal(signal),
     supabase
       .from('stores')
@@ -3284,8 +3290,9 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
 
   // Spec 082 — profiles has no email column; we infer each user's email
   // from the invitation row that registered them. Maps are built from ALL
-  // brand invites (the query no longer filters used=false), so a used
-  // invite still feeds inference (that was the bug — see spec 082).
+  // invitations (the query no longer filters used=false — spec 082 — and as
+  // of spec 084 no longer filters by brand_id either; see comment above), so
+  // a used or NULL-brand invite still feeds inference.
   // Precedence below (inviteByProfileId ?? inviteByName): id-match wins.
   // profile_id is set by consume_invitation on accept as of spec 082, and
   // legacy (pre-082) rows are linked by the spec-082 backfill, so the
@@ -3331,7 +3338,14 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
   // profiles (matched by email) — consumed-for-active rows are excluded on
   // two grounds now: they're !used-filtered out AND active rows finally
   // have emails to dedup against.
-  const pendingInvites = invites.filter((inv: any) => !inv.used);
+  // Spec 084: gate the pending ROW on the brand too. Inference (above) reads ALL
+  // invites; the synthetic pending list must stay brand-scoped or a NULL-brand
+  // (or foreign-brand) UNCONSUMED invite would surface as a phantom pending row.
+  // Strict equality: `null === brandId` is false, so NULL-brand invites are
+  // excluded from EVERY brand (there is no "no-brand" bucket in the Brands tab).
+  const pendingInvites = invites.filter(
+    (inv: any) => !inv.used && inv.brand_id === brandId,
+  );
   const activeEmails = new Set(activeRows.map((u) => u.email.toLowerCase()).filter(Boolean));
   const pendingRows: User[] = pendingInvites
     .filter((inv: any) => !activeEmails.has(inv.email.toLowerCase()))

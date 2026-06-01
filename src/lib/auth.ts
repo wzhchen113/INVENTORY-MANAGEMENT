@@ -465,9 +465,15 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
       ? await fetchStoreIdsForBrand(opts.brandId)
       : null;
 
-    // Pull invitation rows for email inference. Cleanup #16 scopes the
-    // query to the current brand when brand-filtered so the table read
-    // doesn't span every tenant.
+    // Pull invitation rows for email inference. Spec 083 DROPPED the brand
+    // filter here: fetchInvitationsForUserLookup now reads ALL invitations
+    // (the old cleanup-#16 `.eq('brand_id', …)` narrowing HID NULL-brand
+    // invitations from inference — the spec-083 "(email not loaded)" bug).
+    // The per-user profile_id (winning) / name match below — not a brand
+    // filter — is what scopes each invitation to the correct person. The
+    // `opts?.brandId` passed here is RETAINED for call-site compatibility but
+    // is currently UNUSED by the helper. (Which USERS appear is still
+    // brand-scoped: the profiles query above filters by brand_id.)
     const invitations = await fetchInvitationsForUserLookup(opts?.brandId);
 
     // Fetch auth users' emails

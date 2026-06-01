@@ -211,3 +211,109 @@ describe('fetchBrandAdmins — spec 082 email inference', () => {
     expect(result).toHaveLength(1);
   });
 });
+
+// Spec 084 — the NULL-brand email-inference fix + the pending-row pollution
+// guard. Edit 1 dropped the `.eq('brand_id', brandId)` from the invitations
+// query so inference sees ALL invites (the symmetric blind spot to spec 083);
+// Edit 2 re-applied a STRICT `inv.brand_id === brandId` gate to the
+// pendingInvites construction so a NULL-brand (or foreign-brand) UNCONSUMED
+// invite never leaks in as a phantom pending row.
+//
+// NOTE on the harness: makeBuilder's `eq` IGNORES its arguments (it always
+// returns `this`), so dropping the query's `.eq('brand_id', …)` is transparent
+// to the mock — these arms exercise the JS-side `pendingInvites` predicate and
+// the inviteByProfileId/inviteByName maps, which is exactly the changed logic.
+describe('fetchBrandAdmins — spec 084 NULL-brand inference + pending pollution guard', () => {
+  const OTHER_BRAND = 'brand-2';
+
+  // (e) A NULL-brand invite matched by profile_id resolves a NON-EMPTY email
+  // for the active profile when a brandId is passed (AC #1, the symmetric fix).
+  // In PRODUCTION the old `.eq('brand_id', BRAND)` query would have excluded the
+  // brand_id:null invite → empty email; under the harness `eq` ignores its args
+  // (see the NOTE above), so this arm verifies the inference CONTRACT
+  // (inviteByProfileId resolves the email) rather than detecting the brand-drop
+  // regression itself — arm (f) is the true regression-detector. The invite is
+  // used=true AND NULL-brand, so it must NOT produce a phantom pending row either.
+  it('(e) NULL-brand invite matched by profile_id feeds inference (non-empty email)', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-nina', name: 'Nina', role: 'admin', brand_id: BRAND })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-nina', name: 'Nina', email: 'nina@example.com', used: true, profile_id: 'p-nina', brand_id: null })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    const nina = result.find((u: User) => u.id === 'p-nina')!;
+    expect(nina).toBeDefined();
+    expect(nina.email).toBe('nina@example.com'); // resolved via inviteByProfileId despite brand_id:null
+    expect(result).toHaveLength(1);
+    expect(result.some((u) => u.status === 'pending')).toBe(false);
+  });
+
+  // (f) THE POLLUTION GUARD (AC #2, load-bearing): a NULL-brand UNCONSUMED
+  // invite produces NO pending row in BRAND. Strict equality means
+  // `null === BRAND` is false, so the row is gated out. Ann (active) is the
+  // only row that survives. This is the regression the naive `.eq`-drop would
+  // introduce.
+  it('(f) NULL-brand UNCONSUMED invite produces no pending row (pollution guard)', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-ann', name: 'Ann', role: 'admin', brand_id: BRAND })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-ghost', name: 'Ghost', email: 'ghost@example.com', used: false, profile_id: SENTINEL, brand_id: null })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    const pendings = result.filter((u: User) => u.status === 'pending');
+    expect(pendings).toHaveLength(0);
+    expect(result.every((u) => u.id !== 'invitation:inv-ghost')).toBe(true);
+    // Ann is still the lone active row.
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('p-ann');
+  });
+
+  // (f-bis) A FOREIGN-brand UNCONSUMED invite also yields no pending row in
+  // BRAND — proves the gate is true strict equality, not a NULL-special-case.
+  it('(f-bis) foreign-brand UNCONSUMED invite produces no pending row (strict equality)', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-ann', name: 'Ann', role: 'admin', brand_id: BRAND })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-foreign', name: 'Foreigner', email: 'foreign@example.com', used: false, profile_id: SENTINEL, brand_id: OTHER_BRAND })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    const pendings = result.filter((u: User) => u.status === 'pending');
+    expect(pendings).toHaveLength(0);
+    expect(result.every((u) => u.id !== 'invitation:inv-foreign')).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('p-ann');
+  });
+
+  // (g) An in-brand UNCONSUMED invite (brand_id === BRAND) still yields exactly
+  // one pending row (AC #3). The gate TIGHTENS NULL/foreign without dropping
+  // legitimate in-brand pendings.
+  it('(g) in-brand UNCONSUMED invite still yields exactly one pending row', async () => {
+    profilesResult = { data: [], error: null };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-pat', name: 'Pat', email: 'pat@example.com', used: false, profile_id: SENTINEL, brand_id: BRAND })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    const pendings = result.filter((u: User) => u.status === 'pending');
+    expect(pendings).toHaveLength(1);
+    expect(pendings[0].id).toBe('invitation:inv-pat');
+    expect(pendings[0].email).toBe('pat@example.com');
+  });
+});
