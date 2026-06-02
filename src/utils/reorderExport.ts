@@ -66,8 +66,16 @@ export function slugifyStore(name: string): string {
   return name.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60) || 'store';
 }
 
+// Local-time `YYYY-MM-DD` (NOT UTC). Built from local date components so
+// the name is honest — mirrors `reportDates.ts:toISODate()` and the staff
+// screen's `todayIso()`. (The prior `toISOString().slice(0,10)` returned UTC
+// midnight, which in any negative-offset TZ rolls back a day.) In production
+// this is only reached when `payload.asOfDate` is absent (the RPC always sets
+// it), so the fix is a name-vs-implementation correctness fix with nil runtime
+// impact.
 export function todayLocalIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // Spec 025 AC4 — one CSV covering all vendors. Column order is fixed

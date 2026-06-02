@@ -44,6 +44,7 @@ jest.mock('../../../lib/supabase', () => ({
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Reorder } from './Reorder';
+import { ReorderDatePicker } from '../components/ReorderDatePicker';
 import { useStaffStore } from '../store/useStaffStore';
 import type { OrderSchedule, ReorderItem, ReorderPayload, ReorderVendor } from '../../../types';
 
@@ -277,5 +278,126 @@ describe('Reorder — root structure', () => {
     const root = getByTestId('staff-reorder-root');
     expect(root.type).toBe('SafeAreaView');
     expect(root.props.edges).toEqual(['top', 'bottom']);
+  });
+});
+
+// Spec 091 B3 — the activeStore===null gate. The tab bar only mounts with an
+// active store, so this is defense-in-depth: with no active store the screen
+// must render the centered ActivityIndicator and fire NO fetch.
+describe('Reorder — no active store (spec 091 B3)', () => {
+  it('renders the select-store defensive state and does NOT fetch when activeStore is null', () => {
+    useStaffStore.setState({
+      authState: {
+        kind: 'signed-in',
+        userId: 'user-1',
+        stores: [{ storeId: 'store-1', storeName: 'Towson' }],
+      },
+      activeStore: null,
+      eodQueue: [],
+      draining: false,
+    });
+
+    const { UNSAFE_getByType, queryByTestId } = renderScreen();
+    // The defensive branch renders an ActivityIndicator (no header, no list).
+    const { ActivityIndicator } = require('react-native');
+    expect(UNSAFE_getByType(ActivityIndicator)).toBeTruthy();
+    // The store-scoped header / list never mount.
+    expect(queryByTestId('staff-reorder-root')).toBeNull();
+    expect(queryByTestId('staff-reorder-store-name')).toBeNull();
+    // The fetch effect early-returns on a null store.
+    expect(mockFetchStaffReorder).not.toHaveBeenCalled();
+    expect(mockFetchStaffOrderSchedule).not.toHaveBeenCalled();
+  });
+});
+
+// Spec 091 B4 — the screen-layer re-fetch when the date picker changes
+// `selectedDate`. The fetch-layer `as_of_date` plumbing is pinned in
+// fetchReorder.test.ts; this complements it by exercising the
+// useEffect([activeStore?.id, selectedDate, load]) path at the screen.
+describe('Reorder — date-change re-fetch (spec 091 B4)', () => {
+  it('re-fetches with the new as_of_date when the date picker selects a past day', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByTestId } = renderScreen();
+    // Initial mount fetches as-of today.
+    await waitFor(() => expect(mockFetchStaffReorder).toHaveBeenCalledTimes(1));
+    const [firstStoreId, firstAsOf] = mockFetchStaffReorder.mock.calls[0];
+    expect(firstStoreId).toBe('store-1');
+
+    // Open the picker, page back one month, and pick day 1 (a guaranteed past
+    // date < today). Day-1-of-the-previous-month is always strictly before
+    // today, so its cell is never `> maxDate` → never future-disabled → always
+    // pressable, which is why it's a safe fixture for "a past date".
+    // selectDay → onChange(dateStr) → setSelectedDate → the effect re-fires the
+    // fetch with the new date.
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-datepicker-trigger'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-datepicker-prev-month'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-datepicker-day-1'));
+    });
+
+    await waitFor(() => expect(mockFetchStaffReorder).toHaveBeenCalledTimes(2));
+    const [secondStoreId, secondAsOf] = mockFetchStaffReorder.mock.calls[1];
+    expect(secondStoreId).toBe('store-1');
+    // The new as-of is a valid YYYY-MM-DD, distinct from today, and earlier
+    // (we paged to the previous month, day 1).
+    expect(secondAsOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(secondAsOf).not.toBe(firstAsOf);
+    expect(secondAsOf < firstAsOf).toBe(true);
+  });
+});
+
+// Spec 091 B5 — the initial-load testID. With the fetch held pending,
+// `loading && !payload` is true and the centered loading view renders.
+describe('Reorder — loading state testID (spec 091 B5)', () => {
+  it('shows staff-reorder-loading while the initial fetch is pending', () => {
+    // Never-resolving fetch → Promise.all stays pending → loading stays true
+    // with payload null → the initial-load branch renders.
+    mockFetchStaffReorder.mockReturnValue(new Promise<never>(() => {}));
+    mockFetchStaffOrderSchedule.mockReturnValue(new Promise<never>(() => {}));
+
+    const { getByTestId } = renderScreen();
+    expect(getByTestId('staff-reorder-loading')).toBeTruthy();
+  });
+});
+
+// Spec 091 A2 — `maxDate` is computed PER RENDER (not a mount-only useMemo), so
+// the date picker's upper bound follows the wall clock past midnight instead of
+// freezing at the mount day. The old `useMemo(() => todayIso(), [])` would fail
+// the post-rerender assertion (it'd stay frozen at the mount day).
+describe('Reorder — maxDate recomputes per render (spec 091 A2)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("the date picker's maxDate follows the current day across a re-render", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-02T12:00:00Z')); // midday UTC → local day = Jun 2
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const screen = render(
+      <SafeAreaProvider>
+        <Reorder />
+      </SafeAreaProvider>,
+    );
+    await act(async () => {}); // flush the mount fetch microtasks
+    expect(screen.UNSAFE_getByType(ReorderDatePicker).props.maxDate).toBe('2026-06-02');
+
+    // Advance past midnight + re-render: a per-render maxDate updates to Jun 3;
+    // a mount-memoized one would stay Jun 2 (the regression this pins).
+    jest.setSystemTime(new Date('2026-06-03T12:00:00Z'));
+    screen.rerender(
+      <SafeAreaProvider>
+        <Reorder />
+      </SafeAreaProvider>,
+    );
+    await act(async () => {});
+    expect(screen.UNSAFE_getByType(ReorderDatePicker).props.maxDate).toBe('2026-06-03');
   });
 });

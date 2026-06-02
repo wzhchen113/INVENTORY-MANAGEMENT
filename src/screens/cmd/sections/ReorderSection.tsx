@@ -224,6 +224,15 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
         ? 'tomorrow'
         : `in ${vendor.daysUntilNextDelivery} days`;
 
+  // Spec 091 D1 — BASE-UNIT sum, intentionally NOT a "cases" total. This adds
+  // `suggestedQty` (base units) across the vendor's items, which for case
+  // items reads differently from the per-item "N cases · M units" Suggested
+  // column. That's by design: a per-vendor qty total spans items with
+  // DIFFERENT units (each / gal / lbs / bags) AND different case sizes, so it
+  // cannot be cleanly expressed "in cases." The meaningful per-vendor
+  // aggregate is the Est $ total (`vendor.vendorTotalCost`, shown to the
+  // right). The header below is labeled "qty (base):" to signal this. NO math
+  // change (spec 088 scoped the cases-total out for exactly this reason).
   const itemTotal = vendor.items.reduce((acc, i) => acc + i.suggestedQty, 0);
 
   return (
@@ -275,7 +284,7 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
-            <Text style={{ color: C.fg3 }}>total qty:</Text>{' '}
+            <Text style={{ color: C.fg3 }}>qty (base):</Text>{' '}
             <Text style={{ color: C.fg, fontWeight: '600' }}>{formatQty(itemTotal)}</Text>
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>

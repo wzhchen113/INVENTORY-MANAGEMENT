@@ -17,6 +17,7 @@ import {
   formatSuggested,
   formatSuggestedPdf,
   slugifyStore,
+  todayLocalIso,
 } from './reorderExport';
 
 // Same fixture builders the admin ReorderSectionCases test uses (the server
@@ -158,6 +159,62 @@ describe('slugifyStore', () => {
     // punctuation. Pins the EXISTING admin behavior, unchanged by extraction.
     expect(slugifyStore('')).toBe('store');
     expect(slugifyStore('!!!')).toBe('store');
+  });
+});
+
+describe('todayLocalIso (spec 091 A1 — local, not UTC)', () => {
+  const RealDate = global.Date;
+  afterEach(() => {
+    global.Date = RealDate;
+  });
+
+  it('builds YYYY-MM-DD from LOCAL date components, not toISOString().slice(0,10)', () => {
+    // Construct a moment where the LOCAL calendar day differs from the UTC
+    // calendar day: local is 2026-06-02, but the UTC instant has already
+    // rolled to 2026-06-03 (e.g. late-evening in a negative-offset TZ). The
+    // OLD `toISOString().slice(0,10)` body would return the UTC '2026-06-03';
+    // the fixed local-components body must return '2026-06-02'.
+    class FakeDate extends RealDate {
+      // No explicit constructor — the parent's is used implicitly (matches the
+      // second FakeDate below); the overrides are what the assertion reads.
+      getFullYear(): number {
+        return 2026;
+      }
+      getMonth(): number {
+        return 5; // June (0-indexed)
+      }
+      getDate(): number {
+        return 2;
+      }
+      toISOString(): string {
+        // The divergent UTC representation — one day ahead of local.
+        return '2026-06-03T01:30:00.000Z';
+      }
+    }
+    // @ts-expect-error — swapping the Date constructor for the assertion.
+    global.Date = FakeDate;
+
+    expect(todayLocalIso()).toBe('2026-06-02');
+    // Must NOT be the UTC-slice form (the pre-091 bug).
+    expect(todayLocalIso()).not.toBe('2026-06-03');
+  });
+
+  it('zero-pads single-digit month + day', () => {
+    class FakeDate extends RealDate {
+      getFullYear(): number {
+        return 2026;
+      }
+      getMonth(): number {
+        return 0; // January
+      }
+      getDate(): number {
+        return 5;
+      }
+    }
+    // @ts-expect-error — swapping the Date constructor for the assertion.
+    global.Date = FakeDate;
+
+    expect(todayLocalIso()).toBe('2026-01-05');
   });
 });
 

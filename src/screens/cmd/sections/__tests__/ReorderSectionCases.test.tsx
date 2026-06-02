@@ -237,6 +237,14 @@ describe('formatSuggestedPdf (compact print variant)', () => {
     const item = caseItem({ suggestedQty: 49, caseQty: 24, unit: 'each' });
     expect(formatSuggestedPdf(item)).toBe('3 cs · 72 each');
   });
+  it('uses "cs" (no pluralization) at exactly one case (spec 091 B2)', () => {
+    // formatSuggestedPdf has NO singular/plural branch (always `cs`, unlike
+    // formatSuggested's `case`/`cases`). Pin that invariant: 1 case → `1 cs`,
+    // never `1 case`.
+    const item = caseItem({ suggestedQty: 24, caseQty: 24, unit: 'each' });
+    expect(formatSuggestedPdf(item)).toBe('1 cs · 24 each');
+    expect(formatSuggestedPdf(item)).not.toMatch(/1 case\b/);
+  });
   it('renders plain for non-case items', () => {
     const item = plainItem({ suggestedQty: 8, unit: 'gal' });
     expect(formatSuggestedPdf(item)).toBe('8 gal');

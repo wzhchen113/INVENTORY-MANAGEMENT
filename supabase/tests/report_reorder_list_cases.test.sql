@@ -29,6 +29,11 @@
 --              the rollup inheritance; robust to any seed items already
 --              under the chosen vendor).
 --
+-- 12 assertions: 1 fixture resolve + 4 CASE item (suggested_cases /
+-- suggested_units / case_qty / estimated_cost) + 3 EXACT item
+-- (suggested_cases / suggested_units / estimated_cost) + 3 PLAIN item
+-- (suggested_cases-null / case_qty / estimated_cost) + 1 rollup.
+--
 -- Driver: usage_per_portion=0 (item linked to no recipe) → no sales
 -- signal → usage_forecasted=0, and current_stock=0 → par_replacement =
 -- par_level, so suggested_qty = greatest(par_level, 0) = par_level.

@@ -80,9 +80,11 @@ export function weekdayName(isoDate: string): DayName | null {
   // Local-midnight parse: appending the time component forces the JS
   // Date constructor to interpret the date in the local timezone.
   const d = new Date(`${isoDate.slice(0, 10)}T00:00:00`);
-  const idx = d.getDay();
-  if (Number.isNaN(idx)) return null;
-  return WEEKDAY_BY_INDEX[idx] ?? null;
+  // Explicit invalid-Date guard BEFORE getDay() — clearer than relying on
+  // getDay() itself returning NaN for a malformed input (equivalent behavior:
+  // both return null for e.g. 'not-a-date' or '2026-13-40').
+  if (Number.isNaN(d.getTime())) return null;
+  return WEEKDAY_BY_INDEX[d.getDay()] ?? null;
 }
 
 /**

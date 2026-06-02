@@ -116,8 +116,16 @@ describe('i18n.t()', () => {
       'reorder.error.retry',
       'reorder.noSchedule.title',
       'reorder.noSchedule.hint',
-      'reorder.weekday.monday',
+      // Spec 091 B1 — exhaustive: weekdayLabel() in Reorder.tsx can emit any
+      // of the 7 `reorder.weekday.*` keys, so the parity gate covers all 7
+      // (was only monday + sunday).
       'reorder.weekday.sunday',
+      'reorder.weekday.monday',
+      'reorder.weekday.tuesday',
+      'reorder.weekday.wednesday',
+      'reorder.weekday.thursday',
+      'reorder.weekday.friday',
+      'reorder.weekday.saturday',
       'eodTab.label',
     ];
     const warnSpy = jest.spyOn(console, 'warn');

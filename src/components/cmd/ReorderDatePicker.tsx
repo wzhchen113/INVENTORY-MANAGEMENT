@@ -34,6 +34,14 @@ interface ReorderDatePickerProps {
   testIdPrefix?: string;
 }
 
+// Spec 091 A4 — kept single-letter (option a). The T/T and S/S pairs are
+// ambiguous, but: (1) the grid cell is 1/7 of a ≤320px-wide modal at 9.5px,
+// where the i18n 3-letter short labels (`WED`, etc.) risk truncation; and
+// (2) wiring `dayOfWeekShortLabel` would add a `useT` dependency this
+// component otherwise has none of (it mirrors DatePicker.tsx, which is also
+// i18n-free). The unambiguous long weekday name is surfaced elsewhere (the
+// trigger pill + the cell accessibilityLabel), so the header glyphs stay
+// minimal. See spec 091 for the (a)-vs-(b) trade-off.
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',

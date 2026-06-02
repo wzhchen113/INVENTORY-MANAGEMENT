@@ -92,6 +92,9 @@ describe('weekdayName', () => {
   it('returns null for malformed input', () => {
     expect(weekdayName('')).toBeNull();
     expect(weekdayName('not-a-date')).toBeNull();
+    // Spec 091 A3 — an out-of-range date (month 13 / day 40) is an invalid
+    // Date; the explicit `Number.isNaN(getTime())` guard returns null.
+    expect(weekdayName('2026-13-40')).toBeNull();
     // @ts-expect-error — exercising the runtime null-guard.
     expect(weekdayName(null)).toBeNull();
   });

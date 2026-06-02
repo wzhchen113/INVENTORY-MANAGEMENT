@@ -32,7 +32,9 @@ let mockInvitationInsertPayload: any = null;
 // True when the secondary stores derive read fired.
 let mockStoresReadFired = false;
 // What the stores derive read resolves to (the assigned store's brand).
-let mockStoreBrandRow: any = null;
+// Typed to the real `supabase.from('stores').select('brand_id').single()`
+// data shape so the factory closure narrows (spec 091 C2).
+let mockStoreBrandRow: { brand_id: string } | null = null;
 
 jest.mock('./supabase', () => ({
   supabase: {

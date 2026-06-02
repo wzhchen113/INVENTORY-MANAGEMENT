@@ -194,7 +194,11 @@ export function Reorder() {
   const setAuthState = useStaffStore((s) => s.setAuthState);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
 
-  const maxDate = useMemo(() => todayIso(), []);
+  // Latest selectable date = today. Computed on EVERY render (cheap string
+  // build) rather than memoized once — a mount-only useMemo goes one day stale
+  // if the tab is left open past midnight. Matches the admin ReorderSection
+  // (`toISODate(new Date())` outside any memo).
+  const maxDate = todayIso();
   const [selectedDate, setSelectedDate] = useState<string>(() => todayIso());
   const [payload, setPayload] = useState<ReorderPayload | null>(null);
   const [orderSchedule, setOrderSchedule] = useState<OrderSchedule>({});
