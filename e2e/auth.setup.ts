@@ -9,7 +9,8 @@
 //
 // OQ-3c POISON-QUEUE GUARD (critical): this setup performs NO EOD submit.
 // The staff offline queue lives in localStorage under
-// imr-staff:eod-queue:v1, and Playwright storageState serializes
+// imr-staff:eod-queue:v2 (bumped from v1 in spec 086), and Playwright
+// storageState serializes
 // localStorage — so a setup that queued an item would carry it into every
 // later run. By stopping at the landing surface, the saved staff.json
 // holds auth tokens but no queue key. (The EOD specs additionally clear the

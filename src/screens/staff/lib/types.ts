@@ -13,12 +13,20 @@ export type UserStore = {
 
 /** Inventory item row for the EOD count screen list. Shape derived from
  *  the imr-inventory inventory_items + catalog_ingredients JOIN; we
- *  only need name + unit + vendor scoping for v1. */
+ *  need name + unit + vendor scoping, plus the units-per-case
+ *  (`catalog_ingredients.case_qty`) so the Cases input can convert to a
+ *  total exactly like the admin worksheet (spec 086).
+ *
+ *  `caseQty` is kept nullable (NOT collapsed to 1 at hydration like the
+ *  admin mapper at db.ts:3385) so a future pack-size-aware feature can
+ *  tell "genuinely 1-per-case" from "unknown". The conversion site
+ *  applies the admin's `|| 1` fallback, so the arithmetic is identical. */
 export type EodItem = {
   id: string;
   vendorId: string | null;
   name: string;
   unit: string;
+  caseQty: number | null;
 };
 
 /** Vendor row (id + name) for the vendor switcher. */
@@ -27,12 +35,26 @@ export type Vendor = {
   name: string;
 };
 
-/** Single entry inside a queued submission. UI-side shape uses
- *  item_id + count for readability; the RPC boundary remaps to
- *  ingredient_id + actual_remaining inside `useEodSubmit`. */
+/** Single entry inside a queued submission. Spec 086: the staff screen
+ *  now records full Cases + loose Units per item, converted to a single
+ *  total client-side (`cases × (caseQty || 1) + units`). We persist all
+ *  three values using the snake_case `eod_entries` column names so the
+ *  RPC boundary (`entriesForRpc`) is a near-identity map and the queued
+ *  payload reads 1:1 against the DB columns. The single `count` field
+ *  from spec 062 is removed — every reader is in-repo and updated in
+ *  spec 086, and a persisted `:v1` payload is migrated in
+ *  `migrateQueueIfNeeded` (NOT aliased — a half-migrated shape would be
+ *  ambiguous).
+ *
+ *  `actual_remaining` is the computed total (the number the reports
+ *  read); the raw splits are null when the corresponding box is blank
+ *  (mirrors the admin's `actualRemainingCases` / `actualRemainingEach`
+ *  on `src/types/index.ts`). */
 export type EodEntry = {
   item_id: string;
-  count: number;
+  actual_remaining: number;
+  actual_remaining_cases: number | null;
+  actual_remaining_each: number | null;
 };
 
 /** Canonical shape persisted to AsyncStorage. Single source of truth

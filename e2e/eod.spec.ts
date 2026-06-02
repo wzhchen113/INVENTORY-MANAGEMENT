@@ -10,7 +10,8 @@
 // this entire spec would be vacuous (empty screen) — see design §OQ-4.
 //
 // OQ-3c GUARD #2: each test clears the staff offline-queue localStorage key
-// (imr-staff:eod-queue:v1) via addInitScript BEFORE the app boots, so every
+// (imr-staff:eod-queue:v2 — bumped from v1 in spec 086 when the queued
+// `entries` shape changed) via addInitScript BEFORE the app boots, so every
 // EOD test starts from an empty queue regardless of what any prior step
 // wrote. Belt-and-suspenders with guard #1 (auth-setup never submits EOD).
 //
@@ -31,9 +32,12 @@
 //     cannot reproduce a viewport-sized DOM.
 //
 // Selector contract: store-picker-root, store-row-{id} (StorePicker);
-// eod-store-name, vendor-chip-{id}, eod-item-input-{id}, eod-item-row-{id},
-// eod-submit, eod-queue-indicator, eod-prefill-banner (EODCount — all 078 §7,
-// banner pre-079); eod-item-list (079 §6 #1 — FROZEN, the scroll container).
+// eod-store-name, vendor-chip-{id}, eod-item-cases-{id}, eod-item-units-{id}
+// (spec 086 — the single eod-item-input-{id} split into Cases + Units; this
+// suite fills Units only, Cases blank, so total === the entered number, same
+// as the pre-086 single-input semantics), eod-item-row-{id}, eod-submit,
+// eod-queue-indicator, eod-prefill-banner (EODCount — all 078 §7, banner
+// pre-079); eod-item-list (079 §6 #1 — FROZEN, the scroll container).
 
 import { test, expect, type Page } from '@playwright/test';
 import { SEED, STAFF_QUEUE_KEY, STORAGE_STATE } from './fixtures/constants';
@@ -55,8 +59,9 @@ test.describe('staff EOD', () => {
 
   // Walk to EODCount on Towson, then assert the fixture actually produced a
   // populated screen (vendor chips + at least one item input). Returns the
-  // first item-input testid so callers can type a count into a real, rendered
-  // row (not a guessed id).
+  // first rendered item's UUID so callers can type into a real, rendered row
+  // (not a guessed id) and read it back from the DB. Spec 086: the row now has
+  // two inputs (Cases + Units); this suite fills Units only.
   //
   // Lands on one of TWO states (handle both — this is also what makes the
   // AC-EOD-PERSIST reload work): a FRESH context has no persisted active
@@ -66,7 +71,7 @@ test.describe('staff EOD', () => {
   // (imr-staff:active-store:v1), so a RELOAD in the same context restores it
   // and lands DIRECTLY on EODCount, skipping the picker. Branch on whichever
   // appears first so a re-navigation (the persistence reload) is robust.
-  async function gotoTowsonEod(page: Page): Promise<string> {
+  async function gotoTowsonEod(page: Page): Promise<{ itemId: string; unitsTestId: string }> {
     await page.goto('/');
 
     // Whichever of {StorePicker, EODCount-header} renders first wins. On a
@@ -98,23 +103,28 @@ test.describe('staff EOD', () => {
     // Select US FOOD (31 Towson items) so the list is definitely non-empty.
     await page.getByTestId(`vendor-chip-${SEED.vendorUsFoodId}`).click();
 
-    // Wait for at least one item input to render, then return its testid.
-    const firstInput = page.getByTestId(/^eod-item-input-/).first();
-    await expect(firstInput).toBeVisible();
-    const testid = await firstInput.getAttribute('data-testid');
-    if (!testid) throw new Error('[e2e eod] no eod-item-input-* rendered');
-    return testid;
+    // Wait for at least one item's Units input to render, then derive the
+    // item UUID from its testid (eod-item-units-<uuid> → <uuid>). The Units
+    // box is what this suite fills; Cases stays blank so the converted total
+    // equals the entered number.
+    const firstUnits = page.getByTestId(/^eod-item-units-/).first();
+    await expect(firstUnits).toBeVisible();
+    const unitsTestId = await firstUnits.getAttribute('data-testid');
+    if (!unitsTestId) throw new Error('[e2e eod] no eod-item-units-* rendered');
+    const itemId = unitsTestId.replace('eod-item-units-', '');
+    return { itemId, unitsTestId };
   }
 
   test('AC-EOD1 + AC-EOD-PERSIST: online submit persists (banner on reload + service read)', async ({
     page,
   }) => {
-    const inputTestId = await gotoTowsonEod(page);
+    const { itemId, unitsTestId } = await gotoTowsonEod(page);
 
-    // Enter a count into the first rendered item. The online case fills '7'
-    // (the offline case fills '5') so a stale-row read can never match the
-    // wrong case (design ordering call-out).
-    await page.getByTestId(inputTestId).fill('7');
+    // Enter a count into the first rendered item's Units box (Cases blank →
+    // total === units). The online case fills '7' (the offline case fills '5')
+    // so a stale-row read can never match the wrong case (design ordering
+    // call-out).
+    await page.getByTestId(unitsTestId).fill('7');
 
     // Submit button is disabled when items.length === 0; we have items.
     await expect(page.getByTestId('eod-submit')).toBeEnabled();
@@ -142,6 +152,9 @@ test.describe('staff EOD', () => {
     // FOOD so we hit the same (store, today, vendor) tuple the submit wrote.
     await gotoTowsonEod(page);
     await expect(page.getByTestId('eod-prefill-banner')).toBeVisible();
+    // Spec 086: the Units box pre-fills from the stored total (legacy/units-
+    // only fallback) — 7, the value this run submitted with Cases blank.
+    await expect(page.getByTestId(unitsTestId)).toHaveValue('7');
 
     // ── AC-EOD-PERSIST-2/3 (the ONE service-role read — belt-and-suspenders):
     // read eod_submissions for (Towson, today, US FOOD) and assert the row +
@@ -165,9 +178,8 @@ test.describe('staff EOD', () => {
       'expected an eod_submissions row for (Towson, today, US FOOD)',
     ).not.toBeNull();
 
-    // The entry for the item we filled (itemId parsed from the input testid:
-    // 'eod-item-input-<uuid>' → <uuid>). Presence + value, not a row count.
-    const itemId = inputTestId.replace('eod-item-input-', '');
+    // The entry for the item we filled (itemId derived in gotoTowsonEod from
+    // the units testid). Presence + value, not a row count.
     type Entry = { item_id: string; actual_remaining: number | string | null };
     const entries = (data!.eod_entries ?? []) as Entry[];
     const entry = entries.find((e) => e.item_id === itemId);
@@ -179,8 +191,8 @@ test.describe('staff EOD', () => {
     page,
     context,
   }) => {
-    const inputTestId = await gotoTowsonEod(page);
-    await page.getByTestId(inputTestId).fill('5');
+    const { unitsTestId } = await gotoTowsonEod(page);
+    await page.getByTestId(unitsTestId).fill('5');
 
     // ── Go offline ──────────────────────────────────────────────────────
     // context.setOffline(true) flips navigator.onLine AND dispatches the
@@ -238,7 +250,7 @@ test.describe('staff EOD', () => {
       page,
     }) => {
       // Populated US FOOD list (31 Towson items) → guaranteed overshoot at
-      // 812px height. gotoTowsonEod already asserts an eod-item-input-* is
+      // 812px height. gotoTowsonEod already asserts an eod-item-units-* is
       // visible, so items definitely rendered before we probe.
       await gotoTowsonEod(page);
 

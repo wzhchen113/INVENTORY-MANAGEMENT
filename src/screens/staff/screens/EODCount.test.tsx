@@ -66,18 +66,18 @@ beforeEach(() => {
 });
 
 describe('EODCount', () => {
-  it('renders the store name and an item row with a decimal-pad input', async () => {
+  it('renders the store name and an item row with TWO decimal-pad inputs (Cases + Units)', async () => {
     // Mock the data fetch sequence: vendors, items, existing
     mockNextResultStack = [
       // vendors for today
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      // items for vendor
+      // items for vendor (case_qty present → caseQty mapped)
       {
         data: [
           {
             id: 'item-1',
             vendor_id: 'v-1',
-            catalog: { name: 'Flour', unit: 'lb' },
+            catalog: { name: 'Flour', unit: 'lb', case_qty: 12 },
           },
         ],
         error: null,
@@ -86,20 +86,23 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
 
-    const { findByText, getByTestId } = render(<EODCount />);
+    const { findByText, getByTestId, queryByTestId } = render(<EODCount />);
     expect(await findByText('Frederick')).toBeTruthy();
-    // Item row renders after fetch
+    // Item row renders after fetch with BOTH inputs.
     await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
-    expect(getByTestId('eod-item-input-item-1')).toBeTruthy();
+    expect(getByTestId('eod-item-cases-item-1')).toBeTruthy();
+    expect(getByTestId('eod-item-units-item-1')).toBeTruthy();
+    // The old single-input testID is gone.
+    expect(queryByTestId('eod-item-input-item-1')).toBeNull();
     expect(getByTestId('eod-submit')).toBeTruthy();
   });
 
-  it('shows the pre-fill banner when an existing submission is returned', async () => {
+  it('shows the pre-fill banner and seeds both boxes from a split submission', async () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } },
+          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
         ],
         error: null,
       },
@@ -107,22 +110,63 @@ describe('EODCount', () => {
         data: {
           id: 'sub-1',
           submitted_at: '2026-05-24T18:30:00Z',
-          eod_entries: [{ item_id: 'item-1', actual_remaining: 12 }],
+          eod_entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 29, // 2×12 + 5
+              actual_remaining_cases: 2,
+              actual_remaining_each: 5,
+            },
+          ],
         },
         error: null,
       },
     ];
     const { findByTestId } = render(<EODCount />);
     expect(await findByTestId('eod-prefill-banner')).toBeTruthy();
+    // Cases box seeded from actual_remaining_cases, Units from actual_remaining_each.
+    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('2');
+    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('5');
   });
 
-  it('calls submit with mapped payload when Submit is pressed', async () => {
+  it('pre-fills a LEGACY row (null splits) as Cases blank, Units = total', async () => {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
+        ],
+        error: null,
+      },
+      {
+        data: {
+          id: 'sub-1',
+          submitted_at: '2026-05-24T18:30:00Z',
+          // Legacy row: only the total set, both splits NULL (OQ-4).
+          eod_entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 18,
+              actual_remaining_cases: null,
+              actual_remaining_each: null,
+            },
+          ],
+        },
+        error: null,
+      },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('');
+    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('18');
+  });
+
+  it('converts Cases × caseQty + Units into the total in the submit payload', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } },
+          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
         ],
         error: null,
       },
@@ -130,18 +174,125 @@ describe('EODCount', () => {
       { data: null, error: null }, // re-fetch after submit success
     ];
     const { findByTestId } = render(<EODCount />);
-    const input = await findByTestId('eod-item-input-item-1');
-    fireEvent.changeText(input, '7.5');
-    const submit = await findByTestId('eod-submit');
-    fireEvent.press(submit);
+    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '2');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
+    fireEvent.press(await findByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // total = 2 × 12 + 3 = 27; raw splits carried alongside.
     expect(mockSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         store_id: 'store-1',
         vendor_id: 'v-1',
-        entries: [{ item_id: 'item-1', count: 7.5 }],
+        entries: [
+          {
+            item_id: 'item-1',
+            actual_remaining: 27,
+            actual_remaining_cases: 2,
+            actual_remaining_each: 3,
+          },
+        ],
       }),
     );
+  });
+
+  it('defaults caseQty to 1 when the catalog has no case_qty (null → ×1)', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        // No case_qty key → caseQty maps to null → conversion uses × 1.
+        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }],
+        error: null,
+      },
+      { data: null, error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '4');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '5');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // total = 4 × 1 + 5 = 9.
+    expect(mockSubmit.mock.calls[0][0].entries[0]).toEqual({
+      item_id: 'item-1',
+      actual_remaining: 9,
+      actual_remaining_cases: 4,
+      actual_remaining_each: 5,
+    });
+  });
+
+  it('includes a row when ONLY Units is filled (Cases blank → cases null)', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }],
+        error: null,
+      },
+      { data: null, error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    // Only Units filled — the "entered when either filled" predicate.
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7.5');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit.mock.calls[0][0].entries).toEqual([
+      {
+        item_id: 'item-1',
+        actual_remaining: 7.5, // 0 × 12 + 7.5
+        actual_remaining_cases: null, // blank Cases → null
+        actual_remaining_each: 7.5,
+      },
+    ]);
+  });
+
+  it('includes a row when ONLY Cases is filled (Units blank → each null)', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 4 } }],
+        error: null,
+      },
+      { data: null, error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    // Only Cases filled — the other half of the "entered when either filled" predicate.
+    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '3');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit.mock.calls[0][0].entries).toEqual([
+      {
+        item_id: 'item-1',
+        actual_remaining: 12, // 3 × 4 + 0
+        actual_remaining_cases: 3,
+        actual_remaining_each: null, // blank Units → null
+      },
+    ]);
+  });
+
+  it('skips a fully-blank row (no Cases, no Units) → noCountsEntered toast', async () => {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }],
+        error: null,
+      },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    // Press Submit without touching either input.
+    await findByTestId('eod-item-cases-item-1');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled());
+    // submit() never called — the empty-payload guard fired first.
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({
+      text1: 'Submission failed — try again',
+      text2: 'No counts entered',
+    });
   });
 
   it('shows "Submitted" toast on success outcome', async () => {
@@ -153,7 +304,7 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-input-item-1'), '7');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
     fireEvent.press(await findByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({
@@ -172,7 +323,7 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-input-item-1'), '7');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
     fireEvent.press(await findByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     const calls = (Toast.show as jest.Mock).mock.calls;
@@ -190,7 +341,7 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
     const { findByText, findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-input-item-1'), '7');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
     fireEvent.press(await findByTestId('eod-submit'));
     await waitFor(() =>
       expect(findByText(/your access has changed/i)).resolves.toBeTruthy(),
@@ -207,11 +358,15 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
-    const input = await findByTestId('eod-item-input-item-1');
-    fireEvent.changeText(input, '7');
+    const cases = await findByTestId('eod-item-cases-item-1');
+    const units = await findByTestId('eod-item-units-item-1');
+    fireEvent.changeText(cases, '2');
+    fireEvent.changeText(units, '7');
     fireEvent.press(await findByTestId('eod-submit'));
+    // Both inputs clear on the queued outcome (spec §B7).
     await waitFor(() => {
-      expect(input.props.value).toBe('');
+      expect(cases.props.value).toBe('');
+      expect(units.props.value).toBe('');
     });
   });
 
@@ -276,7 +431,7 @@ describe('EODCount', () => {
       ];
 
       const { findByTestId } = render(<EODCount />);
-      const input = await findByTestId('eod-item-input-item-1');
+      const input = await findByTestId('eod-item-units-item-1');
       fireEvent.changeText(input, '7');
 
       // Advance the clock past midnight BEFORE pressing Submit.

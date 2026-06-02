@@ -3,10 +3,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   QUEUE_KEY,
+  V1_QUEUE_KEY,
   ACTIVE_STORE_KEY,
   clearQueue,
   drainQueue,
   hydrateQueue,
+  migrateQueueIfNeeded,
   peekQueue,
   persistQueue,
   pushQueueItem,
@@ -22,7 +24,15 @@ function makeItem(overrides: Partial<QueuedSubmission> = {}): QueuedSubmission {
     date: '2026-05-24',
     vendor_id: 'vendor-1',
     status: 'submitted',
-    entries: [{ item_id: 'item-1', count: 5 }],
+    // Spec 086 — v2 3-field entry shape.
+    entries: [
+      {
+        item_id: 'item-1',
+        actual_remaining: 5,
+        actual_remaining_cases: null,
+        actual_remaining_each: 5,
+      },
+    ],
     queued_at: new Date().toISOString(),
     intent_user_id: 'user-1',
     attempts: 0,
@@ -102,6 +112,136 @@ describe('eodQueue', () => {
       const out = await hydrateQueue();
       expect(out).toHaveLength(1);
       expect(out[0].client_uuid).toBe(fresh.client_uuid);
+    });
+  });
+
+  describe('migrateQueueIfNeeded (v1 → v2 read-once migrate)', () => {
+    // Old (spec 062) v1 submission shape: a single `count` per entry.
+    function makeV1Item(overrides: Record<string, unknown> = {}) {
+      return {
+        client_uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        store_id: 'store-1',
+        date: '2026-05-24',
+        vendor_id: 'vendor-1',
+        status: 'submitted',
+        entries: [{ item_id: 'item-1', count: 5 }],
+        queued_at: new Date().toISOString(),
+        intent_user_id: 'user-1',
+        attempts: 0,
+        ...overrides,
+      };
+    }
+
+    // Key-aware AsyncStorage backing map so the migrate (which reads BOTH
+    // the v1 and v2 keys) sees per-key values, and writes/removes mutate it.
+    function installBacking(initial: Record<string, string>) {
+      const store: Record<string, string | undefined> = { ...initial };
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((k: string) =>
+        Promise.resolve(store[k] ?? null),
+      );
+      (AsyncStorage.setItem as jest.Mock).mockImplementation((k: string, v: string) => {
+        store[k] = v;
+        return Promise.resolve();
+      });
+      (AsyncStorage.removeItem as jest.Mock).mockImplementation((k: string) => {
+        delete store[k];
+        return Promise.resolve();
+      });
+      return store;
+    }
+
+    it('migrates an in-flight v1 payload to the v2 shape and removes v1', async () => {
+      const store = installBacking({
+        [V1_QUEUE_KEY]: JSON.stringify([makeV1Item()]),
+      });
+      await migrateQueueIfNeeded();
+
+      // v2 now holds the migrated payload, v1 is gone.
+      expect(store[QUEUE_KEY]).toBeDefined();
+      expect(store[V1_QUEUE_KEY]).toBeUndefined();
+      const migrated = JSON.parse(store[QUEUE_KEY] as string);
+      expect(migrated).toHaveLength(1);
+      // count → units-only legacy count: total + each = count, cases null.
+      expect(migrated[0].entries).toEqual([
+        {
+          item_id: 'item-1',
+          actual_remaining: 5,
+          actual_remaining_cases: null,
+          actual_remaining_each: 5,
+        },
+      ]);
+      // Other queue fields preserved verbatim.
+      expect(migrated[0].client_uuid).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      expect(migrated[0].intent_user_id).toBe('user-1');
+
+      // The migrated payload hydrates cleanly (passes the v2 validator).
+      const hydrated = await hydrateQueue();
+      expect(hydrated).toHaveLength(1);
+      expect(hydrated[0].entries[0].actual_remaining).toBe(5);
+    });
+
+    it('is idempotent — does not clobber an existing non-empty v2 payload', async () => {
+      const v2Item = makeItem({ client_uuid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+      const store = installBacking({
+        [V1_QUEUE_KEY]: JSON.stringify([makeV1Item()]),
+        [QUEUE_KEY]: JSON.stringify([v2Item]),
+      });
+      await migrateQueueIfNeeded();
+
+      // v2 untouched (still the freshly-enqueued item), v1 left inert.
+      const v2 = JSON.parse(store[QUEUE_KEY] as string);
+      expect(v2).toHaveLength(1);
+      expect(v2[0].client_uuid).toBe('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    });
+
+    it('is a no-op when there is no v1 payload', async () => {
+      const store = installBacking({});
+      await migrateQueueIfNeeded();
+      expect(store[QUEUE_KEY]).toBeUndefined();
+      expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    });
+
+    it('running twice does not double-migrate (second run sees populated v2)', async () => {
+      const store = installBacking({
+        [V1_QUEUE_KEY]: JSON.stringify([makeV1Item()]),
+      });
+      await migrateQueueIfNeeded();
+      const afterFirst = store[QUEUE_KEY];
+      // Second run — v1 is gone, v2 populated → no-op, value unchanged.
+      await migrateQueueIfNeeded();
+      expect(store[QUEUE_KEY]).toBe(afterFirst);
+    });
+
+    it('skips a malformed v1 entry but keeps the valid submission', async () => {
+      const store = installBacking({
+        [V1_QUEUE_KEY]: JSON.stringify([
+          makeV1Item({ entries: [{ item_id: 'ok', count: 2 }, { broken: true }] }),
+        ]),
+      });
+      await migrateQueueIfNeeded();
+      const migrated = JSON.parse(store[QUEUE_KEY] as string);
+      expect(migrated).toHaveLength(1);
+      // Only the well-formed entry survives the transform.
+      expect(migrated[0].entries).toEqual([
+        {
+          item_id: 'ok',
+          actual_remaining: 2,
+          actual_remaining_cases: null,
+          actual_remaining_each: 2,
+        },
+      ]);
+    });
+
+    it('backs up and clears malformed v1 bytes (no throw)', async () => {
+      const store = installBacking({ [V1_QUEUE_KEY]: '{not-json' });
+      await expect(migrateQueueIfNeeded()).resolves.toBeUndefined();
+      // v1 backed up under a v1-corrupted key and removed; v2 never written.
+      const backupKey = Object.keys(store).find((k) =>
+        k.startsWith(`${V1_QUEUE_KEY}-corrupted`),
+      );
+      expect(backupKey).toBeDefined();
+      expect(store[V1_QUEUE_KEY]).toBeUndefined();
+      expect(store[QUEUE_KEY]).toBeUndefined();
     });
   });
 

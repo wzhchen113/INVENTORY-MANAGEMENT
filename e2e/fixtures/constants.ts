@@ -69,7 +69,7 @@ export const WEEKDAYS = [
 // queue key in beforeEach (OQ-3c defense-in-depth) and may seed the
 // active-store key so the staff session lands on EODCount deterministically
 // (manager has two stores → StorePicker otherwise).
-export const STAFF_QUEUE_KEY = 'imr-staff:eod-queue:v1';
+export const STAFF_QUEUE_KEY = 'imr-staff:eod-queue:v2';
 export const STAFF_ACTIVE_STORE_KEY = 'imr-staff:active-store:v1';
 
 // ─── Per-run token for uniquified inputs (OQ-3b) ────────────────────────

@@ -17,10 +17,13 @@
 //   - "All counts synced" toast is debounced 400ms to avoid jarring
 //     mid-screen-transition fires (spec 062 §11 risk (h)).
 //
-// Note on entry shape mapping:
-//   UI side (this hook's `SubmitPayload`) uses `item_id` + `count`.
-//   Backend RPC expects `ingredient_id` + `actual_remaining` per
-//   jsonb_to_recordset signature. Mapping happens once at the RPC
+// Note on entry shape mapping (spec 086):
+//   UI side (this hook's `SubmitPayload`) uses `item_id` +
+//   `actual_remaining` (the client-computed total) + the raw
+//   `actual_remaining_cases` / `actual_remaining_each` splits. The
+//   backend RPC expects `ingredient_id` (+ the same three column names)
+//   per the jsonb_to_recordset signature, so the mapping is a
+//   near-identity rename of item_id → ingredient_id at the RPC
 //   boundary; callers stay readable.
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -67,10 +70,18 @@ function isForbidden(err: unknown): boolean {
 function entriesForRpc(entries: EodEntry[]): Array<{
   ingredient_id: string;
   actual_remaining: number;
+  actual_remaining_cases: number | null;
+  actual_remaining_each: number | null;
 }> {
+  // Spec 086 — near-identity map. The entry already carries the
+  // snake_case column names; only item_id → ingredient_id is renamed.
+  // The two split fields ride inside p_entries; the RPC reads them via
+  // jsonb_to_recordset (NULL when absent, so older callers stay valid).
   return entries.map((e) => ({
     ingredient_id: e.item_id,
-    actual_remaining: e.count,
+    actual_remaining: e.actual_remaining,
+    actual_remaining_cases: e.actual_remaining_cases,
+    actual_remaining_each: e.actual_remaining_each,
   }));
 }
 

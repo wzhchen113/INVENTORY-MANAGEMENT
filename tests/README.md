@@ -641,8 +641,9 @@ Runs against the local `dev:db` stack + the committed `supabase/seed.sql`
 ### The poison-queue guard (storageState + the offline queue)
 
 Playwright `storageState` serializes `localStorage`, and the staff offline
-queue lives in `localStorage` under `imr-staff:eod-queue:v1`. Two guards
-keep a stale queue from poisoning later runs:
+queue lives in `localStorage` under `imr-staff:eod-queue:v2` (bumped from
+`:v1` in spec 086 when the queued `entries` shape gained Cases/Units). Two
+guards keep a stale queue from poisoning later runs:
 
 1. The **auth-setup never submits EOD**, so the saved `staff.json` carries
    auth tokens but no queue key.
@@ -677,7 +678,7 @@ suite clean as it grows.)
 5. **Each test starts from clean per-test state.** Playwright gives each test a
    fresh `BrowserContext` (fresh localStorage). storageState carries auth ONLY
    (the setup project never submits EOD). The EOD specs additionally clear the
-   offline-queue key (`imr-staff:eod-queue:v1`) in `beforeEach` via
+   offline-queue key (`imr-staff:eod-queue:v2`) in `beforeEach` via
    `addInitScript` — defense against localStorage bleed.
 6. **Key mutating-flow assertions off THIS run's unique input, never an
    absolute row count.** Invite uses `e2e-invite+<runId>@local.test`; EOD reads

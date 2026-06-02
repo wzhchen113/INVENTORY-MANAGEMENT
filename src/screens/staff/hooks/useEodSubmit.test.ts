@@ -47,7 +47,17 @@ const samplePayload = {
   store_id: 'store-1',
   date: '2026-05-24',
   vendor_id: 'vendor-1',
-  entries: [{ item_id: 'item-1', count: 3 }],
+  // Spec 086 — 3-field entry: 1 case × (caseQty implicit on screen) + 1
+  // loose unit producing a total of 3. The hook is agnostic to caseQty;
+  // it forwards the client-computed total + raw splits verbatim.
+  entries: [
+    {
+      item_id: 'item-1',
+      actual_remaining: 3,
+      actual_remaining_cases: 1,
+      actual_remaining_each: 1,
+    },
+  ],
 };
 
 describe('useEodSubmit.submit', () => {
@@ -70,7 +80,14 @@ describe('useEodSubmit.submit', () => {
         p_vendor_id: 'vendor-1',
         p_status: 'submitted',
         p_submitted_by: null,
-        p_entries: [{ ingredient_id: 'item-1', actual_remaining: 3 }],
+        p_entries: [
+          {
+            ingredient_id: 'item-1',
+            actual_remaining: 3,
+            actual_remaining_cases: 1,
+            actual_remaining_each: 1,
+          },
+        ],
       }),
     );
   });
@@ -121,7 +138,14 @@ describe('useEodSubmit.submit', () => {
       vendor_id: 'vendor-1',
       intent_user_id: 'user-1',
       attempts: 0,
-      entries: [{ item_id: 'item-1', count: 3 }],
+      entries: [
+        {
+          item_id: 'item-1',
+          actual_remaining: 3,
+          actual_remaining_cases: 1,
+          actual_remaining_each: 1,
+        },
+      ],
     });
     expect(mockRpc).not.toHaveBeenCalled();
   });
@@ -201,7 +225,14 @@ describe('useEodSubmit — drain loop (mount + connectivity flip)', () => {
           date: '2026-05-24',
           vendor_id: 'vendor-1',
           status: 'submitted',
-          entries: [{ item_id: 'item-1', count: 3 }],
+          entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 3,
+              actual_remaining_cases: null,
+              actual_remaining_each: 3,
+            },
+          ],
           queued_at: new Date().toISOString(),
           intent_user_id: 'user-A',
           attempts: 0,
@@ -236,7 +267,14 @@ describe('useEodSubmit — drain loop (mount + connectivity flip)', () => {
           date: '2026-05-24',
           vendor_id: 'vendor-1',
           status: 'submitted',
-          entries: [{ item_id: 'item-1', count: 3 }],
+          entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 3,
+              actual_remaining_cases: null,
+              actual_remaining_each: 3,
+            },
+          ],
           queued_at: '2026-05-24T00:00:00.000Z',
           intent_user_id: 'user-1',
           attempts: 0,
@@ -247,7 +285,14 @@ describe('useEodSubmit — drain loop (mount + connectivity flip)', () => {
           date: '2026-05-24',
           vendor_id: 'vendor-2',
           status: 'submitted',
-          entries: [{ item_id: 'item-2', count: 5 }],
+          entries: [
+            {
+              item_id: 'item-2',
+              actual_remaining: 5,
+              actual_remaining_cases: null,
+              actual_remaining_each: 5,
+            },
+          ],
           queued_at: '2026-05-24T00:00:01.000Z',
           intent_user_id: 'user-1',
           attempts: 0,

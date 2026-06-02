@@ -32,6 +32,16 @@
     "list": {
       "empty": "No items configured for this vendor"
     },
+    "col": {
+      "cases": "Cases",
+      "units": "Units",
+      "casesAria": "Cases for {item}",
+      "unitsAria": "Units for {item}"
+    },
+    "row": {
+      "caseOf": "case of {qty}",
+      "total": "total {total} {unit}"
+    },
     "submit": "Submit",
     "submitting": "Submitting...",
     "banner": {

@@ -69,7 +69,7 @@ describe('useStaffStore — queue mutations write through AsyncStorage', () => {
     await useStaffStore.getState().enqueueEod(item);
     expect(useStaffStore.getState().eodQueue).toHaveLength(1);
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-      'imr-staff:eod-queue:v1',
+      'imr-staff:eod-queue:v2',
       JSON.stringify([item]),
     );
   });

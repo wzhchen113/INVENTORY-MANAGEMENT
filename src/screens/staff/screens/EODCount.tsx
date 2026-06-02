@@ -116,18 +116,25 @@ async function fetchItemsForVendor(
   vendorId: string,
 ): Promise<EodItem[]> {
   // inventory_items at the store filtered by vendor_id, joined to
-  // catalog_ingredients for the canonical display name + unit.
+  // catalog_ingredients for the canonical display name + unit + the
+  // units-per-case (`case_qty`) the Cases input converts with (spec
+  // 086; same source the admin reads via db.ts:166).
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, vendor_id, catalog:catalog_ingredients(name, unit)')
+    .select('id, vendor_id, catalog:catalog_ingredients(name, unit, case_qty)')
     .eq('store_id', storeId)
     .eq('vendor_id', vendorId)
     .order('id', { ascending: true });
   if (error) throw error;
+  type CatalogRow = {
+    name: string | null;
+    unit: string | null;
+    case_qty: number | string | null;
+  };
   type Row = {
     id: string;
     vendor_id: string | null;
-    catalog: { name: string | null; unit: string | null } | { name: string | null; unit: string | null }[] | null;
+    catalog: CatalogRow | CatalogRow[] | null;
   };
   const rows = (data ?? []) as Row[];
   return rows.map((r) => {
@@ -137,6 +144,9 @@ async function fetchItemsForVendor(
       vendorId: r.vendor_id,
       name: c?.name ?? '',
       unit: c?.unit ?? '',
+      // Preserve null (the admin collapses to 1 at hydration; we keep
+      // the distinction and apply `|| 1` at the conversion site).
+      caseQty: c?.case_qty == null ? null : Number(c.case_qty),
     };
   });
 }
@@ -148,7 +158,9 @@ async function fetchExistingSubmission(
 ): Promise<ExistingSubmission | null> {
   const { data, error } = await supabase
     .from('eod_submissions')
-    .select('id, submitted_at, eod_entries(item_id, actual_remaining)')
+    .select(
+      'id, submitted_at, eod_entries(item_id, actual_remaining, actual_remaining_cases, actual_remaining_each)',
+    )
     .eq('store_id', storeId)
     .eq('date', dateIso)
     .eq('vendor_id', vendorId)
@@ -160,15 +172,29 @@ async function fetchExistingSubmission(
     throw error;
   }
   if (!data) return null;
+  type EntryRow = {
+    item_id: string;
+    actual_remaining: number | string | null;
+    actual_remaining_cases: number | string | null;
+    actual_remaining_each: number | string | null;
+  };
   type Row = {
     id: string;
     submitted_at: string;
-    eod_entries: Array<{ item_id: string; actual_remaining: number | string | null }>;
+    eod_entries: EntryRow[];
   };
   const row = data as Row;
+  // Map straight to the new 3-field shape. The legacy-row fallback
+  // (units ← actual_remaining when actual_remaining_each is NULL) is
+  // applied at the SCREEN seed step (per OQ-4), not here, so this stays
+  // a faithful read of what the DB holds.
   const entries: EodEntry[] = (row.eod_entries ?? []).map((e) => ({
     item_id: e.item_id,
-    count: e.actual_remaining == null ? 0 : Number(e.actual_remaining),
+    actual_remaining: e.actual_remaining == null ? 0 : Number(e.actual_remaining),
+    actual_remaining_cases:
+      e.actual_remaining_cases == null ? null : Number(e.actual_remaining_cases),
+    actual_remaining_each:
+      e.actual_remaining_each == null ? null : Number(e.actual_remaining_each),
   }));
   return {
     submission_id: row.id,
@@ -195,7 +221,11 @@ export function EODCount() {
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [items, setItems] = useState<EodItem[]>([]);
   const [existing, setExisting] = useState<ExistingSubmission | null>(null);
-  const [counts, setCounts] = useState<Record<string, string>>({});
+  // Spec 086 — two per-item maps mirroring the admin worksheet's
+  // case/unit split (un-keyed-by-vendor: the staff screen already scopes
+  // to one selected vendor at a time).
+  const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
+  const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
@@ -226,7 +256,8 @@ export function EODCount() {
     if (!activeStore || !selectedVendorId) {
       setItems([]);
       setExisting(null);
-      setCounts({});
+      setCaseCounts({});
+      setUnitCounts({});
       return;
     }
     setLoading(true);
@@ -237,20 +268,36 @@ export function EODCount() {
       .then(([nextItems, nextExisting]) => {
         setItems(nextItems);
         setExisting(nextExisting);
-        // Pre-fill counts from existing submission if any
-        const seed: Record<string, string> = {};
+        // Pre-fill BOTH boxes from any existing submission. Cases seeds
+        // from actual_remaining_cases (blank when null); Units seeds from
+        // actual_remaining_each ?? actual_remaining — the admin legacy-row
+        // fallback (EODCountSection.tsx:340-344, spec 086 OQ-4). A legacy
+        // row (splits NULL) → Cases blank, Units = the existing total.
+        const caseSeed: Record<string, string> = {};
+        const unitSeed: Record<string, string> = {};
         if (nextExisting) {
           for (const e of nextExisting.entries) {
-            seed[e.item_id] = String(e.count);
+            if (e.actual_remaining_cases != null) {
+              caseSeed[e.item_id] = String(e.actual_remaining_cases);
+            }
+            const units =
+              e.actual_remaining_each != null
+                ? e.actual_remaining_each
+                : e.actual_remaining;
+            if (units != null) {
+              unitSeed[e.item_id] = String(units);
+            }
           }
         }
-        setCounts(seed);
+        setCaseCounts(caseSeed);
+        setUnitCounts(unitSeed);
       })
       .catch((err) => {
         notifyBackendError('fetchItemsForVendor', err);
         setItems([]);
         setExisting(null);
-        setCounts({});
+        setCaseCounts({});
+        setUnitCounts({});
       })
       .finally(() => setLoading(false));
   }, [activeStore, selectedVendorId]);
@@ -292,16 +339,29 @@ export function EODCount() {
   const onSubmit = useCallback(async () => {
     if (!activeStore || !selectedVendorId || submitting) return;
     if (items.length === 0) return;
-    // Build entries — only include rows the user entered or rows that
-    // were pre-filled from existing submission. Skip blank rows so the
-    // RPC isn't bloated; the spec doesn't require backfill of zeros.
+    // Build entries — include a row when EITHER its Cases OR its Units
+    // box is non-empty (the admin `hasEntry` rule,
+    // EODCountSection.tsx:397-398). Fully-blank rows are skipped so the
+    // RPC isn't bloated. Each entry carries the converted total
+    // (`cases × (caseQty || 1) + units`, byte-identical to the admin at
+    // EODCountSection.tsx:395,429, with isNaN→0 per input) plus the raw
+    // splits (null when the box is blank).
     const entries: EodEntry[] = items
       .map((it) => {
-        const raw = counts[it.id];
-        if (raw == null || raw === '') return null;
-        const parsed = Number(raw);
-        if (Number.isNaN(parsed)) return null;
-        return { item_id: it.id, count: parsed };
+        const caseRaw = caseCounts[it.id] ?? '';
+        const unitRaw = unitCounts[it.id] ?? '';
+        if (caseRaw.trim() === '' && unitRaw.trim() === '') return null;
+        const casesParsed = parseFloat(caseRaw);
+        const unitsParsed = parseFloat(unitRaw);
+        const cases = Number.isNaN(casesParsed) ? 0 : casesParsed;
+        const units = Number.isNaN(unitsParsed) ? 0 : unitsParsed;
+        const total = cases * (it.caseQty || 1) + units;
+        return {
+          item_id: it.id,
+          actual_remaining: total,
+          actual_remaining_cases: Number.isNaN(casesParsed) ? null : casesParsed,
+          actual_remaining_each: Number.isNaN(unitsParsed) ? null : unitsParsed,
+        };
       })
       .filter((x): x is EodEntry => x !== null);
     if (entries.length === 0) {
@@ -356,7 +416,8 @@ export function EODCount() {
           position: 'bottom',
         });
         // Clear inputs so the user moves on — spec §B7.
-        setCounts({});
+        setCaseCounts({});
+        setUnitCounts({});
       } else {
         Toast.show({
           type: 'error',
@@ -367,7 +428,7 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, counts, submit, submitting]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting]);
 
   if (!activeStore) {
     // Shouldn't render — RootStack swaps to picker when activeStore
@@ -534,39 +595,91 @@ export function EODCount() {
           style={styles.itemListBody}
           contentContainerStyle={styles.itemList}
           ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
-          renderItem={({ item }) => (
-            <ListRow
-              testID={`eod-item-row-${item.id}`}
-              leading={
-                <View>
-                  <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-                    {item.name}
-                  </Text>
-                  {item.unit ? (
-                    <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
-                      {item.unit}
+          renderItem={({ item }) => {
+            const caseRaw = caseCounts[item.id] ?? '';
+            const unitRaw = unitCounts[item.id] ?? '';
+            // Pack size > 1 means the Cases box meaningfully multiplies;
+            // when caseQty is null/1 the Cases box still works (× 1) but we
+            // surface the multiplier label only when it changes the math.
+            const hasPack = (item.caseQty ?? 0) > 1;
+            const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
+            // Mirror the admin's total: cases × (caseQty || 1) + units,
+            // isNaN → 0 per input (EODCountSection.tsx:391-395).
+            const casesParsed = parseFloat(caseRaw);
+            const unitsParsed = parseFloat(unitRaw);
+            const total =
+              (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
+              (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+            return (
+              <ListRow
+                testID={`eod-item-row-${item.id}`}
+                leading={
+                  <View>
+                    <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
+                      {item.name}
                     </Text>
-                  ) : null}
-                </View>
-              }
-              trailing={
-                <Input
-                  value={counts[item.id] ?? ''}
-                  onChangeText={(txt) =>
-                    setCounts((prev) => ({ ...prev, [item.id]: txt }))
-                  }
-                  keyboardType="decimal-pad"
-                  // react-native-web maps inputMode to the underlying
-                  // <input>; native ignores it. Both belt-and-suspenders.
-                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                  placeholder="0"
-                  testID={`eod-item-input-${item.id}`}
-                  style={styles.countInput}
-                  accessibilityLabel={`Count for ${item.name}`}
-                />
-              }
-            />
-          )}
+                    {item.unit || hasPack ? (
+                      <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
+                        {item.unit}
+                        {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
+                      </Text>
+                    ) : null}
+                    {/* Live total — only meaningful (and shown) once the
+                        Cases box is in play; matches the admin worksheet's
+                        per-row "· total N unit" affordance. */}
+                    {hasPack && entered ? (
+                      <Text
+                        style={[styles.itemTotal, { color: c.textSecondary }]}
+                        testID={`eod-item-total-${item.id}`}
+                      >
+                        {t('eod.row.total', { total, unit: item.unit })}
+                      </Text>
+                    ) : null}
+                  </View>
+                }
+                trailing={
+                  <View style={styles.countInputs}>
+                    <View style={styles.countCol}>
+                      <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                        {t('eod.col.cases')}
+                      </Text>
+                      <Input
+                        value={caseRaw}
+                        onChangeText={(txt) =>
+                          setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
+                        }
+                        keyboardType="decimal-pad"
+                        // react-native-web maps inputMode to the underlying
+                        // <input>; native ignores it. Both belt-and-suspenders.
+                        {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                        placeholder="0"
+                        testID={`eod-item-cases-${item.id}`}
+                        style={styles.countInput}
+                        accessibilityLabel={t('eod.col.casesAria', { item: item.name })}
+                      />
+                    </View>
+                    <View style={styles.countCol}>
+                      <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                        {t('eod.col.units')}
+                      </Text>
+                      <Input
+                        value={unitRaw}
+                        onChangeText={(txt) =>
+                          setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
+                        }
+                        keyboardType="decimal-pad"
+                        {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                        placeholder="0"
+                        testID={`eod-item-units-${item.id}`}
+                        style={styles.countInput}
+                        accessibilityLabel={t('eod.col.unitsAria', { item: item.name })}
+                      />
+                    </View>
+                  </View>
+                }
+              />
+            );
+          }}
         />
       )}
 
@@ -702,9 +815,31 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     marginTop: 2,
   },
+  itemTotal: {
+    fontSize: typography.caption,
+    marginTop: 2,
+    fontWeight: typography.semibold,
+  },
+  // Two compact inputs side-by-side in the trailing slot. Each column
+  // stacks a caption (Cases / Units) over the input. ~76pt each + gap
+  // keeps the pair inside the row's trailing cell on a phone viewport
+  // (the leading column is flex:1, minWidth:0 so it yields).
+  countInputs: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  countCol: {
+    width: 76,
+  },
+  countColLabel: {
+    fontSize: typography.caption,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+    fontWeight: typography.medium,
+  },
   countInput: {
-    width: 96,
-    textAlign: 'right',
+    width: 76,
+    textAlign: 'center',
   },
   footer: {
     paddingHorizontal: spacing.lg,
