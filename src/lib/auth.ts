@@ -255,8 +255,12 @@ export interface InviteUserOptions {
   email: string;
   name: string;
   role: 'admin' | 'user';
-  /** Required for role='admin' (CHECK enforces). Allowed null for
-   *  role='user' (staff app users have no brand scope today). */
+  /** Required for role='admin' (CHECK enforces). For role='user' invites
+   *  the brand is DERIVED from the assigned stores (spec 090) — the caller
+   *  passes the store-derived brand, and inviteUser also derives it
+   *  from storeIds[0] via a `stores` read as defense-in-depth. `null` is reserved
+   *  for the legitimate zero-store user invite (the profile is stamped
+   *  later at register time once a store is assigned — spec 069). */
   brandId: string | null;
   storeIds: string[];
   /** Pre-formatted store-name list for the send-invite-email template.
@@ -291,6 +295,30 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       return { error: 'An invitation for this email already exists' };
     }
 
+    // Spec 090 — defense-in-depth: derive the brand from the first assigned
+    // store when a user (non-admin) invite arrives brand-less but store-scoped.
+    // The sole caller (InviteUserDrawer) now passes the derived brand, but
+    // auth.ts is a shared module and a future second caller could pass an
+    // unguarded null. The single-brand-store invariant (spec 068) makes
+    // storeIds[0] unambiguous, and this mirrors the server-side
+    // COALESCE(brand_id, brand of first store) in
+    // get_pending_invitation.resolved_brand_id (spec 069). Gated on
+    // storeIds.length > 0 so the legitimate zero-store user invite stays
+    // NULL-brand (the profile is stamped later at register time once a store
+    // is assigned). The admin path is unchanged: role==='admin' is excluded
+    // and already returned above when brandId was missing.
+    // NB: storeIds[0] is JS 0-indexed; the RPC's store_ids[1] is Postgres
+    // 1-indexed — same first store, do not introduce an off-by-one.
+    let resolvedBrandId = opts.brandId;
+    if (opts.role !== 'admin' && !resolvedBrandId && opts.storeIds.length > 0) {
+      const { data: store } = await supabase
+        .from('stores')
+        .select('brand_id')
+        .eq('id', opts.storeIds[0])
+        .single();
+      resolvedBrandId = store?.brand_id ?? null;
+    }
+
     // Create invitation record — profile + auth user created at registration time
     const { error: inviteError } = await supabase.from('invitations').insert({
       email: opts.email.toLowerCase(),
@@ -300,7 +328,10 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       store_ids: opts.storeIds,
       // Spec 012b — load-bearing: registerInvitedUser will read this back
       // through get_pending_invitation and write profiles.brand_id from it.
-      brand_id: opts.brandId,
+      // Spec 090 — now the store-derived brand for user/manager invites
+      // (resolvedBrandId), not the raw opts.brandId, so the invitation row is
+      // no longer written NULL-brand when it carries stores.
+      brand_id: resolvedBrandId,
     });
 
     if (inviteError) return { error: inviteError.message };

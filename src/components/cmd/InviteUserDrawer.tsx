@@ -137,14 +137,31 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
       .map((id) => brandStores.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(', ');
+    // Spec 090 — derive the user (non-admin) invite's brand from its assigned
+    // stores rather than discarding it as null. The store multi-select is
+    // already brand-filtered to the single active brand (brandStores, spec
+    // 068), so storeIds[0]'s brand is unambiguous — this mirrors the
+    // server-side COALESCE(brand_id, brand of first store) derivation in
+    // get_pending_invitation.resolved_brand_id (spec 069). The store-first
+    // form (`brandStores.find(...storeIds[0]).brandId`) makes the written
+    // value provably the brand of the assigned store; `?? brandId` is the
+    // practical result under today's single-active-brand UI. A zero-store
+    // user invite stays null (legitimate — the profile is stamped later at
+    // register time once a store is assigned). Admin path is unchanged
+    // (passes brandId verbatim; the missing-brand error fires in inviteUser).
+    // NB: storeIds[0] is JS 0-indexed; the RPC's store_ids[1] is Postgres
+    // 1-indexed — same first store, do not introduce an off-by-one.
+    const derivedBrandId =
+      values.role === 'admin'
+        ? brandId
+        : values.storeIds.length > 0
+          ? (brandStores.find((s) => s.id === values.storeIds[0])?.brandId ?? brandId ?? null)
+          : null;
     const result = await inviteUser({
       email: values.email.trim(),
       name: values.name.trim(),
       role: values.role,
-      // Spec 025 §2.H — only attach brandId when role='admin' (the
-      // profiles_role_brand_consistent CHECK rejects brand_id on
-      // user-role rows). Pass null for 'user' role.
-      brandId: values.role === 'admin' ? brandId : null,
+      brandId: derivedBrandId,
       storeIds: values.storeIds,
       storeNames,
     });
