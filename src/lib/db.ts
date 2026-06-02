@@ -2761,6 +2761,13 @@ function mapReorderVendor(v: any): ReorderVendor {
         suggestedQty: Number(it?.suggested_qty ?? 0),
         costPerUnit: Number(it?.cost_per_unit ?? 0),
         estimatedCost: Number(it?.estimated_cost ?? 0),
+        // Spec 088 — case-based ordering fields (additive on the report's
+        // per-item JSON). `case_qty` is always present (1 = no case size);
+        // `suggested_cases` is null when caseQty <= 1; `suggested_units` is
+        // the server's ordered base-unit total (falls back to suggested_qty).
+        caseQty: Number(it?.case_qty ?? 1),
+        suggestedCases: it?.suggested_cases == null ? null : Number(it.suggested_cases),
+        suggestedUnits: Number(it?.suggested_units ?? it?.suggested_qty ?? 0),
         flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
       }))
     : [];

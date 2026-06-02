@@ -45,6 +45,10 @@ function item(suggestedQty: number, estimatedCost: number) {
     suggestedQty,
     costPerUnit: 0,
     estimatedCost,
+    // Spec 088 — no-case-size defaults (these fixtures predate cases).
+    caseQty: 1,
+    suggestedCases: null,
+    suggestedUnits: suggestedQty,
     flags: [] as string[],
   };
 }

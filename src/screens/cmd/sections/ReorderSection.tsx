@@ -50,6 +50,33 @@ function formatMoney(n: number): string {
   return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 }
 
+// Spec 088 — the Suggested order is shown in WHOLE CASES for items with a
+// case size (server sets `suggestedCases` non-null iff `caseQty > 1`), plus
+// the underlying ordered base-unit total so the figure matches how you order
+// from the vendor AND the math stays glanceable: `N cases · M unit`
+// (singular `1 case`). `M` is the server-authoritative `suggestedUnits` — the
+// FE never re-derives `cases × caseQty` (defends against any server
+// rounding-rule change) and does NO cost math (Est $ rides on the
+// server-rounded `estimatedCost`). Non-case items render exactly as before:
+// `{suggestedQty} {unit}`. Exported for jest.
+export function formatSuggested(item: ReorderItem): string {
+  if (item.suggestedCases != null) {
+    const cases = item.suggestedCases;
+    const caseWord = cases === 1 ? 'case' : 'cases';
+    return `${formatQty(cases)} ${caseWord} · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
+  }
+  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
+}
+
+// PDF variant — same cases·units split with the compact `cs` abbreviation
+// (a glanceable string is fine for a print artifact). Exported for jest.
+export function formatSuggestedPdf(item: ReorderItem): string {
+  if (item.suggestedCases != null) {
+    return `${formatQty(item.suggestedCases)} cs · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
+  }
+  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
+}
+
 // Inline breakdown line per the spec's A3 format:
 // `on hand: 4 | inbound: 0 | par: 12 → order: 8`. Mono, fg2 with the
 // `order:` segment bolded in fg so the math is glanceable.
@@ -69,7 +96,7 @@ function BreakdownLine({ item }: { item: ReorderItem }) {
       {seg('par', `${formatQty(item.parLevel)} ${item.unit}`.trim())}
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
       <Text style={{ fontFamily: mono(700), fontSize: 11.5, color: C.fg, fontVariant: ['tabular-nums'] }}>
-        order: {formatQty(item.suggestedQty)} {item.unit}
+        order: {formatSuggested(item)}
       </Text>
     </View>
   );
@@ -330,7 +357,7 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
               {formatQty(item.parLevel)}
             </Text>
             <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatQty(item.suggestedQty)} {item.unit}
+              {formatSuggested(item)}
             </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
               {formatMoney(item.estimatedCost)}
@@ -402,7 +429,8 @@ function triggerDownload(blob: Blob, filename: string): void {
 // Spec 025 AC4 — one CSV covering all vendors. Column order is fixed
 // via `Papa.unparse(rows, { columns })` so accidental row-field changes
 // don't reshape the header.
-function buildReorderCsv(payload: ReorderPayload): string {
+// Exported for jest (spec 088 — case columns).
+export function buildReorderCsv(payload: ReorderPayload): string {
   const columns = [
     'Vendor',
     'Item Name',
@@ -410,6 +438,11 @@ function buildReorderCsv(payload: ReorderPayload): string {
     'Pending PO',
     'Par Level',
     'Suggested Qty',
+    // Spec 088 — explicit numeric-friendly case columns right after
+    // `Suggested Qty` so the case count and the ordered base-unit total are
+    // both recoverable + spreadsheet-summable. Empty for non-case rows.
+    'Cases',
+    'Units Per Case',
     'Unit',
     'Est. Cost',
     'Flags',
@@ -418,15 +451,21 @@ function buildReorderCsv(payload: ReorderPayload): string {
   const rows: Record<string, string | number>[] = [];
   for (const vendor of payload.vendors) {
     for (const item of vendor.items) {
+      const isCase = item.suggestedCases != null;
       rows.push({
         'Vendor': vendor.vendorName,
         'Item Name': item.itemName,
         'On Hand': item.onHand,
         'Pending PO': item.pendingPoQty,
         'Par Level': item.parLevel,
-        'Suggested Qty': item.suggestedQty,
+        // Case rows carry the ordered base-unit total `M`; non-case rows
+        // carry the raw suggestion (byte-for-byte unchanged from today).
+        'Suggested Qty': isCase ? item.suggestedUnits : item.suggestedQty,
+        'Cases': item.suggestedCases != null ? item.suggestedCases : '',
+        'Units Per Case': item.caseQty > 1 ? item.caseQty : '',
         'Unit': item.unit,
-        // No `$` — CSV stays numeric-friendly for spreadsheet sums.
+        // No `$` — CSV stays numeric-friendly for spreadsheet sums. Already
+        // case-rounded server-side; the FE does no cost math.
         'Est. Cost': item.estimatedCost.toFixed(2),
         'Flags': (item.flags || []).join(', '),
         'EOD Counted At': vendor.eodSubmittedAt || '',
@@ -510,7 +549,9 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
           formatQty(item.onHand),
           formatQty(item.pendingPoQty),
           formatQty(item.parLevel),
-          formatQty(item.suggestedQty),
+          // Spec 088 — case-aware suggested cell (`N cs · M unit` for case
+          // items). Est. Cost reads the server-rounded value unchanged.
+          formatSuggestedPdf(item),
           item.unit,
           `$${item.estimatedCost.toFixed(2)}`,
         ]),

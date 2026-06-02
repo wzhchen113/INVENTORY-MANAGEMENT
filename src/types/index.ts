@@ -710,6 +710,17 @@ export interface ReorderItem {
   suggestedQty: number;
   costPerUnit: number;
   estimatedCost: number;
+  // Spec 088 — case-based ordering. `caseQty` is units-per-case from the
+  // catalog (always present; `1` when no case size). `suggestedCases` is
+  // the whole-case order (ceil of suggestedQty / caseQty) and is `null`
+  // when `caseQty <= 1` (no case size → base unit unchanged).
+  // `suggestedUnits` is the server-authoritative ordered base-unit total
+  // (= suggestedCases × caseQty for case items, else suggestedQty); the FE
+  // reads it verbatim rather than re-deriving cases × caseQty. Estimated
+  // cost is already case-rounded server-side and rides on `estimatedCost`.
+  caseQty: number;
+  suggestedCases: number | null;
+  suggestedUnits: number;
   flags: string[];
 }
 
