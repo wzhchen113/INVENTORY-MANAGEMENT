@@ -10,6 +10,15 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import ReorderDatePicker from '../../../components/cmd/ReorderDatePicker';
+import { toISODate } from '../../../utils/reportDates';
+import {
+  weekdayName,
+  activeWeekdaysFromSchedule,
+  partitionReorderVendors,
+  computeReorderKpis,
+} from '../../../utils/reorderDayFilter';
+import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
 
 // Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
 // (which is store-wide-by-category). This screen groups by vendor with
@@ -562,6 +571,7 @@ export default function ReorderSection() {
   const C = useCmdColors();
   const T = useT();
   const currentStore = useStore((s) => s.currentStore);
+  const orderSchedule = useStore((s) => s.orderSchedule);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const reorderLoading = useStore((s) => s.reorderLoading);
   const reorderError = useStore((s) => s.reorderError);
@@ -569,47 +579,108 @@ export default function ReorderSection() {
 
   const [tabId, setTabId] = React.useState('reorder.tsx');
 
-  // Lazy-load on mount + when the store changes. Mirrors REPORTS-1's
-  // `loadLatestRun` pattern in ReportsSection — the section is the
-  // entry point, the global `loadFromSupabase` doesn't pre-populate
-  // this payload so boot stays bounded.
+  // Spec 087 — calendar selected date. Defaults to store-local today;
+  // this is the exact ISO `YYYY-MM-DD` we pass as `as_of_date`. `maxDate`
+  // (latest selectable) is today.
+  const maxDate = toISODate(new Date());
+  const [selectedDate, setSelectedDate] = React.useState<string>(() => toISODate(new Date()));
+
+  // Spec 087 — single as-of fetch effect, store-switch aware (code-review #3:
+  // the prior two-effect split caused a transient stale-as-of fetch on store
+  // switch). On a STORE switch we reset the calendar to today AND fetch as-of
+  // today DIRECTLY (not the `selectedDate` carried from the previous store),
+  // so the new store is never fetched as-of a date picked for the old one.
+  // On mount or a calendar date change for the SAME store, fetch as-of
+  // `selectedDate`. `loadFromSupabase` already clears `reorderPayload` +
+  // re-hydrates `orderSchedule` for the new store on switch. Mirrors
+  // REPORTS-1's `loadLatestRun` lazy-load pattern (the section is the entry
+  // point; the global boot doesn't pre-populate this payload).
+  const prevStoreIdRef = React.useRef(currentStore?.id);
   React.useEffect(() => {
     if (!currentStore?.id) return;
-    loadReorderSuggestions();
-  }, [currentStore.id, loadReorderSuggestions]);
-
-  const vendors = reorderPayload?.vendors ?? [];
-  const kpis = reorderPayload?.kpis ?? {
-    vendorCount: 0,
-    itemCount: 0,
-    totalEstimatedCost: 0,
-    eodSourcedVendorCount: 0,
-    stockFallbackVendorCount: 0,
-  };
+    const storeChanged = prevStoreIdRef.current !== currentStore.id;
+    prevStoreIdRef.current = currentStore.id;
+    if (storeChanged) {
+      const today = toISODate(new Date());
+      if (selectedDate !== today) setSelectedDate(today);
+      loadReorderSuggestions(today);
+      return;
+    }
+    loadReorderSuggestions(selectedDate);
+  }, [currentStore?.id, selectedDate, loadReorderSuggestions]);
 
   const refresh = React.useCallback(() => {
-    loadReorderSuggestions();
-  }, [loadReorderSuggestions]);
+    loadReorderSuggestions(selectedDate);
+  }, [loadReorderSuggestions, selectedDate]);
+
+  // Spec 087 — derive the order-out filter + active-days highlight + the
+  // client-recomputed KPIs from the pure util. The `orderSchedule` slice is
+  // hydrated per focal store by `loadFromSupabase`, so it's already the
+  // focal store's schedule by the time this section is interactable.
+  const activeWeekdays = React.useMemo(
+    () => activeWeekdaysFromSchedule(orderSchedule),
+    [orderSchedule],
+  );
+  const selectedWeekday = React.useMemo(() => weekdayName(selectedDate), [selectedDate]);
+  const { primary, noSchedule } = React.useMemo(
+    () =>
+      selectedWeekday
+        ? partitionReorderVendors(reorderPayload?.vendors, orderSchedule, selectedWeekday)
+        : { primary: [], noSchedule: [] },
+    [reorderPayload?.vendors, orderSchedule, selectedWeekday],
+  );
+  const kpis = React.useMemo(() => computeReorderKpis(primary), [primary]);
+
+  // Spec 087 — secondary "no schedule" group is collapsed by default.
+  const [noScheduleOpen, setNoScheduleOpen] = React.useState(false);
+
+  // Spec 087 (D) — export must reflect the on-screen filtered + as-of view.
+  // Build a derived payload whose `vendors` is the primary order-today set
+  // and whose `kpis` are the client-recomputed numbers, so the CSV rows,
+  // the PDF tables, and the PDF footer all match the cards. Filename
+  // date-stamp uses `payload.asOfDate` (the selected date) — unchanged.
+  const exportPayload = React.useMemo<ReorderPayload | null>(
+    () => (reorderPayload ? { ...reorderPayload, vendors: primary, kpis } : null),
+    [reorderPayload, primary, kpis],
+  );
 
   // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when
-  // there is no usable data: vendor list empty, initial load in flight,
-  // or an error pane is being shown.
+  // there is no usable data. Spec 087 (D): gate on the FILTERED primary
+  // length, not the raw payload, so the buttons hide when the day-filtered
+  // list is empty (nothing meaningful to export).
   const showExport =
     Platform.OS === 'web' &&
-    !!reorderPayload &&
-    reorderPayload.vendors.length > 0 &&
+    !!exportPayload &&
+    primary.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
 
   const onCsvPress = React.useCallback(() => {
-    if (!reorderPayload || !currentStore) return;
-    void handleCsvExport(reorderPayload, currentStore);
-  }, [reorderPayload, currentStore]);
+    if (!exportPayload || !currentStore) return;
+    void handleCsvExport(exportPayload, currentStore);
+  }, [exportPayload, currentStore]);
 
   const onPdfPress = React.useCallback(() => {
-    if (!reorderPayload || !currentStore) return;
-    void handlePdfExport(reorderPayload, currentStore);
-  }, [reorderPayload, currentStore]);
+    if (!exportPayload || !currentStore) return;
+    void handlePdfExport(exportPayload, currentStore);
+  }, [exportPayload, currentStore]);
+
+  // Spec 087 (E) — no-focal-store guard. Placed AFTER all hooks so the
+  // hook count stays stable across renders. Mirrors OrderScheduleSection /
+  // EODCountSection: the reorder RPC is `p_store_id`-scoped and can't run
+  // for the "All brands" placeholder (`currentStore.id === ''`).
+  if (!currentStore?.id || currentStore.id === '__all__') {
+    return (
+      <View
+        testID="reorder-no-store"
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}
+      >
+        <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
+          {T('section.reorder.selectStore')}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View testID="reorder-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
@@ -621,6 +692,13 @@ export default function ReorderSection() {
         onChange={setTabId}
         rightSlot={
           <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            {/* Spec 087 — calendar control, left of CSV/PDF/REFRESH. */}
+            <ReorderDatePicker
+              value={selectedDate}
+              onChange={setSelectedDate}
+              maxDate={maxDate}
+              activeWeekdays={activeWeekdays}
+            />
             {showExport ? (
               <>
                 <TouchableOpacity
@@ -764,8 +842,9 @@ export default function ReorderSection() {
           </View>
         ) : null}
 
-        {/* Empty state */}
-        {!reorderLoading && !reorderError && vendors.length === 0 ? (
+        {/* Empty state — the payload itself has no suggestions at all for
+            the selected date (no EOD, all at par, or no active vendors). */}
+        {!reorderLoading && !reorderError && !!reorderPayload && reorderPayload.vendors.length === 0 ? (
           <View
             style={{
               backgroundColor: C.panel,
@@ -782,8 +861,42 @@ export default function ReorderSection() {
               NO REORDER SUGGESTIONS
             </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 480 }}>
-              No reorder suggestions for this store today. Could be: no EOD counts done yet,
+              No reorder suggestions for this store on this date. Could be: no EOD counts done yet,
               all items at par, or no active vendors.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Spec 087 — day-filter empty state: the payload HAS suggestions
+            but none of them are ordered out on the selected weekday. Distinct
+            from "NO REORDER SUGGESTIONS" so the user understands the list is
+            empty because of the day filter, not missing EOD / all-at-par. The
+            secondary "no schedule" group below still renders when non-empty. */}
+        {!reorderLoading &&
+        !reorderError &&
+        !!reorderPayload &&
+        reorderPayload.vendors.length > 0 &&
+        primary.length === 0 ? (
+          <View
+            testID="reorder-empty-day"
+            style={{
+              backgroundColor: C.panel,
+              borderRadius: CmdRadius.lg,
+              borderWidth: 1,
+              borderColor: C.border,
+              paddingVertical: 36,
+              paddingHorizontal: 22,
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>
+              NOTHING TO ORDER
+            </Text>
+            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 480 }}>
+              {selectedWeekday
+                ? T('section.reorder.noVendorsForDay', { day: dayOfWeekLongLabel(selectedWeekday, T) })
+                : T('section.reorder.noVendorsForDay', { day: '' })}
             </Text>
           </View>
         ) : null}
@@ -808,10 +921,52 @@ export default function ReorderSection() {
           </View>
         ) : null}
 
-        {/* Per-vendor cards */}
-        {vendors.map((v) => (
+        {/* Per-vendor cards — the PRIMARY "order today" set (vendors whose
+            order-out day matches the selected weekday). */}
+        {primary.map((v) => (
           <VendorCard key={v.vendorId} vendor={v} />
         ))}
+
+        {/* Spec 087 (A) — secondary "no schedule" group. Vendors with no
+            `order_schedule` row (the report's 7-day fallback) have no
+            order-out weekday, so they can't satisfy "I order today" — but
+            they don't silently vanish. Collapsed by default; independent of
+            the selected weekday. */}
+        {noSchedule.length > 0 ? (
+          <View style={{ gap: 14 }}>
+            <TouchableOpacity
+              testID="reorder-no-schedule-toggle"
+              onPress={() => setNoScheduleOpen((o) => !o)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: noScheduleOpen }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                backgroundColor: C.panel,
+                borderRadius: CmdRadius.lg,
+                borderWidth: 1,
+                borderColor: C.border,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>
+                {noScheduleOpen ? '▾' : '▸'}
+              </Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+                {T('section.reorder.noScheduleGroupTitle')} · {noSchedule.length}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                {T('section.reorder.noScheduleGroupHint')}
+              </Text>
+            </TouchableOpacity>
+            {noScheduleOpen
+              ? noSchedule.map((v) => <VendorCard key={v.vendorId} vendor={v} />)
+              : null}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );

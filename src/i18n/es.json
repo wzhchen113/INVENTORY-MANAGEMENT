@@ -783,7 +783,11 @@
       "title": "Reordenar",
       "noSuggestions": "Sin sugerencias de reordenamiento",
       "loading": "Cargando sugerencias de reordenamiento…",
-      "errorTitle": "No se pudo cargar la lista de reorden"
+      "errorTitle": "No se pudo cargar la lista de reorden",
+      "selectStore": "Selecciona una tienda para ver la lista de reorden.",
+      "noVendorsForDay": "No hay proveedores para pedir el {day}.",
+      "noScheduleGroupTitle": "Sin programa de pedidos",
+      "noScheduleGroupHint": "Sin día de la semana asignado — se muestra como referencia."
     },
     "reconciliation": {
       "title": "Conciliación",

@@ -783,7 +783,11 @@
       "title": "Reorder",
       "noSuggestions": "No reorder suggestions",
       "loading": "Loading reorder suggestions…",
-      "errorTitle": "Could not load reorder list"
+      "errorTitle": "Could not load reorder list",
+      "selectStore": "Select a store to view the reorder list.",
+      "noVendorsForDay": "No vendors are ordered on {day}.",
+      "noScheduleGroupTitle": "No order schedule",
+      "noScheduleGroupHint": "Not tied to a weekday — shown for reference."
     },
     "reconciliation": {
       "title": "Reconciliation",

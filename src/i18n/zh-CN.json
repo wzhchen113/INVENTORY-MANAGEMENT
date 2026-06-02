@@ -783,7 +783,11 @@
       "title": "再订购",
       "noSuggestions": "暂无再订购建议",
       "loading": "正在加载再订购建议…",
-      "errorTitle": "无法加载再订购列表"
+      "errorTitle": "无法加载再订购列表",
+      "selectStore": "请选择门店以查看再订购列表。",
+      "noVendorsForDay": "{day}没有需要下单的供应商。",
+      "noScheduleGroupTitle": "无订货排程",
+      "noScheduleGroupHint": "未绑定到星期几 — 仅供参考显示。"
     },
     "reconciliation": {
       "title": "对账",
