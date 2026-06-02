@@ -103,10 +103,24 @@ test.describe('staff EOD', () => {
     // Select US FOOD (31 Towson items) so the list is definitely non-empty.
     await page.getByTestId(`vendor-chip-${SEED.vendorUsFoodId}`).click();
 
-    // Wait for at least one item's Units input to render, then derive the
-    // item UUID from its testid (eod-item-units-<uuid> → <uuid>). The Units
-    // box is what this suite fills; Cases stays blank so the converted total
-    // equals the entered number.
+    // Let the item list SETTLE before snapshotting the first row's id.
+    // Selecting a vendor swaps the list, and when a submission ALREADY exists
+    // for (store, today, vendor) the screen runs a prefill fetch
+    // (fetchExistingSubmission, EODCount.tsx:255-270 — a useEffect keyed on
+    // store/vendor/date) that re-renders the list a SECOND time with the
+    // submitted values + badges. Snapshotting .first()'s id mid-swap captures an
+    // id from the PRE-prefill render that then detaches on the re-render — the
+    // cause of an intermittent 60s `fill` timeout when this helper is reused
+    // after an earlier test has already submitted for today (e.g. the offline
+    // test running after AC-EOD1, whose submission persists — global-teardown
+    // does not delete eod_submissions). networkidle waits for the prefill fetch
+    // to land; the staff surface uses no realtime/polling (spec 062), so it
+    // settles cleanly rather than hanging on a long-lived connection.
+    await page.waitForLoadState('networkidle');
+
+    // Now derive the item UUID from the first Units input's testid
+    // (eod-item-units-<uuid> → <uuid>). The Units box is what this suite fills;
+    // Cases stays blank so the converted total equals the entered number.
     const firstUnits = page.getByTestId(/^eod-item-units-/).first();
     await expect(firstUnits).toBeVisible();
     const unitsTestId = await firstUnits.getAttribute('data-testid');
@@ -194,18 +208,31 @@ test.describe('staff EOD', () => {
     const { unitsTestId } = await gotoTowsonEod(page);
     await page.getByTestId(unitsTestId).fill('5');
 
-    // ── Go offline ──────────────────────────────────────────────────────
-    // context.setOffline(true) flips navigator.onLine AND dispatches the
-    // DOM `offline` event, which useConnectionStatus (web branch) listens
-    // for → useEodSubmit re-memoizes submit() with isOnline=false.
+    // ── Go offline + force the queue path deterministically ─────────────
+    // THE FLAKE THIS GUARDS: submit() reads isOnline from a captured closure
+    // (useEodSubmit.ts — submit is memoized on [isOnline, userId], onPress wires
+    // straight to it via onSubmit). Going offline only re-points the button at
+    // the offline/enqueue branch AFTER React processes the DOM `offline` event →
+    // re-renders → re-memoizes submit(). That re-render is async relative to the
+    // navigator.onLine flag, which setOffline flips synchronously — so polling
+    // navigator.onLine can pass BEFORE the re-render lands, letting the click
+    // race onto the stale online-branch submit().
+    //
+    // Route-interception removes the timing dependency entirely (the fix the
+    // old comment pre-documented as the fallback). Abort the RPC so EVERY path
+    // ends in the queue, regardless of which submit() closure the click hits:
+    //   • re-render landed → offline branch enqueues directly (RPC never called)
+    //   • re-render raced   → online branch calls the RPC → abort → the hook's
+    //     isNetworkError() branch enqueues (useEodSubmit.ts:291-293)
+    // setOffline is still flipped: the connectivity transition (false→true on
+    // reconnect) is what drives the drain below, so it has to actually occur.
+    const RPC_GLOB = '**/rest/v1/rpc/staff_submit_eod';
+    await context.route(RPC_GLOB, (route) => route.abort());
     await context.setOffline(true);
 
-    // OQ-5 subtlety #1: submit() reads isOnline from a captured closure, so
-    // wait for the offline state to propagate (React re-render) BEFORE
-    // clicking submit, else the click could race the emulation flip and take
-    // the online branch. Polling navigator.onLine is the documented timing
-    // guard. (Route-interception of **/rest/v1/rpc/staff_submit_eod is the
-    // documented fallback if this ever proves flaky — not needed in v1.)
+    // Secondary sync point only — NOT the determinism guard (the route is).
+    // Confirms the browser offline flag flipped before the click; documents
+    // the offline-phase boundary.
     await expect
       .poll(() => page.evaluate(() => navigator.onLine), { timeout: 10_000 })
       .toBe(false);
@@ -218,6 +245,11 @@ test.describe('staff EOD', () => {
     await expect(page.getByTestId('eod-queue-indicator')).toBeVisible();
 
     // ── Reconnect → drain ───────────────────────────────────────────────
+    // Drop the RPC block FIRST so the drain's POST can actually land, THEN flip
+    // online. Order matters: the drain fires on the online transition; if the
+    // route were still aborting, the drained item would network-error and
+    // re-queue (useEodSubmit.ts:182-189), hanging the toHaveCount(0) below.
+    await context.unroute(RPC_GLOB);
     await context.setOffline(false);
     await expect
       .poll(() => page.evaluate(() => navigator.onLine), { timeout: 10_000 })
