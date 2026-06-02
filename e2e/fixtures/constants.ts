@@ -50,6 +50,24 @@ export const SEED = {
   // dashboard `unconfirmed_po` rule is genuinely per-store, so this store's
   // card renders ITS OWN schedule regardless of which store is focal.
   e2eWindowStoreId: 'e2e00000-0000-0000-0000-000000000080',
+  // ─── Spec 092: dedicated stores for the staff Reorder e2e ────────────────
+  // Two e2e-only stores GRANTED to manager@local.test (user_stores), seed-brand
+  // scoped (brand-match trigger). Fixed (non-random) UUIDs so the teardown is
+  // exact + store-scoped. Deliberately NOT any of the four pgTAP
+  // missed_order_audit_rpc anchors (Towson / Frederick / Charles / Reisters) —
+  // a persisted order_schedule row on a shared store would be counted by a
+  // later local record_missed_orders_for_day pgTAP run (the cross-track
+  // collision global-teardown.ts prevents). UNLIKE the spec-080 dashboard
+  // store, these need an explicit user_stores grant: the manager is role 'user'
+  // and sees a store ONLY via the grant; without it report_reorder_list raises
+  // RLS 42501 → the error pane, not the list.
+  e2eReorderStoreId: 'e2e00000-0000-0000-0000-000000000092', // case item + 7-day schedule
+  e2eReorderEmptyStoreId: 'e2e00000-0000-0000-0000-000000000093', // no inventory → staff-reorder-empty
+  e2eReorderItemId: 'e2e00000-0000-0000-0000-0000000000a1', // below-par, case_qty>1 inventory_items row
+  e2eReorderCatalogId: 'e2e00000-0000-0000-0000-0000000000c1', // catalog_ingredients (case_qty=12, unit 'EA')
+  // manager@local.test's user id (supabase/seed.sql:79) — the user_stores grant
+  // target. Kept here as the single source of truth rather than inlined.
+  managerUserId: '22222222-2222-2222-2222-222222222222',
 } as const;
 
 // TitleCase full weekday strings — exactly what EODCount.todayWeekday()

@@ -30,6 +30,14 @@
 // pgTAP run, so it is dropped store-scoped + FK-ordered below. It is keyed on
 // the dedicated store id (NOT one of the four pgTAP anchor stores), so it can
 // never touch Towson / Frederick / Charles / Reisters.
+//
+// Spec 092 adds a THIRD cleanup: staff-reorder.spec.ts creates TWO dedicated
+// throwaway stores (SEED.e2eReorderStoreId + SEED.e2eReorderEmptyStoreId),
+// granted to the manager, plus one dedicated catalog_ingredients row. Same
+// posture (store-scoped, FK-ordered, non-anchor, idempotent, non-fatal). The
+// one new wrinkle vs the spec-080 store: inventory_items is NOT ON DELETE
+// CASCADE off stores, so its child delete is LOAD-BEARING and must precede the
+// stores delete; the catalog row is brand-scoped, so it is deleted by id last.
 
 // Spec 079: the service-role client + the assertLocalStack guard live in
 // e2e/fixtures/db.ts now (extracted from global-setup.ts). Import from there
@@ -114,12 +122,108 @@ async function globalTeardown(): Promise<void> {
       `[e2e global-teardown] dedicated store cleanup failed: ${storeErr.message}. ` +
         `Run \`supabase db reset\` to remove the leftover e2e window store ${SEED.e2eWindowStoreId}.`,
     );
+    // Spec 092 (code-review fix): do NOT `return` here — fall through so the
+    // INDEPENDENT spec-092 reorder-store cleanup below still runs even when this
+    // (spec-080) store delete fails. The two blocks clean up DIFFERENT stores;
+    // gating 092 on 080's success would leak the dedicated reorder stores + their
+    // non-cascading inventory_items across runs (the exact cross-track collision
+    // this teardown exists to prevent).
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[e2e global-teardown] dedicated dashboard-window store ${SEED.e2eWindowStoreId} removed.`,
+    );
+  }
+
+  // ─── Spec 092: drop the two dedicated staff-Reorder stores + their rows ───
+  // NOTE (code-review): this block is now reached UNCONDITIONALLY (the spec-080
+  // handler above falls through on error). The lone `return` at the end of THIS
+  // block (the catalog-delete failure path) is the function's last statement —
+  // it only skips the final success log, never a sibling cleanup — so it does
+  // not re-introduce the gatekeeping pattern the fix above removed.
+  // staff-reorder.spec.ts (test.beforeAll) created TWO throwaway stores:
+  //   • e2eReorderStoreId — granted to the manager, with 7 order_schedule rows
+  //     (US FOOD, all weekdays) + one below-par case-based inventory_items row
+  //     (FK → the dedicated e2eReorderCatalogId catalog_ingredients row).
+  //   • e2eReorderEmptyStoreId — granted to the manager, NO inventory (drives
+  //     staff-reorder-empty). It has 0 child rows; its deletes are no-ops.
+  // Both ids are NOT pgTAP missed_order_audit_rpc anchors (distinct fixed
+  // UUIDs), so a local `npm run e2e` followed by `scripts/test-db.sh` cannot
+  // see a stale order_schedule row counted by record_missed_orders_for_day.
+  //
+  // CRITICAL FK ORDER (architect §4 — children before parents):
+  //   1. order_schedule    (ON DELETE CASCADE off stores → belt-and-suspenders)
+  //   2. inventory_items   (NO cascade off stores in init_schema — `references
+  //      stores(id)` with NO ON DELETE clause, UNLIKE order_schedule. This
+  //      delete is LOAD-BEARING, not belt-and-suspenders: omit it and the
+  //      `stores` delete FK-fails and the dedicated store LEAKS across runs.)
+  //   3. user_stores       (ON DELETE CASCADE off both profiles + stores →
+  //      belt-and-suspenders; explicit keeps the FK order self-documenting)
+  //   4. stores            (the parent — deleted LAST)
+  //   5. catalog_ingredients (brand-scoped, NOT store-scoped → deleted by id
+  //      AFTER the inventory_items delete, since the item FKs the catalog row;
+  //      catalog → brand, not → store. Idempotent: no-op if already gone, and
+  //      keyed on the dedicated e2e catalog id so it can never touch a seed
+  //      catalog row.)
+  // Each delete is idempotent (no-op when already clean) and non-fatal
+  // (warn + continue), matching the spec-080 block above. The key is never
+  // logged.
+  const reorderStoreIds = [SEED.e2eReorderStoreId, SEED.e2eReorderEmptyStoreId];
+  const reorderChildTables = [
+    'order_schedule',
+    'inventory_items',
+    'user_stores',
+  ] as const;
+  for (const storeId of reorderStoreIds) {
+    for (const table of reorderChildTables) {
+      const { error: childErr } = await admin
+        .from(table)
+        .delete()
+        .eq('store_id', storeId);
+      if (childErr) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e global-teardown] staff-reorder ${table} cleanup failed for store ${storeId}: ${childErr.message}. ` +
+            `Run \`supabase db reset\` before \`scripts/test-db.sh\` to avoid a stale-fixture pgTAP collision.`,
+        );
+      }
+    }
+
+    const { error: reorderStoreErr } = await admin
+      .from('stores')
+      .delete()
+      .eq('id', storeId);
+    if (reorderStoreErr) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[e2e global-teardown] staff-reorder store cleanup failed for ${storeId}: ${reorderStoreErr.message}. ` +
+          `Run \`supabase db reset\` to remove the leftover e2e reorder store ${storeId} ` +
+          `(check the inventory_items delete above — stores has no ON DELETE CASCADE for it).`,
+      );
+    }
+  }
+
+  // The dedicated catalog row is brand-scoped (NOT store-scoped) — delete it by
+  // id, LAST, after both stores' inventory_items deletes have removed every FK
+  // reference to it. Idempotent + keyed on the e2e catalog id.
+  const { error: catalogErr } = await admin
+    .from('catalog_ingredients')
+    .delete()
+    .eq('id', SEED.e2eReorderCatalogId);
+  if (catalogErr) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[e2e global-teardown] staff-reorder catalog_ingredients cleanup failed: ${catalogErr.message}. ` +
+        `Run \`supabase db reset\` to remove the leftover e2e catalog row ${SEED.e2eReorderCatalogId} ` +
+        `(it must be deleted AFTER the inventory_items rows that FK it).`,
+    );
     return;
   }
 
   // eslint-disable-next-line no-console
   console.log(
-    `[e2e global-teardown] dedicated dashboard-window store ${SEED.e2eWindowStoreId} removed.`,
+    `[e2e global-teardown] dedicated staff-Reorder stores ${SEED.e2eReorderStoreId} + ` +
+      `${SEED.e2eReorderEmptyStoreId} + catalog ${SEED.e2eReorderCatalogId} removed.`,
   );
 }
 
