@@ -23,6 +23,10 @@ const RN_TRANSPILE_DEPS = [
   'expo-constants',
   'expo-file-system',
   'expo-sharing',
+  // Spec 089 — expo-print ships untranspiled ESM; the staff Reorder share
+  // path imports it. Symptom without this entry: "Cannot use import
+  // statement outside a module" from inside expo-print/build.
+  'expo-print',
   'expo-sqlite',
   'expo-notifications',
   // Spec 085 — expo-linking ships untranspiled ESM; auth.ts now imports it

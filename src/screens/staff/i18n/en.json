@@ -60,6 +60,79 @@
       "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."
     }
   },
+  "reorder": {
+    "title": "Reorder",
+    "tabLabel": "Reorder",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "loadingBody": "Fetching reorder suggestions",
+    "kpi": {
+      "vendors": "Vendors",
+      "vendorsSub": "ordering today",
+      "items": "Items",
+      "itemsSub": "below par",
+      "estTotal": "Est. total",
+      "estTotalSub": "at current cost",
+      "source": "On-hand source",
+      "sourceValue": "{count} EOD",
+      "sourceSub": "{count} stock fallback"
+    },
+    "source": {
+      "stockFallback": "STOCK FALLBACK"
+    },
+    "delivery": {
+      "today": "today",
+      "tomorrow": "tomorrow",
+      "inDays": "in {days} days"
+    },
+    "vendor": {
+      "unnamed": "Unnamed vendor",
+      "nextDelivery": "Next delivery: {date} ({days})",
+      "subtotal": "{count} items · {cost}"
+    },
+    "item": {
+      "breakdown": "on hand {onHand} · par {par}",
+      "order": "Order: {suggested}"
+    },
+    "export": {
+      "label": "Export / share",
+      "csv": "CSV",
+      "text": "Text",
+      "pdf": "PDF",
+      "csvAria": "Export reorder list as CSV",
+      "textAria": "Export reorder list as plain text",
+      "pdfAria": "Export reorder list as PDF"
+    },
+    "empty": {
+      "title": "NO REORDER SUGGESTIONS",
+      "body": "No reorder suggestions for this store on this date. Could be no counts done yet, all items at par, or no active vendors."
+    },
+    "nothingToday": {
+      "title": "NOTHING TO ORDER",
+      "body": "No vendors are scheduled to order out on {day}."
+    },
+    "error": {
+      "title": "Could not load reorder list",
+      "generic": "Could not load the reorder list — try again",
+      "retry": "Retry"
+    },
+    "noSchedule": {
+      "title": "No order schedule · {count}",
+      "hint": "These vendors have no order-out day set, so they're not in today's list."
+    },
+    "weekday": {
+      "sunday": "Sunday",
+      "monday": "Monday",
+      "tuesday": "Tuesday",
+      "wednesday": "Wednesday",
+      "thursday": "Thursday",
+      "friday": "Friday",
+      "saturday": "Saturday"
+    }
+  },
+  "eodTab": {
+    "label": "Count"
+  },
   "chrome": {
     "queue": {
       "pending": "{count} pending",

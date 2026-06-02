@@ -33,10 +33,14 @@
 
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 import { StorePicker } from '../screens/StorePicker';
 import { EODCount } from '../screens/EODCount';
+import { Reorder } from '../screens/Reorder';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useStaffStore } from '../store/useStaffStore';
+import { t } from '../i18n';
 import { spacing, typography, useStaffColors } from '../theme';
 
 // Re-export the cold-start helper so callers (App.tsx + StaffStack.test.tsx)
@@ -44,6 +48,7 @@ import { spacing, typography, useStaffColors } from '../theme';
 export { restoreSession } from '../../../lib/sessionRestore';
 
 const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
 function Splash() {
   const c = useStaffColors();
@@ -52,6 +57,60 @@ function Splash() {
       <Text style={[styles.splashTitle, { color: c.text }]}>I.M.R Staff</Text>
       <ActivityIndicator color={c.primary} />
     </View>
+  );
+}
+
+// Spec 089 (E) — the staff app's first multi-destination navigation: a
+// bottom tab bar (Count | Reorder) for the signed-in + active-store branch.
+// Themed via `useStaffColors()` (active = primary, inactive =
+// textSecondary, bar bg = surface, top border = border) so it matches the
+// OS-light/dark staff theme — a default RN tab bar would flash white in
+// dark mode (same concern the `cardStyle` comment below documents). Both
+// screens own their own header (store name + sign-out + switch-store), so
+// sign-out is NOT lifted into the tab bar.
+function StaffTabs() {
+  const c = useStaffColors();
+  return (
+    <Tab.Navigator
+      // sceneContainerStyle is a Navigator-level prop in bottom-tabs v6 — it
+      // keeps the tab scene background on the staff `c.bg` so it doesn't
+      // flash white in dark mode (mirrors the stack `cardStyle` below).
+      sceneContainerStyle={{ backgroundColor: c.bg }}
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: c.primary,
+        tabBarInactiveTintColor: c.textSecondary,
+        tabBarStyle: {
+          backgroundColor: c.surface,
+          borderTopColor: c.border,
+        },
+      }}
+    >
+      <Tab.Screen
+        name="EODCount"
+        component={EODCount}
+        options={{
+          tabBarLabel: t('eodTab.label'),
+          tabBarAccessibilityLabel: t('eodTab.label'),
+          tabBarTestID: 'staff-tab-eod',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="clipboard-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Reorder"
+        component={Reorder}
+        options={{
+          tabBarLabel: t('reorder.tabLabel'),
+          tabBarAccessibilityLabel: t('reorder.tabLabel'),
+          tabBarTestID: 'staff-tab-reorder',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cart-outline" size={size} color={color} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
   );
 }
 
@@ -89,10 +148,12 @@ export function StaffStack() {
       </Stack.Navigator>
     );
   } else if (activeStore) {
-    // signed-in with an active store — EOD screen.
+    // signed-in with an active store — the Count | Reorder tab bar (spec
+    // 089 (E); was a single EODCount screen). The StorePicker gate is
+    // upstream of the tab bar, so both tabs are guaranteed an active store.
     content = (
       <Stack.Navigator screenOptions={screenOptions}>
-        <Stack.Screen name="EODCount" component={EODCount} />
+        <Stack.Screen name="StaffTabs" component={StaffTabs} />
       </Stack.Navigator>
     );
   } else {

@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
-import Papa from 'papaparse';
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
@@ -18,7 +17,29 @@ import {
   partitionReorderVendors,
   computeReorderKpis,
 } from '../../../utils/reorderDayFilter';
+// Spec 089 (A) — the pure export formatters (formatQty / formatMoney /
+// formatSuggested / formatSuggestedPdf / slugifyStore / todayLocalIso /
+// buildReorderCsv) were extracted to the shared `reorderExport` util so the
+// staff Reorder screen can import the SAME byte-for-byte logic without
+// pulling in this Cmd-themed module. The DOM-coupled web orchestrators
+// (triggerDownload / handleCsvExport / handlePdfExport) stay below — they
+// are admin-web-only and not pure. Re-exported here for the existing admin
+// jest (ReorderSectionCases.test.tsx) which imports them from this module.
+import {
+  formatQty,
+  formatMoney,
+  formatSuggested,
+  formatSuggestedPdf,
+  slugifyStore,
+  todayLocalIso,
+  buildReorderCsv,
+} from '../../../utils/reorderExport';
 import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
+
+// Spec 088 — re-export the pure helpers from the shared util so the admin
+// reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
+// `buildReorderCsv` from THIS module) stays green after the extraction.
+export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 
 // Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
 // (which is store-wide-by-category). This screen groups by vendor with
@@ -37,45 +58,6 @@ import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
 //     active item is at par, or the store has no active vendors at all.
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
-
-function formatQty(n: number): string {
-  if (!Number.isFinite(n)) return '0';
-  // Match the units / variance runners' shape: drop trailing zeros but
-  // keep up to 2 decimals.
-  const rounded = Math.round(n * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, '');
-}
-
-function formatMoney(n: number): string {
-  return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
-}
-
-// Spec 088 — the Suggested order is shown in WHOLE CASES for items with a
-// case size (server sets `suggestedCases` non-null iff `caseQty > 1`), plus
-// the underlying ordered base-unit total so the figure matches how you order
-// from the vendor AND the math stays glanceable: `N cases · M unit`
-// (singular `1 case`). `M` is the server-authoritative `suggestedUnits` — the
-// FE never re-derives `cases × caseQty` (defends against any server
-// rounding-rule change) and does NO cost math (Est $ rides on the
-// server-rounded `estimatedCost`). Non-case items render exactly as before:
-// `{suggestedQty} {unit}`. Exported for jest.
-export function formatSuggested(item: ReorderItem): string {
-  if (item.suggestedCases != null) {
-    const cases = item.suggestedCases;
-    const caseWord = cases === 1 ? 'case' : 'cases';
-    return `${formatQty(cases)} ${caseWord} · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
-  }
-  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
-}
-
-// PDF variant — same cases·units split with the compact `cs` abbreviation
-// (a glanceable string is fine for a print artifact). Exported for jest.
-export function formatSuggestedPdf(item: ReorderItem): string {
-  if (item.suggestedCases != null) {
-    return `${formatQty(item.suggestedCases)} cs · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
-  }
-  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
-}
 
 // Inline breakdown line per the spec's A3 format:
 // `on hand: 4 | inbound: 0 | par: 12 → order: 8`. Mono, fg2 with the
@@ -402,16 +384,11 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
 }
 
 // ─── Spec 025 §3 — CSV/PDF export ───────────────────────────────────
-// Web-only export per spec 025 AC4/AC5. Native port (expo-file-system
-// + expo-sharing) is a separate spec when EAS native readiness lands.
-
-function slugifyStore(name: string): string {
-  return name.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60) || 'store';
-}
-
-function todayLocalIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+// Web-only export per spec 025 AC4/AC5. The pure builders (buildReorderCsv,
+// formatSuggestedPdf, slugifyStore, todayLocalIso) moved to the shared
+// `reorderExport` util in spec 089 (A); the DOM-coupled orchestrators below
+// stay here (admin-web-only). The staff Reorder screen uses a cross-platform
+// orchestrator in `src/screens/staff/lib/shareReorder.ts` instead.
 
 function triggerDownload(blob: Blob, filename: string): void {
   if (Platform.OS !== 'web') return;
@@ -424,55 +401,6 @@ function triggerDownload(blob: Blob, filename: string): void {
   document.body.removeChild(a);
   // Defer revoke so the browser has a chance to commit the download.
   setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-}
-
-// Spec 025 AC4 — one CSV covering all vendors. Column order is fixed
-// via `Papa.unparse(rows, { columns })` so accidental row-field changes
-// don't reshape the header.
-// Exported for jest (spec 088 — case columns).
-export function buildReorderCsv(payload: ReorderPayload): string {
-  const columns = [
-    'Vendor',
-    'Item Name',
-    'On Hand',
-    'Pending PO',
-    'Par Level',
-    'Suggested Qty',
-    // Spec 088 — explicit numeric-friendly case columns right after
-    // `Suggested Qty` so the case count and the ordered base-unit total are
-    // both recoverable + spreadsheet-summable. Empty for non-case rows.
-    'Cases',
-    'Units Per Case',
-    'Unit',
-    'Est. Cost',
-    'Flags',
-    'EOD Counted At',
-  ];
-  const rows: Record<string, string | number>[] = [];
-  for (const vendor of payload.vendors) {
-    for (const item of vendor.items) {
-      const isCase = item.suggestedCases != null;
-      rows.push({
-        'Vendor': vendor.vendorName,
-        'Item Name': item.itemName,
-        'On Hand': item.onHand,
-        'Pending PO': item.pendingPoQty,
-        'Par Level': item.parLevel,
-        // Case rows carry the ordered base-unit total `M`; non-case rows
-        // carry the raw suggestion (byte-for-byte unchanged from today).
-        'Suggested Qty': isCase ? item.suggestedUnits : item.suggestedQty,
-        'Cases': item.suggestedCases != null ? item.suggestedCases : '',
-        'Units Per Case': item.caseQty > 1 ? item.caseQty : '',
-        'Unit': item.unit,
-        // No `$` — CSV stays numeric-friendly for spreadsheet sums. Already
-        // case-rounded server-side; the FE does no cost math.
-        'Est. Cost': item.estimatedCost.toFixed(2),
-        'Flags': (item.flags || []).join(', '),
-        'EOD Counted At': vendor.eodSubmittedAt || '',
-      });
-    }
-  }
-  return Papa.unparse(rows, { columns });
 }
 
 async function handleCsvExport(payload: ReorderPayload, store: Store): Promise<void> {
