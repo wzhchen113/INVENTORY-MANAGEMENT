@@ -65,7 +65,7 @@ jest.mock('../../lib/supabase', () => ({
 }));
 
 import { validateCustomUnit, CUSTOM_UNIT_MAX_LEN } from './IngredientForm';
-import { CANONICAL_UNITS } from '../../utils/unitConversion';
+import { CANONICAL_UNITS, calcUnitCost } from '../../utils/unitConversion';
 
 describe('validateCustomUnit', () => {
   describe('rejects empty / whitespace-only input', () => {
@@ -262,5 +262,37 @@ describe('validateCustomUnit', () => {
         snappedToCanonical: false,
       });
     });
+  });
+});
+
+// ─── Spec 093 (Q3a) — calcUnitCost divides by case_qty alone ─────────────────
+//
+// Pins the cost-math alignment: per-unit cost = case_price / case_qty, matching
+// how prod `default_cost` was computed. The third argument (`subUnitSize`) is
+// retained in the 3-arg signature for call-site compatibility but must no
+// longer affect the result — conflating case_qty × sub_unit_size is the
+// documented 12×-class error spec 093 fixes.
+describe('calcUnitCost (spec 093 Q3a — divide by case_qty alone)', () => {
+  it('calcUnitCost(20.00, 20, anything) === 1.00 — third arg does not affect result', () => {
+    // The AC literally pins a 3-arg call with the third argument irrelevant.
+    expect(calcUnitCost(20.0, 20, 0)).toBe(1.0);
+    expect(calcUnitCost(20.0, 20, 1)).toBe(1.0);
+    expect(calcUnitCost(20.0, 20, 999)).toBe(1.0);
+  });
+
+  it('calcUnitCost(20, 20, 5) === 1.00 — sub_unit_size > 1 changes nothing', () => {
+    expect(calcUnitCost(20, 20, 5)).toBe(1.0);
+  });
+
+  it('per-unit cost is case_price / case_qty regardless of sub_unit_size', () => {
+    // 50 / 500 = 0.10 — the migrated Brown-Paper-Bag shape (case_qty=500).
+    expect(calcUnitCost(50, 500, 1)).toBeCloseTo(0.1, 10);
+    // sub_unit_size varying does not move the result.
+    expect(calcUnitCost(50, 500, 10)).toBeCloseTo(0.1, 10);
+  });
+
+  it('returns 0 for a non-positive case_qty (guard preserved)', () => {
+    expect(calcUnitCost(20, 0, 5)).toBe(0);
+    expect(calcUnitCost(20, -1, 5)).toBe(0);
   });
 });

@@ -3711,8 +3711,12 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
       const stored = parseFloat(row.cost_per_unit) || 0;
       if (stored > 0) return stored;
       const cp = parseFloat(row.case_price) || 0;
-      const total = caseQty * subUnitSize;
-      return total > 0 && cp > 0 ? cp / total : 0;
+      // Spec 093 (Q3a): fallback per-unit cost = case_price / case_qty,
+      // matching how prod default_cost was computed. sub_unit_size is the
+      // separate recipe-costing axis and must NOT divide the per-unit cost
+      // (conflating them is the documented 12×-class error). Still read for
+      // the subUnitSize field below.
+      return caseQty > 0 && cp > 0 ? cp / caseQty : 0;
     })(),
     currentStock: row.current_stock || 0,
     parLevel: row.par_level || 0,

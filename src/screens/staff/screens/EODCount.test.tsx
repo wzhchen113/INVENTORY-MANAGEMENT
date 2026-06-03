@@ -195,6 +195,39 @@ describe('EODCount', () => {
     );
   });
 
+  it('round-trips a spec-093 fixed row (case_qty=20): total = cases × 20 + units', async () => {
+    // Spec 093 (§11) EOD round-trip AC. After the form fix lands a
+    // "1 case = 20 lbs" row as case_qty=20 (canonical units-per-case), the
+    // EOD Cases box must compute total = cases × 20 + units — i.e. the case
+    // size is no longer invisible (pre-fix it landed in sub_unit_size and
+    // case_qty stayed 1, miscounting by 20×). No EOD code change; this pins
+    // the consumer against the fixed-row shape.
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Brown Paper Bag', unit: 'each', case_qty: 20 } },
+        ],
+        error: null,
+      },
+      { data: null, error: null }, // no existing
+      { data: null, error: null }, // re-fetch after submit success
+    ];
+    const { findByTestId } = render(<EODCount />);
+    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '3');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '4');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // total = 3 × 20 + 4 = 64.
+    expect(mockSubmit.mock.calls[0][0].entries[0]).toEqual({
+      item_id: 'item-1',
+      actual_remaining: 64,
+      actual_remaining_cases: 3,
+      actual_remaining_each: 4,
+    });
+  });
+
   it('defaults caseQty to 1 when the catalog has no case_qty (null → ×1)', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [

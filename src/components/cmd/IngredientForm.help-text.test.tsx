@@ -2,6 +2,12 @@
 // Spec 054 added the fifth test below that blurs the inline input to
 // assert help + error coexist.
 //
+// Spec 093 (§9) rewrote the PACK UNIT help copy (the old "shipping wrapper"
+// wording contradicted unitConversion's "sub-unit = per tracking unit"
+// meaning). The PACK_UNIT_HELP constant below was updated to the new copy;
+// the behavioral assertions (help persists under error, renders in both the
+// SelectField and CustomUnitInput branches) are unchanged.
+//
 // Verifies the DEFAULT UNIT and PACK UNIT help/sublabel strings landed by
 // spec 052 render in BOTH the SelectField branch (initial render) AND the
 // inline CustomUnitInput branch (after the user picks "+ custom…").
@@ -113,8 +119,12 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { IngredientForm, blankValues } from './IngredientForm';
 
 const DEFAULT_UNIT_HELP = 'the smallest unit you count one of (each, lb, oz, mL)';
+// Spec 093 (§9) — the PACK UNIT help no longer describes a "shipping wrapper"
+// (which contradicted unitConversion's "sub-unit = per tracking unit"
+// meaning). It now describes the unit each sub-unit is measured in. The
+// "define abstract units on the Conversions tab" sentence is preserved.
 const PACK_UNIT_HELP =
-  'the shipping wrapper — case, box, tray; For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.';
+  'the unit each sub-unit is measured in — each, lb, oz. For abstract units like "case" or "tray", define their physical meaning on the Conversions tab.';
 
 describe('IngredientForm — spec 052 help text', () => {
   it('renders the DEFAULT UNIT help string under the SelectField branch on initial render', () => {

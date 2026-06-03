@@ -204,10 +204,12 @@ export function getAllDisplayUnits(unit: string, itemConversions?: IngredientCon
  *   1. Same unit (case-insensitive) → no conversion needed.
  *   2. Both standard weight or both standard volume → convert via the
  *      base-unit table (oz↔lbs, g↔kg, fl_oz↔cups…).
- *   3. Recipe in a standard sub-unit, item tracked in cases (or other
- *      abstract pack) → use item.caseQty × item.subUnitSize to get total
- *      sub-units per case, then divide. This is the common case for things
- *      like "0.5 oz cheese, tracked in cases of 20×80oz".
+ *   3. Recipe in a standard sub-unit, item tracked in an abstract pack with a
+ *      sub-unit → divide by item.subUnitSize ALONE (sub-units per ONE tracking
+ *      unit) to convert into the tracking unit. Do NOT also multiply by
+ *      caseQty — that conflates the case axis with the sub-unit axis (the
+ *      documented 12× error; see the Case-3 inline note below). Common case:
+ *      "0.5 oz cheese, tracked in bags of 10 each".
  *   4. Item has an `IngredientConversion` row whose `purchaseUnit` matches
  *      the item's tracking unit → use smartToBase / smartFromBase to
  *      bridge any unit pair (handles per-store custom packs).
@@ -274,11 +276,29 @@ export function convertToItemUnit(
   return null;
 }
 
-/** Calculate unit cost from case pricing */
+/**
+ * Calculate unit cost from case pricing.
+ *
+ * Spec 093 (Q3a): the per-unit cost is `case_price / case_qty`, matching how
+ * prod `default_cost` was computed (and the canonical UNITS-PER-CASE meaning of
+ * `case_qty` that reorder 088 / EOD 086 / orderCalculator read). `subUnitSize`
+ * is the *separate* recipe-costing sub-unit axis and must NOT enter the per-unit
+ * cost — conflating the two produced the documented 12×-class error (see the
+ * `convertToUnit` Case-3 comment above). The third parameter is retained for
+ * call-site compatibility (the AC pins a 3-arg call) but no longer affects the
+ * result. `calcCasePrice` keeps its `× subUnitSize` factor (spec 093 R4 —
+ * out of scope), so cost→price→cost round-trips diverge on sub_unit_size > 1.
+ */
 export function calcUnitCost(casePrice: number, caseQty: number, subUnitSize: number): number {
-  const totalPerCase = caseQty * subUnitSize;
-  if (totalPerCase <= 0) return 0;
-  return casePrice / totalPerCase;
+  // `subUnitSize` is intentionally unused post-spec-093 (kept in the signature
+  // for call-site compatibility — the AC pins a 3-arg call). Referenced via
+  // `void` so it doesn't read as an accidental omission.
+  void subUnitSize;
+  // Spec 093 code-review: divide by case_qty directly. The old `totalPerCase`
+  // alias only existed to hold `caseQty * subUnitSize`; post-fix it was a
+  // single-value passthrough, so it's inlined.
+  if (caseQty <= 0) return 0;
+  return casePrice / caseQty;
 }
 
 /** Calculate case price from unit cost */

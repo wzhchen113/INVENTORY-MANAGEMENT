@@ -32,8 +32,8 @@ export interface IngredientFormValues {
   vendorId: string;
   caseQty: string;
   casePrice: string;
-  subUnitSize: string;       // numeric — "default unit size" (e.g. 40 lbs per case)
-  subUnitUnit: string;       // pack unit — restricted to canonical mass/volume units
+  subUnitSize: string;       // numeric — sub-units PER ONE TRACKING UNIT (e.g. a bag of 10 each). NOT the case size; the case size lives in caseQty → case_qty (spec 093).
+  subUnitUnit: string;       // unit each sub-unit is measured in — restricted to canonical mass/volume units
   // STUB — no DB column yet; surfaced read-only or as labels
   sku: string;
   reorderPoint: string;
@@ -708,8 +708,20 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             help="the smallest unit you count one of (each, lb, oz, mL)"
           />
         )}
-        <InputLine label="packs / order" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many packs at a time" />
-        <InputLine label="units / pack" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="how many default units in one pack" />
+        {/* Spec 093 — CASE-SIZE input. Binds the canonical `caseQty`
+            (→ case_qty), which reorder (088) and EOD (086) read as
+            UNITS-PER-CASE. Previously this input was labeled "units / pack"
+            and (wrongly) bound to subUnitSize, so "1 case = 20 lbs" landed the
+            20 in sub_unit_size and left case_qty=1 — invisible to those
+            features. The form key stays `caseQty` so db.ts:278-280 needs no
+            change. */}
+        <InputLine label="units / case" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many tracking units come in one case (e.g. 20 lbs per case)" />
+        {/* Spec 093 — SUB-UNIT breakdown input. Binds `subUnitSize`
+            (→ sub_unit_size), the SEPARATE recipe-costing axis: how many
+            sub-units make up ONE tracking unit (per unitConversion's
+            documented meaning). Distinct from the case size above; never
+            conflated. */}
+        <InputLine label="sub-unit / unit" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="how many sub-units make up ONE tracking unit (e.g. a bag of 10 each)" />
       </View>
       <View style={{ marginBottom: 6 }}>
         {customMode.pack ? (
@@ -717,7 +729,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             label="pack unit"
             value={customDraft.pack}
             error={customError.pack}
-            help={'the shipping wrapper — case, box, tray; For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+            help={'the unit each sub-unit is measured in — each, lb, oz. For abstract units like "case" or "tray", define their physical meaning on the Conversions tab.'}
             onChange={(v) => setCustomDraft((p) => ({ ...p, pack: v }))}
             onCommit={() => {
               // Round-2 (C2) — known-lowercase keys for the pack-unit
@@ -771,30 +783,30 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             monoFont
             placeholder="— pick pack unit —"
             allowEmpty
-            help={'the shipping wrapper — case, box, tray; For abstract pack units like "case" or "tray", define their physical meaning on the Conversions tab.'}
+            help={'the unit each sub-unit is measured in — each, lb, oz. For abstract units like "case" or "tray", define their physical meaning on the Conversions tab.'}
           />
         )}
       </View>
       {(() => {
-        const packs = Number(values.caseQty);
-        const perPack = Number(values.subUnitSize);
-        if (!Number.isFinite(packs) || !Number.isFinite(perPack) || packs <= 0 || perPack <= 0) return null;
-        const unit = values.unit || 'each';
-        // Simple s-suffix pluralization — handles case/tray/bag/bottle/pack
-        // (seed values). Won't be right for irregular plurals but the seed
-        // doesn't contain any. Empty subUnitUnit renders the literal
-        // placeholder `pack(s)` per spec 045 AC line 28 — the user-facing
-        // signal that no pack unit is selected yet.
-        const packLabel = !values.subUnitUnit
-          ? 'pack(s)'
-          : packs === 1
-            ? values.subUnitUnit
-            : (values.subUnitUnit.toLowerCase().endsWith('s') ? values.subUnitUnit : `${values.subUnitUnit}s`);
-        const total = packs * perPack;
+        // Spec 093 — plain CASE-SIZE conversion readback. Driven off the
+        // canonical `caseQty` (units-per-case) now, NOT the old
+        // packs-per-order × units-per-pack arithmetic (which produced the
+        // grammatically inverted "= 1 lbs × 20 cases = 20 cases per order"
+        // sentence the owner flagged). Reads as "1 case = {caseQty}
+        // {contentsUnit}". The noun before "=" is the literal wrapper "case";
+        // the unit after is the case CONTENTS — the pack unit (subUnitUnit)
+        // when set, else the tracking/default unit. Same finite/positive
+        // guard as before so an empty/zero case size renders nothing.
+        const caseSize = Number(values.caseQty);
+        if (!Number.isFinite(caseSize) || caseSize <= 0) return null;
+        // contentsUnit = what's inside one case: the pack-contents unit
+        // (subUnitUnit) when set, else fall back to `unit` (the tracking/DEFAULT
+        // unit). The "case" noun on the left stays literal (per §9 + the note above).
+        const contentsUnit = values.subUnitUnit || values.unit || 'each';
         return (
           <View style={{ marginTop: 4, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: CmdRadius.sm, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border }}>
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-              {`= ${packs} ${packLabel} × ${perPack} ${unit} = ${total} ${unit} per order`}
+              {`1 case = ${caseSize} ${contentsUnit}`}
             </Text>
           </View>
         );
