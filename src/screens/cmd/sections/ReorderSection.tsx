@@ -29,6 +29,7 @@ import {
   formatQty,
   formatMoney,
   formatSuggested,
+  formatSuggestedParts,
   formatSuggestedPdf,
   slugifyStore,
   todayLocalIso,
@@ -64,6 +65,7 @@ const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 // `order:` segment bolded in fg so the math is glanceable.
 function BreakdownLine({ item }: { item: ReorderItem }) {
   const C = useCmdColors();
+  const suggested = formatSuggestedParts(item);
   const seg = (label: string, value: string) => (
     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, fontVariant: ['tabular-nums'] }}>
       <Text style={{ color: C.fg3 }}>{label}:</Text> {value}
@@ -78,7 +80,13 @@ function BreakdownLine({ item }: { item: ReorderItem }) {
       {seg('par', `${formatQty(item.parLevel)} ${item.unit}`.trim())}
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
       <Text style={{ fontFamily: mono(700), fontSize: 11.5, color: C.fg, fontVariant: ['tabular-nums'] }}>
-        order: {formatSuggested(item)}
+        order: {suggested.main}
+        {suggested.sub ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+            {' · '}
+            {suggested.sub}
+          </Text>
+        ) : null}
       </Text>
     </View>
   );
@@ -348,7 +356,13 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
               {formatQty(item.parLevel)}
             </Text>
             <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatSuggested(item)}
+              {formatSuggestedParts(item).main}
+              {formatSuggestedParts(item).sub ? (
+                <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                  {' · '}
+                  {formatSuggestedParts(item).sub}
+                </Text>
+              ) : null}
             </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
               {formatMoney(item.estimatedCost)}
@@ -498,7 +512,10 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
           1: { halign: 'right' },
           2: { halign: 'right' },
           3: { halign: 'right' },
-          4: { halign: 'right', fontStyle: 'bold' },
+          // Spec: subunit de-emphasis. jsPDF autoTable can't mix weights in
+          // one cell, so the Suggested cell drops bold entirely (the case
+          // figure no longer reads as heavy/bulk in the admin PDF).
+          4: { halign: 'right' },
           6: { halign: 'right' },
         },
         margin: { left: margin, right: margin },

@@ -47,7 +47,7 @@ import {
   useStaffColors,
   useStaffElevation,
 } from '../theme';
-import { formatMoney, formatQty, formatSuggested } from '../../../utils/reorderExport';
+import { formatMoney, formatQty, formatSuggestedParts } from '../../../utils/reorderExport';
 import {
   activeWeekdaysFromSchedule,
   computeReorderKpis,
@@ -131,31 +131,42 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
       </View>
 
       {/* Items — stacked rows (mobile analog of the desktop BreakdownLine) */}
-      {vendor.items.map((item: ReorderItem, i: number) => (
-        <View
-          key={item.itemId}
-          style={[
-            styles.itemRow,
-            i === 0 ? null : { borderTopWidth: 1, borderTopColor: c.border },
-          ]}
-        >
-          <View style={styles.itemTop}>
-            <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-              {item.itemName}
+      {vendor.items.map((item: ReorderItem, i: number) => {
+        // Main case unit reads first; the base-unit subunit is rendered
+        // smaller + non-bold + muted so order-placers aren't confused.
+        const suggested = formatSuggestedParts(item);
+        return (
+          <View
+            key={item.itemId}
+            style={[
+              styles.itemRow,
+              i === 0 ? null : { borderTopWidth: 1, borderTopColor: c.border },
+            ]}
+          >
+            <View style={styles.itemTop}>
+              <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
+                {item.itemName}
+              </Text>
+              <Text style={[styles.itemCost, { color: c.text }]}>{formatMoney(item.estimatedCost)}</Text>
+            </View>
+            <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
+              {t('reorder.item.breakdown', {
+                onHand: `${formatQty(item.onHand)} ${item.unit}`.trim(),
+                par: `${formatQty(item.parLevel)} ${item.unit}`.trim(),
+              })}
             </Text>
-            <Text style={[styles.itemCost, { color: c.text }]}>{formatMoney(item.estimatedCost)}</Text>
+            <Text style={[styles.itemOrder, { color: c.primary }]}>
+              {t('reorder.item.order', { suggested: suggested.main })}
+              {suggested.sub ? (
+                <Text style={[styles.itemOrderSub, { color: c.textSecondary }]}>
+                  {' · '}
+                  {suggested.sub}
+                </Text>
+              ) : null}
+            </Text>
           </View>
-          <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
-            {t('reorder.item.breakdown', {
-              onHand: `${formatQty(item.onHand)} ${item.unit}`.trim(),
-              par: `${formatQty(item.parLevel)} ${item.unit}`.trim(),
-            })}
-          </Text>
-          <Text style={[styles.itemOrder, { color: c.primary }]}>
-            {t('reorder.item.order', { suggested: formatSuggested(item) })}
-          </Text>
-        </View>
-      ))}
+        );
+      })}
 
       {/* Footer subtotal */}
       <View style={[styles.vendorFooter, { borderTopColor: c.border }]}>
@@ -767,6 +778,10 @@ const styles = StyleSheet.create({
   itemOrder: {
     fontSize: typography.body,
     fontWeight: typography.bold,
+  },
+  itemOrderSub: {
+    fontSize: typography.caption,
+    fontWeight: typography.regular,
   },
   vendorFooter: {
     paddingHorizontal: spacing.lg,

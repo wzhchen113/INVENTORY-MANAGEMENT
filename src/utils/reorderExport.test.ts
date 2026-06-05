@@ -287,12 +287,22 @@ describe('buildReorderText (NEW — share-sheet plain text)', () => {
 });
 
 describe('buildReorderPdfHtml (NEW — shared HTML→PDF source)', () => {
-  it('renders a table row per item with the compact cs Suggested cell', () => {
+  it('renders a table row per item with the compact cs Suggested cell — main bold, subunit muted', () => {
     const item = caseItem({ suggestedQty: 49, caseQty: 24, unit: 'each', itemName: 'Buns' });
     const html = buildReorderPdfHtml(payloadWith([item]), 'Towson');
     expect(html).toContain('Buns');
-    expect(html).toContain('3 cs · 72 each');
+    // Main case unit in the bold span; the base-unit subunit in the smaller,
+    // non-bold `sub-unit` span so it reads as supporting detail.
+    expect(html).toContain('<span class="strong">3 cs</span>');
+    expect(html).toContain('<span class="sub-unit"> &middot; 72 each</span>');
     expect(html).toContain('Store: Towson');
+  });
+
+  it('renders a non-case Suggested cell as a single bold span (no subunit)', () => {
+    const item = plainItem({ suggestedQty: 8, unit: 'gal', itemName: 'Oil' });
+    const html = buildReorderPdfHtml(payloadWith([item]), 'Towson');
+    expect(html).toContain('<span class="strong">8 gal</span>');
+    expect(html).not.toContain('sub-unit"> &middot;');
   });
 
   it('escapes HTML-unsafe characters in vendor + item names', () => {

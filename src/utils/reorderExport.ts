@@ -35,6 +35,43 @@ export function formatMoney(n: number): string {
   return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 }
 
+// The Suggested order split into a prominent `main` unit and a secondary
+// `sub` unit so each render surface can de-emphasize the subunit (smaller,
+// non-bold) and keep the main case figure dominant — managers placing orders
+// read the case count first, the base-unit total is supporting detail.
+// `sub` is null for non-case items (nothing to subordinate). The joined
+// `formatSuggested` / `formatSuggestedPdf` strings below compose from these
+// parts so their output stays byte-for-byte identical (CSV + Text depend on
+// that). Exported for jest.
+export interface SuggestedParts {
+  main: string;
+  sub: string | null;
+}
+
+export function formatSuggestedParts(item: ReorderItem): SuggestedParts {
+  if (item.suggestedCases != null) {
+    const cases = item.suggestedCases;
+    const caseWord = cases === 1 ? 'case' : 'cases';
+    return {
+      main: `${formatQty(cases)} ${caseWord}`,
+      sub: `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+    };
+  }
+  return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };
+}
+
+// PDF variant — same split with the compact `cs` abbreviation (a glanceable
+// string is fine for a print artifact). Exported for jest.
+export function formatSuggestedPdfParts(item: ReorderItem): SuggestedParts {
+  if (item.suggestedCases != null) {
+    return {
+      main: `${formatQty(item.suggestedCases)} cs`,
+      sub: `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+    };
+  }
+  return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };
+}
+
 // Spec 088 — the Suggested order is shown in WHOLE CASES for items with a
 // case size (server sets `suggestedCases` non-null iff `caseQty > 1`), plus
 // the underlying ordered base-unit total so the figure matches how you order
@@ -43,23 +80,19 @@ export function formatMoney(n: number): string {
 // FE never re-derives `cases × caseQty` (defends against any server
 // rounding-rule change) and does NO cost math (Est $ rides on the
 // server-rounded `estimatedCost`). Non-case items render exactly as before:
-// `{suggestedQty} {unit}`. Exported for jest.
+// `{suggestedQty} {unit}`. Composes from `formatSuggestedParts` so the joined
+// string stays byte-for-byte identical (CSV + Text depend on this). Exported
+// for jest.
 export function formatSuggested(item: ReorderItem): string {
-  if (item.suggestedCases != null) {
-    const cases = item.suggestedCases;
-    const caseWord = cases === 1 ? 'case' : 'cases';
-    return `${formatQty(cases)} ${caseWord} · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
-  }
-  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
+  const { main, sub } = formatSuggestedParts(item);
+  return sub ? `${main} · ${sub}` : main;
 }
 
 // PDF variant — same cases·units split with the compact `cs` abbreviation
 // (a glanceable string is fine for a print artifact). Exported for jest.
 export function formatSuggestedPdf(item: ReorderItem): string {
-  if (item.suggestedCases != null) {
-    return `${formatQty(item.suggestedCases)} cs · ${formatQty(item.suggestedUnits)} ${item.unit}`.trim();
-  }
-  return `${formatQty(item.suggestedQty)} ${item.unit}`.trim();
+  const { main, sub } = formatSuggestedPdfParts(item);
+  return sub ? `${main} · ${sub}` : main;
 }
 
 export function slugifyStore(name: string): string {
@@ -205,18 +238,24 @@ export function buildReorderPdfHtml(payload: ReorderPayload, storeName: string):
             : `in ${vendor.daysUntilNextDelivery} days`;
       const subHeader = `${escapeHtml(vendor.vendorName || 'unnamed vendor')} &middot; Source: ${sourceLabel} &middot; Next delivery: ${escapeHtml(vendor.nextDeliveryDate || '—')} (${daysLabel})`;
       const rows = vendor.items
-        .map(
-          (item) => `
+        .map((item) => {
+          const { main, sub } = formatSuggestedPdfParts(item);
+          // Main case unit bold; subunit smaller + normal weight + muted so
+          // the case figure reads first on the printed sheet.
+          const suggestedCell = sub
+            ? `<span class="strong">${escapeHtml(main)}</span><span class="sub-unit"> &middot; ${escapeHtml(sub)}</span>`
+            : `<span class="strong">${escapeHtml(main)}</span>`;
+          return `
             <tr>
               <td>${escapeHtml(item.itemName)}</td>
               <td class="num">${formatQty(item.onHand)}</td>
               <td class="num">${formatQty(item.pendingPoQty)}</td>
               <td class="num">${formatQty(item.parLevel)}</td>
-              <td class="num strong">${escapeHtml(formatSuggestedPdf(item))}</td>
+              <td class="num">${suggestedCell}</td>
               <td>${escapeHtml(item.unit)}</td>
               <td class="num">${formatMoney(item.estimatedCost)}</td>
-            </tr>`,
-        )
+            </tr>`;
+        })
         .join('');
       return `
         <h2>${subHeader}</h2>
@@ -247,7 +286,8 @@ export function buildReorderPdfHtml(payload: ReorderPayload, storeName: string):
   th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e4e4e4; }
   th { background: #1a1a18; color: #fff; }
   td.num, th.num { text-align: right; }
-  td.strong { font-weight: 700; }
+  td.strong, .strong { font-weight: 700; }
+  .sub-unit { font-weight: 400; font-size: 9px; color: #777; }
   .footer { margin-top: 20px; font-size: 12px; font-weight: 700; }
   .gen { margin-top: 28px; font-size: 9px; color: #999; }
 </style>
