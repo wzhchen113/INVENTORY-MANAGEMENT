@@ -477,34 +477,6 @@ export function Reorder() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
-        {/* Vendor filter — horizontal chips ("All" + one per vendor). Only
-            shown when there's more than one vendor to choose between. */}
-        {allVendors.length > 1 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.vendorChips}
-            accessibilityLabel={t('reorder.vendorFilter.aria')}
-            testID="staff-reorder-vendor-filter"
-          >
-            <VendorChip
-              label={t('reorder.vendorFilter.all')}
-              active={!selectedVendor}
-              onPress={() => setSelectedVendorId(null)}
-              testID="staff-reorder-vendor-chip-all"
-            />
-            {allVendors.map((v) => (
-              <VendorChip
-                key={v.vendorId}
-                label={v.vendorName || t('reorder.vendor.unnamed')}
-                active={selectedVendor?.vendorId === v.vendorId}
-                onPress={() => setSelectedVendorId(v.vendorId)}
-                testID={`staff-reorder-vendor-chip-${v.vendorId}`}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
-
         {/* KPI strip — 2×2 grid, values from computeReorderKpis(displayVendors) */}
         <View style={styles.kpiGrid}>
           <KpiCard
@@ -578,6 +550,35 @@ export function Reorder() {
               </Pressable>
             </View>
           </View>
+        ) : null}
+
+        {/* Vendor filter — horizontal chips ("All" + one per vendor), sits
+            just below the export buttons and above the vendor list. Only
+            shown when there's more than one vendor to choose between. */}
+        {allVendors.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.vendorChips}
+            accessibilityLabel={t('reorder.vendorFilter.aria')}
+            testID="staff-reorder-vendor-filter"
+          >
+            <VendorChip
+              label={t('reorder.vendorFilter.all')}
+              active={!selectedVendor}
+              onPress={() => setSelectedVendorId(null)}
+              testID="staff-reorder-vendor-chip-all"
+            />
+            {allVendors.map((v) => (
+              <VendorChip
+                key={v.vendorId}
+                label={v.vendorName || t('reorder.vendor.unnamed')}
+                active={selectedVendor?.vendorId === v.vendorId}
+                onPress={() => setSelectedVendorId(v.vendorId)}
+                testID={`staff-reorder-vendor-chip-${v.vendorId}`}
+              />
+            ))}
+          </ScrollView>
         ) : null}
 
         {/* Warnings pane */}
