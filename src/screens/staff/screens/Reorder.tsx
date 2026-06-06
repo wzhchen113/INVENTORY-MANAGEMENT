@@ -196,6 +196,44 @@ function StateCard({ title, body, testID }: { title: string; body: string; testI
   );
 }
 
+// ── vendor filter chip ──────────────────────────────────────────────
+function VendorChip({
+  label,
+  active,
+  onPress,
+  testID,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const c = useStaffColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={({ pressed }) => [
+        styles.vendorChip,
+        {
+          backgroundColor: active ? c.primary : c.surface,
+          borderColor: active ? c.primary : c.borderStrong,
+        },
+        pressed && !active ? { backgroundColor: c.surfaceAlt } : null,
+      ]}
+    >
+      <Text
+        style={[styles.vendorChipText, { color: active ? c.textOnPrimary : c.text }]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function Reorder() {
   const c = useStaffColors();
   const activeStore = useStaffStore((s) => s.activeStore);
@@ -217,6 +255,9 @@ export function Reorder() {
   const [error, setError] = useState<string | null>(null);
   const [noScheduleOpen, setNoScheduleOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Vendor filter — `null` = "All" (the default grouped view). A non-null
+  // id narrows the screen, the KPI strip, AND the exports to that one vendor.
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
 
   const canSwitchStore = stores.length > 1;
 
@@ -277,20 +318,46 @@ export function Reorder() {
         : { primary: [], noSchedule: [] },
     [payload?.vendors, orderSchedule, selectedWeekday],
   );
-  const kpis = useMemo(() => computeReorderKpis(primary), [primary]);
+  // ─── vendor filter ──────────────────────────────────────────────────
+  // Chip universe = every vendor in today's view, order-today (`primary`)
+  // first then the no-schedule group, so picking a chip can surface a vendor
+  // from either group as a single card.
+  const allVendors = useMemo(() => [...primary, ...noSchedule], [primary, noSchedule]);
+  const selectedVendor = useMemo(
+    () =>
+      selectedVendorId
+        ? allVendors.find((v) => v.vendorId === selectedVendorId) ?? null
+        : null,
+    [allVendors, selectedVendorId],
+  );
+  // A date/store change can drop the chosen vendor out of the set — fall back
+  // to "All" so the highlight + filtered view stay coherent.
+  useEffect(() => {
+    if (selectedVendorId && !allVendors.some((v) => v.vendorId === selectedVendorId)) {
+      setSelectedVendorId(null);
+    }
+  }, [allVendors, selectedVendorId]);
+
+  // When a vendor is picked it becomes the WHOLE view (one card, no group);
+  // "All" falls back to the order-today `primary` set, exactly as before.
+  const displayVendors = useMemo(
+    () => (selectedVendor ? [selectedVendor] : primary),
+    [selectedVendor, primary],
+  );
+  const kpis = useMemo(() => computeReorderKpis(displayVendors), [displayVendors]);
 
   // Export must reflect the on-screen FILTERED + as-of view — derived payload
-  // = primary vendors + client-recomputed KPIs (same invariant as admin).
+  // = displayed vendors + client-recomputed KPIs (same invariant as admin).
   const exportPayload = useMemo<ReorderPayload | null>(
-    () => (payload ? { ...payload, vendors: primary, kpis } : null),
-    [payload, primary, kpis],
+    () => (payload ? { ...payload, vendors: displayVendors, kpis } : null),
+    [payload, displayVendors, kpis],
   );
 
   // showExport gate mirrors the admin (minus the web-only clause — staff
   // export is cross-platform): enabled iff there's a non-empty filtered set,
   // no error, and not the initial load.
   const showExport =
-    !!exportPayload && primary.length > 0 && !error && !(loading && !payload);
+    !!exportPayload && displayVendors.length > 0 && !error && !(loading && !payload);
 
   // ─── header actions (mirror EODCount) ──────────────────────────────
   const onSignOut = useCallback(() => {
@@ -410,7 +477,35 @@ export function Reorder() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
-        {/* KPI strip — 2×2 grid, values from computeReorderKpis(primary) */}
+        {/* Vendor filter — horizontal chips ("All" + one per vendor). Only
+            shown when there's more than one vendor to choose between. */}
+        {allVendors.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.vendorChips}
+            accessibilityLabel={t('reorder.vendorFilter.aria')}
+            testID="staff-reorder-vendor-filter"
+          >
+            <VendorChip
+              label={t('reorder.vendorFilter.all')}
+              active={!selectedVendor}
+              onPress={() => setSelectedVendorId(null)}
+              testID="staff-reorder-vendor-chip-all"
+            />
+            {allVendors.map((v) => (
+              <VendorChip
+                key={v.vendorId}
+                label={v.vendorName || t('reorder.vendor.unnamed')}
+                active={selectedVendor?.vendorId === v.vendorId}
+                onPress={() => setSelectedVendorId(v.vendorId)}
+                testID={`staff-reorder-vendor-chip-${v.vendorId}`}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+
+        {/* KPI strip — 2×2 grid, values from computeReorderKpis(displayVendors) */}
         <View style={styles.kpiGrid}>
           <KpiCard
             label={t('reorder.kpi.vendors')}
@@ -537,7 +632,7 @@ export function Reorder() {
         !error &&
         !!payload &&
         payload.vendors.length > 0 &&
-        primary.length === 0 ? (
+        displayVendors.length === 0 ? (
           <StateCard
             testID="staff-reorder-nothing-today"
             title={t('reorder.nothingToday.title')}
@@ -549,13 +644,15 @@ export function Reorder() {
           />
         ) : null}
 
-        {/* Primary "order today" vendor cards */}
-        {primary.map((v) => (
+        {/* Vendor cards — the order-today `primary` set under "All", or the
+            single selected vendor when a chip is active. */}
+        {displayVendors.map((v) => (
           <VendorCard key={v.vendorId} vendor={v} />
         ))}
 
-        {/* Secondary "no schedule" collapsible group */}
-        {noSchedule.length > 0 ? (
+        {/* Secondary "no schedule" collapsible group — only under "All"; a
+            single-vendor selection shows that vendor directly above instead. */}
+        {!selectedVendor && noSchedule.length > 0 ? (
           <View style={styles.noScheduleGroup}>
             <Pressable
               testID="staff-reorder-no-schedule-toggle"
@@ -664,6 +761,24 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
     gap: spacing.md,
+  },
+  // Vendor filter — horizontal row of pills.
+  vendorChips: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
+  vendorChip: {
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+  },
+  vendorChipText: {
+    fontSize: typography.caption,
+    fontWeight: typography.semibold,
+    maxWidth: 180,
   },
   // KPI 2×2 grid: cards flex to ~half-width with the row gap.
   kpiGrid: {

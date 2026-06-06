@@ -246,10 +246,12 @@ describe('Reorder — no-schedule group + warnings', () => {
     mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor, unscheduled]));
     mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
 
-    const { getByTestId, queryByText } = renderScreen();
+    const { getByTestId, queryByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-no-schedule-toggle')).toBeTruthy());
-    // Collapsed by default — the unscheduled vendor card is not shown yet.
-    expect(queryByText('Beta')).toBeNull();
+    // Collapsed by default — the unscheduled vendor CARD is not shown yet.
+    // (Its name does appear as a filter chip, so assert on the card testID,
+    // not the text.)
+    expect(queryByTestId('staff-reorder-vendor-v-2')).toBeNull();
     // Expand it.
     await act(async () => {
       fireEvent.press(getByTestId('staff-reorder-no-schedule-toggle'));
@@ -266,6 +268,84 @@ describe('Reorder — no-schedule group + warnings', () => {
     const { getByTestId, getByText } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-warnings')).toBeTruthy());
     expect(getByText('Beta has no schedule')).toBeTruthy();
+  });
+});
+
+describe('Reorder — vendor filter chips', () => {
+  // Two order-today vendors so the chip row renders (gated on >1 vendor).
+  const acme = caseVendor; // v-1, Acme, 1 item, $144
+  const beta = vendor({
+    vendorId: 'v-2',
+    vendorName: 'Beta',
+    vendorTotalCost: 5,
+    items: [item({ itemId: 'i-2', itemName: 'Salt', suggestedQty: 5, suggestedUnits: 5, estimatedCost: 5 })],
+  });
+
+  function bothSchedule(): OrderSchedule {
+    const entry = [
+      { vendorId: 'v-1', vendorName: 'Acme', deliveryDay: 'Wednesday' },
+      { vendorId: 'v-2', vendorName: 'Beta', deliveryDay: 'Wednesday' },
+    ];
+    return {
+      Sunday: entry, Monday: entry, Tuesday: entry, Wednesday: entry,
+      Thursday: entry, Friday: entry, Saturday: entry,
+    };
+  }
+
+  it('renders an All chip + one chip per vendor when >1 vendor', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([acme, beta]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(bothSchedule());
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-filter')).toBeTruthy());
+    expect(getByTestId('staff-reorder-vendor-chip-all')).toBeTruthy();
+    expect(getByTestId('staff-reorder-vendor-chip-v-1')).toBeTruthy();
+    expect(getByTestId('staff-reorder-vendor-chip-v-2')).toBeTruthy();
+    // Both vendor cards visible under the default "All".
+    expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy();
+    expect(getByTestId('staff-reorder-vendor-v-2')).toBeTruthy();
+  });
+
+  it('selecting a vendor chip narrows the visible cards to that vendor', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([acme, beta]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(bothSchedule());
+
+    const { getByTestId, queryByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-chip-v-2')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-vendor-chip-v-2'));
+    });
+    expect(getByTestId('staff-reorder-vendor-v-2')).toBeTruthy();
+    expect(queryByTestId('staff-reorder-vendor-v-1')).toBeNull();
+  });
+
+  it('export payload narrows to the selected vendor (filter everything)', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([acme, beta]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(bothSchedule());
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-chip-v-2')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-vendor-chip-v-2'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-export-csv'));
+    });
+    const [passedPayload] = mockShareReorderCsv.mock.calls[0];
+    expect(passedPayload.vendors).toHaveLength(1);
+    expect(passedPayload.vendors[0].vendorId).toBe('v-2');
+    // KPIs recomputed for the single selected vendor (Beta: 1 item, $5).
+    expect(passedPayload.kpis.itemCount).toBe(1);
+    expect(passedPayload.kpis.totalEstimatedCost).toBe(5);
+  });
+
+  it('no chip row when there is only a single vendor', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([acme]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByTestId, queryByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(queryByTestId('staff-reorder-vendor-filter')).toBeNull();
   });
 });
 

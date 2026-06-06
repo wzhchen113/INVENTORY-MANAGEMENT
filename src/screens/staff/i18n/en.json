@@ -66,6 +66,10 @@
     "refresh": "Refresh",
     "loading": "Loading...",
     "loadingBody": "Fetching reorder suggestions",
+    "vendorFilter": {
+      "all": "All",
+      "aria": "Filter by vendor"
+    },
     "kpi": {
       "vendors": "Vendors",
       "vendorsSub": "ordering today",
