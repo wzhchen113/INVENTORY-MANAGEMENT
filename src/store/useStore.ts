@@ -1952,21 +1952,35 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   updateStore: (id, updates) => {
+    // Snapshot for revert-on-error (Spec 083 — optimistic-then-revert parity
+    // with the rest of the store).
+    const prevStores = get().stores;
+    const prevCurrentStore = get().currentStore;
     set((s) => ({
       stores: s.stores.map((st) => st.id === id ? { ...st, ...updates } : st),
       currentStore: s.currentStore.id === id ? { ...s.currentStore, ...updates } : s.currentStore,
     }));
-    const { supabase } = require('../lib/supabase');
-    // Only include fields that are present in `updates` so we don't clobber existing values with undefined.
-    const dbUpdates: Record<string, any> = {};
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.address !== undefined) dbUpdates.address = updates.address;
-    if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime;
-    // Promote the builder to a real Promise before .catch (builders are
-    // thenable but lack `.catch`, so chaining it throws TypeError).
-    Promise.resolve(
-      supabase.from('stores').update(dbUpdates).eq('id', id)
-    ).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Spec 083 — delegate the write to db.updateStore (closes the inline
+    // supabase.from('stores') carve-out) and include `status` in the partial
+    // update. The privileged_update_stores RLS policy enforces the
+    // admin/master/super_admin gate server-side.
+    //
+    // The explicit 4-field object is REQUIRED, not redundant: `updates` is typed
+    // Partial<Store> (wider) while db.updateStore takes
+    // Partial<Pick<Store,'name'|'address'|'eodDeadlineTime'|'status'>>. Spreading
+    // `updates` directly would be a type error; this literal narrows to exactly
+    // the writable fields and intentionally drops `brandId` (a brand transfer
+    // would trip auth_can_see_brand WITH CHECK — see db.updateStore). Do NOT
+    // "simplify" this back into a passthrough that reintroduces brandId.
+    db.updateStore(id, {
+      name: updates.name,
+      address: updates.address,
+      eodDeadlineTime: updates.eodDeadlineTime,
+      status: updates.status,
+    }).catch((e: any) => {
+      set({ stores: prevStores, currentStore: prevCurrentStore });
+      notifyBackendError('Update store', e);
+    });
   },
 
   // Users

@@ -58,6 +58,59 @@ export async function fetchStores(): Promise<Store[]> {
   }, { kind: 'read', label: 'fetchStores' });
 }
 
+// Spec 083 — include-inactive read for the admin Stores tab ONLY.
+// Identical projection/mapping to fetchStores, MINUS the .eq('status','active').
+// Does NOT write the global `stores` cache — the caller (StoresTab) holds the
+// result in component-local state. RLS (`store_member_read_stores`) still scopes
+// rows to the caller's brand. Do NOT route this through the slice that writes
+// `s.stores`; current-store resolution and the staff picker depend on that cache
+// staying active-only.
+export async function fetchStoresIncludingInactive(): Promise<Store[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .abortSignal(signal);
+    if (error) throw error;
+    return (data || []).map((s: any) => ({
+      id: s.id,
+      brandId: s.brand_id || '',
+      name: s.name, address: s.address, status: s.status,
+      eodDeadlineTime: s.eod_deadline_time || undefined,
+    }));
+  }, { kind: 'read', label: 'fetchStoresIncludingInactive' });
+}
+
+// Spec 083 — partial store-field write (status toggle + name/address/deadline).
+// PostgREST UPDATE; the `privileged_update_stores` RLS policy
+// (auth_is_privileged() AND auth_can_see_brand(brand_id)) enforces the
+// admin/master/super_admin gate, so no RPC is needed. brandId is intentionally
+// NOT writable here — a brand transfer would trip auth_can_see_brand WITH CHECK
+// and needs its own privileged path. Only maps keys present on `updates` so we
+// never clobber existing values with undefined.
+export async function updateStore(
+  id: string,
+  updates: Partial<Pick<Store, 'name' | 'address' | 'eodDeadlineTime' | 'status'>>,
+): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    const dbUpdates: Record<string, any> = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.address !== undefined) dbUpdates.address = updates.address;
+    if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    // No mappable fields → skip the round-trip. An empty-body PATCH is a no-op
+    // that still costs a request and can behave inconsistently across PostgREST
+    // versions; matches the guard in updateRecipe/updatePrepRecipe.
+    if (Object.keys(dbUpdates).length === 0) return;
+    const { error } = await supabase
+      .from('stores')
+      .update(dbUpdates)
+      .eq('id', id)
+      .abortSignal(signal);
+    if (error) throw error;
+  }, { kind: 'write', label: 'updateStore' });
+}
+
 export async function createStore(store: Omit<Store, 'id'>): Promise<string> {
   // brand_id is load-bearing post-Spec-012a — the stores INSERT policy
   // requires auth_can_see_brand(brand_id), and NULL fails that check for

@@ -17,7 +17,8 @@ import { InviteAdminDrawer } from '../../../components/cmd/InviteAdminDrawer';
 import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal';
 import { confirmAction } from '../../../utils/confirmAction';
-import { Brand, User } from '../../../types';
+import * as db from '../../../lib/db';
+import { Brand, Store, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { userStatusLabel, roleLabel } from '../../../utils/enumLabels';
@@ -66,7 +67,6 @@ export default function BrandsSection() {
   const T = useT();
   const isSuperAdmin = useIsSuperAdmin();
   const isCompact = useIsCompact();
-  const allStores = useStore((s) => s.stores);
   const loadBrandsList = useStore((s) => s.loadBrandsList);
   const brandStats = useStore((s) => s.brandStats) as BrandStats[];
   const loadBrandStats = useStore((s) => s.loadBrandStats);
@@ -159,7 +159,6 @@ export default function BrandsSection() {
   }
 
   const sel = brandStats.find((b) => b.id === selectedId) || null;
-  const selStores = sel ? allStores.filter((s) => s.brandId === sel.id) : [];
 
   const refreshAfterInvite = () => {
     if (selectedId) loadBrandAdmins(selectedId).catch(() => {});
@@ -228,7 +227,6 @@ export default function BrandsSection() {
       <>
         <DetailPane
           sel={sel}
-          selStores={selStores}
           tabId={tabId}
           setTabId={setTabId}
           admins={admins}
@@ -324,7 +322,6 @@ export default function BrandsSection() {
         ) : (
           <DetailPane
             sel={sel}
-            selStores={selStores}
             tabId={tabId}
             setTabId={setTabId}
             admins={admins}
@@ -525,12 +522,11 @@ function ListPane({
 
 // ─── Detail pane ────────────────────────────────────────────────────
 function DetailPane({
-  sel, selStores, tabId, setTabId, admins, loadingAdmins,
+  sel, tabId, setTabId, admins, loadingAdmins,
   onInvite, onBack, onRename, onSoftDelete, onRestore, onPurge,
   onDeleteProfile, superAdminUserId,
 }: {
   sel: BrandStats;
-  selStores: ReturnType<typeof useStore.getState>['stores'];
   tabId: string;
   setTabId: (id: string) => void;
   admins: User[];
@@ -657,7 +653,7 @@ function DetailPane({
             superAdminUserId={superAdminUserId}
           />
         ) : tabId === 'stores.tsx' ? (
-          <StoresTab stores={selStores} brandId={sel.id} brandName={sel.name} />
+          <StoresTab brandId={sel.id} brandName={sel.name} />
         ) : null}
       </ScrollView>
     </View>
@@ -1041,17 +1037,86 @@ function DeleteProfileModal({
 }
 
 // ─── stores.tsx ─────────────────────────────────────────────────────
-function StoresTab({
-  stores,
+// Spec 083 — the Stores tab reads BOTH active and inactive stores via the
+// include-inactive fetch path (db.fetchStoresIncludingInactive) into LOCAL
+// state — NOT the global `stores` cache. The global cache stays active-only
+// because current-store resolution and the staff picker depend on it. The
+// inline per-row toggle flips stores.status (confirm-on-deactivate) and the
+// INACTIVE StatusPill branch is now live for non-operational stores.
+// Exported for jest unit coverage of the inline status toggle (spec 094).
+// Not consumed by any other module — the named export exists solely so the
+// toggle wiring (confirm-on-deactivate, updateStore delegation, optimistic
+// StatusPill flip) can be exercised without driving the full BrandsSection
+// brand-select → tab-switch navigation.
+export function StoresTab({
   brandId,
   brandName,
 }: {
-  stores: ReturnType<typeof useStore.getState>['stores'];
   brandId: string;
   brandName: string;
 }) {
   const C = useCmdColors();
+  const updateStore = useStore((s) => s.updateStore);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [stores, setStores] = React.useState<Store[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  // Tab-local include-inactive fetch. Filtered to this brand so the tab only
+  // shows stores under the selected brand (RLS already scopes to the caller's
+  // visible brands; this filter narrows the multi-brand result to the row).
+  const refresh = React.useCallback(async (): Promise<void> => {
+    const all = await db.fetchStoresIncludingInactive();
+    setStores(all.filter((s) => s.brandId === brandId));
+  }, [brandId]);
+
+  // Reload on mount, when the brand changes, and after the create drawer
+  // closes (a new store lands in the global cache via addStore, so we re-pull
+  // the include-inactive list to surface it here).
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    refresh()
+      .catch((e: any) => {
+        console.warn('[Supabase] Load stores', e?.message || e);
+        Toast.show({ type: 'error', text1: 'Could not load stores', text2: e?.message || String(e) });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [refresh, drawerOpen]);
+
+  const setStatus = React.useCallback(
+    (s: Store, next: 'active' | 'inactive') => {
+      // Optimistically flip the local row; the global cache + persistence are
+      // handled by useStore.updateStore (optimistic-then-revert + toast on
+      // error). We intentionally do NOT re-fetch immediately here — a read
+      // straight after the fire-and-forget PATCH races PostgREST and can read
+      // the pre-write value, flickering the row back. The mount / brand-change
+      // / drawer-close effect re-pulls the include-inactive list to reconcile
+      // any drift (e.g. an RLS 0-row no-op on a denied write) on next render.
+      setStores((prev) => prev.map((st) => (st.id === s.id ? { ...st, status: next } : st)));
+      updateStore(s.id, { status: next });
+    },
+    [updateStore],
+  );
+
+  const onToggle = (s: Store) => {
+    if (s.status === 'active') {
+      // Deactivate is the consequential direction — confirm first.
+      confirmAction(
+        'Deactivate store?',
+        `"${s.name}" will be marked INACTIVE and will stop receiving reminder ` +
+          `notifications (EOD count + vendor order-cutoff). No data is deleted — ` +
+          `inventory, recipes, and EOD history are preserved. You can re-activate ` +
+          `it at any time.`,
+        () => setStatus(s, 'inactive'),
+        'Deactivate',
+      );
+    } else {
+      // Re-activation is non-destructive — apply immediately.
+      setStatus(s, 'active');
+    }
+  };
+
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1069,7 +1134,22 @@ function StoresTab({
           <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>+ NEW STORE</Text>
         </TouchableOpacity>
       </View>
-      {stores.length === 0 ? (
+      {loading && stores.length === 0 ? (
+        <View
+          style={{
+            backgroundColor: C.panel,
+            borderRadius: CmdRadius.lg,
+            borderWidth: 1,
+            borderColor: C.border,
+            padding: 22,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontFamily: mono(400), fontSize: 12, color: C.fg3 }}>
+            loading stores…
+          </Text>
+        </View>
+      ) : stores.length === 0 ? (
         <View
           style={{
             backgroundColor: C.panel,
@@ -1098,34 +1178,61 @@ function StoresTab({
             overflow: 'hidden',
           }}
         >
-          {stores.map((s, i) => (
-            <View
-              key={s.id}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 10,
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderTopWidth: i === 0 ? 0 : 1,
-                borderTopColor: C.border,
-              }}
-            >
-              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 70 }}>
-                {shortId(s.id)}
-              </Text>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{s.name}</Text>
-                <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
-                  {s.address || '(no address)'}
+          {stores.map((s, i) => {
+            const isActive = s.status === 'active';
+            return (
+              <View
+                key={s.id}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 10,
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: C.border,
+                }}
+              >
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 70 }}>
+                  {shortId(s.id)}
                 </Text>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{s.name}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
+                    {s.address || '(no address)'}
+                  </Text>
+                </View>
+                <StatusPill
+                  status={isActive ? 'ok' : 'low'}
+                  label={isActive ? 'ACTIVE' : 'INACTIVE'}
+                />
+                <TouchableOpacity
+                  onPress={() => onToggle(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isActive ? `Deactivate store ${s.name}` : `Activate store ${s.name}`
+                  }
+                  style={{
+                    paddingVertical: 5,
+                    paddingHorizontal: 9,
+                    borderRadius: CmdRadius.sm,
+                    borderWidth: 1,
+                    borderColor: isActive ? C.borderStrong : C.accent,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: mono(700),
+                      fontSize: 10,
+                      color: isActive ? C.fg2 : C.accent,
+                    }}
+                  >
+                    {isActive ? 'DEACTIVATE' : 'ACTIVATE'}
+                  </Text>
+                </TouchableOpacity>
               </View>
-              <StatusPill
-                status={s.status === 'active' ? 'ok' : 'low'}
-                label={s.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
-              />
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
       <StoreFormDrawer
