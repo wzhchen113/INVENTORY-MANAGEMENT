@@ -48,6 +48,7 @@ describe('i18n.t()', () => {
       'store.picker.subtitle',
       'eod.header.today',
       'eod.vendor.label',
+      'eod.vendor.single',
       'eod.col.cases',
       'eod.col.units',
       'eod.col.casesAria',

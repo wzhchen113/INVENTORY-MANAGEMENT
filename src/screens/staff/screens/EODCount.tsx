@@ -513,7 +513,11 @@ export function EODCount() {
         />
       ) : null}
 
-      {/* Vendor switcher — only shown if >1 vendor scheduled today */}
+      {/* Vendor indicator. >1 vendor → interactive chip switcher. Exactly 1
+          vendor → a static "Vendor: <name>" label so staff always see which
+          vendor they're counting for (a lone vendor is not switchable, but it
+          still needs to be named). 0 vendors → nothing here; the empty pane
+          below renders eod.vendor.noneToday. */}
       {vendors.length > 1 ? (
         <View
           style={[
@@ -559,6 +563,21 @@ export function EODCount() {
               );
             }}
           />
+        </View>
+      ) : vendors.length === 1 ? (
+        <View
+          style={[
+            styles.vendorSwitcher,
+            { backgroundColor: c.surface, borderBottomColor: c.border },
+          ]}
+        >
+          <Text
+            testID="eod-vendor-single"
+            style={[styles.vendorLabel, { color: c.text }]}
+            numberOfLines={1}
+          >
+            {t('eod.vendor.single', { name: vendors[0].name })}
+          </Text>
         </View>
       ) : null}
 
@@ -780,6 +799,11 @@ const styles = StyleSheet.create({
   },
   vendorChipText: {
     fontSize: typography.body,
+  },
+  vendorLabel: {
+    paddingHorizontal: spacing.lg,
+    fontSize: typography.body,
+    fontWeight: typography.semibold,
   },
   loadingPane: {
     flex: 1,

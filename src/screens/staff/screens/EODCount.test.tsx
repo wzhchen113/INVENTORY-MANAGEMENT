@@ -97,6 +97,37 @@ describe('EODCount', () => {
     expect(getByTestId('eod-submit')).toBeTruthy();
   });
 
+  it('shows a static "Vendor: <name>" label (no chip switcher) when exactly one vendor is scheduled', async () => {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }], error: null },
+      { data: null, error: null },
+    ];
+    const { findByText, queryByTestId } = render(<EODCount />);
+    // The lone vendor is named even though it isn't switchable.
+    expect(await findByText('Vendor: Sysco')).toBeTruthy();
+    // No interactive chip rendered for a single vendor.
+    expect(queryByTestId('vendor-chip-v-1')).toBeNull();
+  });
+
+  it('shows the chip switcher (and no single-vendor label) when >1 vendor is scheduled', async () => {
+    mockNextResultStack = [
+      {
+        data: [
+          { vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } },
+          { vendor_id: 'v-2', vendor_name: 'US Foods', vendor: { id: 'v-2', name: 'US Foods' } },
+        ],
+        error: null,
+      },
+      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }], error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId, queryByTestId } = render(<EODCount />);
+    expect(await findByTestId('vendor-chip-v-1')).toBeTruthy();
+    expect(queryByTestId('vendor-chip-v-2')).toBeTruthy();
+    expect(queryByTestId('eod-vendor-single')).toBeNull();
+  });
+
   it('shows the pre-fill banner and seeds both boxes from a split submission', async () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },

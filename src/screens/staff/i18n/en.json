@@ -27,6 +27,7 @@
     },
     "vendor": {
       "label": "Vendor",
+      "single": "Vendor: {name}",
       "noneToday": "No vendor scheduled for today"
     },
     "list": {
