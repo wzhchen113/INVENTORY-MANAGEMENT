@@ -8,6 +8,7 @@ import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
 import { inviteUser } from '../../lib/auth';
 import { useIsMaster } from '../../hooks/useRole';
+import { validateUsername } from '../../lib/usernameValidation';
 
 interface Props {
   visible: boolean;
@@ -21,6 +22,7 @@ type RoleChoice = 'admin' | 'user';
 interface FormValues {
   email: string;
   name: string;
+  username: string;
   role: RoleChoice;
   storeIds: string[];
 }
@@ -28,6 +30,7 @@ interface FormValues {
 const blank = (): FormValues => ({
   email: '',
   name: '',
+  username: '',
   role: 'user',
   storeIds: [],
 });
@@ -62,6 +65,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
     setValues({
       email: '',
       name: '',
+      username: '',
       // Spec 029 — both master and non-master admins default new invites
       // to `role='user'`; master can switch to admin via the role picker
       // below (non-master admins do not see the picker at all).
@@ -110,9 +114,20 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandId, visible]);
 
+  // Spec 095 — username is OPTIONAL on invite (existing-users-keep-email
+  // posture: an invite can omit it and the user logs in by email until one is
+  // assigned). But WHEN provided it must satisfy the shared validator (3–20,
+  // [A-Za-z0-9_.], not reserved). The validator runs only on a non-empty
+  // trimmed value so a blank field is not flagged. Server-side uniqueness
+  // (the lower() UNIQUE index → 23505) is surfaced separately in handleSave.
+  const usernameTrimmed = values.username.trim();
+  const usernameCheck = usernameTrimmed.length > 0 ? validateUsername(usernameTrimmed) : { ok: true as const };
+  const usernameError = usernameCheck.ok ? null : usernameCheck.error;
+
   const requiredValid =
     values.email.trim().length > 0 &&
     values.name.trim().length > 0 &&
+    !usernameError &&
     (values.role !== 'admin' || !!brandId);
 
   const set = <K extends keyof FormValues>(k: K) => (v: FormValues[K]) =>
@@ -164,13 +179,25 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
       brandId: derivedBrandId,
       storeIds: values.storeIds,
       storeNames,
+      // Spec 095 — null when blank (user logs in by email until assigned).
+      username: usernameTrimmed.length > 0 ? usernameTrimmed : null,
     });
     setSubmitting(false);
     if (result.error) {
+      // Spec 095 — map the PostgREST unique-violation on the username index to
+      // the human-readable "username taken". Distinct from the generic login
+      // oracle: this is an authenticated, brand-scoped admin action where
+      // revealing the collision is intended. Discriminate on the ACTUAL index
+      // name `profiles_username_lower_key` so an unrelated 23505 (e.g. a
+      // duplicate-email invitation) is NOT mislabeled as a username collision
+      // (code-reviewer #2 / security-auditor Low-3 / backend-architect M2).
+      const isUsernameTaken =
+        usernameTrimmed.length > 0 &&
+        /profiles_username_lower_key/i.test(result.error);
       Toast.show({
         type: 'error',
         text1: 'Invite failed',
-        text2: result.error,
+        text2: isUsernameTaken ? `Username "${usernameTrimmed}" is already taken` : result.error,
         visibilityTime: 5000,
       });
       return;
@@ -308,6 +335,33 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
           onChange={set('name')}
           placeholder="Bobby Bobson"
         />
+
+        {/* Spec 095 — admin-assigned username (optional). When set, the user
+            can log in with it OR their email. Validated against the shared
+            usernameValidation rules; uniqueness is enforced server-side. */}
+        <View style={{ gap: 4 }}>
+          <Field
+            testID="invite-username"
+            label="Username (optional)"
+            value={values.username}
+            // Spec 095 — usernames are stored case-folded (auth.ts inviteUser
+            // lowercases on write; the lower() UNIQUE index compares folded).
+            // Lowercase as the admin types so the DISPLAYED value matches the
+            // stored value — "Bobby_B" would silently persist as "bobby_b"
+            // otherwise (code-reviewer #3 / release-proposal step 5).
+            onChange={(v) => set('username')(v.toLowerCase())}
+            placeholder="bobby_b"
+          />
+          {usernameError ? (
+            <Text testID="invite-username-error" style={{ fontFamily: sans(400), fontSize: 10.5, color: C.warn }}>
+              {usernameError}
+            </Text>
+          ) : (
+            <Text style={{ fontFamily: sans(400), fontSize: 10.5, color: C.fg3 }}>
+              3–20 characters · letters, numbers, _ and . · leave blank to use email only
+            </Text>
+          )}
+        </View>
 
         {/* Role selector — master / super-admin can pick admin or user.
             Non-master admins are hard-locked to 'user' per legacy gate

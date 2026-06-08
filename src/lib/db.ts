@@ -3322,7 +3322,9 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       // the PENDING rows is re-applied in-memory at `pendingInvites` (strict
       // inv.brand_id === brandId) so a NULL-brand UNCONSUMED invite never leaks
       // in as a phantom pending row for a brand it doesn't belong to.
-      .select('id, email, name, role, store_ids, brand_id, used, expires_at, profile_id')
+      // Spec 095 — `username` carries the admin-assigned username for pending
+      // invite rows so the Brands members tab can display it pre-registration.
+      .select('id, email, name, role, store_ids, brand_id, used, expires_at, profile_id, username')
       .abortSignal(signal),
     supabase
       .from('stores')
@@ -3388,6 +3390,8 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       color: p.color || '#378ADD',
       notificationsEnabled: p.notifications_enabled !== false,
       brandId: p.brand_id ?? null,
+      // Spec 095 — surface the assigned username in the Brands members tab.
+      username: p.username ?? null,
     } as User;
   });
 
@@ -3421,6 +3425,8 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       color: '#378ADD',
       notificationsEnabled: true,
       brandId: inv.brand_id ?? null,
+      // Spec 095 — pending invites may carry an admin-assigned username.
+      username: inv.username ?? null,
     }));
 
   return [...activeRows, ...pendingRows];

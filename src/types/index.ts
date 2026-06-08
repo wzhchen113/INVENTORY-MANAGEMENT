@@ -61,6 +61,13 @@ export interface User {
    * profiles_role_brand_consistent CHECK.
    */
   brandId?: string | null;
+  /**
+   * Spec 095 — admin-assigned login username (mirrors profiles.username).
+   * Globally unique, case-folded (stored lowercased). NULL for rows that
+   * predate the backfill or were never assigned one — those users log in by
+   * email. Optional because older sessions may not have loaded the column.
+   */
+  username?: string | null;
 }
 
 export interface Brand {

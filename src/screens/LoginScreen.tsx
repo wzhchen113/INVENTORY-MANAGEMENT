@@ -31,7 +31,9 @@ import { readActiveStoreId, writeActiveStoreId } from './staff/lib/eodQueue';
 import { t as tStaff } from './staff/i18n';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  // Spec 095 — single identifier field that accepts EITHER a username OR an
+  // email. `signIn` branches on `@`-presence (email vs username resolver).
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -52,14 +54,14 @@ export default function LoginScreen() {
   }, []);
 
   const handleLogin = async () => {
-    if (!email.trim()) {
-      setError('Please enter your email address');
+    if (!identifier.trim()) {
+      setError('Please enter your username or email');
       return;
     }
     setError('');
     setLoading(true);
     try {
-      const result = await signIn(email.trim(), password);
+      const result = await signIn(identifier.trim(), password);
       if (result.error) {
         setError(result.error);
         return;
@@ -139,16 +141,16 @@ export default function LoginScreen() {
           ) : null}
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: C.textSecondary }]}>Email address</Text>
+            <Text style={[styles.label, { color: C.textSecondary }]}>Username or email</Text>
             <TextInput
               testID="signin-email"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="your@email.com"
+              value={identifier}
+              onChangeText={setIdentifier}
+              placeholder="username or your@email.com"
               placeholderTextColor={C.textTertiary}
               autoCapitalize="none"
-              keyboardType="email-address"
+              autoCorrect={false}
             />
           </View>
 

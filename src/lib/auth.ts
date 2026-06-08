@@ -57,16 +57,91 @@ export function coerceLocale(value: unknown): 'en' | 'es' | 'zh-CN' {
   return value === 'es' || value === 'zh-CN' ? value : 'en';
 }
 
-/** Sign in with email + password */
-export async function signIn(email: string, password: string): Promise<AuthResult> {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+/**
+ * Spec 095 — the SINGLE generic login error string. Unknown username,
+ * unknown email, AND wrong password ALL collapse to this one message so the
+ * shared login portal never becomes a username/email enumeration oracle.
+ *
+ * NOTE this changes the prior behaviour of surfacing GoTrue's verbatim
+ * message for the email path — that is intentional and required by the spec's
+ * acceptance criteria (today's email path leaks "Invalid login credentials"
+ * vs other GoTrue strings; collapsing to one string removes the oracle).
+ */
+export const GENERIC_LOGIN_ERROR =
+  'Invalid login. Check your username/email and password.';
 
-  if (error) {
-    return { user: null, error: error.message };
+/**
+ * Spec 095 — resolve a username to its email via the `username-resolve` edge
+ * function, using a RAW service-token fetch (NOT `callEdgeFunction`).
+ *
+ * Why raw fetch and not `callEdgeFunction`: `callEdgeFunction` attaches the
+ * caller's SESSION bearer and short-circuits with "Not authenticated" when
+ * there is no session (auth.ts above) — which is exactly the pre-login state.
+ * The resolver is a pre-auth, service-token endpoint (verify_jwt = false,
+ * mirroring `pwa-catalog`), so we send the client-shipped service token as the
+ * bearer instead. This is the admin/shared-portal analogue of the staff
+ * service-token fetches.
+ *
+ * Anti-oracle contract (server side): the resolver ALWAYS returns HTTP 200
+ * with `{ email: string | null }` — `null` for "no such username", "no email
+ * on file", or any internal failure. This function therefore NEVER throws and
+ * returns `null` on ANY error (network, non-2xx, malformed body, missing
+ * token). A `null` here flows downstream to GENERIC_LOGIN_ERROR — same as a
+ * wrong password — so the failure is indistinguishable to the caller.
+ */
+export async function resolveUsernameToEmail(username: string): Promise<string | null> {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const token = process.env.EXPO_PUBLIC_USERNAME_RESOLVE_TOKEN;
+  // Missing config — fail closed (treat as not-found → generic login error).
+  if (!url || !token) return null;
+
+  try {
+    const response = await fetch(`${url}/functions/v1/username-resolve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ username }),
+    });
+    if (!response.ok) return null;
+    const text = await response.text();
+    const parsed = text ? JSON.parse(text) : null;
+    const email = parsed?.email;
+    return typeof email === 'string' && email.length > 0 ? email : null;
+  } catch {
+    // Network failure / malformed JSON → fail closed.
+    return null;
+  }
+}
+
+/**
+ * Sign in with EITHER a username OR an email + password (spec 095).
+ *
+ * Branches on `@`-presence in the (trimmed) identifier:
+ *   - contains `@` → treated as an email; flows through the existing
+ *     `signInWithPassword` path unchanged (existing-users-keep-email path).
+ *   - no `@`       → treated as a username; resolved to an email server-side
+ *     via `resolveUsernameToEmail`, then signed in with the resolved email.
+ *
+ * Every failure mode (unknown username, unknown email, wrong password)
+ * collapses to GENERIC_LOGIN_ERROR — no enumeration oracle.
+ */
+export async function signIn(identifier: string, password: string): Promise<AuthResult> {
+  const id = identifier.trim();
+  const email = id.includes('@') ? id : await resolveUsernameToEmail(id);
+
+  // Unknown username (resolver returned null) → generic error, no sign-in
+  // attempt. Indistinguishable from wrong-password below.
+  if (!email) {
+    return { user: null, error: GENERIC_LOGIN_ERROR };
   }
 
-  if (!data.user) {
-    return { user: null, error: 'No user returned' };
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  // Collapse GoTrue errors AND the no-user case into the single generic string.
+  if (error || !data.user) {
+    return { user: null, error: GENERIC_LOGIN_ERROR };
   }
 
   return await fetchProfile(data.user.id);
@@ -125,6 +200,8 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
     // super-admin (sees all brands), set for admin/master per
     // profiles_role_brand_consistent CHECK from 012a.
     brandId: profile.brand_id ?? null,
+    // Spec 095 — username (NULL for pre-backfill / never-assigned rows).
+    username: profile.username ?? null,
   };
 
   // Spec 044 — normalize the embedded `brands` relation. PostgREST returns
@@ -267,6 +344,13 @@ export interface InviteUserOptions {
    *  Optional — when omitted the email template falls back to a generic
    *  "your assigned stores" string. */
   storeNames?: string;
+  /** Spec 095 — admin-assigned username carried on the invitation row.
+   *  Optional (an invite can omit it; the user then logs in by email until a
+   *  username is assigned). Validated client-side via usernameValidation.ts
+   *  before this is called; the server-side UNIQUE index is the collision
+   *  authority. `registerInvitedUser` reads it back via get_pending_invitation
+   *  and stamps it onto profiles.username. */
+  username?: string | null;
 }
 
 /** Invite a new user (admin only — creates invitation record in Supabase) */
@@ -332,6 +416,11 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       // (resolvedBrandId), not the raw opts.brandId, so the invitation row is
       // no longer written NULL-brand when it carries stores.
       brand_id: resolvedBrandId,
+      // Spec 095 — case-folded on write (mirrors the lower() idiom used for
+      // email throughout this codebase and the lower() UNIQUE index on
+      // profiles.username). Null when the admin left it blank. The
+      // invitations row carries it; registerInvitedUser stamps profiles.
+      username: opts.username ? opts.username.trim().toLowerCase() : null,
     });
 
     if (inviteError) return { error: inviteError.message };
@@ -417,6 +506,13 @@ export async function registerInvitedUser(
       brand_id: invitation.role === 'user'
         ? (invitation.resolved_brand_id ?? invitation.brand_id ?? null)
         : (invitation.brand_id ?? null),
+      // Spec 095 — stamp the admin-assigned username (read back via
+      // get_pending_invitation, which the backend added `username` to). Null
+      // when the invite carried no username; the profiles.username column is
+      // nullable so the user logs in by email until one is assigned. The
+      // profiles_username_lower_key UNIQUE index surfaces a 23505 here if the
+      // chosen username collided after the invite was created.
+      username: invitation.username ?? null,
     });
 
     if (profileError) {
@@ -545,6 +641,8 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
         color: p.color || '#378ADD',
         notificationsEnabled: p.notifications_enabled !== false,
         brandId: p.brand_id ?? null,
+        // Spec 095 — surface the assigned username in the admin Users screen.
+        username: p.username ?? null,
       } as User;
     });
   } catch {

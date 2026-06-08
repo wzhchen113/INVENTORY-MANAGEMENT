@@ -407,6 +407,13 @@ deno_version = 2
 [functions.pwa-catalog]
 verify_jwt = false
 
+# username-resolve (spec 095) resolves a username → email at login time, before
+# any user session exists. It gates on its own USERNAME_RESOLVE_SERVICE_TOKEN
+# bearer (not a Supabase JWT), so the gateway's JWT check must be off or it would
+# reject every pre-auth call.
+[functions.username-resolve]
+verify_jwt = false
+
 # staff-* functions all sign with STAFF_SERVICE_TOKEN (same non-JWT pattern).
 # These were working in prod via dashboard config that wasn't checked into the
 # repo — pinning here so a CLI redeploy can't silently re-enable JWT and break

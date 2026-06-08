@@ -109,8 +109,11 @@ jest.mock('../../hooks/useRole', () => ({
 // ── Imports (resolve mocks above) ───────────────────────────────────
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
+import Toast from 'react-native-toast-message';
 import { InviteUserDrawer } from './InviteUserDrawer';
 import { useIsMaster } from '../../hooks/useRole';
+
+const toastShowMock = Toast.show as jest.Mock;
 
 const useStoreModule = jest.requireMock('../../store/useStore');
 const useIsMasterMock = useIsMaster as jest.Mock;
@@ -227,6 +230,144 @@ describe('InviteUserDrawer — regressions', () => {
     // Footer status hint reflects the unmet required fields.
     expect(screen.getByText('fill in email + name')).toBeTruthy();
     expect(screen.queryByText('ready to send')).toBeNull();
+  });
+});
+
+describe('InviteUserDrawer — username assignment (spec 095)', () => {
+  const fillRequired = () => {
+    fireEvent.changeText(screen.getByTestId('invite-email'), 'bob@example.com');
+    fireEvent.changeText(screen.getByTestId('invite-name'), 'Bob');
+  };
+
+  it('renders an optional username field with the helper hint', () => {
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    expect(screen.getByTestId('invite-username')).toBeTruthy();
+    expect(
+      screen.getByText('3–20 characters · letters, numbers, _ and . · leave blank to use email only'),
+    ).toBeTruthy();
+  });
+
+  it('stays ready-to-send when username is left BLANK (optional)', () => {
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    expect(screen.getByText('ready to send')).toBeTruthy();
+  });
+
+  it('shows an inline error and blocks send for an invalid username', () => {
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    fireEvent.changeText(screen.getByTestId('invite-username'), 'ab'); // too short
+    expect(screen.getByTestId('invite-username-error')).toBeTruthy();
+    // Footer reverts to the unmet-requirement hint → send is gated.
+    expect(screen.queryByText('ready to send')).toBeNull();
+  });
+
+  it('blocks a reserved username with the reserved error', () => {
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    fireEvent.changeText(screen.getByTestId('invite-username'), 'admin');
+    const err = screen.getByTestId('invite-username-error');
+    expect(err.props.children).toMatch(/reserved/i);
+    expect(screen.queryByText('ready to send')).toBeNull();
+  });
+
+  it('passes the trimmed username through to inviteUser when valid', async () => {
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    fireEvent.changeText(screen.getByTestId('invite-username'), '  bobby_b  ');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+    expect(inviteUser).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'bobby_b' }),
+    );
+  });
+
+  it('sends username: null when the field is left blank', async () => {
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+    expect(inviteUser).toHaveBeenCalledWith(
+      expect.objectContaining({ username: null }),
+    );
+  });
+
+  // Spec 095 / code-reviewer #3 — usernames are stored case-folded. The drawer
+  // lowercases as the admin types so the displayed value matches what is
+  // stored (no silent "Bobby_B" → "bobby_b" surprise).
+  it('lowercases a mixed-case username in the field AND passes the folded value through', async () => {
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    const field = screen.getByTestId('invite-username');
+    fireEvent.changeText(field, 'Bobby_B');
+    // The displayed value is folded, so the admin sees the stored form.
+    expect(field.props.value).toBe('bobby_b');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+    expect(inviteUser).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'bobby_b' }),
+    );
+  });
+});
+
+describe('InviteUserDrawer — "username taken" error heuristic (spec 095)', () => {
+  const fillRequired = () => {
+    fireEvent.changeText(screen.getByTestId('invite-email'), 'bob@example.com');
+    fireEvent.changeText(screen.getByTestId('invite-name'), 'Bob');
+  };
+
+  it('labels a username unique-violation by the index name as "username taken"', async () => {
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    inviteUser.mockResolvedValueOnce({
+      error:
+        'duplicate key value violates unique constraint "profiles_username_lower_key"',
+    });
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    fireEvent.changeText(screen.getByTestId('invite-username'), 'bobby_b');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text2: 'Username "bobby_b" is already taken',
+      }),
+    );
+  });
+
+  it('does NOT mislabel an unrelated 23505 (different index) as "username taken"', async () => {
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    // An unrelated unique violation (e.g. a duplicate-email invitation). The
+    // old broad regex (/23505|duplicate key|already exists|username/i) would
+    // have mislabeled this as a username collision.
+    const otherError =
+      'duplicate key value violates unique constraint "invitations_email_key" (23505)';
+    inviteUser.mockResolvedValueOnce({ error: otherError });
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    fillRequired();
+    fireEvent.changeText(screen.getByTestId('invite-username'), 'bobby_b');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+    // Surfaces the raw error verbatim, NOT the username-taken message.
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ text2: otherError }),
+    );
   });
 });
 
