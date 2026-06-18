@@ -5,6 +5,8 @@ import { sans, mono } from '../../theme/typography';
 import { SectionCaption } from './SectionCaption';
 import { useStore } from '../../store/useStore';
 import { CANONICAL_UNITS, isCanonicalUnit } from '../../utils/unitConversion';
+import { deriveBrandUnitPool } from '../../utils/brandUnitPool';
+import { piecesPerCase } from '../../utils/perEachCost';
 import { isNumericInput } from '../../utils/validators';
 import type { Vendor } from '../../types';
 import { useT } from '../../hooks/useT';
@@ -375,8 +377,23 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
   // without the form needing to remount.
   const ingredientCategories = useStore((s) => s.ingredientCategories);
   const allConversions       = useStore((s) => s.ingredientConversions);
+  const catalogIngredients   = useStore((s) => s.catalogIngredients);
   const vendors              = useStore((s) => s.vendors);
   const currentStore         = useStore((s) => s.currentStore);
+
+  // Spec 096 (Issue 1) — the brand-scoped pool of custom unit NAMES, derived
+  // at read time from data already in the store (no brand_custom_units table;
+  // §Q-C = (ii)). Sourced from `catalogIngredients` — brand-level data the
+  // store scopes to the active brand — NOT `inventory`, which is flat-mapped
+  // across every visible store and leaks unit names across brands for an
+  // unpinned admin/master (the spec 096 security finding; see brandUnitPool.ts).
+  // Unioned into BOTH the default-unit AND pack-unit dropdowns below so a custom
+  // name committed on any sibling ingredient (in its `unit` OR `subUnitUnit`)
+  // appears here.
+  const brandUnitPool = React.useMemo(
+    () => deriveBrandUnitPool({ catalogIngredients, conversions: allConversions }),
+    [catalogIngredients, allConversions],
+  );
 
   const set = <K extends keyof IngredientFormValues>(k: K, v: IngredientFormValues[K]) => onChange({ ...values, [k]: v });
 
@@ -475,11 +492,29 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     // current value is a non-canonical custom string (case-preserved) so
     // we don't accidentally lowercase it; the special-case append below
     // handles that path explicitly.
+    //
+    // Spec 096 — `isCustom` stays defined on the ORIGINAL sources (canonical
+    // ∪ conversions ∪ 'each'), NOT the brand pool, so the spec-046 case-
+    // preserved verbatim append for THIS ingredient's own value is unchanged
+    // (AC4). The pool fold below skips that value's lowercase key to avoid a
+    // "pack" + "Pack · custom" near-duplicate.
     const isCustom = !!curLower
       && !isCanonicalUnit(curLower)
       && curLower !== 'each'
       && !allConversions.some((c) => c.purchaseUnit.toLowerCase().trim() === curLower);
     if (curLower && !isCustom) acc.add(curLower);
+    // Spec 096 (AC1, AC4) — union the brand pool ON TOP of canonical ∪
+    // conversions ∪ 'each' ∪ stored value. Folded lowercase into `acc` the
+    // same way conversion units are, so a name committed on a sibling
+    // ingredient's `unit`/`subUnitUnit` becomes a pickable default-unit
+    // option here. Skip the current custom value's key so its case-preserved
+    // verbatim entry (appended below) stays the sole representation.
+    for (const name of brandUnitPool) {
+      const n = name.toLowerCase().trim();
+      if (!n) continue;
+      if (isCustom && n === curLower) continue;
+      acc.add(n);
+    }
     const out: Array<{ value: string; label: string; disabled?: boolean }> = Array
       .from(acc)
       .sort()
@@ -491,12 +526,22 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     // hits. Left enabled so the user can re-pick the same value or pick
     // another option without losing the current one.
     if (isCustom) {
-      out.push({ value: curRaw, label: `${curRaw} · custom` });
+      // Spec 096 (AC1) — when the current custom value is a recognized brand-
+      // pool name (shared from a sibling ingredient), render it as a clean,
+      // first-class option WITHOUT the misleading "· custom" suffix. We keep
+      // the verbatim case-preserved option (rather than dropping it into the
+      // lowercase pool fold) so the SelectField's byte-for-byte display lookup
+      // still hits for legacy mixed-case values AND the type-custom snap (which
+      // normalizes to lowercase, see validateCustomUnit) round-trips — both
+      // would break if the option value's casing were forced. The suffix stays
+      // only for a genuinely novel one-off string not shared anywhere.
+      const inPool = brandUnitPool.some((n) => n.trim().toLowerCase() === curLower);
+      out.push({ value: curRaw, label: inPool ? curRaw : `${curRaw} · custom` });
     }
     // Spec 046 — "+ custom…" sentinel always sits at the bottom.
     out.push({ value: CUSTOM_UNIT_SENTINEL, label: '+ custom…' });
     return out;
-  }, [allConversions, values.unit, T]);
+  }, [allConversions, brandUnitPool, values.unit, T]);
 
   // Pack-unit options — canonical mass/volume only per spec 004 §7. Adding
   // an ingredient's existing subUnitUnit to the option list when it's
@@ -510,18 +555,38 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     const out: Array<{ value: string; label: string; disabled?: boolean }> = CANONICAL_UNITS.map((u) => ({ value: u, label: unitLabel(u, T) }));
     const curRaw = (values.subUnitUnit || '').trim();
     const curLower = curRaw.toLowerCase();
-    if (curLower && !isCanonicalUnit(curLower)) {
+    const isCustom = !!curLower && !isCanonicalUnit(curLower);
+    // Spec 096 (AC1) — insert the brand pool between the canonical seed and
+    // the stored-value/sentinel tail. THIS is the line that makes a shared
+    // name (e.g. "Pack" committed on a sibling) appear in the PACK-UNIT
+    // dropdown — pre-096 this list unioned NOTHING derived, so a custom name
+    // never reached here. Skip canonicals already present and skip the
+    // current custom value's key (its case-preserved verbatim entry is
+    // appended below as the sole representation).
+    const seen = new Set<string>(CANONICAL_UNITS.map((u) => u.toLowerCase()));
+    for (const name of brandUnitPool) {
+      const n = name.toLowerCase().trim();
+      if (!n || seen.has(n)) continue;
+      if (isCustom && n === curLower) continue;
+      seen.add(n);
+      out.push({ value: n, label: unitLabel(n, T) });
+    }
+    if (isCustom) {
       // Spec 046 — keep the entry enabled (not disabled like the pre-046
       // pattern) so a user editing an existing ingredient can re-pick
       // their custom pack unit without being forced into the canonical
-      // set. The "· custom" suffix flags it as a non-canonical value.
-      // Value is the raw (case-preserved) stored string so SelectField's
+      // set. Value is the raw (case-preserved) stored string so SelectField's
       // display lookup hits.
-      out.push({ value: curRaw, label: `${curRaw} · custom` });
+      // Spec 096 (AC1) — drop the "· custom" suffix when the value is a
+      // recognized brand-pool name so a shared pack unit reads as first-class,
+      // not a one-off. Same rationale as defaultUnitOptions: the verbatim
+      // case-preserved option is retained for display/snap round-trip safety.
+      const inPool = brandUnitPool.some((n) => n.trim().toLowerCase() === curLower);
+      out.push({ value: curRaw, label: inPool ? curRaw : `${curRaw} · custom` });
     }
     out.push({ value: CUSTOM_UNIT_SENTINEL, label: '+ custom…' });
     return out;
-  }, [values.subUnitUnit, T]);
+  }, [values.subUnitUnit, brandUnitPool, T]);
 
   // Vendor options — brand-scoped. The "+ new vendor" sentinel sits at the
   // bottom and routes to the host's onAddVendor handler.
@@ -788,17 +853,26 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
         )}
       </View>
       {(() => {
-        // Spec 093 — plain CASE-SIZE conversion readback. Driven off the
-        // canonical `caseQty` (units-per-case) now, NOT the old
-        // packs-per-order × units-per-pack arithmetic (which produced the
-        // grammatically inverted "= 1 lbs × 20 cases = 20 cases per order"
-        // sentence the owner flagged). Reads as "1 case = {caseQty}
-        // {contentsUnit}". The noun before "=" is the literal wrapper "case";
-        // the unit after is the case CONTENTS — the pack unit (subUnitUnit)
-        // when set, else the tracking/default unit. Same finite/positive
-        // guard as before so an empty/zero case size renders nothing.
+        // Spec 093 — plain CASE-SIZE conversion readback. Reads as
+        // "1 case = {N} {contentsUnit}". The noun before "=" is the literal
+        // wrapper "case"; the unit after is the case CONTENTS — the pack unit
+        // (subUnitUnit) when set, else the tracking/default unit.
+        //
+        // Spec 096 (AC9) — the NUMBER is now the REAL per-case piece count
+        // `piecesPerCase = caseQty × subUnitSize`, not `caseQty` alone. For
+        // the Cup (caseQty=1, subUnitSize=2000) this reads "2000" instead of
+        // the misleading "1"; for a bulk item (caseQty=20, subUnitSize=1) it
+        // still reads "20" (spec-093 behavior preserved). The same
+        // `piecesPerCase` helper feeds the catalog-row per-each derivation so
+        // the two surfaces can never drift. Contents-unit selection is
+        // UNCHANGED per the architect's design (only the number changes).
+        //
+        // The guard stays on the RAW caseQty (not `pieces`, which always
+        // defaults >= 1) so an empty/zero case size still renders NOTHING —
+        // the spec-093 behavior the architect said to keep.
         const caseSize = Number(values.caseQty);
         if (!Number.isFinite(caseSize) || caseSize <= 0) return null;
+        const pieces = piecesPerCase(caseSize, Number(values.subUnitSize));
         // contentsUnit = what's inside one case: the pack-contents unit
         // (subUnitUnit) when set, else fall back to `unit` (the tracking/DEFAULT
         // unit). The "case" noun on the left stays literal (per §9 + the note above).
@@ -806,7 +880,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
         return (
           <View style={{ marginTop: 4, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: CmdRadius.sm, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border }}>
             <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-              {`1 case = ${caseSize} ${contentsUnit}`}
+              {`1 case = ${pieces} ${contentsUnit}`}
             </Text>
           </View>
         );

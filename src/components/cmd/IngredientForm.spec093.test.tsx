@@ -84,6 +84,7 @@ jest.mock('../../store/useStore', () => {
   const state: any = {
     ingredientCategories: [],
     ingredientConversions: [],
+    catalogIngredients: [],
     vendors: [],
     currentStore: { id: 'store-1', brandId: 'brand-1' },
   };

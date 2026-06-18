@@ -19,6 +19,8 @@ import { CopyToBrandDialog } from '../../../components/cmd/CopyToBrandDialog';
 import { relativeTime } from '../../../utils/relativeTime';
 import { confirmAction } from '../../../utils/confirmAction';
 import { CANONICAL_UNITS } from '../../../utils/unitConversion';
+import { perEachCost, piecesPerCase } from '../../../utils/perEachCost';
+import { deriveBrandUnitPool } from '../../../utils/brandUnitPool';
 import { isNumericInput } from '../../../utils/validators';
 import Toast from 'react-native-toast-message';
 import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../types';
@@ -386,6 +388,47 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
             const avgCost = g.totalStock > 0
               ? g.weightedCost / g.totalStock
               : g.rows.reduce((s, r) => s + (r.costPerUnit || 0), 0) / Math.max(1, g.rows.length);
+            // Spec 096 (Issue 2) — dual case/each price. `pieces` is the true
+            // per-case smallest-unit count (caseQty × subUnitSize); the
+            // per-each segment renders ONLY when there's a meaningful
+            // breakdown (pieces > 1 AND a derivable per-each cost). The case
+            // side uses g.primary.casePrice — the REAL case_price — so the
+            // left number stops mislabeling a per-each figure as "/cases"
+            // (the bug). avgCost feeds the helper's costPerUnit fallback for
+            // the rare casePrice-unset row. See src/utils/perEachCost.ts.
+            const pieces = piecesPerCase(g.primary.caseQty, g.primary.subUnitSize);
+            const perEach = perEachCost({
+              casePrice: g.primary.casePrice,
+              costPerUnit: avgCost,
+              caseQty: g.primary.caseQty,
+              subUnitSize: g.primary.subUnitSize,
+            });
+            // The per-each segment shows when there's a meaningful breakdown
+            // (AC6/AC8). The case segment is paired with it ONLY when the real
+            // case_price is positive — so a rare casePrice-unset row (per-each
+            // came from the costPerUnit fallback) shows just "$<each>/each"
+            // rather than a misleading "$0.00/case".
+            const showPerEach = pieces > 1 && perEach !== null;
+            const hasCaseSide = showPerEach && g.primary.casePrice > 0;
+            // Build the right-aligned cost cell string:
+            //  - dual:        "$<case>/case · $<each>/each"   (hasCaseSide)
+            //  - per-each only:"$<each>/each"                 (fallback path)
+            //  - single:      "$<avgCost>/<unitLabel(g.unit)>" (AC8, unchanged)
+            //  - no cost:     T('section.inventory.noCost')   (unchanged)
+            // Spec 096 (Should-fix) — label the per-each segment with the item's
+            // REAL smallest unit (`subUnitUnit`, e.g. "lb") instead of a hardcoded
+            // "each", so Black Pepper reads "$8.40/lb" not "$8.40/each". Falls
+            // back to "each" only when the item carries no sub-unit label. The
+            // `perEach!` assertion is sound: `showPerEach` already gates on
+            // `perEach !== null`, which TS can't narrow through the boolean.
+            const eachLabel = unitLabel(g.primary.subUnitUnit || 'each', T);
+            const costLabel = showPerEach
+              ? hasCaseSide
+                ? `$${g.primary.casePrice.toFixed(2)}/${T('section.inventory.perCase')} · $${perEach!.toFixed(2)}/${eachLabel}`
+                : `$${perEach!.toFixed(2)}/${eachLabel}`
+              : avgCost > 0
+                ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}`
+                : T('section.inventory.noCost');
             // Spec 040 P3 — localized display label for the row.
             const localizedName = getLocalizedName(
               { name: g.name, i18nNames: g.i18nNames },
@@ -488,7 +531,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     </TouchableOpacity>
                   ) : null}
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: g.unfinished ? C.danger : C.fg, fontVariant: ['tabular-nums'] }}>
-                    {avgCost > 0 ? `$${avgCost.toFixed(2)}/${unitLabel(g.unit, T)}` : T('section.inventory.noCost')}
+                    {costLabel}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -826,6 +869,7 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
   const C = useCmdColors();
   const T = useT();
   const allConversions = useStore((s) => s.ingredientConversions);
+  const catalogIngredients = useStore((s) => s.catalogIngredients);
   const addIngredientConversion    = useStore((s) => s.addIngredientConversion);
   const updateIngredientConversion = useStore((s) => s.updateIngredientConversion);
   const deleteIngredientConversion = useStore((s) => s.deleteIngredientConversion);
@@ -876,8 +920,19 @@ function CatalogConversionsTab({ sel }: { sel: Group }) {
       const pu = c.purchaseUnit.toLowerCase().trim();
       if (pu) acc.add(pu);
     }
+    // Spec 096 (Q-D) — union the brand unit pool so a custom name created via
+    // the IngredientForm flow (in any ingredient's `unit`/`subUnitUnit`) is
+    // also offered here, keeping the three unit-pickers consistent. Additive;
+    // the free-text entry below (`handleAdd`) is unchanged. Sourced from the
+    // brand-scoped `catalogIngredients` (not the cross-brand `inventory` slice)
+    // — see brandUnitPool.ts for the security rationale (AC3).
+    const pool = deriveBrandUnitPool({ catalogIngredients, conversions: allConversions });
+    for (const name of pool) {
+      const n = name.toLowerCase().trim();
+      if (n) acc.add(n);
+    }
     return Array.from(acc).sort().map((u) => ({ value: u, label: unitLabel(u, T) }));
-  }, [allConversions, T]);
+  }, [allConversions, catalogIngredients, T]);
 
   const handleAdd = () => {
     const pu = addPurchaseUnit.trim().toLowerCase();

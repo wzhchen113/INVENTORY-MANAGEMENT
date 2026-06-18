@@ -255,6 +255,7 @@
       "noIngredients": "no ingredients defined yet",
       "noMatches": "no matches",
       "noCost": "no cost",
+      "perCase": "case",
       "inStores": "in {count} stores",
       "inStore": "in {count} store",
       "noIngredientsDefined": "no ingredients defined",

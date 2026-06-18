@@ -255,6 +255,7 @@
       "noIngredients": "尚未定义原料",
       "noMatches": "无匹配",
       "noCost": "无成本",
+      "perCase": "箱",
       "inStores": "{count} 家门店",
       "inStore": "{count} 家门店",
       "noIngredientsDefined": "未定义原料",
