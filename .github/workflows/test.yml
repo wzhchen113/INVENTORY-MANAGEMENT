@@ -124,7 +124,12 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned: supabase CLI v2.106.0+ ships a Postgres image that revokes
+          # the default GRANT ... TO authenticated on public.*, breaking 34/46
+          # pgTAP files (permission denied). v2.105.0 was `latest` at the last
+          # green DB-test run (2026-06-08). Bump deliberately only after the
+          # schema adds explicit grants. See CLAUDE.md local-green/CI-red note.
+          version: 2.105.0
 
       - name: Start Supabase stack
         # Brings up Postgres + Auth + Realtime + ... so tests can use
