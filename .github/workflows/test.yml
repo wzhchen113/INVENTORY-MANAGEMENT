@@ -124,12 +124,19 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          # Pinned: supabase CLI v2.106.0+ ships a Postgres image that revokes
-          # the default GRANT ... TO authenticated on public.*, breaking 34/46
-          # pgTAP files (permission denied). v2.105.0 was `latest` at the last
-          # green DB-test run (2026-06-08). Bump deliberately only after the
-          # schema adds explicit grants. See CLAUDE.md local-green/CI-red note.
-          version: 2.105.0
+          # Pinned to 2.106.0 — the FIRST CLI family whose bundled Postgres image
+          # revokes the implicit `GRANT ... ON public.* TO {anon, authenticated,
+          # service_role}` (that revoke broke 34/46 pgTAP files with permission
+          # denied when `latest` floated 2.105.0 -> 2.106.0). Grants are now
+          # SCHEMA-EXPLICIT via migration 20260618000000_public_grants_explicit.sql,
+          # so this image passes all pgTAP files. The pin was moved forward
+          # DELIBERATELY (spec 097) to 2.106.0 to prove the durable fix against the
+          # exact image that revokes the defaults — a green Track 2 here is the
+          # load-bearing evidence the explicit grants work. It is fixed (not
+          # `latest`) so a future CLI release can't silently re-perturb that proof;
+          # bump it in its own one-line PR whose green Track 2 re-proves the
+          # posture. See CLAUDE.md §"CI status check after every push to main".
+          version: 2.106.0
 
       - name: Start Supabase stack
         # Brings up Postgres + Auth + Realtime + ... so tests can use
