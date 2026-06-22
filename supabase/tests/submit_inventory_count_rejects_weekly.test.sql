@@ -64,6 +64,7 @@ select throws_ok(
     current_setting('test.item_id', true)
   ),
   '22023',
+  NULL,
   'generic submit_inventory_count still rejects kind=weekly (allowlist intact)'
 );
 

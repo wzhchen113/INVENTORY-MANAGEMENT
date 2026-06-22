@@ -78,6 +78,7 @@ select throws_ok(
     current_setting('test.item_id', true)
   ),
   '42501',
+  NULL,
   'weekly count for a non-membership store is rejected (auth_can_see_store)'
 );
 
