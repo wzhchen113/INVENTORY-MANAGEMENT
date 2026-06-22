@@ -1,5 +1,12 @@
 // src/screens/staff/store/useStaffStore.test.ts — selector + queue-mirror tests.
 
+// Spec 098 — the store now imports the supabase client (for the weekly
+// slice's direct-rpc carve-out), so stub it at the module boundary like
+// the screen tests do; without a real URL `createClient` throws at load.
+jest.mock('../../../lib/supabase', () => ({
+  supabase: { rpc: jest.fn().mockResolvedValue({ data: null, error: null }) },
+}));
+
 import { useStaffStore, currentStaffUserId, selectStaffStores } from './useStaffStore';
 import type { QueuedSubmission } from '../lib/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';

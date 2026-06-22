@@ -427,6 +427,20 @@ verify_jwt = false
 [functions.staff-waste-log]
 verify_jwt = false
 
+# eod-reminder-cron and weekly-reminder-cron are pg_cron-invoked with a
+# SHARED bearer (public._edge_auth.cron_bearer), not a per-user Supabase
+# JWT — the gateway JWT check would reject every cron call. Both validate
+# the shared bearer themselves. Pinning here (spec 098) closes the same
+# CLI-redeploy footgun the staff-* note above calls out: an un-pinned cron
+# function could silently re-enable JWT and break the reminders. The
+# eod-reminder-cron pin is the parity fix; it ran un-pinned via dashboard
+# config before.
+[functions.eod-reminder-cron]
+verify_jwt = false
+
+[functions.weekly-reminder-cron]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

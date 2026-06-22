@@ -38,6 +38,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StorePicker } from '../screens/StorePicker';
 import { EODCount } from '../screens/EODCount';
 import { Reorder } from '../screens/Reorder';
+import { WeeklyCount } from '../screens/WeeklyCount';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useStaffStore } from '../store/useStaffStore';
 import { t } from '../i18n';
@@ -107,6 +108,20 @@ function StaffTabs() {
           tabBarTestID: 'staff-tab-reorder',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="cart-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      {/* Spec 098 — the weekly full-store count tab. Visually distinct via
+          the calendar icon (vs the EOD clipboard / Reorder cart). */}
+      <Tab.Screen
+        name="WeeklyCount"
+        component={WeeklyCount}
+        options={{
+          tabBarLabel: t('weekly.tabLabel'),
+          tabBarAccessibilityLabel: t('weekly.tabLabel'),
+          tabBarTestID: 'staff-tab-weekly',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-outline" size={size} color={color} />
           ),
         }}
       />

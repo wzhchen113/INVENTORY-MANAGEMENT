@@ -10,7 +10,13 @@ import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
-import type { InventoryCount, InventoryCountKind, InventoryCountSummary } from '../../../types';
+import type {
+  InventoryCount,
+  InventoryCountKind,
+  InventoryCountSummary,
+  Store,
+  WeeklyCountStatus,
+} from '../../../types';
 import { useT } from '../../../hooks/useT';
 import {
   inventoryCountKindLabel,
@@ -51,6 +57,17 @@ function localNowForInput(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Spec 098 — caller's local YYYY-MM-DD (same convention the staff app + the
+// weekly_count_status RPC's week-window math anchor on, avoiding the UTC
+// off-by-one).
+function todayIso(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// 0=Sun..6=Sat day-of-week options for the per-store cadence <select>.
+const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
 // "2026-05-10T14:23" → ISO 8601 with local timezone offset. Server-side
 // `coalesce(p_counted_at, now())` accepts ISO strings; we send the user's
 // local wall-clock time as ISO so the audit trail matches what they saw
@@ -78,6 +95,12 @@ export default function InventoryCountSection() {
   const currentStore = useStore((s) => s.currentStore);
   const currentUser = useStore((s) => s.currentUser);
   const submitInventoryCount = useStore((s) => s.submitInventoryCount);
+  // Spec 098 — weekly tab state + cadence write.
+  const stores = useStore((s) => s.stores);
+  const weeklyCountStatus = useStore((s) => s.weeklyCountStatus);
+  const weeklyCountStatusLoading = useStore((s) => s.weeklyCountStatusLoading);
+  const loadWeeklyCountStatus = useStore((s) => s.loadWeeklyCountStatus);
+  const setStoreWeeklyDueDow = useStore((s) => s.setStoreWeeklyDueDow);
 
   const [tabId, setTabId] = React.useState('count.tsx');
   const [view, setView] = React.useState<'list' | 'detail'>('list');
@@ -221,6 +244,12 @@ export default function InventoryCountSection() {
     };
   }, [storeId, refreshTick]);
 
+  // ─── Spec 098: load weekly status when the weekly tab opens ────────
+  React.useEffect(() => {
+    if (tabId !== 'weekly.tsx') return;
+    void loadWeeklyCountStatus(todayIso());
+  }, [tabId, loadWeeklyCountStatus]);
+
   // ─── Lazy-fetch detail when a row is clicked ───────────────────────
   React.useEffect(() => {
     if (view !== 'detail' || !selectedCountId) {
@@ -348,12 +377,32 @@ export default function InventoryCountSection() {
   };
 
   // ─── No-store guard ────────────────────────────────────────────────
-  if (isAllOrEmpty) {
+  // Spec 098: the weekly.tsx tab is all-stores, so it stays reachable even
+  // when no single store is selected — only the count/history bodies need
+  // an active store. Keep the TabStrip mounted; gate the per-store bodies.
+  if (isAllOrEmpty && tabId !== 'weekly.tsx') {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
-        <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
-          Select a store to count inventory.
-        </Text>
+      <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
+        <TabStrip
+          tabs={[
+            { id: 'count.tsx',   label: 'count.tsx' },
+            { id: 'history.tsx', label: 'history.tsx' },
+            { id: 'weekly.tsx',  label: 'weekly.tsx' },
+          ]}
+          activeId={tabId}
+          onChange={(id) => {
+            setTabId(id);
+            if (id !== 'history.tsx') {
+              setView('list');
+              setSelectedCountId(null);
+            }
+          }}
+        />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
+            Select a store to count inventory.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -364,6 +413,7 @@ export default function InventoryCountSection() {
         tabs={[
           { id: 'count.tsx',   label: 'count.tsx' },
           { id: 'history.tsx', label: 'history.tsx' },
+          { id: 'weekly.tsx',  label: 'weekly.tsx' },
         ]}
         activeId={tabId}
         onChange={(id) => {
@@ -402,7 +452,15 @@ export default function InventoryCountSection() {
         }
       />
 
-      {tabId === 'history.tsx' ? (
+      {tabId === 'weekly.tsx' ? (
+        <WeeklyTab
+          stores={stores}
+          status={weeklyCountStatus}
+          loading={weeklyCountStatusLoading}
+          onSetDueDow={setStoreWeeklyDueDow}
+          onRefresh={() => loadWeeklyCountStatus(todayIso())}
+        />
+      ) : tabId === 'history.tsx' ? (
         view === 'detail' && selectedCountId ? (
           <DetailFrame
             countId={selectedCountId}
@@ -1281,6 +1339,215 @@ function DetailFrame({
           </View>
         </>
       )}
+    </ScrollView>
+  );
+}
+
+// ─── weekly.tsx — per-store weekly cadence + completed/overdue status ──
+// Spec 098 §7 (admin side). One row per visible store: a completed/overdue
+// chip (mapping the RPC's open|overdue → overdue for display, completed →
+// completed, not_scheduled → a muted "no cadence" pill) plus a per-store
+// due-day <select> (0=Sun..6=Sat) wired to setStoreWeeklyDueDow.
+function WeeklyTab({
+  stores,
+  status,
+  loading,
+  onSetDueDow,
+  onRefresh,
+}: {
+  stores: Store[];
+  status: WeeklyCountStatus[];
+  loading: boolean;
+  onSetDueDow: (id: string, dow: number | null) => void;
+  onRefresh: () => void;
+}) {
+  const C = useCmdColors();
+  // Index the RPC rows by store for O(1) lookup.
+  const byStore = React.useMemo(() => {
+    const m = new Map<string, WeeklyCountStatus>();
+    for (const r of status) m.set(r.storeId, r);
+    return m;
+  }, [status]);
+
+  // Only active stores get a cadence row (matches the RPC's active-store
+  // scope); alphabetized for a stable scan order.
+  const rows = React.useMemo(
+    () =>
+      stores
+        .filter((s) => s.status === 'active' && s.id && s.id !== '__all__')
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [stores],
+  );
+
+  return (
+    <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+      <View>
+        <Text style={[Type.h1, { color: C.fg }]}>Weekly counts</Text>
+        <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
+          Per-store weekly full-count cadence + completed/overdue status for the current week.
+          Set a due day to schedule the count; any store member can complete it.
+        </Text>
+      </View>
+      <View
+        style={{
+          backgroundColor: C.panel,
+          borderRadius: CmdRadius.lg,
+          borderWidth: 1,
+          borderColor: C.border,
+          overflow: 'hidden',
+        }}
+      >
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 14,
+            paddingTop: 12,
+            paddingBottom: 8,
+            borderBottomWidth: 1,
+            borderBottomColor: C.border,
+          }}
+        >
+          <SectionCaption tone="fg3" size={10.5}>
+            weekly_status.tsv
+          </SectionCaption>
+          <TouchableOpacity onPress={onRefresh} accessibilityRole="button" accessibilityLabel="Refresh weekly status">
+            <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: loading ? C.fg3 : C.accent }}>
+              {loading ? 'loading…' : 'refresh'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {/* Column header */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: 6,
+            paddingHorizontal: 14,
+            gap: 10,
+            borderBottomWidth: 1,
+            borderBottomColor: C.border,
+          }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>
+            store
+          </Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 130 }}>
+            due day
+          </Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 120, textAlign: 'right' }}>
+            status
+          </Text>
+        </View>
+        {rows.length === 0 ? (
+          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
+            no active stores
+          </Text>
+        ) : (
+          rows.map((s, i) => {
+            const st = byStore.get(s.id);
+            // Prefer the live RPC due_dow; fall back to the local store row
+            // (the optimistic write updates the store slice immediately).
+            const dueDow =
+              st?.dueDow != null ? st.dueDow : s.weeklyCountDueDow ?? null;
+            // Display status: collapse open|overdue → OVERDUE on/after the
+            // due day; completed → COMPLETED; not_scheduled / no cadence →
+            // NOT SCHEDULED.
+            let label: string;
+            let tone: { bg: string; fg: string; border: string };
+            if (dueDow == null || st?.status === 'not_scheduled') {
+              label = 'NOT SCHEDULED';
+              tone = { bg: C.panel2, fg: C.fg3, border: C.border };
+            } else if (st?.status === 'completed') {
+              label = 'COMPLETED';
+              tone = { bg: C.okBg, fg: C.ok, border: C.ok };
+            } else {
+              label = 'OVERDUE';
+              tone = { bg: C.dangerBg, fg: C.danger, border: C.danger };
+            }
+            return (
+              <View
+                key={s.id}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 9,
+                  paddingHorizontal: 14,
+                  gap: 10,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: C.border,
+                }}
+              >
+                <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
+                  {s.name}
+                </Text>
+                <View style={{ width: 130 }}>
+                  {Platform.OS === 'web' ? (
+                    // @ts-ignore — react-native-web passes web <select> through.
+                    <select
+                      value={dueDow == null ? '' : String(dueDow)}
+                      onChange={(e: any) => {
+                        const v = e.target.value;
+                        onSetDueDow(s.id, v === '' ? null : Number(v));
+                      }}
+                      aria-label={`Weekly due day for ${s.name}`}
+                      style={{
+                        height: 28,
+                        paddingLeft: 6,
+                        paddingRight: 6,
+                        fontFamily: 'monospace',
+                        fontSize: 11.5,
+                        color: C.fg,
+                        backgroundColor: C.panel,
+                        borderWidth: 1,
+                        borderColor: C.border,
+                        borderRadius: CmdRadius.sm,
+                        outlineStyle: 'none',
+                      }}
+                    >
+                      <option value="">— none —</option>
+                      {DOW_LABELS.map((d, idx) => (
+                        <option key={d} value={String(idx)}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg2 }}>
+                      {dueDow == null ? '— none —' : DOW_LABELS[dueDow]}
+                    </Text>
+                  )}
+                </View>
+                <View style={{ width: 120, alignItems: 'flex-end' }}>
+                  <View
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: CmdRadius.xs,
+                      backgroundColor: tone.bg,
+                      borderWidth: 1,
+                      borderColor: tone.border,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: mono(700),
+                        fontSize: 9.5,
+                        color: tone.fg,
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
     </ScrollView>
   );
 }

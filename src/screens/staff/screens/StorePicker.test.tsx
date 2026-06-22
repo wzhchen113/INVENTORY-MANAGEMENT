@@ -16,6 +16,13 @@
 import { FlatList } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+// Spec 098 — useStaffStore now imports the supabase client (weekly slice's
+// direct-rpc carve-out); stub it so `createClient` doesn't throw at load.
+jest.mock('../../../lib/supabase', () => ({
+  supabase: { rpc: jest.fn().mockResolvedValue({ data: null, error: null }) },
+}));
+
 import { StorePicker } from './StorePicker';
 import { useStaffStore } from '../store/useStaffStore';
 

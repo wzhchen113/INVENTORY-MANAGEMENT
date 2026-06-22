@@ -38,6 +38,7 @@ import {
   InventoryCount, InventoryCountKind, InventoryCountSummary,
   ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
   MenuCapacityRow, OrderSchedule, OrderSubmission,
+  WeeklyCountStatus, WeeklyCountStatusValue,
 } from '../types';
 
 // ─── STORES ──────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ export async function fetchStores(): Promise<Store[]> {
       brandId: s.brand_id || '',
       name: s.name, address: s.address, status: s.status,
       eodDeadlineTime: s.eod_deadline_time || undefined,
+      weeklyCountDueDow: s.weekly_count_due_dow ?? null,
     }));
   }, { kind: 'read', label: 'fetchStores' });
 }
@@ -77,6 +79,7 @@ export async function fetchStoresIncludingInactive(): Promise<Store[]> {
       brandId: s.brand_id || '',
       name: s.name, address: s.address, status: s.status,
       eodDeadlineTime: s.eod_deadline_time || undefined,
+      weeklyCountDueDow: s.weekly_count_due_dow ?? null,
     }));
   }, { kind: 'read', label: 'fetchStoresIncludingInactive' });
 }
@@ -90,7 +93,7 @@ export async function fetchStoresIncludingInactive(): Promise<Store[]> {
 // never clobber existing values with undefined.
 export async function updateStore(
   id: string,
-  updates: Partial<Pick<Store, 'name' | 'address' | 'eodDeadlineTime' | 'status'>>,
+  updates: Partial<Pick<Store, 'name' | 'address' | 'eodDeadlineTime' | 'status' | 'weeklyCountDueDow'>>,
 ): Promise<void> {
   return useInflight.getState().track(async (signal) => {
     const dbUpdates: Record<string, any> = {};
@@ -98,6 +101,10 @@ export async function updateStore(
     if (updates.address !== undefined) dbUpdates.address = updates.address;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
+    // Spec 098 — per-store weekly cadence. Pass null through to clear a
+    // cadence (sets the store to "weekly count not scheduled"). The
+    // privileged_update_stores RLS policy gates this write; no new policy.
+    if (updates.weeklyCountDueDow !== undefined) dbUpdates.weekly_count_due_dow = updates.weeklyCountDueDow;
     // No mappable fields → skip the round-trip. An empty-body PATCH is a no-op
     // that still costs a request and can behave inconsistently across PostgREST
     // versions; matches the guard in updateRecipe/updatePrepRecipe.
@@ -969,16 +976,21 @@ export async function submitInventoryCount(input: {
 export async function fetchRecentInventoryCounts(
   storeId: string,
   limit: number = 10,
+  kind?: InventoryCountKind,           // spec 098 — optional kind filter (e.g. 'weekly')
 ): Promise<InventoryCountSummary[]> {
   return useInflight.getState().track(async (signal) => {
-  const { data, error } = await supabase
+  let query = supabase
     .from('inventory_counts')
     .select(`
       id, store_id, kind, counted_at, submitted_by, submitted_at, status, notes,
       submitter:profiles!submitted_by(name),
       inventory_count_entries(count)
     `)
-    .eq('store_id', storeId)
+    .eq('store_id', storeId);
+  // Cheaper than over-fetching and filtering client-side: scope the read to
+  // a single kind when the caller asks (the weekly admin tab passes 'weekly').
+  if (kind) query = query.eq('kind', kind);
+  const { data, error } = await query
     .order('counted_at', { ascending: false })
     .limit(limit)
     .abortSignal(signal);
@@ -1003,6 +1015,42 @@ export async function fetchRecentInventoryCounts(
     notes: row.notes || null,
   }));
   }, { kind: 'read', label: 'fetchRecentInventoryCounts' });
+}
+
+// ─── WEEKLY COUNT STATUS (Spec 098) ─────────────────────────────────────
+/**
+ * Per-store weekly-count completed/overdue status for the admin tab.
+ * Calls the `weekly_count_status` RPC with `p_store_id = null` so it
+ * returns one row per visible active store (RLS clips the set —
+ * `auth_can_see_store` short-circuits to admin visibility for admins).
+ *
+ * `asOfDate` MUST be the caller's local YYYY-MM-DD (todayIso convention) —
+ * the RPC's week-window math anchors on it to avoid the UTC off-by-one.
+ *
+ * The staff banner uses a separate direct `supabase.rpc('weekly_count_status',
+ * { p_store_id: activeStore.id, ... })` call from the staff carve-out (spec
+ * 063) — it does NOT go through this admin helper.
+ */
+export async function fetchWeeklyCountStatus(asOfDate: string): Promise<WeeklyCountStatus[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('weekly_count_status', {
+      p_store_id: null,
+      p_as_of_date: asOfDate,
+    }).abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] fetchWeeklyCountStatus:', error.message);
+      return [];
+    }
+    return (data || []).map((row: any) => ({
+      storeId: row.store_id,
+      dueDow: row.due_dow ?? null,
+      windowStart: row.window_start ?? null,
+      windowEnd: row.window_end ?? null,
+      status: row.status as WeeklyCountStatusValue,
+      lastCountId: row.last_count_id ?? null,
+      lastCountedAt: row.last_counted_at ?? null,
+    }));
+  }, { kind: 'read', label: 'fetchWeeklyCountStatus' });
 }
 
 /**

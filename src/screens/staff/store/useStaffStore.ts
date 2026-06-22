@@ -25,13 +25,18 @@ import type {
   ActiveStore,
   AuthState,
   QueuedSubmission,
+  SubmitWeeklyResponse,
   UserStore,
+  WeeklyEntry,
+  WeeklyStatus,
 } from '../lib/types';
 import {
   persistQueue,
   writeActiveStoreId,
 } from '../lib/eodQueue';
 import { notifyBackendError } from '../lib/notifyBackendError';
+import { supabase } from '../../../lib/supabase';
+import { uuidv4 } from '../lib/uuid';
 
 export type StaffState = {
   // ─── AUTH ─────────────────────────────────────────────
@@ -64,6 +69,31 @@ export type StaffState = {
 
   /** Flag the drain loop is in flight (toggled by useEodSubmit). */
   setDraining: (draining: boolean) => void;
+
+  // ─── WEEKLY COUNT (spec 098) ──────────────────────────
+  /** The `weekly_count_status` result for the active store, refreshed on
+   *  screen focus (staff v1 has no realtime — banner reads on focus per
+   *  AC). null until the first fetch resolves. */
+  weeklyStatus: WeeklyStatus | null;
+
+  /** Fetch `weekly_count_status` for one store (direct supabase.rpc —
+   *  staff carve-out, spec 063). Stores the result in `weeklyStatus`.
+   *  Best-effort: errors route through `notifyBackendError` and leave the
+   *  previous status in place. */
+  fetchWeeklyStatus: (storeId: string, asOfDate: string) => Promise<void>;
+
+  /** Submit a weekly full-store count via `submit_weekly_count` (direct
+   *  supabase.rpc — staff carve-out). Client-mints `client_uuid` for
+   *  idempotency. On success, optimistically marks `weeklyStatus.status =
+   *  'completed'` so the banner clears immediately; on error the previous
+   *  status is preserved and the error is surfaced. Returns the RPC
+   *  envelope, or null on failure. */
+  submitWeeklyCount: (input: {
+    storeId: string;
+    countedAt: string;
+    entries: WeeklyEntry[];
+    notes?: string | null;
+  }) => Promise<SubmitWeeklyResponse | null>;
 
   // ─── SELECTORS ────────────────────────────────────────
   /** Count of queued items belonging to the current user
@@ -134,6 +164,81 @@ export const useStaffStore = create<StaffState>((set, get) => ({
   },
 
   setDraining: (draining) => set({ draining }),
+
+  // ─── WEEKLY COUNT (spec 098) ──────────────────────────
+  weeklyStatus: null,
+
+  fetchWeeklyStatus: async (storeId, asOfDate) => {
+    try {
+      const { data, error } = await supabase.rpc('weekly_count_status', {
+        p_store_id: storeId,
+        p_as_of_date: asOfDate,
+      });
+      if (error) throw error;
+      // RPC returns a table; with p_store_id non-null it's one row.
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | {
+            store_id: string;
+            due_dow: number | null;
+            window_start: string | null;
+            window_end: string | null;
+            status: WeeklyStatus['status'];
+            last_count_id: string | null;
+            last_counted_at: string | null;
+          }
+        | undefined;
+      if (!row) {
+        set({ weeklyStatus: null });
+        return;
+      }
+      set({
+        weeklyStatus: {
+          storeId: row.store_id,
+          dueDow: row.due_dow ?? null,
+          windowStart: row.window_start ?? null,
+          windowEnd: row.window_end ?? null,
+          status: row.status,
+          lastCountId: row.last_count_id ?? null,
+          lastCountedAt: row.last_counted_at ?? null,
+        },
+      });
+    } catch (err) {
+      notifyBackendError('fetchWeeklyStatus', err);
+    }
+  },
+
+  submitWeeklyCount: async ({ storeId, countedAt, entries, notes }) => {
+    // Snapshot for optimistic-then-revert: clearing the banner on success
+    // and restoring it if the RPC rejects.
+    const prevStatus = get().weeklyStatus;
+    try {
+      const { data, error } = await supabase.rpc('submit_weekly_count', {
+        p_client_uuid: uuidv4(),
+        p_store_id: storeId,
+        p_counted_at: countedAt,
+        p_entries: entries,
+        p_notes: notes ?? null,
+      });
+      if (error) throw error;
+      const envelope = (data ?? {}) as Partial<SubmitWeeklyResponse>;
+      // Optimistically mark this store completed so the banner clears
+      // before the next focus refetch.
+      if (prevStatus && prevStatus.storeId === storeId) {
+        set({ weeklyStatus: { ...prevStatus, status: 'completed' } });
+      }
+      return {
+        count_id: envelope.count_id ?? '',
+        conflict: Boolean(envelope.conflict),
+        entry_ids: envelope.entry_ids ?? [],
+      };
+    } catch (err) {
+      // Revert any optimistic change (none yet here, but keep parity with
+      // the store-wide pattern) and surface the error.
+      set({ weeklyStatus: prevStatus });
+      notifyBackendError('submitWeeklyCount', err);
+      return null;
+    }
+  },
 
   // ─── SELECTORS ────────────────────────────────────────
   pendingCountForUser: (userId) => {

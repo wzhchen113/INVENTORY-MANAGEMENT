@@ -138,6 +138,43 @@
   "eodTab": {
     "label": "Count"
   },
+  "weekly": {
+    "tabLabel": "Weekly",
+    "title": "Weekly count",
+    "subtitle": "Full-store count — every item, advisory snapshot",
+    "header": {
+      "today": "Today · {weekday}, {monthDay}"
+    },
+    "list": {
+      "empty": "No items configured for this store"
+    },
+    "col": {
+      "cases": "Cases",
+      "units": "Units",
+      "casesAria": "Cases for {item}",
+      "unitsAria": "Units for {item}"
+    },
+    "row": {
+      "caseOf": "case of {qty}",
+      "total": "total {total} {unit}"
+    },
+    "submit": "Submit weekly count",
+    "submitting": "Submitting...",
+    "banner": {
+      "due": "Weekly count is due — please complete a full-store count.",
+      "overdue": "Weekly count is overdue — please complete it today.",
+      "completed": "Weekly count completed for the week of {date}"
+    },
+    "toast": {
+      "submitted": "Weekly count submitted",
+      "alreadySubmitted": "Already submitted — this weekly count was previously recorded",
+      "failed": "Submission failed — try again",
+      "noCountsEntered": "No counts entered"
+    },
+    "error": {
+      "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."
+    }
+  },
   "chrome": {
     "queue": {
       "pending": "{count} pending",

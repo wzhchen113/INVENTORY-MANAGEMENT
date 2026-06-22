@@ -8,6 +8,7 @@ import {
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand, InventoryCountKind, ReorderPayload, MenuCapacityRow,
   LocalizedNames, RecipeCategory, IngredientCategory,
+  WeeklyCountStatus,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -319,6 +320,22 @@ interface StoreActions {
   // Stores
   addStore: (store: Omit<Store, 'id'>) => void;
   updateStore: (id: string, updates: Partial<Store>) => void;
+  /** Spec 098 — set (or clear, with `null`) a store's weekly-count due
+   *  day-of-week (0=Sun..6=Sat). Optimistic-then-revert: the local
+   *  `stores`/`currentStore` slice updates first, then `db.updateStore`
+   *  PATCHes `weekly_count_due_dow`; on backend failure the slice reverts
+   *  and the error routes through `notifyBackendError`. */
+  setStoreWeeklyDueDow: (id: string, dow: number | null) => void;
+
+  // Spec 098 — admin weekly-count status read slice (per-store
+  // completed/overdue for the current week). Fetched on demand by
+  // InventoryCountSection's weekly tab.
+  weeklyCountStatus: WeeklyCountStatus[];
+  weeklyCountStatusLoading: boolean;
+  /** Load per-store weekly status for all visible stores as of the
+   *  caller's local YYYY-MM-DD (todayIso convention). Best-effort —
+   *  errors leave the previous slice in place. */
+  loadWeeklyCountStatus: (asOfDate: string) => Promise<void>;
 
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
@@ -486,6 +503,8 @@ export const useStore = create<FullStore>((set, get) => ({
   brand: null,
   catalogIngredients: [],
   stores: [],
+  weeklyCountStatus: [],
+  weeklyCountStatusLoading: false,
   users: USERS,
   inventory: INVENTORY,
   recipes: RECIPES,
@@ -1981,6 +2000,41 @@ export const useStore = create<FullStore>((set, get) => ({
       set({ stores: prevStores, currentStore: prevCurrentStore });
       notifyBackendError('Update store', e);
     });
+  },
+
+  // Spec 098 — per-store weekly-count due day-of-week. Separate from
+  // updateStore because that action intentionally narrows to a 4-field
+  // writable subset and drops weeklyCountDueDow; the dedicated cadence
+  // write goes straight through db.updateStore's extended Pick.
+  setStoreWeeklyDueDow: (id, dow) => {
+    const prevStores = get().stores;
+    const prevCurrentStore = get().currentStore;
+    set((s) => ({
+      stores: s.stores.map((st) =>
+        st.id === id ? { ...st, weeklyCountDueDow: dow } : st,
+      ),
+      currentStore:
+        s.currentStore.id === id
+          ? { ...s.currentStore, weeklyCountDueDow: dow }
+          : s.currentStore,
+    }));
+    db.updateStore(id, { weeklyCountDueDow: dow }).catch((e: any) => {
+      set({ stores: prevStores, currentStore: prevCurrentStore });
+      notifyBackendError('Set weekly due day', e);
+    });
+  },
+
+  // Spec 098 — load per-store weekly-count status for the admin tab.
+  loadWeeklyCountStatus: async (asOfDate) => {
+    set({ weeklyCountStatusLoading: true });
+    try {
+      const rows = await db.fetchWeeklyCountStatus(asOfDate);
+      set({ weeklyCountStatus: rows });
+    } catch (e: any) {
+      notifyBackendError('Load weekly count status', e);
+    } finally {
+      set({ weeklyCountStatusLoading: false });
+    }
   },
 
   // Users

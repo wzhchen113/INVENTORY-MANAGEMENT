@@ -1115,11 +1115,13 @@
       "open":     "开市",
       "midShift": "班中",
       "close":    "闭市",
+      "weekly":   "每周",
       "sub": {
         "spot":     "临时检查",
         "open":     "早晨开市",
         "midShift": "班次之间",
-        "close":    "日终前"
+        "close":    "日终前",
+        "weekly":   "每周全店盘点"
       }
     },
     "role": {

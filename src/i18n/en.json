@@ -1115,11 +1115,13 @@
       "open":     "Open",
       "midShift": "Mid-shift",
       "close":    "Close",
+      "weekly":   "Weekly",
       "sub": {
         "spot":     "ad-hoc check",
         "open":     "morning open",
         "midShift": "between shifts",
-        "close":    "pre-EOD close"
+        "close":    "pre-EOD close",
+        "weekly":   "weekly full count"
       }
     },
     "role": {

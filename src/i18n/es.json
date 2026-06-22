@@ -1115,11 +1115,13 @@
       "open":     "Apertura",
       "midShift": "Medio turno",
       "close":    "Cierre",
+      "weekly":   "Semanal",
       "sub": {
         "spot":     "verificación ad-hoc",
         "open":     "apertura mañana",
         "midShift": "entre turnos",
-        "close":    "previo a EOD"
+        "close":    "previo a EOD",
+        "weekly":   "conteo semanal completo"
       }
     },
     "role": {

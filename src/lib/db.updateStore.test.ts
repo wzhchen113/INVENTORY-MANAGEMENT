@@ -69,17 +69,19 @@ describe('fetchStoresIncludingInactive — spec 083', () => {
   it('returns both active and inactive stores, mapped snake→camel', async () => {
     abortSpy.mockResolvedValue({
       data: [
-        { id: 's1', brand_id: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eod_deadline_time: '23:00' },
-        { id: 's2', brand_id: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eod_deadline_time: null },
+        { id: 's1', brand_id: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eod_deadline_time: '23:00', weekly_count_due_dow: 5 },
+        { id: 's2', brand_id: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eod_deadline_time: null, weekly_count_due_dow: null },
       ],
       error: null,
     });
 
     const result = await fetchStoresIncludingInactive();
 
+    // Spec 098 — the store projection now carries weeklyCountDueDow
+    // (snake weekly_count_due_dow → camel; null when no cadence set).
     expect(result).toEqual([
-      { id: 's1', brandId: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eodDeadlineTime: '23:00' },
-      { id: 's2', brandId: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eodDeadlineTime: undefined },
+      { id: 's1', brandId: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eodDeadlineTime: '23:00', weeklyCountDueDow: 5 },
+      { id: 's2', brandId: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eodDeadlineTime: undefined, weeklyCountDueDow: null },
     ]);
   });
 

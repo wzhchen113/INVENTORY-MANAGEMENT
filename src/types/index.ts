@@ -322,7 +322,30 @@ export interface EODSubmission {
 // existing EOD path (eod_submissions). The 'eod' kind is intentionally
 // excluded from this client union; EOD continues to flow through
 // staff_submit_eod / submitEODCount. See spec 019 §Data model AC.
-export type InventoryCountKind = 'spot' | 'open' | 'mid_shift' | 'close';
+//
+// Spec 098 adds 'weekly' — the staff weekly full-store count. It reuses the
+// inventory_counts table (advisory snapshot) but is written ONLY via the
+// dedicated submit_weekly_count RPC; the generic submit_inventory_count RPC
+// keeps rejecting 'weekly' (defense-in-depth allowlist).
+export type InventoryCountKind = 'spot' | 'open' | 'mid_shift' | 'close' | 'weekly';
+
+// Spec 098 — per-store weekly-count status for the admin tab + staff banner.
+// camelCase mirror of the weekly_count_status RPC return table.
+export type WeeklyCountStatusValue =
+  | 'not_scheduled'   // no cadence configured (due_dow NULL)
+  | 'completed'       // a weekly count exists in the current window
+  | 'open'            // uncompleted, before/within the window (banner shows)
+  | 'overdue';        // uncompleted and it IS the due day (banner shows)
+
+export interface WeeklyCountStatus {
+  storeId: string;
+  dueDow: number | null;          // 0=Sun..6=Sat, null when not_scheduled
+  windowStart: string | null;     // YYYY-MM-DD, null when not_scheduled
+  windowEnd: string | null;       // YYYY-MM-DD, null when not_scheduled
+  status: WeeklyCountStatusValue;
+  lastCountId: string | null;     // the in-window weekly count, if completed
+  lastCountedAt: string | null;
+}
 
 export interface InventoryCountEntry {
   id: string;
@@ -470,6 +493,11 @@ export interface Store {
   status: 'active' | 'inactive';
   // HH:MM in 24h (store local time via the app's timezone). Used to schedule EOD reminders.
   eodDeadlineTime?: string;
+  // Spec 098 — per-store weekly full-count due day-of-week.
+  // 0=Sunday .. 6=Saturday (JS Date.getDay() convention). null/undefined =
+  // no cadence configured = weekly count not scheduled (excluded from
+  // reminders and overdue status).
+  weeklyCountDueDow?: number | null;
 }
 
 export interface OrderDayVendor {

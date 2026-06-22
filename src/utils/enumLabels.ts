@@ -70,6 +70,7 @@ const KIND_KEY: Record<InventoryCountKind, string> = {
   open:      'open',
   mid_shift: 'midShift',
   close:     'close',
+  weekly:    'weekly',   // spec 098 — staff weekly full-store count
 };
 
 export function inventoryCountKindLabel(k: InventoryCountKind, T: TFn): string {

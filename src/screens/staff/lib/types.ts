@@ -119,6 +119,53 @@ export type Outcome =
   | { kind: 'queued';         client_uuid: string }
   | { kind: 'failed';         message: string };
 
+/** Spec 098 — weekly full-store count item (NOT vendor-scoped). Same
+ *  catalog-derived shape as EodItem minus the vendor scoping; the weekly
+ *  screen lists EVERY item at the active store. `caseQty` kept nullable
+ *  (collapsed to 1 at the conversion site via `|| 1`). */
+export type WeeklyItem = {
+  id: string;
+  name: string;
+  unit: string;
+  caseQty: number | null;
+};
+
+/** Spec 098 — single entry inside a weekly-count submit. Mirrors the
+ *  admin `submit_weekly_count` RPC entry contract (snake_case). */
+export type WeeklyEntry = {
+  item_id: string;
+  actual_remaining: number;
+  actual_remaining_cases: number | null;
+  actual_remaining_each: number | null;
+  unit: string | null;
+};
+
+/** Spec 098 — the `weekly_count_status` RPC result for the active store
+ *  (camelCase mirror of the RPC return row). Drives the WeeklyDueBanner
+ *  and the post-submit confirmation copy. */
+export type WeeklyStatusValue =
+  | 'not_scheduled'
+  | 'completed'
+  | 'open'
+  | 'overdue';
+
+export type WeeklyStatus = {
+  storeId: string;
+  dueDow: number | null;
+  windowStart: string | null;
+  windowEnd: string | null;
+  status: WeeklyStatusValue;
+  lastCountId: string | null;
+  lastCountedAt: string | null;
+};
+
+/** Spec 098 — `submit_weekly_count` RPC response envelope. */
+export type SubmitWeeklyResponse = {
+  count_id: string;
+  conflict: boolean;
+  entry_ids: string[];
+};
+
 /** Existing submission summary for the "Last submitted at HH:MM" banner
  *  + pre-fill. Server-side fetch happens on screen mount + vendor
  *  switcher change. */
