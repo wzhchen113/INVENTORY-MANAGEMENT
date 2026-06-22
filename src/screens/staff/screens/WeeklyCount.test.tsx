@@ -1,10 +1,12 @@
 // src/screens/staff/screens/WeeklyCount.test.tsx — weekly full-store
 // count screen behavior tests (spec 098 §10).
 //
-// Asserts: renders ALL items for the store (not vendor-scoped); dual
-// case/each inputs ONLY where case_qty > 1 (single input otherwise);
-// submit gated on ≥1 non-blank entry; the WeeklyDueBanner shows for
-// open/overdue and hides for completed/not_scheduled.
+// Asserts: renders ALL items for the store (not vendor-scoped); items
+// grouped under per-category section headers (catalog_ingredients.category,
+// null/empty → "Uncategorized"); dual case/each inputs ONLY where
+// case_qty > 1 (single input otherwise); submit gated on ≥1 non-blank
+// entry ACROSS ALL categories; the WeeklyDueBanner shows for open/overdue
+// and hides for completed/not_scheduled.
 //
 // Mocks at the boundary like EODCount.test.tsx: supabase.from() for the
 // item read, supabase.rpc() for the status fetch, and the staff store's
@@ -70,14 +72,65 @@ describe('WeeklyCount', () => {
   it('renders EVERY item for the store (not vendor-scoped)', async () => {
     mockItemsResult = {
       data: [
-        { id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
-        { id: 'item-2', catalog: { name: 'Salt', unit: 'oz', case_qty: 1 } },
+        { id: 'item-1', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 12 } },
+        { id: 'item-2', catalog: { name: 'Salt', unit: 'oz', category: 'Dry Goods', case_qty: 1 } },
       ],
       error: null,
     };
     const { getByTestId } = render(<WeeklyCount />);
     await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
     expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
+  });
+
+  it('groups items under per-category section headers; null/empty category falls under "Uncategorized"', async () => {
+    mockItemsResult = {
+      data: [
+        // Two distinct categories + one with a null category (→ Uncategorized).
+        { id: 'item-1', catalog: { name: 'Tomato', unit: 'ea', category: 'Produce', case_qty: 1 } },
+        { id: 'item-2', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 12 } },
+        { id: 'item-3', catalog: { name: 'Mystery', unit: 'ea', category: null, case_qty: 1 } },
+      ],
+      error: null,
+    };
+    const { getByTestId, getByText } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // One header per category, plus the Uncategorized bucket for the null row.
+    expect(getByTestId('weekly-category-header-Dry Goods')).toBeTruthy();
+    expect(getByTestId('weekly-category-header-Produce')).toBeTruthy();
+    expect(getByTestId('weekly-category-header-uncategorized')).toBeTruthy();
+    // The Uncategorized header renders its localized title.
+    expect(getByText('Uncategorized')).toBeTruthy();
+    // All items still render (grouping is display-only).
+    expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
+    expect(getByTestId('weekly-item-row-item-3')).toBeTruthy();
+  });
+
+  it('submits non-blank entries from MULTIPLE categories (grouping never drops hidden entries)', async () => {
+    const mockSubmit = jest.fn().mockResolvedValue({
+      count_id: 'c-1',
+      conflict: false,
+      entry_ids: ['e-1', 'e-2'],
+    });
+    useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
+    mockItemsResult = {
+      data: [
+        { id: 'item-1', catalog: { name: 'Tomato', unit: 'ea', category: 'Produce', case_qty: 1 } },
+        { id: 'item-2', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 1 } },
+      ],
+      error: null,
+    };
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // Fill one box in each category.
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '5');
+    fireEvent.changeText(getByTestId('weekly-item-units-item-2'), '7');
+    fireEvent.press(getByTestId('weekly-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // Both categories' entries are submitted — grouping is view-only.
+    const payload = mockSubmit.mock.calls[0][0];
+    expect(payload.entries).toHaveLength(2);
+    const ids = payload.entries.map((e: { item_id: string }) => e.item_id).sort();
+    expect(ids).toEqual(['item-1', 'item-2']);
   });
 
   it('shows dual case/each inputs ONLY where case_qty > 1; single input otherwise', async () => {

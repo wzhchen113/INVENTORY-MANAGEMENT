@@ -51,7 +51,18 @@ create policy "weekly_reminder_log_read"
   on public.weekly_reminder_log for select
   using (public.auth_can_see_store(store_id));
 
--- Grants: service_role bypasses RLS for the cron writes; authenticated
--- gets SELECT (scoped by the policy above). anon gets nothing.
-grant select on public.weekly_reminder_log to authenticated;
-revoke all on public.weekly_reminder_log from anon;
+-- Grants: this table follows the RLS-locked-table pattern of
+-- username_resolve_rate_limit (20260607130000) and _edge_auth — it KEEPS the
+-- inherited grant for all three Supabase roles (SELECT for anon+authenticated,
+-- ALL for service_role) from spec-097's `ALTER DEFAULT PRIVILEGES FOR ROLE
+-- postgres` (20260618000000_public_grants_explicit.sql), and relies on RLS as
+-- the row gate. RLS is enabled above with a single SELECT policy scoped via
+-- auth_can_see_store(store_id) and NO insert/update/delete policy, so an
+-- anon/authenticated caller cannot read another store's rows nor write any row
+-- over PostgREST — the grant is present but no row is reachable (Category B in
+-- public_grants_explicit.test.sql). The cron writes under service_role (bypasses
+-- RLS). Deliberately NO `revoke ... from anon` and NO explicit grants: that
+-- mirrors _edge_auth (20260424211733), which enables RLS and leaves the
+-- spec-097 inherited grants untouched. A `revoke ... from anon` here would trip
+-- the spec-097 grant lint, which requires every public base table to hold the
+-- broad SELECT grant for all three roles (RLS, not the grant layer, is the gate).

@@ -44,6 +44,12 @@ select set_config(
   true
 );
 
+-- The entries jsonb is built with jsonb_build_array(jsonb_build_object(...))
+-- rather than string-formatting JSON by hand: %L emits a SINGLE-quoted SQL
+-- literal (invalid JSON, which needs double quotes), and the value here is
+-- spliced into dynamic SQL, so a hand-built JSON string also has to survive the
+-- outer format(). Passing a SQL expression that the database evaluates to jsonb
+-- sidesteps all quoting.
 select throws_ok(
   format(
     $q$select public.submit_inventory_count(
@@ -52,10 +58,10 @@ select throws_ok(
          'weekly',
          now(),
          'submitted',
-         %s::jsonb,
+         jsonb_build_array(jsonb_build_object('item_id', %L::uuid, 'actual_remaining', 5)),
          null)$q$,
     current_setting('test.frederick_id', true),
-    format('[{"item_id":%L,"actual_remaining":5}]', current_setting('test.item_id', true))
+    current_setting('test.item_id', true)
   ),
   '22023',
   'generic submit_inventory_count still rejects kind=weekly (allowlist intact)'

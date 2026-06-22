@@ -61,16 +61,21 @@ select set_config(
 );
 
 -- ─── (1) Non-member store rejected with 42501 ────────────────
+-- Entries built via jsonb_build_array(jsonb_build_object(...)) rather than
+-- hand-formatted JSON: %L emits a single-quoted SQL literal (invalid JSON), and
+-- here the value is spliced into dynamic SQL too. Passing a SQL expression the
+-- database evaluates to jsonb avoids all quoting. The auth_can_see_store gate
+-- fires before entries are parsed, but the statement must still be valid SQL.
 select throws_ok(
   format(
     $q$select public.submit_weekly_count(
          gen_random_uuid(),
          %L::uuid,
          now(),
-         %s::jsonb,
+         jsonb_build_array(jsonb_build_object('item_id', %L::uuid, 'actual_remaining', 5)),
          null)$q$,
     current_setting('test.charles_id', true),
-    format('[{"item_id":%L,"actual_remaining":5}]', current_setting('test.item_id', true))
+    current_setting('test.item_id', true)
   ),
   '42501',
   'weekly count for a non-membership store is rejected (auth_can_see_store)'
@@ -84,7 +89,10 @@ select public.submit_weekly_count(
   current_setting('test.client_uuid', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
   now(),
-  format('[{"item_id":%L,"actual_remaining":7}]', current_setting('test.item_id', true))::jsonb,
+  jsonb_build_array(jsonb_build_object(
+    'item_id', current_setting('test.item_id', true)::uuid,
+    'actual_remaining', 7
+  )),
   'spec-098 weekly test'
 ) as result;
 
@@ -130,7 +138,10 @@ select public.submit_weekly_count(
   current_setting('test.client_uuid', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
   now(),
-  format('[{"item_id":%L,"actual_remaining":999}]', current_setting('test.item_id', true))::jsonb,
+  jsonb_build_array(jsonb_build_object(
+    'item_id', current_setting('test.item_id', true)::uuid,
+    'actual_remaining', 999
+  )),
   'replay'
 ) as result;
 

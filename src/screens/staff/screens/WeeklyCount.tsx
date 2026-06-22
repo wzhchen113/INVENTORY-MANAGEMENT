@@ -18,9 +18,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Platform,
-  Pressable,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -62,13 +61,14 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
   // the EOD screen reads (catalog_ingredients.case_qty, spec 086).
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, catalog:catalog_ingredients(name, unit, case_qty)')
+    .select('id, catalog:catalog_ingredients(name, unit, category, case_qty)')
     .eq('store_id', storeId)
     .order('id', { ascending: true });
   if (error) throw error;
   type CatalogRow = {
     name: string | null;
     unit: string | null;
+    category: string | null;
     case_qty: number | string | null;
   };
   type Row = {
@@ -83,6 +83,10 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
         id: r.id,
         name: c?.name ?? '',
         unit: c?.unit ?? '',
+        // Collapse null/missing category to '' (same convention as the
+        // admin inventory mapper, db.ts:3498); the render groups the ''
+        // bucket under an "Uncategorized" header.
+        category: c?.category ?? '',
         caseQty: c?.case_qty == null ? null : Number(c.case_qty),
       };
     })
@@ -144,6 +148,29 @@ export function WeeklyCount() {
       ).length,
     [items, caseCounts, unitCounts],
   );
+
+  // ─── group items by category for display-only section headers ──────
+  // Mirrors the admin `grouped` idiom (InventoryCountSection.tsx): a Map
+  // keyed by category, items alphabetized within each group (the source
+  // list is already name-sorted), groups sorted alphabetically. The empty
+  // '' bucket maps to an "Uncategorized" title. Grouping is VIEW-only — it
+  // never changes what gets submitted (onSubmit iterates `items`, never
+  // the grouped sections), per spec.
+  const sections = useMemo(() => {
+    const map = new Map<string, WeeklyItem[]>();
+    for (const it of items) {
+      const arr = map.get(it.category) || [];
+      arr.push(it);
+      map.set(it.category, arr);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([category, data]) => ({
+        category,
+        title: category || t('weekly.category.uncategorized'),
+        data,
+      }));
+  }, [items]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -299,13 +326,28 @@ export function WeeklyCount() {
           </Text>
         </View>
       ) : (
-        <FlatList
+        <SectionList
           testID="weekly-item-list"
-          data={items}
+          sections={sections}
           keyExtractor={(i) => i.id}
           style={styles.itemListBody}
           contentContainerStyle={styles.itemList}
+          stickySectionHeadersEnabled={false}
           ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
+          renderSectionHeader={({ section }) => (
+            <View
+              style={[styles.sectionHeader, { backgroundColor: c.bgAlt }]}
+              testID={`weekly-category-header-${section.category || 'uncategorized'}`}
+            >
+              <Text style={[styles.sectionHeaderTitle, { color: c.textSecondary }]}>
+                {section.title}
+              </Text>
+              <View style={[styles.sectionHeaderRule, { backgroundColor: c.border }]} />
+              <Text style={[styles.sectionHeaderCount, { color: c.textTertiary }]}>
+                {t('weekly.category.count', { count: section.data.length })}
+              </Text>
+            </View>
+          )}
           renderItem={({ item }) => {
             const caseRaw = caseCounts[item.id] ?? '';
             const unitRaw = unitCounts[item.id] ?? '';
@@ -474,6 +516,27 @@ const styles = StyleSheet.create({
   },
   itemSeparator: {
     height: spacing.sm,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xs,
+  },
+  sectionHeaderTitle: {
+    fontSize: typography.caption,
+    fontWeight: typography.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  sectionHeaderRule: {
+    flex: 1,
+    height: 1,
+  },
+  sectionHeaderCount: {
+    fontSize: typography.caption,
+    fontWeight: typography.medium,
   },
   itemName: {
     fontSize: typography.bodyLarge,

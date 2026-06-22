@@ -872,3 +872,59 @@ jest staff-screen render/dual-input/submit-gating test (design §10).
   'web'` for the `<select>` and `inputMode`), tsc + jest pass, and the staff
   screen mirrors the proven EODCount layout. A reviewer should exercise the
   staff Weekly tab + admin weekly tab in the browser before ship.
+
+---
+
+## Enhancement pass — category grouping on the staff Weekly Count screen
+
+User request: "show categories for the weekly inventory." The staff Weekly
+Count screen (built above) rendered a flat alphabetical list of all items.
+This pass groups items by category with a visible category header per group,
+mirroring the admin `grouped` idiom (`InventoryCountSection.tsx`).
+
+### What changed
+- **`fetchAllItemsForStore`** now selects `category` from the catalog
+  (`catalog:catalog_ingredients(name, unit, category, case_qty)`) and carries
+  it onto the mapped `WeeklyItem`, collapsing null/missing to `''` (same
+  convention as the admin inventory mapper at `db.ts:3498`).
+- **`WeeklyItem`** gained a `category: string` field.
+- **Render** switched from `FlatList` to `SectionList`. A `sections` `useMemo`
+  groups items by category (Map keyed by category, items already name-sorted,
+  groups sorted alphabetically). The `''` bucket renders under a localized
+  "Uncategorized" header. `renderSectionHeader` draws a header row (uppercase
+  title · hairline rule · "{n} items" count), styled with `useStaffColors`.
+  `stickySectionHeadersEnabled={false}`.
+- **Submit is unchanged and remains category-agnostic.** `onSubmit` and
+  `nonBlankCount` still iterate `items` (the flat list), so every non-blank
+  entry across ALL categories submits exactly as before — grouping is
+  display-only.
+- **i18n**: added `weekly.category.uncategorized` ("Uncategorized") and
+  `weekly.category.count` ("{count} items") to the staff `en.json` `weekly.*`
+  catalog.
+- **Tests**: `WeeklyCount.test.tsx` now seeds `category` on the mock catalog
+  rows, adds a grouping test (per-category headers + null → "Uncategorized")
+  and a cross-category submit test (entries from multiple categories all
+  submit), and keeps the existing all-items / dual-input-only-where-case_qty>1
+  / submit-gating assertions.
+
+### Verification (enhancement pass)
+- `npx tsc --noEmit` — clean (exit 0).
+- `npx jest src/screens/staff` — 130/130 pass across 13 suites (WeeklyCount
+  suite: 8/8, +2 new). The `act(...)` console warnings are pre-existing
+  VirtualizedList async deferred-render noise (same base class as the prior
+  `FlatList`); all assertions pass.
+- Browser preview NOT performed: `preview_*` MCP tools were unavailable in
+  this environment. Verified via tsc + jest and by matching the proven admin
+  `grouped` layout. A reviewer should exercise the staff Weekly screen in the
+  browser (group headers render, light/dark palette) before ship.
+
+### Files changed (enhancement pass)
+- `src/screens/staff/screens/WeeklyCount.tsx` — `category` in select + mapper;
+  `WeeklyItem.category`; `sections` grouping memo; `FlatList` → `SectionList`
+  with `renderSectionHeader`; section-header styles; dropped the unused
+  `FlatList`/`Pressable` imports, added `SectionList`.
+- `src/screens/staff/lib/types.ts` — added `category: string` to `WeeklyItem`.
+- `src/screens/staff/i18n/en.json` — added `weekly.category.uncategorized` and
+  `weekly.category.count`.
+- `src/screens/staff/screens/WeeklyCount.test.tsx` — seeded `category` on mocks;
+  added grouping + cross-category submit tests; updated header comment.

@@ -148,6 +148,10 @@
     "list": {
       "empty": "No items configured for this store"
     },
+    "category": {
+      "uncategorized": "Uncategorized",
+      "count": "{count} items"
+    },
     "col": {
       "cases": "Cases",
       "units": "Units",

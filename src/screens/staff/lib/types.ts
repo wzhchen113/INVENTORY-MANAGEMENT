@@ -127,6 +127,11 @@ export type WeeklyItem = {
   id: string;
   name: string;
   unit: string;
+  /** Catalog category for display-only grouping. Collapsed to '' when the
+   *  catalog row has no category (same convention as the admin inventory
+   *  mapper at db.ts:3498); the screen renders the '' bucket under an
+   *  "Uncategorized" header. Category does NOT affect what is submitted. */
+  category: string;
   caseQty: number | null;
 };
 
