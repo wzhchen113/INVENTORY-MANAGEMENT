@@ -37,7 +37,7 @@ import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
-import { t } from '../i18n';
+import { t, useI18n } from '../i18n';
 import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
 import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
 
@@ -63,10 +63,15 @@ function todayIso(d = new Date()): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function todayHeaderLabel(d = new Date()): string {
+// Takes a `t` so the caller can pass the reactive `useI18n()` t (spec
+// 099) — the header label must re-translate when the locale changes.
+function todayHeaderLabel(
+  tt: typeof t,
+  d = new Date(),
+): string {
   const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
   const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return t('eod.header.today', { weekday, monthDay });
+  return tt('eod.header.today', { weekday, monthDay });
 }
 
 function submittedAtHHMM(iso: string): string {
@@ -208,6 +213,9 @@ async function fetchExistingSubmission(
 
 export function EODCount() {
   const c = useStaffColors();
+  // Reactive `t` (spec 099) — every render-path string below uses this so
+  // the screen re-renders and re-translates on a locale change.
+  const { t } = useI18n();
   const activeStore = useStaffStore((s) => s.activeStore);
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
@@ -231,7 +239,9 @@ export function EODCount() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
 
-  const todayLabel = useMemo(() => todayHeaderLabel(), []);
+  // Recompute when `t` changes (i.e. locale changes) so the header date
+  // label re-translates (spec 099).
+  const todayLabel = useMemo(() => todayHeaderLabel(t), [t]);
   const canSwitchStore = stores.length > 1;
 
   // ─── load vendors for today on mount / when active store changes ──
@@ -329,7 +339,7 @@ export function EODCount() {
       },
       t('chrome.signOut.label'),
     );
-  }, [setAuthState, setActiveStore]);
+  }, [setAuthState, setActiveStore, t]);
 
   const onSwitchStore = useCallback(() => {
     if (!canSwitchStore) return;
@@ -429,7 +439,7 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, t]);
 
   if (!activeStore) {
     // Shouldn't render — RootStack swaps to picker when activeStore

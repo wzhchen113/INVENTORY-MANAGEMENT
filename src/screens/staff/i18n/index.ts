@@ -16,6 +16,7 @@
 //
 // `{var}` placeholder substitution only — no ICU plural rules.
 
+import { useMemo } from 'react';
 import en from './en.json';
 import es from './es.json';
 import zhCN from './zh-CN.json';
@@ -31,17 +32,45 @@ const catalogs: Record<Locale, Record<string, unknown>> = {
 
 // ── Active-locale source ────────────────────────────────────────────
 // The store is the source of truth, but importing useStaffStore here
-// would create a circular import (the store imports nothing from i18n
-// today, but components import both and the bundler is happier without
-// the cycle). Instead the store registers a getter via
-// `_setActiveLocaleGetter` at module-init time. Until it does, bare
-// `t()` resolves against 'en'.
+// would create a circular import (the store imports the i18n
+// getter/hook registration, so the cycle would point both ways).
+// Instead the store INJECTS its locale access at module-init time via
+// two registration calls:
+//
+//   _setActiveLocaleGetter(fn)  — a plain SNAPSHOT getter for the bare
+//     `t()` (imperative call sites: event handlers, Toast.show, etc.).
+//
+//   _setActiveLocaleHook(hook)  — a REACTIVE hook (a Zustand selector
+//     subscription) for `useI18n()`, so render-time consumers re-render
+//     when the locale changes.
+//
+// Both default to 'en' until the store registers them; registration
+// runs at the store module's init, before any component renders.
 let _getActiveLocale: () => Locale = () => 'en';
 
-/** Wire up the active-locale source. Called once by useStaffStore at
- *  module init. Test-only callers may also use it to pin a locale. */
+// Reactive hook the store registers (a `() => useStaffStore((s) =>
+// s.locale)` subscription). Defaults to a STABLE function returning
+// 'en' so `useI18n()` is hook-safe (callable unconditionally) before
+// registration. The stable identity matters: it's still a valid hook
+// call (returns the same constant), and once the store registers its
+// real subscription every subsequent render uses that.
+let _useActiveLocale: () => Locale = () => 'en';
+
+/** Wire up the active-locale SNAPSHOT getter. Called once by
+ *  useStaffStore at module init. Test-only callers may also use it to
+ *  pin a locale for the bare `t()`. */
 export function _setActiveLocaleGetter(fn: () => Locale): void {
   _getActiveLocale = fn;
+}
+
+/** Wire up the REACTIVE active-locale hook (a Zustand selector
+ *  subscription). Called once by useStaffStore at module init so
+ *  `useI18n()` consumers re-render on a locale change. The injected
+ *  function MUST be a React hook (it calls `useStaffStore(...)`); it is
+ *  invoked unconditionally from `useI18n()` to honor the rules of
+ *  hooks. */
+export function _setActiveLocaleHook(hook: () => Locale): void {
+  _useActiveLocale = hook;
 }
 
 // Module-level Set so the same missing key doesn't spam logs on every
@@ -116,10 +145,34 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   return translate(_getActiveLocale(), key, vars);
 }
 
-/** Hook surface — returns `{ t }` bound to the active locale. Reading
- *  the store-backed locale inside a component (via `useStaffStore`) is
- *  what makes consumers re-render on a locale change; this hook is the
- *  ergonomic entry point for that. */
+/** Hook surface — returns `{ t }` bound REACTIVELY to the active
+ *  locale. It subscribes to the store's `locale` slice (via the
+ *  registered `_useActiveLocale` hook), so ANY component that destructures
+ *  `const { t } = useI18n()` and renders its strings re-renders when the
+ *  locale changes. This is the fix for spec 099's "some parts change,
+ *  some don't" — the bare `t()` export reads a snapshot and is NOT
+ *  reactive, so render-path strings must come from this hook.
+ *
+ *  The returned `t` is bound to the SUBSCRIBED locale (not the snapshot
+ *  getter), so the strings update in lock-step with the re-render.
+ *  Keep using the bare `t()` for IMPERATIVE call sites (event handlers,
+ *  Toast.show in onSubmit) where you want the live locale at call time. */
 export function useI18n(): { t: typeof t } {
-  return { t };
+  // Unconditional hook call — `_useActiveLocale` is always a valid hook
+  // (the stable 'en' default before the store registers, then the real
+  // Zustand subscription). This subscribes the calling component to the
+  // locale slice.
+  const locale = _useActiveLocale();
+  // Memoize on `locale` so the returned `t` has a STABLE identity until the
+  // locale actually changes. Consumers put `t` in useCallback/useMemo deps
+  // (so handlers + memos re-translate on a switch); without this stability
+  // a fresh `t` every render would invalidate those deps each render and,
+  // where the dep feeds an effect, spin an infinite render loop.
+  return useMemo(
+    () => ({
+      t: (key: string, vars?: Record<string, string | number>) =>
+        translate(locale, key, vars),
+    }),
+    [locale],
+  );
 }

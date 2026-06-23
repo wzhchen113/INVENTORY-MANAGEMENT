@@ -38,7 +38,7 @@ import {
   shareReorderText,
 } from '../lib/shareReorder';
 import { useStaffStore } from '../store/useStaffStore';
-import { t } from '../i18n';
+import { t, useI18n } from '../i18n';
 import {
   radius,
   spacing,
@@ -67,9 +67,10 @@ function todayIso(d = new Date()): string {
 // Localized long weekday name via the staff catalog (`reorder.weekday.*`),
 // keyed off the canonical English DayName. Self-contained — does NOT reuse
 // the admin `dayOfWeekLongLabel`, which expects admin-only `enum.dayOfWeek.*`
-// keys absent from the staff catalog.
-function weekdayLabel(day: DayName): string {
-  return t(`reorder.weekday.${day.toLowerCase()}`);
+// keys absent from the staff catalog. Takes a `t` so the caller can pass
+// the reactive `useI18n()` t (spec 099).
+function weekdayLabel(tt: typeof t, day: DayName): string {
+  return tt(`reorder.weekday.${day.toLowerCase()}`);
 }
 
 // ── KPI card ──────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
 function VendorCard({ vendor }: { vendor: ReorderVendor }) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const { t } = useI18n();
 
   const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : t('reorder.source.stockFallback');
   const sourceTone = vendor.onHandSource === 'eod' ? c.success : c.warning;
@@ -236,6 +238,8 @@ function VendorChip({
 
 export function Reorder() {
   const c = useStaffColors();
+  // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
+  const { t } = useI18n();
   const activeStore = useStaffStore((s) => s.activeStore);
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
@@ -284,7 +288,7 @@ export function Reorder() {
         })
         .finally(() => setLoading(false));
     },
-    [],
+    [t],
   );
 
   useEffect(() => {
@@ -376,7 +380,7 @@ export function Reorder() {
       },
       t('chrome.signOut.label'),
     );
-  }, [setAuthState, setActiveStore]);
+  }, [setAuthState, setActiveStore, t]);
 
   const onSwitchStore = useCallback(() => {
     if (!canSwitchStore) return;
@@ -639,7 +643,7 @@ export function Reorder() {
             title={t('reorder.nothingToday.title')}
             body={
               selectedWeekday
-                ? t('reorder.nothingToday.body', { day: weekdayLabel(selectedWeekday) })
+                ? t('reorder.nothingToday.body', { day: weekdayLabel(t, selectedWeekday) })
                 : t('reorder.nothingToday.body', { day: '' })
             }
           />

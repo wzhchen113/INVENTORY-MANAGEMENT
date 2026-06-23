@@ -10,9 +10,10 @@
 
 import { Banner } from './Banner';
 import { useStaffStore } from '../store/useStaffStore';
-import { t } from '../i18n';
+import { useI18n } from '../i18n';
 
 export function WeeklyDueBanner() {
+  const { t } = useI18n();
   const status = useStaffStore((s) => s.weeklyStatus);
   if (!status) return null;
   if (status.status !== 'open' && status.status !== 'overdue') return null;

@@ -15,7 +15,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
 import { useStaffStore } from '../store/useStaffStore';
-import { t, type Locale } from '../i18n';
+import { useI18n, type Locale } from '../i18n';
 
 const LOCALES: Locale[] = ['en', 'es', 'zh-CN'];
 
@@ -25,6 +25,7 @@ type Props = {
 
 export function LocaleSwitcher({ testID }: Props) {
   const c = useStaffColors();
+  const { t } = useI18n();
   const locale = useStaffStore((s) => s.locale);
   const setLocale = useStaffStore((s) => s.setLocale);
 

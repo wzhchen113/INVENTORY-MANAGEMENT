@@ -22,6 +22,12 @@ type State = { hasError: boolean };
 
 function ErrorFallback() {
   const c = useStaffColors();
+  // Spec 099: this fallback intentionally uses the bare (snapshot) `t`
+  // rather than the reactive `useI18n()` hook. It only renders after a
+  // render crash inside the boundary, and live-switching the locale on the
+  // crash screen is out of scope — the strings still reflect the locale
+  // active at crash time. Not worth wiring reactivity into the one place
+  // the app has already failed.
   return (
     <View
       style={[styles.fallback, { backgroundColor: c.bg }]}

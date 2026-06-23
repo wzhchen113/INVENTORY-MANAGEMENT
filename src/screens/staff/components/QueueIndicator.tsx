@@ -8,7 +8,7 @@
 
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { radius, spacing, typography, useStaffColors } from '../theme';
-import { t } from '../i18n';
+import { useI18n } from '../i18n';
 
 type Props = {
   pending: number;
@@ -18,6 +18,7 @@ type Props = {
 
 export function QueueIndicator({ pending, draining, testID }: Props) {
   const c = useStaffColors();
+  const { t } = useI18n();
   if (pending === 0 && !draining) return null;
   const label = draining
     ? t('chrome.queue.draining')

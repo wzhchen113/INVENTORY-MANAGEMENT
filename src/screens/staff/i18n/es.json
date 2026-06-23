@@ -133,6 +133,38 @@
       "thursday": "jueves",
       "friday": "viernes",
       "saturday": "sábado"
+    },
+    "datepicker": {
+      "date": "Fecha",
+      "today": "Hoy",
+      "selectDate": "Seleccionar fecha de pedido",
+      "prevMonth": "Mes anterior",
+      "nextMonth": "Mes siguiente",
+      "jumpToToday": "Ir a hoy",
+      "orderOutDay": "día de pedido",
+      "months": {
+        "0": "enero",
+        "1": "febrero",
+        "2": "marzo",
+        "3": "abril",
+        "4": "mayo",
+        "5": "junio",
+        "6": "julio",
+        "7": "agosto",
+        "8": "septiembre",
+        "9": "octubre",
+        "10": "noviembre",
+        "11": "diciembre"
+      },
+      "daysShort": {
+        "0": "D",
+        "1": "L",
+        "2": "M",
+        "3": "X",
+        "4": "J",
+        "5": "V",
+        "6": "S"
+      }
     }
   },
   "eodTab": {

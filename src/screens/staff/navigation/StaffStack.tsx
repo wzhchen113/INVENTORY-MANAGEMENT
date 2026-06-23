@@ -41,7 +41,7 @@ import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useStaffStore } from '../store/useStaffStore';
-import { t } from '../i18n';
+import { useI18n } from '../i18n';
 import { spacing, typography, useStaffColors } from '../theme';
 
 // Re-export the cold-start helper so callers (App.tsx + StaffStack.test.tsx)
@@ -71,6 +71,10 @@ function Splash() {
 // sign-out is NOT lifted into the tab bar.
 function StaffTabs() {
   const c = useStaffColors();
+  // Subscribe to the locale so React Navigation recomputes the tab
+  // `tabBarLabel`/accessibility options when the language changes (spec
+  // 099 — the bare `t()` is a snapshot and would leave stale labels).
+  const { t } = useI18n();
   return (
     <Tab.Navigator
       // sceneContainerStyle is a Navigator-level prop in bottom-tabs v6 — it

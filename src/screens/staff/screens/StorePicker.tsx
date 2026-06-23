@@ -21,12 +21,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { selectStaffStores, useStaffStore } from '../store/useStaffStore';
-import { t } from '../i18n';
+import { useI18n } from '../i18n';
 import { spacing, typography, useStaffColors } from '../theme';
 import type { UserStore } from '../lib/types';
 
 export function StorePicker() {
   const c = useStaffColors();
+  const { t } = useI18n();
   const stores = useStaffStore(selectStaffStores);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
 

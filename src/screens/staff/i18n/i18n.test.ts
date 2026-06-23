@@ -183,3 +183,8 @@ describe('staff t() (active-locale bound)', () => {
     expect(t('store.picker.subtitle', { count: 4 })).toBe('Tienes acceso a 4 tiendas');
   });
 });
+
+// The REACTIVE `useI18n()` hook is exercised in the .tsx render test
+// (useI18n.reactivity.test.tsx, component/jsdom project) — it calls
+// `useMemo`/`useStaffStore`, so it must run inside a React render, which
+// this node-env unit suite can't do.

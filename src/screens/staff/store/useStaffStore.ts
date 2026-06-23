@@ -38,7 +38,7 @@ import {
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { supabase } from '../../../lib/supabase';
 import { uuidv4 } from '../lib/uuid';
-import { _setActiveLocaleGetter, type Locale } from '../i18n';
+import { _setActiveLocaleGetter, _setActiveLocaleHook, type Locale } from '../i18n';
 
 export type StaffState = {
   // ─── LOCALE (chrome language) ─────────────────────────
@@ -299,11 +299,17 @@ export const useStaffStore = create<StaffState>((set, get) => ({
   },
 }));
 
-// Wire the staff i18n's bare `t()` to read the live active locale from
-// this store. Done once at module init. Importing the store inside the
-// i18n module would create a cycle (the store imports the i18n getter),
-// so the dependency is injected this direction instead.
+// Wire the staff i18n's locale access to this store. Done once at module
+// init. Importing the store inside the i18n module would create a cycle
+// (the store imports the i18n registrations), so the dependency is
+// injected this direction instead.
+//
+// Two wirings:
+//   - SNAPSHOT getter for the bare `t()` (imperative call sites).
+//   - REACTIVE hook for `useI18n()` — a Zustand selector subscription so
+//     render-time consumers re-render when the locale changes (spec 099).
 _setActiveLocaleGetter(() => useStaffStore.getState().locale);
+_setActiveLocaleHook(() => useStaffStore((s) => s.locale));
 
 // ─── HELPER: derive current signed-in user id ─────────────────────
 // Many callers need the userId from authState; the kind-guard

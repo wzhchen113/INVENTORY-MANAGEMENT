@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { weekdayName } from '../../../utils/reorderDayFilter';
 import type { DayName } from '../../../utils/enumLabels';
+import { useI18n } from '../i18n';
 import { radius, spacing, touchTarget, typography, useStaffColors, useStaffElevation } from '../theme';
 
 interface ReorderDatePickerProps {
@@ -33,24 +34,12 @@ interface ReorderDatePickerProps {
   testIdPrefix?: string;
 }
 
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
 function getFirstDayOfMonth(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
-}
-
-function formatDisplay(dateStr: string): string {
-  if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return `${MONTHS[m - 1]?.slice(0, 3)} ${d}, ${y}`;
 }
 
 function pad2(n: number): string {
@@ -66,7 +55,20 @@ export function ReorderDatePicker({
 }: ReorderDatePickerProps) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
+
+  // Localized month / day-of-week labels. Indexed string keys in the
+  // catalog (months 0..11, daysShort 0..6 Sunday-first) keep the i18n
+  // parity/string-leaf tests happy while reading like arrays here.
+  const monthName = (month: number): string => t(`reorder.datepicker.months.${month}`);
+  const dayLabels = [0, 1, 2, 3, 4, 5, 6].map((i) => t(`reorder.datepicker.daysShort.${i}`));
+
+  const formatDisplay = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return `${monthName(m - 1)?.slice(0, 3)} ${d}, ${y}`;
+  };
 
   // Parse a YYYY-MM-DD value at LOCAL midnight (never UTC — avoids an
   // off-by-one when the runtime TZ is behind UTC). `value` is always present.
@@ -129,7 +131,7 @@ export function ReorderDatePicker({
       <Pressable
         testID={`${testIdPrefix}-trigger`}
         accessibilityRole="button"
-        accessibilityLabel="Select reorder date"
+        accessibilityLabel={t('reorder.datepicker.selectDate')}
         onPress={openModal}
         style={({ pressed }) => [
           styles.trigger,
@@ -137,7 +139,7 @@ export function ReorderDatePicker({
         ]}
       >
         <Text style={[styles.triggerText, { color: c.text }]}>
-          {value ? formatDisplay(value) : 'Date'}
+          {value ? formatDisplay(value) : t('reorder.datepicker.date')}
         </Text>
       </Pressable>
 
@@ -156,19 +158,19 @@ export function ReorderDatePicker({
                 testID={`${testIdPrefix}-prev-month`}
                 onPress={prevMonth}
                 accessibilityRole="button"
-                accessibilityLabel="Previous month"
+                accessibilityLabel={t('reorder.datepicker.prevMonth')}
                 style={styles.navBtn}
               >
                 <Text style={[styles.navGlyph, { color: c.text }]}>‹</Text>
               </Pressable>
               <Text style={[styles.monthLabel, { color: c.text }]}>
-                {MONTHS[viewMonth]} {viewYear}
+                {monthName(viewMonth)} {viewYear}
               </Text>
               <Pressable
                 testID={`${testIdPrefix}-next-month`}
                 onPress={nextMonth}
                 accessibilityRole="button"
-                accessibilityLabel="Next month"
+                accessibilityLabel={t('reorder.datepicker.nextMonth')}
                 style={styles.navBtn}
               >
                 <Text style={[styles.navGlyph, { color: c.text }]}>›</Text>
@@ -177,7 +179,7 @@ export function ReorderDatePicker({
 
             {/* Day-of-week labels */}
             <View style={styles.dayRow}>
-              {DAY_LABELS.map((d, i) => (
+              {dayLabels.map((d, i) => (
                 <Text key={i} style={[styles.dayLabel, { color: c.textSecondary }]}>
                   {d}
                 </Text>
@@ -202,7 +204,7 @@ export function ReorderDatePicker({
                     disabled={isFuture}
                     accessibilityRole="button"
                     accessibilityState={{ disabled: isFuture, selected: isSelected }}
-                    accessibilityLabel={`${MONTHS[viewMonth]} ${day}, ${viewYear}${isActive ? ' — order-out day' : ''}`}
+                    accessibilityLabel={`${monthName(viewMonth)} ${day}, ${viewYear}${isActive ? ` — ${t('reorder.datepicker.orderOutDay')}` : ''}`}
                     onPress={() => selectDay(dateStr)}
                     style={styles.cell}
                   >
@@ -244,10 +246,10 @@ export function ReorderDatePicker({
                 testID={`${testIdPrefix}-today`}
                 onPress={goToday}
                 accessibilityRole="button"
-                accessibilityLabel="Jump to today"
+                accessibilityLabel={t('reorder.datepicker.jumpToToday')}
                 style={styles.todayBtn}
               >
-                <Text style={[styles.todayText, { color: c.primary }]}>Today</Text>
+                <Text style={[styles.todayText, { color: c.primary }]}>{t('reorder.datepicker.today')}</Text>
               </Pressable>
             </View>
           </Pressable>

@@ -35,7 +35,7 @@ import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { useStaffStore } from '../store/useStaffStore';
-import { t } from '../i18n';
+import { t, useI18n } from '../i18n';
 import { spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
 
@@ -48,10 +48,12 @@ function todayIso(d = new Date()): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function todayHeaderLabel(d = new Date()): string {
+// Takes a `t` so the caller can pass the reactive `useI18n()` t (spec
+// 099) — the header label must re-translate on a locale change.
+function todayHeaderLabel(tt: typeof t, d = new Date()): string {
   const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
   const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return t('weekly.header.today', { weekday, monthDay });
+  return tt('weekly.header.today', { weekday, monthDay });
 }
 
 // ── data fetch ────────────────────────────────────────────────────
@@ -97,6 +99,8 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
 // ── screen ────────────────────────────────────────────────────────
 export function WeeklyCount() {
   const c = useStaffColors();
+  // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
+  const { t } = useI18n();
   const activeStore = useStaffStore((s) => s.activeStore);
   const fetchWeeklyStatus = useStaffStore((s) => s.fetchWeeklyStatus);
   const submitWeeklyCount = useStaffStore((s) => s.submitWeeklyCount);
@@ -109,7 +113,8 @@ export function WeeklyCount() {
   const [forbidden, setForbidden] = useState<boolean>(false);
   const [completedFor, setCompletedFor] = useState<string | null>(null);
 
-  const todayLabel = useMemo(() => todayHeaderLabel(), []);
+  // Recompute when `t` (locale) changes so the header date re-translates.
+  const todayLabel = useMemo(() => todayHeaderLabel(t), [t]);
 
   // ─── load every item for the active store on mount / store change ──
   useEffect(() => {
@@ -170,7 +175,7 @@ export function WeeklyCount() {
         title: category || t('weekly.category.uncategorized'),
         data,
       }));
-  }, [items]);
+  }, [items, t]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -247,7 +252,7 @@ export function WeeklyCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, items, caseCounts, unitCounts, submitWeeklyCount, fetchWeeklyStatus, submitting]);
+  }, [activeStore, items, caseCounts, unitCounts, submitWeeklyCount, fetchWeeklyStatus, submitting, t]);
 
   // ─── confirm before submitting a full-store count ─────────────────
   const onSubmitPress = useCallback(() => {
@@ -261,7 +266,7 @@ export function WeeklyCount() {
       return;
     }
     void onSubmit();
-  }, [nonBlankCount, onSubmit]);
+  }, [nonBlankCount, onSubmit, t]);
 
   if (!activeStore) {
     return (
