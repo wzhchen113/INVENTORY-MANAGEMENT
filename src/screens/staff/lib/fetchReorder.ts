@@ -111,10 +111,26 @@ export async function fetchStaffReorder(
       stockFallbackVendorCount: Number(kpis.stock_fallback_vendor_count ?? 0),
     },
     warnings: Array.isArray(envelope._warnings)
-      ? envelope._warnings.map((w: any) => ({
-          code: String(w?.code ?? ''),
-          message: String(w?.message ?? ''),
-        }))
+      ? envelope._warnings.map((w: any) => {
+          const code = String(w?.code ?? '');
+          const message = String(w?.message ?? '');
+          // For `schedule_unknown`, pull the vendor name back out of the
+          // server-built English message so the screen can re-localize the
+          // warning from the stable `code` + vendor (the message itself is
+          // English-only). The vendor name is the text inside the first
+          // double-quote pair — this parse is keyed to the stable
+          // `report_reorder_list` SQL message format:
+          //   'Vendor "<NAME>" has no order schedule — using 7-day buffer.'
+          // (supabase/migrations/20260602000000_reorder_suggested_cases.sql,
+          // warning construction). If that SQL message format changes, this
+          // parse and the SQL must change together.
+          let vendor: string | undefined;
+          if (code === 'schedule_unknown') {
+            const m = message.match(/"([^"]+)"/);
+            vendor = m?.[1];
+          }
+          return { code, message, ...(vendor !== undefined ? { vendor } : {}) };
+        })
       : [],
   };
 }

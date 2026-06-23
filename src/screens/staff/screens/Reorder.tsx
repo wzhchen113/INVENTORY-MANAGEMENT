@@ -27,6 +27,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
@@ -453,6 +454,10 @@ export function Reorder() {
           </Pressable>
         </View>
 
+        <View style={styles.headerSwitcherRow}>
+          <LocaleSwitcher />
+        </View>
+
         {/* Controls — date picker + refresh */}
         <View style={styles.controlsRow}>
           <ReorderDatePicker
@@ -590,7 +595,13 @@ export function Reorder() {
           <Banner
             tone="warning"
             testID="staff-reorder-warnings"
-            text={payload.warnings.map((w) => w.message || w.code).join('\n')}
+            text={payload.warnings
+              .map((w) =>
+                w.code === 'schedule_unknown'
+                  ? t('reorder.warning.scheduleUnknown', { vendor: w.vendor ?? '' })
+                  : w.message || w.code,
+              )
+              .join('\n')}
           />
         ) : null}
 
@@ -719,6 +730,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  // Mirrors EODCount.headerSwitcherRow — the LocaleSwitcher sits left-aligned
+  // on its own row under the store/sign-out row. No marginTop here: the
+  // header's `gap` already spaces the rows (EODCount's header has no gap, so
+  // it adds the marginTop there instead).
+  headerSwitcherRow: {
+    flexDirection: 'row',
   },
   storePressable: {
     flex: 1,

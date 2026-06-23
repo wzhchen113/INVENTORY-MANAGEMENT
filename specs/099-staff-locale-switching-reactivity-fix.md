@@ -80,3 +80,53 @@ translated text (hardcoded English / no i18n import) — left unchanged.
 - src/screens/staff/screens/Reorder.tsx
 - src/screens/staff/i18n/i18n.test.ts
 - src/screens/staff/i18n/useI18n.reactivity.test.tsx (new)
+
+## Follow-up (post-099): switcher coverage + localized reorder warning
+
+Status: READY_FOR_REVIEW
+
+Two small frontend-only follow-ups to the staff language feature, layered on
+top of the 099 reactivity fix:
+
+1. **LocaleSwitcher on Weekly + Reorder headers.** The switcher previously
+   appeared only on the EOD (Count) screen and StorePicker. Added it to
+   `WeeklyCount.tsx` and `Reorder.tsx`, mirroring `EODCount.tsx`'s
+   `headerSwitcherRow` placement so all three count/reorder screens are
+   consistent. (EODCount's header has no inter-row `gap` and uses
+   `marginTop: spacing.sm`; Reorder's header already has `gap: spacing.md`, so
+   its switcher row omits the marginTop; WeeklyCount's header has a tight
+   `gap: 2`, so its switcher row keeps the `marginTop: spacing.sm`.)
+
+2. **Localized `schedule_unknown` reorder warning.** The "no order schedule —
+   using 7-day buffer" warning is built server-side in English by
+   `report_reorder_list`. It now re-localizes on the frontend:
+   - `fetchReorder.ts` parses the vendor name out of the stable SQL message
+     (text inside the first double-quote pair) when `code ===
+     'schedule_unknown'` and exposes it as an optional `vendor` field on the
+     warning. The parse is commented as keyed to the SQL message format in
+     `supabase/migrations/20260602000000_reorder_suggested_cases.sql`.
+   - `Reorder.tsx` renders `schedule_unknown` warnings via
+     `t('reorder.warning.scheduleUnknown', { vendor })`, falling back to the
+     raw message/code for any other warning code. Multi-warning join preserved.
+   - New key `reorder.warning.scheduleUnknown` (with `{vendor}` placeholder)
+     added to all three catalogs (en/es/zh-CN); i18n parity + placeholder-parity
+     tests pass.
+   - The optional `vendor?: string` field was added to the SHARED
+     `ReorderPayload.warnings` type in `src/types/index.ts` (backward-compatible;
+     the admin `db.ts` mapper does not set it).
+
+Verified via `npx tsc --noEmit` (clean) and `npx jest` (full suite: 682 passed,
+66 suites). Browser preview of the staff surface was not available in this
+environment (role-routed staff shell needs a signed-in staff session against
+the local Supabase stack), so verification was tsc + jest per the task.
+
+### Files changed (follow-up)
+- src/types/index.ts
+- src/screens/staff/lib/fetchReorder.ts
+- src/screens/staff/lib/fetchReorder.test.ts
+- src/screens/staff/screens/Reorder.tsx
+- src/screens/staff/screens/Reorder.test.tsx
+- src/screens/staff/screens/WeeklyCount.tsx
+- src/screens/staff/i18n/en.json
+- src/screens/staff/i18n/es.json
+- src/screens/staff/i18n/zh-CN.json

@@ -31,6 +31,7 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
@@ -302,6 +303,9 @@ export function WeeklyCount() {
         <Text style={[styles.subtitle, { color: c.textTertiary }]} numberOfLines={2}>
           {t('weekly.subtitle')}
         </Text>
+        <View style={styles.headerSwitcherRow}>
+          <LocaleSwitcher />
+        </View>
       </View>
 
       {/* Persistent due/overdue banner — the reliable floor. */}
@@ -495,6 +499,13 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.caption,
+  },
+  // Mirrors EODCount.headerSwitcherRow — left-aligned LocaleSwitcher under the
+  // title/subtitle stack. marginTop here because the header's `gap` is a tight
+  // 2px (tuned for the title/subtitle lines), too tight to space the switcher.
+  headerSwitcherRow: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
   },
   loadingPane: {
     flex: 1,

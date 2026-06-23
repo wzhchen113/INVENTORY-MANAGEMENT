@@ -125,6 +125,9 @@
       "title": "Sin calendario de pedidos · {count}",
       "hint": "Estos proveedores no tienen día de pedido configurado, por eso no aparecen en la lista de hoy."
     },
+    "warning": {
+      "scheduleUnknown": "El proveedor \"{vendor}\" no tiene calendario de pedidos: se usa un margen de 7 días."
+    },
     "weekday": {
       "sunday": "domingo",
       "monday": "lunes",

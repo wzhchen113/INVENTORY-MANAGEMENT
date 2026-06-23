@@ -91,6 +91,60 @@ describe('fetchStaffReorder', () => {
     expect(payload.warnings).toEqual([{ code: 'schedule_unknown', message: 'no schedule' }]);
   });
 
+  it('extracts the vendor name from a schedule_unknown warning message', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        vendors: [],
+        kpis: {},
+        _warnings: [
+          {
+            code: 'schedule_unknown',
+            message: 'Vendor "Sysco Foods" has no order schedule — using 7-day buffer.',
+          },
+        ],
+      },
+      error: null,
+    });
+    const payload = await fetchStaffReorder('store-1', '2026-06-02');
+    expect(payload.warnings).toEqual([
+      {
+        code: 'schedule_unknown',
+        message: 'Vendor "Sysco Foods" has no order schedule — using 7-day buffer.',
+        vendor: 'Sysco Foods',
+      },
+    ]);
+  });
+
+  it('omits `vendor` for non-schedule_unknown warnings', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        vendors: [],
+        kpis: {},
+        _warnings: [{ code: 'some_other', message: 'Vendor "Acme" did a thing.' }],
+      },
+      error: null,
+    });
+    const payload = await fetchStaffReorder('store-1', '2026-06-02');
+    expect(payload.warnings).toEqual([
+      { code: 'some_other', message: 'Vendor "Acme" did a thing.' },
+    ]);
+    expect(payload.warnings[0]).not.toHaveProperty('vendor');
+  });
+
+  it('leaves `vendor` undefined when a schedule_unknown message has no quoted name', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        vendors: [],
+        kpis: {},
+        _warnings: [{ code: 'schedule_unknown', message: 'no schedule' }],
+      },
+      error: null,
+    });
+    const payload = await fetchStaffReorder('store-1', '2026-06-02');
+    expect(payload.warnings).toEqual([{ code: 'schedule_unknown', message: 'no schedule' }]);
+    expect(payload.warnings[0]).not.toHaveProperty('vendor');
+  });
+
   it('suggestedCases is null when the server returns null (no case size)', async () => {
     mockRpc.mockResolvedValueOnce({
       data: {

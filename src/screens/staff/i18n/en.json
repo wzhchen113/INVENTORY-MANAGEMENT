@@ -125,6 +125,9 @@
       "title": "No order schedule · {count}",
       "hint": "These vendors have no order-out day set, so they're not in today's list."
     },
+    "warning": {
+      "scheduleUnknown": "Vendor \"{vendor}\" has no order schedule — using 7-day buffer."
+    },
     "weekday": {
       "sunday": "Sunday",
       "monday": "Monday",

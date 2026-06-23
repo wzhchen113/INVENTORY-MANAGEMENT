@@ -794,7 +794,12 @@ export interface ReorderPayload {
     eodSourcedVendorCount: number;
     stockFallbackVendorCount: number;
   };
-  warnings: Array<{ code: string; message: string }>;
+  // `vendor` is an optional, frontend-parsed convenience field: for
+  // `code === 'schedule_unknown'` warnings the staff Reorder screen extracts
+  // the vendor name from the server-built `message` so it can re-localize the
+  // warning (spec follow-up). It is undefined for warnings produced outside
+  // that parse path (e.g. the admin db.ts mapper), which is why it's optional.
+  warnings: Array<{ code: string; message: string; vendor?: string }>;
 }
 
 /**

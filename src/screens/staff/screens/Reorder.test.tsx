@@ -259,15 +259,40 @@ describe('Reorder — no-schedule group + warnings', () => {
     expect(getByTestId('staff-reorder-vendor-v-2')).toBeTruthy();
   });
 
-  it('renders the warnings banner when the payload carries warnings', async () => {
+  it('renders schedule_unknown warnings localized from code + vendor', async () => {
+    // fetchReorder parses the vendor name out of the server message; the
+    // screen rebuilds the warning from the stable `code` + `vendor` so it's
+    // localized (here: the English catalog under jest's light/en default).
     mockFetchStaffReorder.mockResolvedValue(
-      payloadOf([caseVendor], [{ code: 'schedule_unknown', message: 'Beta has no schedule' }]),
+      payloadOf(
+        [caseVendor],
+        [
+          {
+            code: 'schedule_unknown',
+            message: 'Vendor "Beta" has no order schedule — using 7-day buffer.',
+            vendor: 'Beta',
+          },
+        ],
+      ),
     );
     mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
 
     const { getByTestId, getByText } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-warnings')).toBeTruthy());
-    expect(getByText('Beta has no schedule')).toBeTruthy();
+    expect(
+      getByText('Vendor "Beta" has no order schedule — using 7-day buffer.'),
+    ).toBeTruthy();
+  });
+
+  it('falls back to the raw message for non-schedule_unknown warnings', async () => {
+    mockFetchStaffReorder.mockResolvedValue(
+      payloadOf([caseVendor], [{ code: 'some_other', message: 'A different warning' }]),
+    );
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByTestId, getByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-warnings')).toBeTruthy());
+    expect(getByText('A different warning')).toBeTruthy();
   });
 });
 

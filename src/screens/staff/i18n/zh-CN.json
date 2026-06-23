@@ -125,6 +125,9 @@
       "title": "无订购计划 · {count}",
       "hint": "这些供应商未设置下单日，因此不在今天的清单中。"
     },
+    "warning": {
+      "scheduleUnknown": "供应商\"{vendor}\"没有订货计划，使用 7 天缓冲。"
+    },
     "weekday": {
       "sunday": "星期日",
       "monday": "星期一",
