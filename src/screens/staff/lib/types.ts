@@ -5,6 +5,14 @@
 // src/types/index.ts (no such file exists yet) — the staff app is small
 // enough that a single co-located types file is sufficient.
 
+// Per-locale name override map. Reuses the SHARED admin type (spec 040)
+// rather than a staff mirror — it's a pure type, no supabase coupling, and
+// the staff `Locale` union is byte-identical to the admin one, so the
+// pure `getLocalizedName` resolver (src/i18n/localizedName.ts) consumes
+// both without drift. Carries `catalog_ingredients.i18n_names` so the
+// count screens can render item names in the active locale.
+import type { LocalizedNames } from '../../../types';
+
 /** Per-store assignment row read from `user_stores` joined with stores. */
 export type UserStore = {
   storeId: string;
@@ -27,6 +35,11 @@ export type EodItem = {
   name: string;
   unit: string;
   caseQty: number | null;
+  /** Per-locale name overrides from `catalog_ingredients.i18n_names`.
+   *  Optional — absent on legacy/un-translated rows. The display name is
+   *  resolved via `getLocalizedName({ name, i18nNames }, locale)` so the
+   *  list re-renders in the active staff locale. */
+  i18nNames?: LocalizedNames;
 };
 
 /** Vendor row (id + name) for the vendor switcher. */
@@ -133,6 +146,11 @@ export type WeeklyItem = {
    *  "Uncategorized" header. Category does NOT affect what is submitted. */
   category: string;
   caseQty: number | null;
+  /** Per-locale name overrides from `catalog_ingredients.i18n_names`.
+   *  Optional — absent on legacy/un-translated rows. Resolved at render
+   *  via `getLocalizedName({ name, i18nNames }, locale)` so item names
+   *  switch with the active staff locale. */
+  i18nNames?: LocalizedNames;
 };
 
 /** Spec 098 — single entry inside a weekly-count submit. Mirrors the

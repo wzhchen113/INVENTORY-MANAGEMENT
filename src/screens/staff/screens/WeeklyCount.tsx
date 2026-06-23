@@ -37,6 +37,8 @@ import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { useStaffStore } from '../store/useStaffStore';
 import { t, useI18n } from '../i18n';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import type { LocalizedNames } from '../../../types';
 import { spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
 
@@ -64,7 +66,7 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
   // the EOD screen reads (catalog_ingredients.case_qty, spec 086).
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, catalog:catalog_ingredients(name, unit, category, case_qty)')
+    .select('id, catalog:catalog_ingredients(name, unit, category, case_qty, i18n_names)')
     .eq('store_id', storeId)
     .order('id', { ascending: true });
   if (error) throw error;
@@ -73,6 +75,7 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
     unit: string | null;
     category: string | null;
     case_qty: number | string | null;
+    i18n_names: LocalizedNames | null;
   };
   type Row = {
     id: string;
@@ -91,10 +94,38 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
         // bucket under an "Uncategorized" header.
         category: c?.category ?? '',
         caseQty: c?.case_qty == null ? null : Number(c.case_qty),
+        // Per-locale name overrides — null/missing → undefined so
+        // getLocalizedName falls back to the English `name`.
+        i18nNames: c?.i18n_names ?? undefined,
       };
     })
     // Stable alphabetical order so the long full-store list is scannable.
+    // Sort on the canonical English name — locale-independent so the list
+    // order stays stable across a locale switch (the displayed labels are
+    // localized at render via getLocalizedName).
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Fetch the store's ingredient categories with their per-locale name
+// overrides, keyed by the canonical category NAME (the same string the
+// catalog rows store in `category`). Staff carve-out: direct
+// `supabase.from('ingredient_categories')`. Errors are swallowed to a
+// best-effort empty map — category localization is display-only and must
+// never block the count list (the header falls back to the raw English
+// category text). RLS scopes the rows the manager can see.
+async function fetchCategoryI18n(): Promise<Map<string, LocalizedNames>> {
+  const { data, error } = await supabase
+    .from('ingredient_categories')
+    .select('name, i18n_names');
+  if (error) throw error;
+  type Row = { name: string | null; i18n_names: LocalizedNames | null };
+  const rows = (data ?? []) as Row[];
+  const map = new Map<string, LocalizedNames>();
+  for (const r of rows) {
+    if (!r.name) continue;
+    map.set(r.name, r.i18n_names ?? {});
+  }
+  return map;
 }
 
 // ── screen ────────────────────────────────────────────────────────
@@ -102,11 +133,20 @@ export function WeeklyCount() {
   const c = useStaffColors();
   // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
   const { t } = useI18n();
+  // Reactive locale slice — item names + category headers are resolved via
+  // getLocalizedName(row, locale), so reading the slice directly re-renders
+  // them on a locale switch (same reactivity contract as useI18n's `t`).
+  const locale = useStaffStore((s) => s.locale);
   const activeStore = useStaffStore((s) => s.activeStore);
   const fetchWeeklyStatus = useStaffStore((s) => s.fetchWeeklyStatus);
   const submitWeeklyCount = useStaffStore((s) => s.submitWeeklyCount);
 
   const [items, setItems] = useState<WeeklyItem[]>([]);
+  // name → per-locale category overrides (keyed by canonical English
+  // category name; same string the catalog rows store in `category`).
+  const [categoryI18n, setCategoryI18n] = useState<Map<string, LocalizedNames>>(
+    () => new Map(),
+  );
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(true);
@@ -134,6 +174,15 @@ export function WeeklyCount() {
         setItems([]);
       })
       .finally(() => setLoading(false));
+    // Category translations load in parallel — best-effort; a failure
+    // leaves the map empty and headers fall back to the raw category text.
+    // Does NOT gate `loading` (the item list is the primary content).
+    fetchCategoryI18n()
+      .then(setCategoryI18n)
+      .catch((err) => {
+        notifyBackendError('fetchCategoryI18n', err);
+        setCategoryI18n(new Map());
+      });
   }, [activeStore]);
 
   // ─── refresh the weekly status on focus (banner floor, no realtime) ──
@@ -172,11 +221,23 @@ export function WeeklyCount() {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([category, data]) => ({
+        // `category` is the canonical English key — kept stable for the
+        // section testID + grouping. `title` is the LOCALIZED header:
+        // map the raw category name → its ingredient_categories row →
+        // getLocalizedName(override-or-canonical, locale). No matching row
+        // or no override → the raw English category text (silent fallback,
+        // same rule as item names). The empty bucket localizes the
+        // "Uncategorized" label via i18n.
         category,
-        title: category || t('weekly.category.uncategorized'),
+        title: category
+          ? getLocalizedName(
+              { name: category, i18nNames: categoryI18n.get(category) },
+              locale,
+            )
+          : t('weekly.category.uncategorized'),
         data,
       }));
-  }, [items, t]);
+  }, [items, t, locale, categoryI18n]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -369,13 +430,20 @@ export function WeeklyCount() {
             const total =
               (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
               (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+            // Resolve the display name in the active locale (silent English
+            // fallback when no override). Used for both the visible label
+            // and the input accessibility labels so they stay in sync.
+            const displayName = getLocalizedName(
+              { name: item.name, i18nNames: item.i18nNames },
+              locale,
+            );
             return (
               <ListRow
                 testID={`weekly-item-row-${item.id}`}
                 leading={
                   <View>
                     <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-                      {item.name}
+                      {displayName}
                     </Text>
                     {item.unit || hasPack ? (
                       <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
@@ -410,7 +478,7 @@ export function WeeklyCount() {
                           placeholder="0"
                           testID={`weekly-item-cases-${item.id}`}
                           style={styles.countInput}
-                          accessibilityLabel={t('weekly.col.casesAria', { item: item.name })}
+                          accessibilityLabel={t('weekly.col.casesAria', { item: displayName })}
                         />
                       </View>
                       <View style={styles.countCol}>
@@ -427,7 +495,7 @@ export function WeeklyCount() {
                           placeholder="0"
                           testID={`weekly-item-units-${item.id}`}
                           style={styles.countInput}
-                          accessibilityLabel={t('weekly.col.unitsAria', { item: item.name })}
+                          accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
                         />
                       </View>
                     </View>
@@ -446,7 +514,7 @@ export function WeeklyCount() {
                         placeholder="0"
                         testID={`weekly-item-units-${item.id}`}
                         style={styles.countInput}
-                        accessibilityLabel={t('weekly.col.unitsAria', { item: item.name })}
+                        accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
                       />
                     </View>
                   )

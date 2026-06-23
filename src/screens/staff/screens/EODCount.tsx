@@ -38,6 +38,8 @@ import { notifyBackendError } from '../lib/notifyBackendError';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import type { LocalizedNames } from '../../../types';
 import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
 import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
 
@@ -127,7 +129,7 @@ async function fetchItemsForVendor(
   // 086; same source the admin reads via db.ts:166).
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, vendor_id, catalog:catalog_ingredients(name, unit, case_qty)')
+    .select('id, vendor_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names)')
     .eq('store_id', storeId)
     .eq('vendor_id', vendorId)
     .order('id', { ascending: true });
@@ -136,6 +138,7 @@ async function fetchItemsForVendor(
     name: string | null;
     unit: string | null;
     case_qty: number | string | null;
+    i18n_names: LocalizedNames | null;
   };
   type Row = {
     id: string;
@@ -153,6 +156,9 @@ async function fetchItemsForVendor(
       // Preserve null (the admin collapses to 1 at hydration; we keep
       // the distinction and apply `|| 1` at the conversion site).
       caseQty: c?.case_qty == null ? null : Number(c.case_qty),
+      // Per-locale name overrides — null/missing → undefined so
+      // getLocalizedName falls back to the English `name`.
+      i18nNames: c?.i18n_names ?? undefined,
     };
   });
 }
@@ -216,6 +222,10 @@ export function EODCount() {
   // Reactive `t` (spec 099) — every render-path string below uses this so
   // the screen re-renders and re-translates on a locale change.
   const { t } = useI18n();
+  // Reactive locale slice — item names are resolved via
+  // getLocalizedName(item, locale), so reading the slice directly re-renders
+  // the list labels on a locale switch.
+  const locale = useStaffStore((s) => s.locale);
   const activeStore = useStaffStore((s) => s.activeStore);
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
@@ -643,13 +653,20 @@ export function EODCount() {
             const total =
               (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
               (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+            // Resolve the display name in the active locale (silent English
+            // fallback when no override). Used for the visible label and the
+            // input accessibility labels so they stay in sync.
+            const displayName = getLocalizedName(
+              { name: item.name, i18nNames: item.i18nNames },
+              locale,
+            );
             return (
               <ListRow
                 testID={`eod-item-row-${item.id}`}
                 leading={
                   <View>
                     <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-                      {item.name}
+                      {displayName}
                     </Text>
                     {item.unit || hasPack ? (
                       <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
@@ -688,7 +705,7 @@ export function EODCount() {
                         placeholder="0"
                         testID={`eod-item-cases-${item.id}`}
                         style={styles.countInput}
-                        accessibilityLabel={t('eod.col.casesAria', { item: item.name })}
+                        accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
                       />
                     </View>
                     <View style={styles.countCol}>
@@ -705,7 +722,7 @@ export function EODCount() {
                         placeholder="0"
                         testID={`eod-item-units-${item.id}`}
                         style={styles.countInput}
-                        accessibilityLabel={t('eod.col.unitsAria', { item: item.name })}
+                        accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
                       />
                     </View>
                   </View>

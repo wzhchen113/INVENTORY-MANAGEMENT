@@ -26,21 +26,27 @@ jest.mock('@react-navigation/native', () => ({
 // ─── mock supabase.from() (item read) + supabase.rpc() (status) ──────
 type QueryResult = { data: unknown; error: unknown };
 let mockItemsResult: QueryResult = { data: [], error: null };
+// Spec: WeeklyCount now reads ingredient_categories for localized headers.
+// Keyed by table so the item read and the category read return distinct
+// data (default empty for categories so existing tests are unaffected).
+let mockCategoriesResult: QueryResult = { data: [], error: null };
 let mockRpcResult: QueryResult = { data: null, error: null };
 
-function mockQueryBuilder() {
+function mockQueryBuilder(table: string) {
+  const result =
+    table === 'ingredient_categories' ? mockCategoriesResult : mockItemsResult;
   const builder: Record<string, unknown> = {
     select: () => builder,
     eq: () => builder,
     order: () => builder,
-    then: (resolve: (v: QueryResult) => unknown) => resolve(mockItemsResult),
+    then: (resolve: (v: QueryResult) => unknown) => resolve(result),
   };
   return builder;
 }
 
 jest.mock('../../../lib/supabase', () => ({
   supabase: {
-    from: () => mockQueryBuilder(),
+    from: (table: string) => mockQueryBuilder(table),
     rpc: (_fn: string) => Promise.resolve(mockRpcResult),
     auth: { signOut: jest.fn().mockResolvedValue({ error: null }) },
   },
@@ -64,7 +70,10 @@ function seedSignedIn() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockItemsResult = { data: [], error: null };
+  mockCategoriesResult = { data: [], error: null };
   mockRpcResult = { data: null, error: null };
+  // Reset to English between tests — locale is global store state.
+  useStaffStore.setState({ locale: 'en' });
   seedSignedIn();
 });
 
@@ -210,6 +219,78 @@ describe('WeeklyCount', () => {
         },
       ],
     });
+  });
+
+  it('renders localized item names + category headers for a non-English locale; falls back to English when an override is missing', async () => {
+    useStaffStore.setState({ locale: 'es' });
+    mockItemsResult = {
+      data: [
+        // item-1 has an es override → shows the Spanish name.
+        {
+          id: 'item-1',
+          catalog: {
+            name: 'Flour',
+            unit: 'lb',
+            category: 'Dry Goods',
+            case_qty: 1,
+            i18n_names: { es: 'Harina', 'zh-CN': '面粉' },
+          },
+        },
+        // item-2 has NO es override → falls back to the English name.
+        {
+          id: 'item-2',
+          catalog: {
+            name: 'Salt',
+            unit: 'oz',
+            category: 'Dry Goods',
+            case_qty: 1,
+            i18n_names: { 'zh-CN': '盐' },
+          },
+        },
+      ],
+      error: null,
+    };
+    // Category 'Dry Goods' has an es override → the header localizes.
+    mockCategoriesResult = {
+      data: [{ name: 'Dry Goods', i18n_names: { es: 'Secos' } }],
+      error: null,
+    };
+    const { getByText } = render(<WeeklyCount />);
+    // Item with an es override renders in Spanish.
+    await waitFor(() => expect(getByText('Harina')).toBeTruthy());
+    // Item without an es override falls back to English silently.
+    expect(getByText('Salt')).toBeTruthy();
+    // Category header localizes to the es override.
+    expect(getByText('Secos')).toBeTruthy();
+  });
+
+  it('falls back to the raw English category text when the category has no override (and re-renders on a locale switch)', async () => {
+    mockItemsResult = {
+      data: [
+        {
+          id: 'item-1',
+          catalog: {
+            name: 'Flour',
+            unit: 'lb',
+            category: 'Dry Goods',
+            case_qty: 1,
+            i18n_names: { es: 'Harina' },
+          },
+        },
+      ],
+      error: null,
+    };
+    // No row for 'Dry Goods' → header keeps the raw English category text.
+    mockCategoriesResult = { data: [], error: null };
+    const { getByText } = render(<WeeklyCount />);
+    // English first: canonical name + raw category header.
+    await waitFor(() => expect(getByText('Flour')).toBeTruthy());
+    expect(getByText('Dry Goods')).toBeTruthy();
+    // Switch to Spanish: the item name re-renders (override present) WITHOUT
+    // a remount; the category header stays English (no override).
+    useStaffStore.setState({ locale: 'es' });
+    await waitFor(() => expect(getByText('Harina')).toBeTruthy());
+    expect(getByText('Dry Goods')).toBeTruthy();
   });
 
   it('shows the due/overdue banner for open + overdue status', async () => {

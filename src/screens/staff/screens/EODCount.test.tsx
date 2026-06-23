@@ -53,6 +53,8 @@ beforeEach(() => {
   mockSubmit.mockReset();
   mockFromCalls.length = 0;
   mockNextResultStack = [];
+  // Reset to English between tests — locale is global store state.
+  useStaffStore.setState({ locale: 'en' });
   useStaffStore.setState({
     authState: {
       kind: 'signed-in',
@@ -95,6 +97,36 @@ describe('EODCount', () => {
     // The old single-input testID is gone.
     expect(queryByTestId('eod-item-input-item-1')).toBeNull();
     expect(getByTestId('eod-submit')).toBeTruthy();
+  });
+
+  it('renders the localized item name for a non-English locale and falls back to English when the override is missing', async () => {
+    useStaffStore.setState({ locale: 'es' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          // item-1: es override present → Spanish name.
+          {
+            id: 'item-1',
+            vendor_id: 'v-1',
+            catalog: { name: 'Flour', unit: 'lb', case_qty: 12, i18n_names: { es: 'Harina' } },
+          },
+          // item-2: no es override → English fallback.
+          {
+            id: 'item-2',
+            vendor_id: 'v-1',
+            catalog: { name: 'Salt', unit: 'oz', case_qty: 1, i18n_names: { 'zh-CN': '盐' } },
+          },
+        ],
+        error: null,
+      },
+      { data: null, error: null },
+    ];
+    const { findByText, getByText } = render(<EODCount />);
+    // es override renders in Spanish.
+    expect(await findByText('Harina')).toBeTruthy();
+    // missing es override falls back to English silently.
+    expect(getByText('Salt')).toBeTruthy();
   });
 
   it('shows a static "Vendor: <name>" label (no chip switcher) when exactly one vendor is scheduled', async () => {
