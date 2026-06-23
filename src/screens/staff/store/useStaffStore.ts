@@ -33,12 +33,33 @@ import type {
 import {
   persistQueue,
   writeActiveStoreId,
+  writeCachedLocale,
 } from '../lib/eodQueue';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { supabase } from '../../../lib/supabase';
 import { uuidv4 } from '../lib/uuid';
+import { _setActiveLocaleGetter, type Locale } from '../i18n';
 
 export type StaffState = {
+  // ─── LOCALE (chrome language) ─────────────────────────
+  /** Active chrome language. Drives the staff i18n `t()`. Initialized
+   *  at boot from profiles.locale (DB, cross-device) → cached value →
+   *  'en'. Components that must re-render on a change subscribe to this
+   *  slice (e.g. `useStaffStore((s) => s.locale)`). */
+  locale: Locale;
+
+  /** Set the active locale and persist it: (a) update state, (b) write
+   *  the local cache for instant boot restore, (c) push to
+   *  profiles.locale when signed in (staff carve-out — direct
+   *  supabase.update). Optimistic-then-revert: a failed DB write rolls
+   *  the in-memory locale back and surfaces a toast. */
+  setLocale: (next: Locale) => void;
+
+  /** Apply a locale WITHOUT persisting — used at boot/login to seed the
+   *  store from the DB/cache value without round-tripping it back to the
+   *  column (mirrors admin `hydrateLocale`). */
+  hydrateLocale: (next: Locale) => void;
+
   // ─── AUTH ─────────────────────────────────────────────
   authState: AuthState;
   setAuthState: (s: AuthState) => void;
@@ -102,6 +123,37 @@ export type StaffState = {
 };
 
 export const useStaffStore = create<StaffState>((set, get) => ({
+  // ─── LOCALE ───────────────────────────────────────────
+  locale: 'en',
+
+  setLocale: (next) => {
+    const prev = get().locale;
+    if (prev === next) return;
+    set({ locale: next });
+    // Local cache for instant boot restore (best-effort, fire-and-forget).
+    void writeCachedLocale(next);
+    // Persist to profiles.locale when signed in. Staff carve-out (spec
+    // 063): direct supabase.update, NOT src/lib/db.ts. RLS scopes the
+    // write to the caller's own row (id = auth.uid()); the
+    // profiles_locale_check CHECK constraint enforces the enum.
+    const userId = currentStaffUserId(get().authState);
+    if (!userId) return; // login screen / not signed in — local-only.
+    void supabase
+      .from('profiles')
+      .update({ locale: next })
+      .eq('id', userId)
+      .then(({ error }) => {
+        if (error) {
+          // Optimistic-then-revert: roll back and surface a toast.
+          set({ locale: prev });
+          void writeCachedLocale(prev);
+          notifyBackendError('Save language', error);
+        }
+      });
+  },
+
+  hydrateLocale: (next) => set({ locale: next }),
+
   // ─── AUTH ─────────────────────────────────────────────
   authState: { kind: 'idle' },
   setAuthState: (s) => set({ authState: s }),
@@ -246,6 +298,12 @@ export const useStaffStore = create<StaffState>((set, get) => ({
     return get().eodQueue.filter((q) => q.intent_user_id === userId).length;
   },
 }));
+
+// Wire the staff i18n's bare `t()` to read the live active locale from
+// this store. Done once at module init. Importing the store inside the
+// i18n module would create a cycle (the store imports the i18n getter),
+// so the dependency is injected this direction instead.
+_setActiveLocaleGetter(() => useStaffStore.getState().locale);
 
 // ─── HELPER: derive current signed-in user id ─────────────────────
 // Many callers need the userId from authState; the kind-guard

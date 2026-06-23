@@ -15,7 +15,7 @@ import RoleRouter from './src/navigation/RoleRouter';
 import RecoveryGate from './src/navigation/RecoveryGate';
 import { useStaffStore } from './src/screens/staff/store/useStaffStore';
 import { checkAuthGate } from './src/lib/authGate';
-import { hydrateQueue, migrateQueueIfNeeded, readActiveStoreId, writeActiveStoreId } from './src/screens/staff/lib/eodQueue';
+import { hydrateQueue, migrateQueueIfNeeded, readActiveStoreId, readCachedLocale as readStaffCachedLocale, writeActiveStoreId } from './src/screens/staff/lib/eodQueue';
 import { notifyBackendError as notifyStaffBackendError } from './src/screens/staff/lib/notifyBackendError';
 import { t as tStaff } from './src/screens/staff/i18n';
 import { useFonts } from 'expo-font';
@@ -205,6 +205,18 @@ export default function App() {
         notifyStaffBackendError('staff queue hydrate', err);
       }
 
+      // Staff chrome-language: restore the cached locale before the
+      // session resolves so a Spanish/Chinese staff session doesn't flash
+      // English chrome on cold start. The DB value (profiles.locale)
+      // overrides this in the staff branch below. hydrateLocale is the
+      // no-persist setter. Runs unconditionally (tolerates no cache → no-op).
+      try {
+        const cachedStaffLocale = await readStaffCachedLocale();
+        if (cachedStaffLocale) useStaffStore.getState().hydrateLocale(cachedStaffLocale);
+      } catch {
+        /* best-effort */
+      }
+
       // Must run BEFORE getSession so the injected session is what getSession sees.
       await hydrateDevSessionFromUrl();
       // Native — pick up the cached flag if useLayoutEffect didn't already.
@@ -240,6 +252,11 @@ export default function App() {
           useStaffStore.getState().setAuthState({ kind: 'signed-out' });
           return;
         }
+        // Gate passed. DB-stored locale (profiles.locale) is the
+        // cross-device source of truth — override the cached value if
+        // they differ. hydrateLocale is the no-persist setter so this
+        // doesn't round-trip the just-read value back to the column.
+        if (result.locale) useStaffStore.getState().hydrateLocale(result.locale);
         // Gate passed — restore active store from persisted preference
         // (mirrors imr-staff RootStack.restoreSession behaviour).
         const persisted = await readActiveStoreId();

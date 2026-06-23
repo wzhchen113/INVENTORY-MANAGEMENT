@@ -197,6 +197,14 @@
     "errorBoundary": {
       "title": "Something went wrong",
       "message": "Your counts are saved. Please restart the app."
+    },
+    "localeSwitcher": {
+      "aria": "Change language",
+      "labels": {
+        "en": "EN",
+        "es": "ES",
+        "zh-CN": "中文"
+      }
     }
   }
 }

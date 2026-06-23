@@ -3,13 +3,24 @@
 // Spec 098 — the store now imports the supabase client (for the weekly
 // slice's direct-rpc carve-out), so stub it at the module boundary like
 // the screen tests do; without a real URL `createClient` throws at load.
+//
+// The locale slice (this spec) adds a direct `supabase.from('profiles')
+// .update().eq()` write — stub the fluent builder so the chain resolves
+// to a controllable `{ error }`. `eq` returns a thenable so `await`/`.then`
+// both work.
+const mockProfilesUpdateEq = jest.fn().mockResolvedValue({ error: null });
+const mockProfilesUpdate = jest.fn(() => ({ eq: mockProfilesUpdateEq }));
 jest.mock('../../../lib/supabase', () => ({
-  supabase: { rpc: jest.fn().mockResolvedValue({ data: null, error: null }) },
+  supabase: {
+    rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
+    from: jest.fn(() => ({ update: mockProfilesUpdate })),
+  },
 }));
 
 import { useStaffStore, currentStaffUserId, selectStaffStores } from './useStaffStore';
 import type { QueuedSubmission } from '../lib/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../../../lib/supabase';
 
 function makeItem(overrides: Partial<QueuedSubmission> = {}): QueuedSubmission {
   return {
@@ -28,11 +39,13 @@ function makeItem(overrides: Partial<QueuedSubmission> = {}): QueuedSubmission {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockProfilesUpdateEq.mockResolvedValue({ error: null });
   useStaffStore.setState({
     authState: { kind: 'idle' },
     activeStore: null,
     eodQueue: [],
     draining: false,
+    locale: 'en',
   });
 });
 
@@ -96,6 +109,67 @@ describe('useStaffStore — queue mutations write through AsyncStorage', () => {
     const after = useStaffStore.getState().eodQueue[0];
     expect(after.attempts).toBe(2);
     expect(after.lastError).toBe('network');
+  });
+});
+
+describe('useStaffStore — locale slice', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('defaults to en', () => {
+    expect(useStaffStore.getState().locale).toBe('en');
+  });
+
+  it('hydrateLocale sets state without persisting', () => {
+    useStaffStore.getState().hydrateLocale('zh-CN');
+    expect(useStaffStore.getState().locale).toBe('zh-CN');
+    // No local cache write, no DB write.
+    expect(AsyncStorage.setItem).not.toHaveBeenCalledWith(
+      'imr-staff:locale:v1',
+      expect.anything(),
+    );
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('setLocale updates state + caches locally when signed out (no DB write)', () => {
+    useStaffStore.getState().setLocale('es');
+    expect(useStaffStore.getState().locale).toBe('es');
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith('imr-staff:locale:v1', 'es');
+    // Not signed in → no profiles write.
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('setLocale is a no-op when the locale is unchanged', () => {
+    useStaffStore.getState().setLocale('en');
+    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('setLocale persists to profiles.locale when signed in', async () => {
+    useStaffStore.setState({
+      authState: { kind: 'signed-in', userId: 'user-9', stores: [] },
+    });
+    useStaffStore.getState().setLocale('zh-CN');
+    expect(useStaffStore.getState().locale).toBe('zh-CN');
+    expect(supabase.from).toHaveBeenCalledWith('profiles');
+    expect(mockProfilesUpdate).toHaveBeenCalledWith({ locale: 'zh-CN' });
+    expect(mockProfilesUpdateEq).toHaveBeenCalledWith('id', 'user-9');
+    await flush();
+    // Successful write — state stays.
+    expect(useStaffStore.getState().locale).toBe('zh-CN');
+  });
+
+  it('setLocale reverts state on a failed DB write', async () => {
+    useStaffStore.setState({
+      authState: { kind: 'signed-in', userId: 'user-9', stores: [] },
+      locale: 'en',
+    });
+    mockProfilesUpdateEq.mockResolvedValueOnce({ error: { message: 'boom' } });
+    useStaffStore.getState().setLocale('es');
+    // Optimistic update applied first.
+    expect(useStaffStore.getState().locale).toBe('es');
+    await flush();
+    // Reverted after the rejected write.
+    expect(useStaffStore.getState().locale).toBe('en');
   });
 });
 

@@ -1,143 +1,185 @@
-// src/i18n/i18n.test.ts — key-existence + interpolation tests.
+// src/screens/staff/i18n/i18n.test.ts — catalog parity + locale-aware
+// t()/translate() + fallback tests.
+//
+// Mirrors the admin i18n test idiom (src/i18n/i18n.test.ts, spec 038):
+//   (a) en / es / zh-CN have identical key sets and string-only leaves.
+//   (b) translate(locale, key) returns the locale-specific string.
+//   (c) translate(locale, missing) returns the key + warns once (deduped).
+//   (d) active-locale missing keys fall back to English value + warn once.
+//   (e) bare t() resolves against the active locale (via the registered
+//       getter) and keeps the spec-062 call-site shape working.
 
-import { t, _resetWarnCache } from './index';
+import en from './en.json';
+import es from './es.json';
+import zhCN from './zh-CN.json';
+import {
+  t,
+  translate,
+  _resetWarnCache,
+  _setActiveLocaleGetter,
+  type Locale,
+} from './index';
 
-describe('i18n.t()', () => {
+// ── Flatten helper ──────────────────────────────────────────────────
+function flattenKeys(obj: Record<string, unknown>, prefix = ''): Set<string> {
+  const out = new Set<string>();
+  for (const [k, v] of Object.entries(obj)) {
+    const next = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      for (const child of flattenKeys(v as Record<string, unknown>, next)) {
+        out.add(child);
+      }
+    } else {
+      out.add(next);
+    }
+  }
+  return out;
+}
+
+describe('staff i18n catalog parity', () => {
+  it('en, es, zh-CN have identical key sets', () => {
+    const enKeys = flattenKeys(en);
+    const esKeys = flattenKeys(es);
+    const zhKeys = flattenKeys(zhCN);
+
+    const missingInEs = [...enKeys].filter((k) => !esKeys.has(k));
+    const missingInZh = [...enKeys].filter((k) => !zhKeys.has(k));
+    const extraInEs = [...esKeys].filter((k) => !enKeys.has(k));
+    const extraInZh = [...zhKeys].filter((k) => !enKeys.has(k));
+
+    expect(missingInEs).toEqual([]);
+    expect(missingInZh).toEqual([]);
+    expect(extraInEs).toEqual([]);
+    expect(extraInZh).toEqual([]);
+  });
+
+  it('every leaf in each catalog is a string', () => {
+    function assertStringLeaves(obj: Record<string, unknown>, path = '') {
+      for (const [k, v] of Object.entries(obj)) {
+        const here = path ? `${path}.${k}` : k;
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          assertStringLeaves(v as Record<string, unknown>, here);
+        } else {
+          expect(typeof v).toBe('string');
+        }
+      }
+    }
+    assertStringLeaves(en);
+    assertStringLeaves(es);
+    assertStringLeaves(zhCN);
+  });
+
+  it('keeps {var} placeholders identical across locales', () => {
+    // Every interpolation token in en.json must appear in the same key's
+    // es / zh-CN value, else a runtime substitution silently no-ops.
+    const enKeys = flattenKeys(en);
+    function read(obj: Record<string, unknown>, key: string): string {
+      let cur: unknown = obj;
+      for (const seg of key.split('.')) cur = (cur as Record<string, unknown>)[seg];
+      return cur as string;
+    }
+    const tokens = (s: string) =>
+      new Set((s.match(/\{(\w+)\}/g) ?? []).sort());
+    for (const key of enKeys) {
+      const enTokens = tokens(read(en, key));
+      expect({ key, tokens: tokens(read(es, key)) }).toEqual({ key, tokens: enTokens });
+      expect({ key, tokens: tokens(read(zhCN, key)) }).toEqual({ key, tokens: enTokens });
+    }
+  });
+});
+
+describe('staff translate()', () => {
+  let warnSpy: jest.SpyInstance;
+
   beforeEach(() => {
     _resetWarnCache();
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   });
   afterEach(() => {
-    jest.restoreAllMocks();
+    warnSpy.mockRestore();
   });
 
-  it('returns the English string for a known key', () => {
-    expect(t('eod.submit')).toBe('Submit');
+  it("returns the English string when locale is 'en'", () => {
+    expect(translate('en', 'eod.submit')).toBe('Submit');
+    expect(translate('en', 'chrome.signOut.label')).toBe('Sign out');
   });
 
-  it('substitutes {var} placeholders', () => {
-    expect(t('store.picker.subtitle', { count: 3 })).toBe('You have access to 3 stores');
+  it("returns the Spanish string when locale is 'es'", () => {
+    expect(translate('es', 'eod.submit')).toBe('Enviar');
+    expect(translate('es', 'chrome.signOut.label')).toBe('Cerrar sesión');
+  });
+
+  it("returns the Chinese string when locale is 'zh-CN'", () => {
+    expect(translate('zh-CN', 'eod.submit')).toBe('提交');
+    expect(translate('zh-CN', 'chrome.signOut.label')).toBe('退出登录');
+  });
+
+  it('substitutes {var} placeholders per locale', () => {
+    expect(translate('en', 'store.picker.subtitle', { count: 3 })).toBe(
+      'You have access to 3 stores',
+    );
+    expect(translate('es', 'store.picker.subtitle', { count: 2 })).toBe(
+      'Tienes acceso a 2 tiendas',
+    );
   });
 
   it('leaves the literal {var} when no matching var is provided', () => {
-    expect(t('store.picker.subtitle')).toBe('You have access to {count} stores');
+    expect(translate('en', 'store.picker.subtitle')).toBe(
+      'You have access to {count} stores',
+    );
   });
 
-  it('returns the raw key + warns once for a missing key', () => {
-    const warnSpy = jest.spyOn(console, 'warn');
-    expect(t('does.not.exist')).toBe('does.not.exist');
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(t('does.not.exist')).toBe('does.not.exist');
-    // Still 1 call — _warned dedupes.
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('handles every key referenced in the queue UX', () => {
-    const requiredKeys = [
-      'auth.signIn.title',
-      'auth.signIn.subtitle',
-      'auth.signIn.email',
-      'auth.signIn.password',
-      'auth.signIn.submit',
-      'auth.signIn.submitting',
-      'auth.error.invalidCreds',
-      'auth.error.notStaff',
-      'auth.error.noStores',
-      'auth.error.generic',
-      'store.picker.title',
-      'store.picker.subtitle',
-      'eod.header.today',
-      'eod.vendor.label',
-      'eod.vendor.single',
-      'eod.col.cases',
-      'eod.col.units',
-      'eod.col.casesAria',
-      'eod.col.unitsAria',
-      'eod.row.caseOf',
-      'eod.row.total',
-      'eod.submit',
-      'eod.submitting',
-      'eod.banner.lastSubmitted',
-      'eod.banner.alreadySubmitted',
-      'eod.toast.submitted',
-      'eod.toast.alreadySubmitted',
-      'eod.toast.failed',
-      'eod.toast.noCountsEntered',
-      'eod.toast.queued',
-      'eod.toast.allSynced',
-      'eod.error.forbidden',
-      'chrome.queue.pending',
-      'chrome.queue.draining',
-      'chrome.queue.needsAttention',
-      'chrome.queue.syncErrorBanner',
-      'chrome.switchStore',
-      'chrome.signOut.label',
-      'chrome.signOut.confirmTitle',
-      'chrome.signOut.confirmMessage',
-      'chrome.signedOut',
-      'chrome.errorBoundary.title',
-      'chrome.errorBoundary.message',
-      // Spec 089 — staff Reorder screen + tab labels.
-      'reorder.title',
-      'reorder.tabLabel',
-      'reorder.refresh',
-      'reorder.loading',
-      'reorder.loadingBody',
-      'reorder.kpi.vendors',
-      'reorder.kpi.vendorsSub',
-      'reorder.kpi.items',
-      'reorder.kpi.itemsSub',
-      'reorder.kpi.estTotal',
-      'reorder.kpi.estTotalSub',
-      'reorder.kpi.source',
-      'reorder.kpi.sourceValue',
-      'reorder.kpi.sourceSub',
-      'reorder.source.stockFallback',
-      'reorder.delivery.today',
-      'reorder.delivery.tomorrow',
-      'reorder.delivery.inDays',
-      'reorder.vendor.unnamed',
-      'reorder.vendor.nextDelivery',
-      'reorder.vendor.subtotal',
-      'reorder.item.breakdown',
-      'reorder.item.order',
-      'reorder.export.label',
-      'reorder.export.csv',
-      'reorder.export.text',
-      'reorder.export.pdf',
-      'reorder.export.csvAria',
-      'reorder.export.textAria',
-      'reorder.export.pdfAria',
-      'reorder.empty.title',
-      'reorder.empty.body',
-      'reorder.nothingToday.title',
-      'reorder.nothingToday.body',
-      'reorder.error.title',
-      'reorder.error.generic',
-      'reorder.error.retry',
-      'reorder.noSchedule.title',
-      'reorder.noSchedule.hint',
-      // Spec 091 B1 — exhaustive: weekdayLabel() in Reorder.tsx can emit any
-      // of the 7 `reorder.weekday.*` keys, so the parity gate covers all 7
-      // (was only monday + sunday).
-      'reorder.weekday.sunday',
-      'reorder.weekday.monday',
-      'reorder.weekday.tuesday',
-      'reorder.weekday.wednesday',
-      'reorder.weekday.thursday',
-      'reorder.weekday.friday',
-      'reorder.weekday.saturday',
-      'eodTab.label',
-    ];
-    const warnSpy = jest.spyOn(console, 'warn');
-    for (const k of requiredKeys) {
-      const v = t(k);
-      // For each key, value should NOT equal the key itself (missing).
-      // The exception is keys that may legitimately contain dots in their
-      // value — but none of ours do. If a key is missing, console.warn
-      // would have fired; check that no warnings happened.
-      expect(v).not.toBe(k);
+  it('falls back to the English value when the active locale misses the key (warns once)', () => {
+    const KEY = 'chrome.signOut.label';
+    const segs = KEY.split('.');
+    const last = segs.pop()!;
+    let cur: any = es;
+    for (const seg of segs) cur = cur[seg];
+    const saved = cur[last];
+    try {
+      delete cur[last];
+      expect(translate('es', KEY)).toBe('Sign out'); // English value
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[i18n] missing key in es, falling back to en: chrome.signOut.label',
+      );
+    } finally {
+      cur[last] = saved;
     }
-    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns the key path and warns once for a missing key (deduped)', () => {
+    expect(translate('en', 'definitely.missing.key')).toBe('definitely.missing.key');
+    expect(translate('en', 'definitely.missing.key')).toBe('definitely.missing.key');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith('[i18n] missing key: definitely.missing.key');
+  });
+});
+
+describe('staff t() (active-locale bound)', () => {
+  let active: Locale = 'en';
+
+  beforeEach(() => {
+    _resetWarnCache();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _setActiveLocaleGetter(() => active);
+  });
+  afterEach(() => {
+    active = 'en';
+    jest.restoreAllMocks();
+  });
+
+  it('resolves against the active locale getter', () => {
+    active = 'en';
+    expect(t('eod.submit')).toBe('Submit');
+    active = 'es';
+    expect(t('eod.submit')).toBe('Enviar');
+    active = 'zh-CN';
+    expect(t('eod.submit')).toBe('提交');
+  });
+
+  it('keeps the bare t(key, vars) call-site shape working', () => {
+    active = 'es';
+    expect(t('store.picker.subtitle', { count: 4 })).toBe('Tienes acceso a 4 tiendas');
   });
 });

@@ -85,6 +85,10 @@ export default function LoginScreen() {
           Toast.show({ type: 'error', text1: gate.message, position: 'bottom' });
           return;
         }
+        // Seed the staff chrome-language from profiles.locale (DB =
+        // cross-device source of truth). hydrateLocale is the no-persist
+        // setter so this doesn't round-trip the value back to the column.
+        if (result.locale) useStaffStore.getState().hydrateLocale(result.locale);
         // Restore active store from prior session.
         const persisted = await readActiveStoreId();
         const matched = persisted ? gate.stores.find((s) => s.storeId === persisted) : null;

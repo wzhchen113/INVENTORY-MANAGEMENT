@@ -19,6 +19,7 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ListRow } from '../components/ListRow';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { selectStaffStores, useStaffStore } from '../store/useStaffStore';
 import { t } from '../i18n';
 import { spacing, typography, useStaffColors } from '../theme';
@@ -46,6 +47,9 @@ export function StorePicker() {
         <Text style={[styles.subtitle, { color: c.textSecondary }]}>
           {t('store.picker.subtitle', { count: stores.length })}
         </Text>
+        <View style={styles.switcherRow}>
+          <LocaleSwitcher />
+        </View>
       </View>
       <FlatList
         data={stores}
@@ -98,6 +102,10 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.body,
+  },
+  switcherRow: {
+    flexDirection: 'row',
+    marginTop: spacing.lg,
   },
   listBody: {
     flex: 1,

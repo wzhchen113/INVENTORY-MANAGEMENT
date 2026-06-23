@@ -30,6 +30,7 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
@@ -499,6 +500,9 @@ export function EODCount() {
             </Text>
           </Pressable>
         </View>
+        <View style={styles.headerSwitcherRow}>
+          <LocaleSwitcher />
+        </View>
       </View>
 
       {/* Forbidden banner */}
@@ -753,6 +757,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  headerSwitcherRow: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
   },
   storePressable: {
     flex: 1,

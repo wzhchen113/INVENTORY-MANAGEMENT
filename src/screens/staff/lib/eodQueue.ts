@@ -29,6 +29,12 @@ export const QUEUE_KEY = 'imr-staff:eod-queue:v2';
  *  migrate branch and its tests reference a single source of truth. */
 export const V1_QUEUE_KEY = 'imr-staff:eod-queue:v1';
 export const ACTIVE_STORE_KEY = 'imr-staff:active-store:v1';
+/** Local cache of the user's chrome-language preference. Mirrors the
+ *  admin `imr.locale` key (src/store/useStore.ts) but namespaced under
+ *  `imr-staff:*` like the other staff storage keys. The DB
+ *  (profiles.locale) is the cross-device source of truth; this cache
+ *  gives an instant boot-time restore before the session resolves. */
+export const LOCALE_KEY = 'imr-staff:locale:v1';
 
 // 30-day GC threshold per spec 062 §3 — stale items belonging to no-
 // longer-signed-in users are purged on mount, regardless of
@@ -318,6 +324,31 @@ export async function writeActiveStoreId(storeId: string | null): Promise<void> 
   await AsyncStorage.setItem(ACTIVE_STORE_KEY, storeId).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn('[eodQueue] writeActiveStoreId:', err);
+  });
+}
+
+// ─── LOCALE PERSISTENCE ───────────────────────────────────────────
+
+type StaffLocale = 'en' | 'es' | 'zh-CN';
+
+function isStaffLocale(v: string | null): v is StaffLocale {
+  return v === 'en' || v === 'es' || v === 'zh-CN';
+}
+
+/** Read the cached locale preference. Returns null when unset or
+ *  corrupt — the caller falls through to the DB value, then 'en'. */
+export async function readCachedLocale(): Promise<StaffLocale | null> {
+  const v = await safeRead(LOCALE_KEY);
+  return isStaffLocale(v) ? v : null;
+}
+
+/** Fire-and-forget local cache write. Best-effort — failure is logged
+ *  but never rolls back the in-memory locale (matches the admin
+ *  persistLocaleLocal shape). */
+export async function writeCachedLocale(locale: StaffLocale): Promise<void> {
+  await AsyncStorage.setItem(LOCALE_KEY, locale).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('[eodQueue] writeCachedLocale:', err);
   });
 }
 

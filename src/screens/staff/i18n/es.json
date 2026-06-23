@@ -1,0 +1,210 @@
+{
+  "auth": {
+    "signIn": {
+      "title": "Iniciar sesión",
+      "subtitle": "I.M.R Staff",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "submit": "Iniciar sesión",
+      "submitting": "Iniciando sesión..."
+    },
+    "error": {
+      "invalidCreds": "Correo o contraseña inválidos",
+      "notStaff": "Esta app es solo para personal",
+      "noStores": "Sin tiendas asignadas — contacta a tu gerente",
+      "generic": "Error al iniciar sesión — inténtalo de nuevo"
+    }
+  },
+  "store": {
+    "picker": {
+      "title": "Selecciona tu tienda",
+      "subtitle": "Tienes acceso a {count} tiendas"
+    }
+  },
+  "eod": {
+    "header": {
+      "today": "Hoy · {weekday}, {monthDay}"
+    },
+    "vendor": {
+      "label": "Proveedor",
+      "single": "Proveedor: {name}",
+      "noneToday": "No hay proveedor programado para hoy"
+    },
+    "list": {
+      "empty": "No hay artículos configurados para este proveedor"
+    },
+    "col": {
+      "cases": "Cajas",
+      "units": "Unidades",
+      "casesAria": "Cajas de {item}",
+      "unitsAria": "Unidades de {item}"
+    },
+    "row": {
+      "caseOf": "caja de {qty}",
+      "total": "total {total} {unit}"
+    },
+    "submit": "Enviar",
+    "submitting": "Enviando...",
+    "banner": {
+      "lastSubmitted": "Último envío a las {time} — tus cambios lo reemplazarán",
+      "alreadySubmitted": "Ya enviado — tus conteos coinciden con el envío existente"
+    },
+    "toast": {
+      "submitted": "Enviado",
+      "alreadySubmitted": "Ya enviado — tus conteos coinciden con el envío existente",
+      "failed": "Error al enviar — inténtalo de nuevo",
+      "noCountsEntered": "No se ingresaron conteos",
+      "queued": "En cola — se sincronizará al conectarse",
+      "allSynced": "Todos los conteos sincronizados"
+    },
+    "error": {
+      "forbidden": "No puedes enviar para esta tienda — tu acceso ha cambiado. Cierra sesión y vuelve a entrar."
+    }
+  },
+  "reorder": {
+    "title": "Reposición",
+    "tabLabel": "Reposición",
+    "refresh": "Actualizar",
+    "loading": "Cargando...",
+    "loadingBody": "Obteniendo sugerencias de reposición",
+    "vendorFilter": {
+      "all": "Todos",
+      "aria": "Filtrar por proveedor"
+    },
+    "kpi": {
+      "vendors": "Proveedores",
+      "vendorsSub": "pedidos para hoy",
+      "items": "Artículos",
+      "itemsSub": "por debajo del par",
+      "estTotal": "Total est.",
+      "estTotalSub": "al costo actual",
+      "source": "Fuente de existencias",
+      "sourceValue": "{count} EOD",
+      "sourceSub": "{count} de respaldo de stock"
+    },
+    "source": {
+      "stockFallback": "RESPALDO DE STOCK"
+    },
+    "delivery": {
+      "today": "hoy",
+      "tomorrow": "mañana",
+      "inDays": "en {days} días"
+    },
+    "vendor": {
+      "unnamed": "Proveedor sin nombre",
+      "nextDelivery": "Próxima entrega: {date} ({days})",
+      "subtotal": "{count} artículos · {cost}"
+    },
+    "item": {
+      "breakdown": "en mano {onHand} · par {par}",
+      "order": "Pedir: {suggested}"
+    },
+    "export": {
+      "label": "Exportar / compartir",
+      "csv": "CSV",
+      "text": "Texto",
+      "pdf": "PDF",
+      "csvAria": "Exportar lista de reposición como CSV",
+      "textAria": "Exportar lista de reposición como texto plano",
+      "pdfAria": "Exportar lista de reposición como PDF"
+    },
+    "empty": {
+      "title": "SIN SUGERENCIAS DE REPOSICIÓN",
+      "body": "No hay sugerencias de reposición para esta tienda en esta fecha. Puede que no se hayan hecho conteos, que todos los artículos estén en par, o que no haya proveedores activos."
+    },
+    "nothingToday": {
+      "title": "NADA QUE PEDIR",
+      "body": "No hay proveedores programados para pedir el {day}."
+    },
+    "error": {
+      "title": "No se pudo cargar la lista de reposición",
+      "generic": "No se pudo cargar la lista de reposición — inténtalo de nuevo",
+      "retry": "Reintentar"
+    },
+    "noSchedule": {
+      "title": "Sin calendario de pedidos · {count}",
+      "hint": "Estos proveedores no tienen día de pedido configurado, por eso no aparecen en la lista de hoy."
+    },
+    "weekday": {
+      "sunday": "domingo",
+      "monday": "lunes",
+      "tuesday": "martes",
+      "wednesday": "miércoles",
+      "thursday": "jueves",
+      "friday": "viernes",
+      "saturday": "sábado"
+    }
+  },
+  "eodTab": {
+    "label": "Conteo"
+  },
+  "weekly": {
+    "tabLabel": "Semanal",
+    "title": "Conteo semanal",
+    "subtitle": "Conteo de toda la tienda — cada artículo, instantánea informativa",
+    "header": {
+      "today": "Hoy · {weekday}, {monthDay}"
+    },
+    "list": {
+      "empty": "No hay artículos configurados para esta tienda"
+    },
+    "category": {
+      "uncategorized": "Sin categoría",
+      "count": "{count} artículos"
+    },
+    "col": {
+      "cases": "Cajas",
+      "units": "Unidades",
+      "casesAria": "Cajas de {item}",
+      "unitsAria": "Unidades de {item}"
+    },
+    "row": {
+      "caseOf": "caja de {qty}",
+      "total": "total {total} {unit}"
+    },
+    "submit": "Enviar conteo semanal",
+    "submitting": "Enviando...",
+    "banner": {
+      "due": "El conteo semanal está pendiente — por favor completa un conteo de toda la tienda.",
+      "overdue": "El conteo semanal está atrasado — por favor complétalo hoy.",
+      "completed": "Conteo semanal completado para la semana del {date}"
+    },
+    "toast": {
+      "submitted": "Conteo semanal enviado",
+      "alreadySubmitted": "Ya enviado — este conteo semanal se registró previamente",
+      "failed": "Error al enviar — inténtalo de nuevo",
+      "noCountsEntered": "No se ingresaron conteos"
+    },
+    "error": {
+      "forbidden": "No puedes enviar para esta tienda — tu acceso ha cambiado. Cierra sesión y vuelve a entrar."
+    }
+  },
+  "chrome": {
+    "queue": {
+      "pending": "{count} pendientes",
+      "queuedRow": "En cola — se sincronizará al conectarse",
+      "draining": "Sincronizando...",
+      "needsAttention": "Error de sincronización — inténtalo de nuevo",
+      "syncErrorBanner": "No se pudo sincronizar — tu acceso a {date} / {vendor} cambió."
+    },
+    "switchStore": "Cambiar tienda",
+    "signOut": {
+      "label": "Cerrar sesión",
+      "confirmTitle": "¿Cerrar sesión?",
+      "confirmMessage": "Los conteos en cola se sincronizarán la próxima vez que inicies sesión."
+    },
+    "signedOut": "Sesión cerrada",
+    "errorBoundary": {
+      "title": "Algo salió mal",
+      "message": "Tus conteos están guardados. Por favor reinicia la app."
+    },
+    "localeSwitcher": {
+      "aria": "Cambiar idioma",
+      "labels": {
+        "en": "EN",
+        "es": "ES",
+        "zh-CN": "中文"
+      }
+    }
+  }
+}
