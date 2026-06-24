@@ -10,7 +10,7 @@
 // shadow is near-invisible (light mode: shadow alone, no border).
 
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, useColorScheme, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { radius, spacing, touchTarget, useStaffColors, useStaffElevation } from '../theme';
 
 type Props = {
@@ -34,9 +34,10 @@ export function ListRow({
 }: Props) {
   const c = useStaffColors();
   const e = useStaffElevation();
-  // ListRow is the only component that needs the raw scheme boolean
-  // (dark-only card border); everyone else needs only colors/elevation.
-  const isDark = useColorScheme() === 'dark';
+  // The staff portal is always dark, so the dark-only card border (a
+  // `borderStrong` hairline that keeps the card edge visible where the
+  // dark shadow is near-invisible) is always on.
+  const isDark = true;
 
   // The card's structural + chrome styles, shared by the pressable and
   // static branches. Dark mode adds a `borderStrong` hairline so the

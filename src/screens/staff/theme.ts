@@ -7,19 +7,25 @@
 //
 // Mirror imr-inventory's `src/theme/colors.ts` *shape* (light/dark
 // palettes + a `useColors()` hook + a platform-branched shadow token)
-// but ship one self-contained file instead of a directory, and source
-// the active scheme from RN `useColorScheme()` (OS appearance) rather
-// than a Zustand `darkMode` flag — staff follows the OS, no toggle UI.
+// but ship one self-contained file instead of a directory.
+//
+// The staff portal is pinned to the DARK palette regardless of OS
+// appearance (product decision — every staff user sees dark). The
+// `useStaffColors()` / `useStaffElevation()` hooks therefore return the
+// dark set unconditionally; the pure `resolveStaffColors` / `makeElevation`
+// resolvers still honour an explicit scheme arg (used by unit tests and
+// retained should OS-following ever be reintroduced). The light palette
+// is kept intact for that reason.
 //
 // `spacing`/`radius`/`typography`/`touchTarget` are theme-invariant and
 // stay as static module exports — only color access moves to the hook.
 
-import { Platform, useColorScheme } from 'react-native';
+import { Platform } from 'react-native';
 
 // ── Light palette ────────────────────────────────────────────────
-// Soft off-white app bg with pure-white cards lifted off it. The blue
-// primary is refined from the saturated material #1e88e5 to a muted,
-// desaturated slate-blue.
+// Soft off-white app bg with pure-white cards lifted off it. The
+// primary is the brand green (matches the admin app's `accent`); the
+// `info` tone is a desaturated teal so nothing in the palette reads blue.
 export const lightColors = {
   // Surfaces
   bg: '#F7F8FA',
@@ -39,24 +45,26 @@ export const lightColors = {
   border: '#E4E7EC',
   borderStrong: '#CBD0D8',
 
-  // Brand / interactive
-  primary: '#3B6FB5',
-  primaryPressed: '#2F5C99',
+  // Brand / interactive — brand green (mirrors admin `accent` #3F7C20)
+  primary: '#3F7C20',
+  primaryPressed: '#33651A',
   // Translucent primary tint for the secondary (outline) button's
   // pressed state — used by Button.tsx where a full primary fill
   // would over-emphasize an outline-style press.
-  primaryPressedLight: 'rgba(59,111,181,0.10)',
-  primaryDisabled: '#A9C2E2',
+  primaryPressedLight: 'rgba(63,124,32,0.10)',
+  primaryDisabled: '#A8C99A',
 
-  // Semantic (calm, desaturated; tints are low-chroma)
+  // Semantic (calm, desaturated; tints are low-chroma). `info` is a
+  // teal (not blue) so the palette carries no blue; it stays distinct
+  // from the green `success`.
   success: '#2E7D46',
   successBg: '#E7F4EC',
   warning: '#B5710B',
   warningBg: '#FBF0DC',
   error: '#C0392B',
   errorBg: '#FBEAE8',
-  info: '#2D6CA8',
-  infoBg: '#E7F0F8',
+  info: '#2C7A6F',
+  infoBg: '#E2F1EE',
 
   // Overlays
   overlay: 'rgba(17,20,24,0.45)',
@@ -65,9 +73,9 @@ export const lightColors = {
 // ── Dark palette ─────────────────────────────────────────────────
 // Layered greys, never pure black: "soft" comes from lighter surfaces
 // (elevation by layering), not from a black drop shadow. The primary
-// lifts to a lighter, airier blue so it reads on dark surfaces, and
-// `textOnPrimary` flips to dark (the fill is light in dark mode) —
-// mirrors the admin `accentFg` flip.
+// lifts to a lighter, airier green (mirrors admin dark `accent` #7DD668)
+// so it reads on dark surfaces, and `textOnPrimary` flips to dark (the
+// fill is light in dark mode) — mirrors the admin `accentFg` flip.
 export const darkColors: typeof lightColors = {
   // Surfaces
   bg: '#16181C',
@@ -87,21 +95,22 @@ export const darkColors: typeof lightColors = {
   border: 'rgba(255,255,255,0.10)',
   borderStrong: 'rgba(255,255,255,0.18)',
 
-  // Brand / interactive — lighter, airier blue for dark surfaces
-  primary: '#6EA0E0',
-  primaryPressed: '#5A8ACB',
-  primaryPressedLight: 'rgba(110,160,224,0.16)',
-  primaryDisabled: '#3A4A60',
+  // Brand / interactive — lighter, airier green for dark surfaces
+  primary: '#7DD668',
+  primaryPressed: '#6BC257',
+  primaryPressedLight: 'rgba(125,214,104,0.16)',
+  primaryDisabled: '#41552F',
 
-  // Semantic — brighter foregrounds, low-alpha tints (admin DarkColors pattern)
+  // Semantic — brighter foregrounds, low-alpha tints (admin DarkColors pattern).
+  // `info` is a teal (not blue), distinct from the green `success`.
   success: '#5FBA6E',
   successBg: 'rgba(95,186,110,0.16)',
   warning: '#E0A030',
   warningBg: 'rgba(224,160,48,0.16)',
   error: '#E36A5C',
   errorBg: 'rgba(227,106,92,0.16)',
-  info: '#5AA8F0',
-  infoBg: 'rgba(90,168,240,0.16)',
+  info: '#4FC4B6',
+  infoBg: 'rgba(79,196,182,0.16)',
 
   // Overlays
   overlay: 'rgba(0,0,0,0.60)',
@@ -122,14 +131,14 @@ export function resolveStaffColors(
   return scheme === 'dark' ? darkColors : lightColors;
 }
 
-// Reactive colors hook — mirrors the admin `useColors()` shape (a
-// zero-arg hook returning a palette object) but sources the scheme
-// from `useColorScheme()` (RN's `Appearance` API). When the OS flips
-// light↔dark at runtime, every component that called this re-renders
-// with the new palette — no manual subscription needed.
+// Colors hook — mirrors the admin `useColors()` shape (a zero-arg hook
+// returning a palette object). The staff portal is now pinned to the
+// DARK palette regardless of OS appearance (per the "always dark"
+// product decision), so this no longer reads `useColorScheme()`. The
+// pure `resolveStaffColors` resolver below is kept (and still honours
+// the scheme arg) for unit tests and any future OS-following use.
 export function useStaffColors(): StaffColors {
-  const scheme = useColorScheme(); // 'light' | 'dark' | null
-  return resolveStaffColors(scheme);
+  return resolveStaffColors('dark');
 }
 
 export const spacing = {
@@ -223,11 +232,10 @@ export function makeElevation(scheme: 'light' | 'dark' | null | undefined) {
       };
 }
 
-// Reactive elevation hook — reads the same RN appearance source as
-// `useStaffColors()` so a component needing both calls both. Kept
-// separate so the colors hook stays shape-identical to admin
-// `useColors()`.
+// Elevation hook — pinned to the dark elevation set to match the
+// always-dark `useStaffColors()`. Kept a separate hook so the colors
+// hook stays shape-identical to admin `useColors()`. The pure
+// `makeElevation` resolver still honours its scheme arg for unit tests.
 export function useStaffElevation() {
-  const scheme = useColorScheme();
-  return makeElevation(scheme);
+  return makeElevation('dark');
 }
