@@ -83,7 +83,12 @@
       "sourceSub": "{count} 条库存回退"
     },
     "source": {
+      "eod": "EOD",
       "stockFallback": "库存回退"
+    },
+    "unit": {
+      "case": "{count} 箱",
+      "cases": "{count} 箱"
     },
     "delivery": {
       "today": "今天",

@@ -30,6 +30,7 @@
 
 import { supabase } from '../../../lib/supabase';
 import type {
+  LocalizedNames,
   OnHandSource,
   OrderDayVendor,
   OrderSchedule,
@@ -41,7 +42,12 @@ import type {
 // Verbatim copy of db.ts:mapReorderVendor (~25 lines). Duplicating a flat
 // snake_case→camelCase mapper is lower-risk than coupling the staff lib to
 // the admin db.ts module (same isolation rationale the EOD fetch helpers
-// follow). If the report's per-item shape changes, BOTH copies update.
+// follow). If the report's per-item shape changes, BOTH copies update —
+// EXCEPT `i18nNames` (spec 100): this STAFF copy carries the per-item
+// localized-name overrides (rendered via getLocalizedName on the reorder
+// screen), but the admin `db.ts:mapReorderVendor` copy intentionally does
+// NOT — admin desktop + the byte-for-byte CSV/text/PDF exports stay
+// English. Do not "fix" this divergence by adding i18nNames to db.ts.
 function mapReorderVendor(v: any): ReorderVendor {
   const items: ReorderItem[] = Array.isArray(v?.items)
     ? v.items.map((it: any) => ({
@@ -64,6 +70,12 @@ function mapReorderVendor(v: any): ReorderVendor {
         suggestedCases: it?.suggested_cases == null ? null : Number(it.suggested_cases),
         suggestedUnits: Number(it?.suggested_units ?? it?.suggested_qty ?? 0),
         flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
+        // Spec 100 — per-item localized-name overrides from
+        // catalog_ingredients.i18n_names. NULL/absent (before the RPC
+        // migration lands, or when the catalog row has no overrides)
+        // coalesces to `{}` so getLocalizedName falls through to English
+        // silently. Staff-only; admin db.ts copy does NOT carry this.
+        i18nNames: (it?.i18n_names ?? {}) as LocalizedNames,
       }))
     : [];
   const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';

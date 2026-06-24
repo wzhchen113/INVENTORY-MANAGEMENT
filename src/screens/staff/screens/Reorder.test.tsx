@@ -144,6 +144,9 @@ beforeEach(() => {
     activeStore: { id: 'store-1', name: 'Towson' },
     eodQueue: [],
     draining: false,
+    // Spec 100 — locale is global store state; reset to English between tests
+    // so a localization test doesn't leak its locale into later cases.
+    locale: 'en',
   });
 });
 
@@ -155,7 +158,9 @@ describe('Reorder — happy path (by-the-case display + KPIs)', () => {
     const { getByText, getAllByText, getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
     expect(getByText('Acme')).toBeTruthy();
-    // The Suggested string is byte-for-byte the admin formatSuggested output.
+    // Composed from the screen-local suggestedMainLabel + suggestedSubLabel
+    // helpers (spec 100); in EN the output matches the admin formatSuggested
+    // string byte-for-byte.
     expect(getByText('Order: 3 cases · 72 each')).toBeTruthy();
     // Server-rounded est cost rides through (no FE cost math). $144.00 shows
     // in the per-item cost, the KPI Est. total, AND the vendor subtotal (the
@@ -190,6 +195,172 @@ describe('Reorder — happy path (by-the-case display + KPIs)', () => {
     // KPIs recomputed from the primary set (1 vendor, 1 item, $144).
     expect(passedPayload.kpis.itemCount).toBe(1);
     expect(passedPayload.kpis.totalEstimatedCost).toBe(144);
+  });
+});
+
+// Spec 100 — the staff reorder screen's localization completion: item names
+// via getLocalizedName (adapter shaping itemName→name), the case noun via the
+// new `reorder.unit.case`/`.cases` keys, display-only unit casing
+// normalization, and the EOD badge via `reorder.source.eod`. The shared
+// reorderExport.ts util stays English + untouched (verified separately in
+// reorderExport.test.ts).
+describe('Reorder — localization (spec 100)', () => {
+  // A case item whose unit is UPPERCASE ("CASE") so the casing-normalization
+  // (CASE→case) is observable, with es + zh-CN name overrides for item-name
+  // localization. 2 cases (plural branch) of 24 → 48 each.
+  const localizedVendor = vendor({
+    vendorId: 'v-1',
+    vendorName: 'Tai Trading',
+    vendorTotalCost: 96,
+    items: [
+      item({
+        itemId: 'i-1',
+        itemName: 'Shrimp - Head Off',
+        unit: 'CASE',
+        parLevel: 48,
+        suggestedQty: 48,
+        costPerUnit: 2,
+        estimatedCost: 96,
+        caseQty: 24,
+        suggestedCases: 2,
+        suggestedUnits: 48,
+        i18nNames: { es: 'Camarón sin cabeza', 'zh-CN': '虾仁去头' },
+      }),
+    ],
+  });
+
+  it('renders the item name in zh-CN when an override is present', async () => {
+    useStaffStore.setState({ locale: 'zh-CN' });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([localizedVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, queryByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(getByText('虾仁去头')).toBeTruthy();
+    // The English canonical is NOT rendered when the override resolves.
+    expect(queryByText('Shrimp - Head Off')).toBeNull();
+  });
+
+  it('falls back to English silently when the override is missing for the locale', async () => {
+    useStaffStore.setState({ locale: 'es' });
+    const noEs = vendor({
+      vendorId: 'v-1',
+      vendorName: 'Tai Trading',
+      vendorTotalCost: 96,
+      items: [
+        item({
+          itemId: 'i-1',
+          itemName: '4LB Brown Paper Bag',
+          unit: 'CASE',
+          suggestedQty: 1,
+          suggestedUnits: 1,
+          estimatedCost: 1,
+          i18nNames: { 'zh-CN': '只此一项' }, // no `es` override
+        }),
+      ],
+    });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([noEs]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(getByText('4LB Brown Paper Bag')).toBeTruthy();
+  });
+
+  it('localizes the plural case noun in es and normalizes the unit casing', async () => {
+    useStaffStore.setState({ locale: 'es' });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([localizedVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    // Spanish plural case noun ("2 cajas") + the sub-unit total with the raw
+    // "CASE" token display-normalized to lowercase "case".
+    expect(getByText('Pedir: 2 cajas · 48 case')).toBeTruthy();
+  });
+
+  it('uses the singular case key when exactly one case is suggested', async () => {
+    useStaffStore.setState({ locale: 'es' });
+    const oneCase = vendor({
+      vendorId: 'v-1',
+      vendorName: 'Tai Trading',
+      items: [
+        item({
+          itemId: 'i-1',
+          itemName: 'Buns',
+          unit: 'CASE',
+          suggestedQty: 24,
+          suggestedUnits: 24,
+          estimatedCost: 10,
+          caseQty: 24,
+          suggestedCases: 1,
+        }),
+      ],
+    });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([oneCase]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    // Singular "1 caja" (not "1 cajas") + normalized sub-unit.
+    expect(getByText('Pedir: 1 caja · 24 case')).toBeTruthy();
+  });
+
+  it('normalizes the raw unit token on the on-hand/par breakdown line', async () => {
+    const lbVendor = vendor({
+      vendorId: 'v-1',
+      vendorName: 'Tai Trading',
+      items: [
+        item({
+          itemId: 'i-1',
+          itemName: 'Flour',
+          unit: 'LB', // raw uppercase, non-case → casing-normalized on render
+          onHand: 0.5,
+          parLevel: 12,
+          suggestedQty: 11.5,
+          suggestedUnits: 11.5,
+          estimatedCost: 10,
+        }),
+      ],
+    });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([lbVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    // "LB" → "lb" on both the breakdown and the non-case order line.
+    expect(getByText('on hand 0.5 lb · par 12 lb')).toBeTruthy();
+    expect(getByText('Order: 11.5 lb')).toBeTruthy();
+  });
+
+  it('routes the EOD badge through the catalog (reorder.source.eod)', async () => {
+    // The badge value is the literal "EOD" in every locale, but it must now
+    // come from the catalog key (not the old hardcoded string). Asserting it
+    // renders under zh-CN confirms the keyed path resolves.
+    useStaffStore.setState({ locale: 'zh-CN' });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([localizedVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(getByText('EOD')).toBeTruthy();
+  });
+
+  it('shows STOCK FALLBACK (localized) when the source is stock, not EOD', async () => {
+    useStaffStore.setState({ locale: 'zh-CN' });
+    const stockVendor = vendor({
+      vendorId: 'v-1',
+      vendorName: 'Amazon',
+      onHandSource: 'stock',
+      items: [item({ itemId: 'i-1', itemName: 'Salt', suggestedQty: 1, suggestedUnits: 1, estimatedCost: 1 })],
+    });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([stockVendor]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, queryByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(getByText('库存回退')).toBeTruthy();
+    expect(queryByText('EOD')).toBeNull();
   });
 });
 

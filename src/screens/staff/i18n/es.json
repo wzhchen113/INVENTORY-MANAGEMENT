@@ -83,7 +83,12 @@
       "sourceSub": "{count} de respaldo de stock"
     },
     "source": {
+      "eod": "EOD",
       "stockFallback": "RESPALDO DE STOCK"
+    },
+    "unit": {
+      "case": "{count} caja",
+      "cases": "{count} cajas"
     },
     "delivery": {
       "today": "hoy",

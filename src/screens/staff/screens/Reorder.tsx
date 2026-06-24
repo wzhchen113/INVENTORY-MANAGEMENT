@@ -17,7 +17,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -39,6 +38,7 @@ import {
   shareReorderText,
 } from '../lib/shareReorder';
 import { useStaffStore } from '../store/useStaffStore';
+import { getLocalizedName } from '../../../i18n/localizedName';
 import { t, useI18n } from '../i18n';
 import {
   radius,
@@ -48,7 +48,7 @@ import {
   useStaffColors,
   useStaffElevation,
 } from '../theme';
-import { formatMoney, formatQty, formatSuggestedParts } from '../../../utils/reorderExport';
+import { formatMoney, formatQty } from '../../../utils/reorderExport';
 import {
   activeWeekdaysFromSchedule,
   computeReorderKpis,
@@ -72,6 +72,40 @@ function todayIso(d = new Date()): string {
 // the reactive `useI18n()` t (spec 099).
 function weekdayLabel(tt: typeof t, day: DayName): string {
   return tt(`reorder.weekday.${day.toLowerCase()}`);
+}
+
+// ── Staff-render-only unit localization (spec 100, Q-A=A2 / Q-B=B1) ──
+// `reorderExport.ts` (the shared admin + byte-for-byte export builder) is
+// NOT touched. The staff screen composes its OWN suggested-order strings
+// from the same server-authoritative numeric fields the util reads, so the
+// case noun can be localized and the raw `unit` token casing-normalized
+// WITHOUT regressing the admin desktop UI or the CSV/text/PDF exports.
+
+// Display-only lowercase normalization of the free-text `catalog_ingredients.unit`
+// token (e.g. "CASE" → "case", "LB" → "lb"). Render-path only — never written
+// back to the DB. Not applied inside the shared util / export builders.
+function normalizeUnit(u: string): string {
+  return u.trim().toLowerCase();
+}
+
+// Localized + casing-normalized "main" suggested-order figure. For case items
+// the NOUN is keyed (`reorder.unit.case` / `.cases`, branched on count===1 —
+// the staff t() has no ICU plural selection, mirroring the util's own
+// `cases === 1 ? 'case' : 'cases'` test). Non-case items render the raw qty +
+// the casing-normalized unit token.
+function suggestedMainLabel(item: ReorderItem, tt: typeof t): string {
+  if (item.suggestedCases != null) {
+    const key = item.suggestedCases === 1 ? 'reorder.unit.case' : 'reorder.unit.cases';
+    return tt(key, { count: formatQty(item.suggestedCases) });
+  }
+  return `${formatQty(item.suggestedQty)} ${normalizeUnit(item.unit)}`.trim();
+}
+
+// The secondary base-unit total shown beside the case figure (`null` for
+// non-case items — nothing to subordinate). Casing-normalized unit token.
+function suggestedSubLabel(item: ReorderItem): string | null {
+  if (item.suggestedCases == null) return null;
+  return `${formatQty(item.suggestedUnits)} ${normalizeUnit(item.unit)}`.trim();
 }
 
 // ── KPI card ──────────────────────────────────────────────────────
@@ -98,8 +132,15 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
   const c = useStaffColors();
   const e = useStaffElevation();
   const { t } = useI18n();
+  // Reactive locale slice — item names resolve via getLocalizedName(item,
+  // locale), so reading it directly re-renders the list labels on a locale
+  // switch (the spec-099 pattern, identical to EODCount).
+  const locale = useStaffStore((s) => s.locale);
 
-  const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : t('reorder.source.stockFallback');
+  // Spec 100 (Q-C=C2) — the "EOD" badge routes through the catalog, mirroring
+  // its already-keyed `stockFallback` sibling. Vendor names stay English.
+  const sourceLabel =
+    vendor.onHandSource === 'eod' ? t('reorder.source.eod') : t('reorder.source.stockFallback');
   const sourceTone = vendor.onHandSource === 'eod' ? c.success : c.warning;
   const sourceBg = vendor.onHandSource === 'eod' ? c.successBg : c.warningBg;
 
@@ -136,8 +177,11 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
       {/* Items — stacked rows (mobile analog of the desktop BreakdownLine) */}
       {vendor.items.map((item: ReorderItem, i: number) => {
         // Main case unit reads first; the base-unit subunit is rendered
-        // smaller + non-bold + muted so order-placers aren't confused.
-        const suggested = formatSuggestedParts(item);
+        // smaller + non-bold + muted so order-placers aren't confused. Spec
+        // 100: the case noun is localized + the raw unit token casing-
+        // normalized via the staff-local helpers (NOT the shared util).
+        const suggestedMain = suggestedMainLabel(item, t);
+        const suggestedSub = suggestedSubLabel(item);
         return (
           <View
             key={item.itemId}
@@ -148,22 +192,25 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           >
             <View style={styles.itemTop}>
               <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-                {item.itemName}
+                {/* Spec 100 — resolve the display name in the active locale
+                    (silent English fallback). Adapter: ReorderItem.itemName ≠
+                    the helper's `name` field, so shape it the way EOD/Weekly do. */}
+                {getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale)}
               </Text>
               <Text style={[styles.itemCost, { color: c.text }]}>{formatMoney(item.estimatedCost)}</Text>
             </View>
             <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
               {t('reorder.item.breakdown', {
-                onHand: `${formatQty(item.onHand)} ${item.unit}`.trim(),
-                par: `${formatQty(item.parLevel)} ${item.unit}`.trim(),
+                onHand: `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim(),
+                par: `${formatQty(item.parLevel)} ${normalizeUnit(item.unit)}`.trim(),
               })}
             </Text>
             <Text style={[styles.itemOrder, { color: c.primary }]}>
-              {t('reorder.item.order', { suggested: suggested.main })}
-              {suggested.sub ? (
+              {t('reorder.item.order', { suggested: suggestedMain })}
+              {suggestedSub ? (
                 <Text style={[styles.itemOrderSub, { color: c.textSecondary }]}>
                   {' · '}
-                  {suggested.sub}
+                  {suggestedSub}
                 </Text>
               ) : null}
             </Text>

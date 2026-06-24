@@ -757,6 +757,16 @@ export interface ReorderItem {
   suggestedCases: number | null;
   suggestedUnits: number;
   flags: string[];
+  /**
+   * Spec 100 — per-item localized-name overrides surfaced by the
+   * `report_reorder_list` RPC from `catalog_ingredients.i18n_names`.
+   * Optional + defaults to `{}` so the admin path (which never reads it)
+   * and any pre-migration payload tolerate absence. Rendered via
+   * `getLocalizedName({ name: itemName, i18nNames }, locale)` on the staff
+   * reorder screen only — EOD/Weekly already do the same. Mirrors the
+   * optional `i18nNames?` on the catalog/inventory types above.
+   */
+  i18nNames?: LocalizedNames;
 }
 
 /**

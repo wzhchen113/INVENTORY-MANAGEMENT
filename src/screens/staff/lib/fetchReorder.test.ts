@@ -91,6 +91,63 @@ describe('fetchStaffReorder', () => {
     expect(payload.warnings).toEqual([{ code: 'schedule_unknown', message: 'no schedule' }]);
   });
 
+  // Spec 100 — the staff mapper carries the per-item `i18n_names` → `i18nNames`
+  // (snake→camel) so the reorder screen can resolve names via getLocalizedName.
+  // The admin db.ts copy intentionally does NOT — that asymmetry is by design.
+  it('maps per-item i18n_names → i18nNames when present', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        vendors: [
+          {
+            vendor_id: 'v-1',
+            vendor_name: 'Tai Trading',
+            items: [
+              {
+                item_id: 'i-1',
+                item_name: 'Shrimp - Head Off',
+                unit: 'CASE',
+                i18n_names: { es: 'Camarón sin cabeza', 'zh-CN': '虾仁去头' },
+              },
+            ],
+          },
+        ],
+        kpis: {},
+        _warnings: [],
+      },
+      error: null,
+    });
+    const payload = await fetchStaffReorder('store-1', '2026-06-02');
+    expect(payload.vendors[0].items[0].i18nNames).toEqual({
+      es: 'Camarón sin cabeza',
+      'zh-CN': '虾仁去头',
+    });
+  });
+
+  it('coalesces a missing/null i18n_names to {} (pre-migration + no-override safe)', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        vendors: [
+          {
+            vendor_id: 'v-1',
+            vendor_name: 'Tai Trading',
+            items: [
+              // No `i18n_names` key at all (pre-migration payload).
+              { item_id: 'i-1', item_name: 'Buns', unit: 'each' },
+              // Explicit null (catalog row has no overrides).
+              { item_id: 'i-2', item_name: 'Salt', unit: 'oz', i18n_names: null },
+            ],
+          },
+        ],
+        kpis: {},
+        _warnings: [],
+      },
+      error: null,
+    });
+    const payload = await fetchStaffReorder('store-1', '2026-06-02');
+    expect(payload.vendors[0].items[0].i18nNames).toEqual({});
+    expect(payload.vendors[0].items[1].i18nNames).toEqual({});
+  });
+
   it('extracts the vendor name from a schedule_unknown warning message', async () => {
     mockRpc.mockResolvedValueOnce({
       data: {

@@ -83,7 +83,12 @@
       "sourceSub": "{count} stock fallback"
     },
     "source": {
+      "eod": "EOD",
       "stockFallback": "STOCK FALLBACK"
+    },
+    "unit": {
+      "case": "{count} case",
+      "cases": "{count} cases"
     },
     "delivery": {
       "today": "today",
