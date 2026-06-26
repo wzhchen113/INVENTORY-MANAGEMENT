@@ -164,10 +164,12 @@ export default function RecipesSection() {
     return [...rawRows, ...prepRows];
   }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost, currentStore.id]);
 
-  const marginColor = (m: number | null): string =>
-    m == null ? C.fg2
-    : m >= 70 ? C.ok
-    : m >= 50 ? C.warn
+  // Food-cost ratio coloring — lower is better (ingredient cost as a share
+  // of menu price). ≤30% is a healthy plate; >50% lands in the red.
+  const foodCostColor = (p: number | null): string =>
+    p == null ? C.fg2
+    : p <= 30 ? C.ok
+    : p <= 50 ? C.warn
     : C.danger;
 
   // Spec 055 first-mount skeleton — only fires on the initial load when
@@ -239,7 +241,7 @@ export default function RecipesSection() {
           renderItem={({ item: r }) => {
             const isSel = r.id === selectedId;
             const cost = getRecipeCost(r.id);
-            const margin = r.sellPrice ? Math.round((1 - cost / r.sellPrice) * 100) : null;
+            const foodCostPct = r.sellPrice ? Math.round((cost / r.sellPrice) * 100) : null;
             const localizedName = getLocalizedName(
               { menuItem: r.menuItem, i18nNames: r.i18nNames },
               locale,
@@ -279,9 +281,9 @@ export default function RecipesSection() {
                       <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg, fontVariant: ['tabular-nums'] }}>
                         ${cost.toFixed(2)}
                       </Text>
-                      {margin != null ? (
-                        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: marginColor(margin), fontVariant: ['tabular-nums'] }}>
-                          {margin}%
+                      {foodCostPct != null ? (
+                        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: foodCostColor(foodCostPct), fontVariant: ['tabular-nums'] }}>
+                          {foodCostPct}%
                         </Text>
                       ) : (
                         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>{T('section.recipes.sub')}</Text>
