@@ -653,6 +653,8 @@
       "vsTarget": "vs objetivo 70%",
       "subRecipe": "sub-receta",
       "costSubtitle": "costo ÷ precio del menú",
+      "targetFc": "Costo objetivo",
+      "targetFcSub": "{pct}% del precio",
       "kindCol": "tipo",
       "idCol": "id",
       "nameCol": "nombre",

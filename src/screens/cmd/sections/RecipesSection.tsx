@@ -117,6 +117,10 @@ export default function RecipesSection() {
   const selCost = sel ? getRecipeCost(sel.id) : 0;
   const selMargin = sel && sel.sellPrice ? Math.round((1 - selCost / sel.sellPrice) * 100) : null;
   const selFoodCostPct = sel ? getRecipeFoodCostPct(sel.id) : 0;
+  // Dollar food-cost target per recipe = menu price × target ratio. 0.30
+  // mirrors the 70% target margin already surfaced in this view.
+  const TARGET_FOOD_COST_PCT = 0.3;
+  const selTargetFc = sel?.sellPrice ? sel.sellPrice * TARGET_FOOD_COST_PCT : null;
 
   const ingredientRows = React.useMemo(() => {
     if (!sel) return [];
@@ -423,6 +427,11 @@ export default function RecipesSection() {
                     sub={selMargin != null ? T('section.recipes.vsTarget') : T('section.recipes.subRecipe')}
                   />
                   <StatCard label={T('section.recipes.foodCostPct')} value={`${selFoodCostPct.toFixed(1)}%`} sub={T('section.recipes.costSubtitle')} />
+                  <StatCard
+                    label={T('section.recipes.targetFc')}
+                    value={selTargetFc != null ? `$${selTargetFc.toFixed(2)}` : '—'}
+                    sub={T('section.recipes.targetFcSub', { pct: Math.round(TARGET_FOOD_COST_PCT * 100) })}
+                  />
                 </View>
               ) : null}
 

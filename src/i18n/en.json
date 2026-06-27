@@ -653,6 +653,8 @@
       "vsTarget": "vs target 70%",
       "subRecipe": "sub-recipe",
       "costSubtitle": "cost ÷ menu price",
+      "targetFc": "Target FC",
+      "targetFcSub": "{pct}% of price",
       "kindCol": "kind",
       "idCol": "id",
       "nameCol": "name",

@@ -653,6 +653,8 @@
       "vsTarget": "对比目标 70%",
       "subRecipe": "子配方",
       "costSubtitle": "成本 ÷ 菜单价格",
+      "targetFc": "目标食物成本",
+      "targetFcSub": "价格的 {pct}%",
       "kindCol": "类型",
       "idCol": "id",
       "nameCol": "名称",
