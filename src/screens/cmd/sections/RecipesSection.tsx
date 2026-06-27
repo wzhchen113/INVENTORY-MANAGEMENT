@@ -23,8 +23,20 @@ import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
+import { toCSV, downloadCSV } from '../../../utils';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
+
+// Food-cost target ratio (0.30 ⇔ the 70% target margin shown in this view).
+// Used by the Target FC stat card and the CSV export.
+const TARGET_FOOD_COST_PCT = 0.3;
+
+// CSV export columns — one row per BOM line, menu-item columns repeated.
+const EXPORT_COLUMNS = [
+  'recipe_id', 'menu_item', 'category', 'sell_price', 'plate_cost',
+  'food_cost_pct', 'margin_pct', 'target_fc', 'line_kind', 'ingredient',
+  'quantity', 'unit', 'line_cost', 'pct_of_plate',
+];
 
 // Spec 048 / code-reviewer SF1 — single source for the TabStrip tabs array.
 // Used by both the `categories.tsx` branch (no selection required), the
@@ -117,56 +129,76 @@ export default function RecipesSection() {
   const selCost = sel ? getRecipeCost(sel.id) : 0;
   const selMargin = sel && sel.sellPrice ? Math.round((1 - selCost / sel.sellPrice) * 100) : null;
   const selFoodCostPct = sel ? getRecipeFoodCostPct(sel.id) : 0;
-  // Dollar food-cost target per recipe = menu price × target ratio. 0.30
-  // mirrors the 70% target margin already surfaced in this view.
-  const TARGET_FOOD_COST_PCT = 0.3;
   const selTargetFc = sel?.sellPrice ? sel.sellPrice * TARGET_FOOD_COST_PCT : null;
 
-  const ingredientRows = React.useMemo(() => {
-    if (!sel) return [];
-    const rawRows = (sel.ingredients || []).map((ing) => {
-      // ing.itemId is now a catalog id; resolve to the current store's
-      // inventory_items row for cost/par. Fall back to legacy id match.
-      const item =
-        inventory.find((i) => i.catalogId === ing.itemId && i.storeId === currentStore.id) ||
-        inventory.find((i) => i.id === ing.itemId);
-      const lineCost = getIngredientLineCost(ing);
-      const pct = selCost > 0 ? Math.round((lineCost / selCost) * 100) : 0;
-      return {
-        id: ing.itemId,
-        name: ing.itemName || item?.name || '—',
-        qty: ing.quantity,
-        unit: ing.unit,
-        cost: lineCost,
-        pct,
-        kind: 'raw' as const,
+  // Shared BOM line-cost builder (raw ingredients + prep recipes), reused by
+  // the detail table and the CSV export. Prep cost mirrors useStore.getRecipeCost:
+  // cost-per-unit × (ing.unit → yieldUnit converted) quantity. `pct` is each
+  // line's share of the recipe's plate cost.
+  const lineRowsFor = React.useCallback(
+    (rec: (typeof recipes)[number], recCost: number) => {
+      const rawRows = (rec.ingredients || []).map((ing) => {
+        // ing.itemId is a catalog id; resolve to the current store's
+        // inventory_items row for the name. Fall back to legacy id match.
+        const item =
+          inventory.find((i) => i.catalogId === ing.itemId && i.storeId === currentStore.id) ||
+          inventory.find((i) => i.id === ing.itemId);
+        const lineCost = getIngredientLineCost(ing);
+        const pct = recCost > 0 ? Math.round((lineCost / recCost) * 100) : 0;
+        return { id: ing.itemId, name: ing.itemName || item?.name || '—', qty: ing.quantity, unit: ing.unit, cost: lineCost, pct, kind: 'raw' as const };
+      });
+      const prepRows = (rec.prepItems || []).map((prep) => {
+        const subRecipe = getPrepRecipe(prep.prepRecipeId);
+        const cpu = subRecipe ? getPrepRecipeCostPerUnit(subRecipe.id) : 0;
+        const factor = subRecipe ? getConversionFactor(prep.unit, subRecipe.yieldUnit) : null;
+        const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
+        const lineCost = +(cpu * convertedQty).toFixed(2);
+        const pct = recCost > 0 ? Math.round((lineCost / recCost) * 100) : 0;
+        return { id: prep.prepRecipeId, name: prep.prepRecipeName || subRecipe?.name || '—', qty: prep.quantity, unit: prep.unit, cost: lineCost, pct, kind: 'prep' as const };
+      });
+      return [...rawRows, ...prepRows];
+    },
+    [inventory, currentStore.id, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit],
+  );
+
+  const ingredientRows = React.useMemo(
+    () => (sel ? lineRowsFor(sel, selCost) : []),
+    [sel, selCost, lineRowsFor],
+  );
+
+  // CSV export — one row per BOM line (raw or prep), with the menu-item columns
+  // repeated. Scope = the current filtered list. Web download via src/utils.
+  const onExportCsv = React.useCallback(() => {
+    if (filteredRecipes.length === 0) {
+      Toast.show({ type: 'error', text1: T('section.recipes.exportEmptyToast') });
+      return;
+    }
+    const data: Record<string, any>[] = [];
+    for (const r of filteredRecipes) {
+      const cost = getRecipeCost(r.id);
+      const base = {
+        recipe_id: shortId(r.id),
+        menu_item: r.menuItem,
+        category: r.category,
+        sell_price: r.sellPrice ? r.sellPrice.toFixed(2) : '',
+        plate_cost: cost.toFixed(2),
+        food_cost_pct: r.sellPrice ? getRecipeFoodCostPct(r.id).toFixed(1) : '',
+        margin_pct: r.sellPrice ? Math.round((1 - cost / r.sellPrice) * 100) : '',
+        target_fc: r.sellPrice ? (r.sellPrice * TARGET_FOOD_COST_PCT).toFixed(2) : '',
       };
-    });
-    // Prep recipes contribute to plate cost too — render them as PREP rows so
-    // the breakdown sums to 100% and the user can see what each prep costs.
-    // Mirrors the conversion in useStore.getRecipeCost: cost-per-unit ×
-    // (ing.unit → yieldUnit converted) quantity.
-    const prepRows = (sel.prepItems || []).map((prep) => {
-      // Resolve via lineage so a recipe pointing at an old version still
-      // costs against the current prep (yield, ingredients, etc.).
-      const subRecipe = getPrepRecipe(prep.prepRecipeId);
-      const cpu = subRecipe ? getPrepRecipeCostPerUnit(subRecipe.id) : 0;
-      const factor = subRecipe ? getConversionFactor(prep.unit, subRecipe.yieldUnit) : null;
-      const convertedQty = factor !== null ? prep.quantity * factor : prep.quantity;
-      const lineCost = +(cpu * convertedQty).toFixed(2);
-      const pct = selCost > 0 ? Math.round((lineCost / selCost) * 100) : 0;
-      return {
-        id: prep.prepRecipeId,
-        name: prep.prepRecipeName || subRecipe?.name || '—',
-        qty: prep.quantity,
-        unit: prep.unit,
-        cost: lineCost,
-        pct,
-        kind: 'prep' as const,
-      };
-    });
-    return [...rawRows, ...prepRows];
-  }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost, currentStore.id]);
+      const lines = lineRowsFor(r, cost);
+      if (lines.length === 0) {
+        data.push({ ...base, line_kind: '', ingredient: '', quantity: '', unit: '', line_cost: '', pct_of_plate: '' });
+      } else {
+        for (const ln of lines) {
+          data.push({ ...base, line_kind: ln.kind, ingredient: ln.name, quantity: ln.qty, unit: ln.unit, line_cost: ln.cost.toFixed(2), pct_of_plate: ln.pct });
+        }
+      }
+    }
+    const slug = (currentStore.name || 'store').toLowerCase().replace(/\s+/g, '-');
+    downloadCSV(`menu-bom_${slug}_${new Date().toISOString().slice(0, 10)}.csv`, toCSV(data, EXPORT_COLUMNS));
+    Toast.show({ type: 'success', text1: T('section.recipes.exportedToast'), text2: `${data.length} rows` });
+  }, [filteredRecipes, getRecipeCost, getRecipeFoodCostPct, lineRowsFor, currentStore.name, T]);
 
   // Food-cost ratio coloring — lower is better (ingredient cost as a share
   // of menu price). ≤30% is a healthy plate; >50% lands in the red.
@@ -215,14 +247,24 @@ export default function RecipesSection() {
               </Text>
             </View>
             {role === 'admin' ? (
-              <TouchableOpacity
-                onPress={() => setDrawerMode('new')}
-                style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
-                accessibilityRole="button"
-                accessibilityLabel={T('section.recipes.newAria')}
-              >
-                <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>{T('section.recipes.newButton')}</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={onExportCsv}
+                  style={{ paddingVertical: 3, paddingHorizontal: 7, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+                  accessibilityRole="button"
+                  accessibilityLabel={T('section.recipes.exportAria')}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg2 }}>{T('section.recipes.exportCsv')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setDrawerMode('new')}
+                  style={{ paddingVertical: 3, paddingHorizontal: 7, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
+                  accessibilityRole="button"
+                  accessibilityLabel={T('section.recipes.newAria')}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: '#000' }}>{T('section.recipes.newButton')}</Text>
+                </TouchableOpacity>
+              </View>
             ) : null}
           </View>
           <FilterInput
