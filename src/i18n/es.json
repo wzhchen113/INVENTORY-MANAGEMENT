@@ -623,7 +623,7 @@
     },
     "recipes": {
       "title": "Menú / BOM",
-      "listTitle": "Recetas",
+      "listTitle": "Artículos del menú",
       "totalCount": "{count} total",
       "addRecipe": "Añadir receta",
       "newAria": "Nueva receta",

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, SectionList, TouchableOpacity } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
@@ -119,6 +119,28 @@ export default function RecipesSection() {
         ),
     );
   }, [storeRecipes, filterText, locale]);
+
+  // Group the filtered list into category sections for the SectionList. Items
+  // stay name-sorted (filteredRecipes already is); section headers sort A–Z by
+  // localized category name.
+  const recipeSections = React.useMemo(() => {
+    const groups = new Map<string, typeof filteredRecipes>();
+    for (const r of filteredRecipes) {
+      const cat = r.category || '—';
+      const bucket = groups.get(cat);
+      if (bucket) bucket.push(r);
+      else groups.set(cat, [r]);
+    }
+    return [...groups.entries()]
+      .map(([cat, data]) => {
+        const catEntry = recipeCategoriesSlice.find((c) => c.name === cat);
+        const title = catEntry
+          ? getLocalizedName({ name: catEntry.name, i18nNames: catEntry.i18nNames }, locale)
+          : cat;
+        return { key: cat, title, data };
+      })
+      .sort((a, b) => a.title.localeCompare(b.title, locale));
+  }, [filteredRecipes, recipeCategoriesSlice, locale]);
 
   React.useEffect(() => {
     if (selectedId && filteredRecipes.find((r) => r.id === selectedId)) return;
@@ -273,10 +295,11 @@ export default function RecipesSection() {
             placeholder={T('section.recipes.filterPlaceholder')}
           />
         </View>
-        <FlatList
+        <SectionList
           style={{ flex: 1, minHeight: 0 }}
-          data={filteredRecipes}
+          sections={recipeSections}
           keyExtractor={(r) => r.id}
+          stickySectionHeadersEnabled={false}
           ListEmptyComponent={
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
               {filterText.trim()
@@ -284,6 +307,26 @@ export default function RecipesSection() {
                 : T('section.recipes.noRecipesForStore', { storeName: currentStore.name || T('chrome.store') })}
             </Text>
           }
+          renderSectionHeader={({ section }) => (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingHorizontal: 16,
+                paddingTop: 11,
+                paddingBottom: 5,
+                backgroundColor: C.panel,
+                borderBottomWidth: 1,
+                borderBottomColor: C.border,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 9, color: C.fg3, letterSpacing: 0.8 }}>
+                {section.title.toUpperCase()}
+              </Text>
+              <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3 }}>{section.data.length}</Text>
+            </View>
+          )}
           renderItem={({ item: r }) => {
             const isSel = r.id === selectedId;
             const cost = getRecipeCost(r.id);

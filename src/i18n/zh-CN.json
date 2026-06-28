@@ -623,7 +623,7 @@
     },
     "recipes": {
       "title": "菜品 / BOM",
-      "listTitle": "配方",
+      "listTitle": "菜单项",
       "totalCount": "共 {count} 个",
       "addRecipe": "添加配方",
       "newAria": "新配方",

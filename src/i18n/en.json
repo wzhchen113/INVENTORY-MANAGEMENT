@@ -623,7 +623,7 @@
     },
     "recipes": {
       "title": "Menu items / BOM",
-      "listTitle": "Recipes",
+      "listTitle": "Menu Items",
       "totalCount": "{count} total",
       "addRecipe": "Add recipe",
       "newAria": "New recipe",
