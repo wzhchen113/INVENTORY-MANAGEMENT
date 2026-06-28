@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, ViewStyle } from 'react-native';
+import { View, Text, TextInput, ViewStyle, Pressable } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { KbdHint } from './KbdHint';
@@ -56,7 +56,18 @@ export const FilterInput: React.FC<Props> = ({
           ...(require('react-native').Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
         }}
       />
-      {showKbdHint ? <KbdHint>⌘K</KbdHint> : null}
+      {value ? (
+        <Pressable
+          onPress={() => onChangeText('')}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Clear"
+        >
+          <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg3 }}>✕</Text>
+        </Pressable>
+      ) : showKbdHint ? (
+        <KbdHint>⌘K</KbdHint>
+      ) : null}
     </View>
   );
 };

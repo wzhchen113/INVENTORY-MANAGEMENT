@@ -39,6 +39,7 @@ import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames } from '../../../types';
 import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
 import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
@@ -239,6 +240,20 @@ export function EODCount() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [items, setItems] = useState<EodItem[]>([]);
+  // Ingredient-name search — view-only. Narrows the rendered rows; the full
+  // `items` array still drives submission (onSubmit iterates `items`).
+  const [search, setSearch] = useState('');
+  const visibleItems = useMemo(() => {
+    if (!search.trim()) return items;
+    // Match the localized label the staffer sees AND the English canonical,
+    // so search works in any locale (diacritic-folded via matchesQuery).
+    return items.filter((i) =>
+      matchesQuery(search, [
+        getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
+        i.name,
+      ]),
+    );
+  }, [items, search, locale]);
   const [existing, setExisting] = useState<ExistingSubmission | null>(null);
   // Spec 086 — two per-item maps mirroring the admin worksheet's
   // case/unit split (un-keyed-by-vendor: the staff screen already scopes
@@ -605,6 +620,33 @@ export function EODCount() {
         </View>
       ) : null}
 
+      {/* Ingredient-name search — view-only; shown once this vendor's items
+          have loaded. */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <Input
+              testID="eod-search"
+              placeholder={t('eod.list.searchPlaceholder')}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          {search ? (
+            <Pressable
+              testID="eod-search-clear"
+              onPress={() => setSearch('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('chrome.clear')}
+            >
+              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: spacing.xs }}>✕</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {/* Items list */}
       {loading ? (
         <View style={styles.loadingPane}>
@@ -625,8 +667,15 @@ export function EODCount() {
       ) : (
         <FlatList
           testID="eod-item-list"
-          data={items}
+          data={visibleItems}
           keyExtractor={(i) => i.id}
+          ListEmptyComponent={
+            <View style={styles.emptyPane}>
+              <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+                {t('eod.list.noMatch')}
+              </Text>
+            </View>
+          }
           // flex: 1 claims the leftover vertical space between the pinned
           // header (+ banners + vendor switcher) and the pinned footer
           // (queue indicator + Submit) so the list scrolls *inside* that

@@ -31,7 +31,9 @@
       "noneToday": "No hay proveedor programado para hoy"
     },
     "list": {
-      "empty": "No hay artículos configurados para este proveedor"
+      "empty": "No hay artículos configurados para este proveedor",
+      "searchPlaceholder": "buscar ingrediente…",
+      "noMatch": "Sin coincidencias"
     },
     "col": {
       "cases": "Cajas",
@@ -186,7 +188,9 @@
       "today": "Hoy · {weekday}, {monthDay}"
     },
     "list": {
-      "empty": "No hay artículos configurados para esta tienda"
+      "empty": "No hay artículos configurados para esta tienda",
+      "searchPlaceholder": "buscar ingrediente…",
+      "noMatch": "Sin coincidencias"
     },
     "category": {
       "uncategorized": "Sin categoría",
@@ -220,6 +224,7 @@
     }
   },
   "chrome": {
+    "clear": "Borrar",
     "queue": {
       "pending": "{count} pendientes",
       "queuedRow": "En cola — se sincronizará al conectarse",

@@ -335,6 +335,7 @@
     },
     "eod": {
       "title": "EOD count",
+      "searchPlaceholder": "ingredient name…",
       "historyTitle": "EOD count · history",
       "tabs": {
         "count": "Count",
@@ -442,6 +443,7 @@
     },
     "inventoryCount": {
       "title": "Inventory count",
+      "searchPlaceholder": "ingredient name…",
       "recentTitle": "Recent counts",
       "submit": "Submit count",
       "noRecent": "No recent counts"

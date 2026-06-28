@@ -8,6 +8,8 @@ import { useStore } from '../../../store/useStore';
 import { fetchRecentInventoryCounts, fetchInventoryCount } from '../../../lib/db';
 import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
+import { FilterInput } from '../../../components/cmd/FilterInput';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
 import type {
@@ -115,6 +117,8 @@ export default function InventoryCountSection() {
   const [unitCounts, setUnitCounts] = React.useState<Record<string, string>>({});
   const [itemNotes, setItemNotes] = React.useState<Record<string, string>>({});
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
+  // Ingredient-name search — view-only, composes with the category chip.
+  const [search, setSearch] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
 
   // Recent counts — fetched on mount + on a realtime nudge. `tick` is the
@@ -147,11 +151,13 @@ export default function InventoryCountSection() {
   }, [storeInventory]);
 
   const filteredItems = React.useMemo(() => {
-    const base = selectedCategory === 'all'
+    const byCat = selectedCategory === 'all'
       ? storeInventory
       : storeInventory.filter((i) => i.category === selectedCategory);
+    // Rows render the raw English `name`; match that (diacritic-folded).
+    const base = search.trim() ? byCat.filter((i) => matchesQuery(search, [i.name])) : byCat;
     return base.slice().sort((a, b) => a.name.localeCompare(b.name));
-  }, [storeInventory, selectedCategory]);
+  }, [storeInventory, selectedCategory, search]);
 
   const grouped = React.useMemo(() => {
     const map = new Map<string, typeof filteredItems>();
@@ -622,6 +628,15 @@ export default function InventoryCountSection() {
                 />
               </View>
             </View>
+            {/* Ingredient-name search — view-only; narrows the rows shown but
+                submission still covers every item with an entry. */}
+            <FilterInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder={T('section.inventoryCount.searchPlaceholder')}
+              showKbdHint={false}
+              style={{ marginBottom: 8 }}
+            />
             {/* Category chips — same idea as EOD's chip row, but no vendor
                 filter (counts cover every item by default per Q6). */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>

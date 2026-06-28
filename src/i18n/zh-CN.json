@@ -335,6 +335,7 @@
     },
     "eod": {
       "title": "日终盘点",
+      "searchPlaceholder": "原料名称…",
       "historyTitle": "日终盘点 · 历史",
       "tabs": {
         "count": "盘点",
@@ -442,6 +443,7 @@
     },
     "inventoryCount": {
       "title": "库存盘点",
+      "searchPlaceholder": "原料名称…",
       "recentTitle": "最近盘点",
       "submit": "提交盘点",
       "noRecent": "暂无最近盘点"

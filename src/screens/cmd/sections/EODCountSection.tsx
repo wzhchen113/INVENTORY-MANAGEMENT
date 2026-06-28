@@ -7,6 +7,8 @@ import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
 import { submitEODCount } from '../../../lib/db';
 import { TabStrip } from '../../../components/cmd/TabStrip';
+import { FilterInput } from '../../../components/cmd/FilterInput';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import { usePaletteAction } from '../../../lib/paletteAction';
 import { useT } from '../../../hooks/useT';
 import { dayOfWeekShortLabel, dayOfWeekLongLabel, type DayName } from '../../../utils/enumLabels';
@@ -58,7 +60,8 @@ function localDayIso(d: Date): string {
 //
 // Simplifications vs the design:
 // - Single qty input per item (no dual cases/each)
-// - No search bar inside the worksheet (the global ⌘K palette covers it)
+// - Ingredient-name search box filters the worksheet rows in-place (view-
+//   only — submission still covers every counted item)
 // - SAVE DRAFT button currently just toasts (draft persistence is out
 //   of scope for Phase 10b — submitEOD itself supports draft status if
 //   needed later)
@@ -91,6 +94,8 @@ export default function EODCountSection() {
   const [selectedIso, setSelectedIso] = React.useState<string>(() => localDayIso(new Date()));
   const [selectedVendorId, setSelectedVendorId] = React.useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
+  // Ingredient-name search — view-only, composes with vendor + category.
+  const [search, setSearch] = React.useState('');
   // Spec 020 Q4 — per-vendor draft state. Switching vendor tabs preserves
   // typed-but-unsubmitted values for the session. Keyed by vendorId →
   // itemId → text. Refresh discards (no autosave).
@@ -366,6 +371,10 @@ export default function EODCountSection() {
     ];
   }, [vendorItems]);
 
+  // NOTE: `filteredItems` drives submission (enteredItems), counters, and
+  // totals — it must NOT be narrowed by the name search, or entered counts
+  // for searched-out items would be dropped on submit. The search is applied
+  // in `grouped` (render only) below.
   const filteredItems = React.useMemo(() => {
     const base = selectedCategory === 'all' ? vendorItems : vendorItems.filter((i) => i.category === selectedCategory);
     if (additionalItems.size === 0) return base;
@@ -375,14 +384,19 @@ export default function EODCountSection() {
   }, [vendorItems, selectedCategory, additionalItems, storeInventory]);
 
   const grouped = React.useMemo(() => {
+    // Admin worksheet rows render the raw English `name`, so the search
+    // matches that (diacritic-folded via matchesQuery).
+    const visible = search.trim()
+      ? filteredItems.filter((i) => matchesQuery(search, [i.name]))
+      : filteredItems;
     const map = new Map<string, typeof filteredItems>();
-    for (const it of filteredItems) {
+    for (const it of visible) {
       const arr = map.get(it.category) || [];
       arr.push(it);
       map.set(it.category, arr);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredItems]);
+  }, [filteredItems, search]);
 
   // ── Counts/totals ───────────────────────────────────────────
   // total per item = cases × caseQty + loose units. caseQty defaults to 1
@@ -991,6 +1005,14 @@ export default function EODCountSection() {
           })()}
           {/* Divider between vendor pills and category chips */}
           <View style={{ height: 1, backgroundColor: C.border, borderStyle: 'dashed', borderTopWidth: 1, borderTopColor: C.border, opacity: 0.7 }} />
+          {/* Ingredient-name search — narrows the worksheet rows within the
+              current vendor/category view (view-only). */}
+          <FilterInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder={T('section.eod.searchPlaceholder')}
+            showKbdHint={false}
+          />
           {/* Category chips — phone: horizontal scroll (same rationale as
               vendor pills above). */}
           {(() => {

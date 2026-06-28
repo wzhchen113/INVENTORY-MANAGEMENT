@@ -31,7 +31,9 @@
       "noneToday": "No vendor scheduled for today"
     },
     "list": {
-      "empty": "No items configured for this vendor"
+      "empty": "No items configured for this vendor",
+      "searchPlaceholder": "search ingredient…",
+      "noMatch": "No matches"
     },
     "col": {
       "cases": "Cases",
@@ -186,7 +188,9 @@
       "today": "Today · {weekday}, {monthDay}"
     },
     "list": {
-      "empty": "No items configured for this store"
+      "empty": "No items configured for this store",
+      "searchPlaceholder": "search ingredient…",
+      "noMatch": "No matches"
     },
     "category": {
       "uncategorized": "Uncategorized",
@@ -220,6 +224,7 @@
     }
   },
   "chrome": {
+    "clear": "Clear",
     "queue": {
       "pending": "{count} pending",
       "queuedRow": "Queued — will sync when online",

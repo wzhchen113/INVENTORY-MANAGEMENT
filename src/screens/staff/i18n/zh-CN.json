@@ -31,7 +31,9 @@
       "noneToday": "今天没有安排供应商"
     },
     "list": {
-      "empty": "此供应商未配置任何项目"
+      "empty": "此供应商未配置任何项目",
+      "searchPlaceholder": "搜索原料…",
+      "noMatch": "无匹配项"
     },
     "col": {
       "cases": "箱",
@@ -186,7 +188,9 @@
       "today": "今天 · {weekday}，{monthDay}"
     },
     "list": {
-      "empty": "此门店未配置任何项目"
+      "empty": "此门店未配置任何项目",
+      "searchPlaceholder": "搜索原料…",
+      "noMatch": "无匹配项"
     },
     "category": {
       "uncategorized": "未分类",
@@ -220,6 +224,7 @@
     }
   },
   "chrome": {
+    "clear": "清除",
     "queue": {
       "pending": "{count} 条待处理",
       "queuedRow": "已加入队列 — 联网后将同步",

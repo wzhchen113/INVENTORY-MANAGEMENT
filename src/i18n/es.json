@@ -335,6 +335,7 @@
     },
     "eod": {
       "title": "Conteo de fin de día",
+      "searchPlaceholder": "nombre del ingrediente…",
       "historyTitle": "Conteo de fin de día · historial",
       "tabs": {
         "count": "Conteo",
@@ -442,6 +443,7 @@
     },
     "inventoryCount": {
       "title": "Conteo de inventario",
+      "searchPlaceholder": "nombre del ingrediente…",
       "recentTitle": "Conteos recientes",
       "submit": "Enviar conteo",
       "noRecent": "Sin conteos recientes"

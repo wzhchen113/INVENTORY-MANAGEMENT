@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
+  Pressable,
   SectionList,
   StyleSheet,
   Text,
@@ -38,6 +39,7 @@ import { notifyBackendError } from '../lib/notifyBackendError';
 import { useStaffStore } from '../store/useStaffStore';
 import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
+import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames } from '../../../types';
 import { spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
@@ -142,6 +144,9 @@ export function WeeklyCount() {
   const submitWeeklyCount = useStaffStore((s) => s.submitWeeklyCount);
 
   const [items, setItems] = useState<WeeklyItem[]>([]);
+  // Ingredient-name search — view-only; filters the grouped sections while the
+  // full `items` array still drives submission.
+  const [search, setSearch] = useState('');
   // name → per-locale category overrides (keyed by canonical English
   // category name; same string the catalog rows store in `category`).
   const [categoryI18n, setCategoryI18n] = useState<Map<string, LocalizedNames>>(
@@ -212,8 +217,16 @@ export function WeeklyCount() {
   // never changes what gets submitted (onSubmit iterates `items`, never
   // the grouped sections), per spec.
   const sections = useMemo(() => {
+    const visible = search.trim()
+      ? items.filter((it) =>
+          matchesQuery(search, [
+            getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale),
+            it.name,
+          ]),
+        )
+      : items;
     const map = new Map<string, WeeklyItem[]>();
-    for (const it of items) {
+    for (const it of visible) {
       const arr = map.get(it.category) || [];
       arr.push(it);
       map.set(it.category, arr);
@@ -237,7 +250,7 @@ export function WeeklyCount() {
           : t('weekly.category.uncategorized'),
         data,
       }));
-  }, [items, t, locale, categoryI18n]);
+  }, [items, t, locale, categoryI18n, search]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -384,6 +397,33 @@ export function WeeklyCount() {
         />
       ) : null}
 
+      {/* Ingredient-name search — view-only; shown once the store's items
+          have loaded. */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <Input
+              testID="weekly-search"
+              placeholder={t('weekly.list.searchPlaceholder')}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          {search ? (
+            <Pressable
+              testID="weekly-search-clear"
+              onPress={() => setSearch('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('chrome.clear')}
+            >
+              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: spacing.xs }}>✕</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {/* Items list */}
       {loading ? (
         <View style={styles.loadingPane}>
@@ -400,6 +440,13 @@ export function WeeklyCount() {
           testID="weekly-item-list"
           sections={sections}
           keyExtractor={(i) => i.id}
+          ListEmptyComponent={
+            <View style={styles.emptyPane}>
+              <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+                {t('weekly.list.noMatch')}
+              </Text>
+            </View>
+          }
           style={styles.itemListBody}
           contentContainerStyle={styles.itemList}
           stickySectionHeadersEnabled={false}
