@@ -355,6 +355,8 @@
       "submittedFor": "已提交 {date}",
       "enterAtLeastOne": "至少输入一个计数",
       "pickVendor": "提交前请选择供应商",
+      "countAllTitle": "请先清点每个项目",
+      "countAllRemaining": "还有 {count} 项未清点",
       "countSubmitted": "盘点已提交",
       "countSubmittedDetail": "{itemCount} 项 · {date}",
       "savedLocally": "仅本地保存",

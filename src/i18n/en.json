@@ -355,6 +355,8 @@
       "submittedFor": "Submitted for {date}",
       "enterAtLeastOne": "Enter at least one count",
       "pickVendor": "Pick a vendor before submitting",
+      "countAllTitle": "Count every item first",
+      "countAllRemaining": "{count} still need a count",
       "countSubmitted": "Count submitted",
       "countSubmittedDetail": "{itemCount} items · {date}",
       "savedLocally": "Saved locally only",

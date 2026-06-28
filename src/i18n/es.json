@@ -355,6 +355,8 @@
       "submittedFor": "Enviado para {date}",
       "enterAtLeastOne": "Ingresa al menos un conteo",
       "pickVendor": "Selecciona un proveedor antes de enviar",
+      "countAllTitle": "Cuenta cada artículo primero",
+      "countAllRemaining": "Faltan {count} por contar",
       "countSubmitted": "Conteo enviado",
       "countSubmittedDetail": "{itemCount} artículos · {date}",
       "savedLocally": "Guardado solo local",

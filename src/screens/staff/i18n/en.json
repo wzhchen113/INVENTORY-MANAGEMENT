@@ -56,6 +56,8 @@
       "alreadySubmitted": "Already submitted — your counts match the existing submission",
       "failed": "Submission failed — try again",
       "noCountsEntered": "No counts entered",
+      "countAllTitle": "Count every item first",
+      "countAllRemaining": "{count} still need a count",
       "queued": "Queued — will sync when online",
       "allSynced": "All counts synced"
     },

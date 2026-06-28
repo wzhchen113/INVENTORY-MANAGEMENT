@@ -56,6 +56,8 @@
       "alreadySubmitted": "已提交 — 你的盘点与现有提交一致",
       "failed": "提交失败 — 请重试",
       "noCountsEntered": "未输入盘点数",
+      "countAllTitle": "请先清点每个项目",
+      "countAllRemaining": "还有 {count} 项未清点",
       "queued": "已加入队列 — 联网后将同步",
       "allSynced": "所有盘点已同步"
     },

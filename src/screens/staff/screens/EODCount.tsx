@@ -14,7 +14,7 @@
 // EODCount reads the today_iso string in onSubmit, not at first
 // render.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -22,6 +22,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
@@ -260,6 +261,13 @@ export function EODCount() {
   // to one selected vendor at a time).
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
+  // Spec: every item must be counted (even "0") before submit. On a blocked
+  // submit we jump to the first uncounted row — `listRef` scrolls it into
+  // view, `caseInputRefs` focuses its Cases box, and `pendingFocusId` drives
+  // the effect that does both (re-running once a searched-out target appears).
+  const listRef = useRef<FlatList<EodItem>>(null);
+  const caseInputRefs = useRef<Record<string, TextInput | null>>({});
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
@@ -372,9 +380,56 @@ export function EODCount() {
   }, [canSwitchStore, setActiveStore]);
 
   // ─── submit ───────────────────────────────────────────────────────
+  // Jump to the first uncounted row after a blocked submit. Re-runs when
+  // `visibleItems` changes so a target hidden behind the search resolves once
+  // the search-clear lands. Scrolls the row in, then focuses its Cases box —
+  // on web the DOM focus also pulls a partially-clipped input fully into view.
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    const idx = visibleItems.findIndex((it) => it.id === pendingFocusId);
+    if (idx < 0) return; // not rendered yet — wait for the search-clear re-render
+    let cancelled = false;
+    try {
+      listRef.current?.scrollToIndex({ index: idx, viewPosition: 0.3, animated: true });
+    } catch {
+      // scrollToIndex can throw before layout settles; onScrollToIndexFailed recovers
+    }
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        caseInputRefs.current[pendingFocusId]?.focus?.();
+        setPendingFocusId(null);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [pendingFocusId, visibleItems]);
+
   const onSubmit = useCallback(async () => {
     if (!activeStore || !selectedVendorId || submitting) return;
     if (items.length === 0) return;
+    // Completeness gate — every item for this vendor must be counted (even a
+    // typed "0") before submitting. A row is "counted" once EITHER its Cases
+    // OR its Units box holds a value; a fully-blank row is left uncounted. If
+    // any remain, block the submit and jump to the first one (clearing the
+    // search first so a searched-out target can render). Checks the full
+    // `items` list, never the search-narrowed `visibleItems`.
+    const isBlank = (it: EodItem) =>
+      (caseCounts[it.id] ?? '').trim() === '' && (unitCounts[it.id] ?? '').trim() === '';
+    const uncounted = items.filter(isBlank);
+    if (uncounted.length > 0) {
+      if (search.trim()) setSearch('');
+      setPendingFocusId(uncounted[0].id);
+      Toast.show({
+        type: 'error',
+        text1: t('eod.toast.countAllTitle'),
+        text2: t('eod.toast.countAllRemaining', { count: uncounted.length }),
+        position: 'bottom',
+      });
+      return;
+    }
     // Build entries — include a row when EITHER its Cases OR its Units
     // box is non-empty (the admin `hasEntry` rule,
     // EODCountSection.tsx:397-398). Fully-blank rows are skipped so the
@@ -464,7 +519,7 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, t]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, t]);
 
   if (!activeStore) {
     // Shouldn't render — RootStack swaps to picker when activeStore
@@ -666,9 +721,19 @@ export function EODCount() {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           testID="eod-item-list"
           data={visibleItems}
           keyExtractor={(i) => i.id}
+          // Rows are variable-height, so scrollToIndex can miss before the
+          // target is measured — approximate the offset, then the focus effect
+          // pulls it the rest of the way in.
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({
+              offset: info.averageItemLength * Math.max(0, info.index - 1),
+              animated: true,
+            });
+          }}
           ListEmptyComponent={
             <View style={styles.emptyPane}>
               <Text style={[styles.emptyText, { color: c.textSecondary }]}>
@@ -714,7 +779,10 @@ export function EODCount() {
                 testID={`eod-item-row-${item.id}`}
                 leading={
                   <View>
-                    <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                      numberOfLines={2}
+                    >
                       {displayName}
                     </Text>
                     {item.unit || hasPack ? (
@@ -743,6 +811,9 @@ export function EODCount() {
                         {t('eod.col.cases')}
                       </Text>
                       <Input
+                        ref={(r) => {
+                          caseInputRefs.current[item.id] = r;
+                        }}
                         value={caseRaw}
                         onChangeText={(txt) =>
                           setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
@@ -753,7 +824,9 @@ export function EODCount() {
                         {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                         placeholder="0"
                         testID={`eod-item-cases-${item.id}`}
-                        style={styles.countInput}
+                        // Uncounted rows (both boxes blank) get a red border so
+                        // the staffer can see what's left; clears on first input.
+                        style={[styles.countInput, !entered && { borderColor: c.error }]}
                         accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
                       />
                     </View>
@@ -770,7 +843,7 @@ export function EODCount() {
                         {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                         placeholder="0"
                         testID={`eod-item-units-${item.id}`}
-                        style={styles.countInput}
+                        style={[styles.countInput, !entered && { borderColor: c.error }]}
                         accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
                       />
                     </View>

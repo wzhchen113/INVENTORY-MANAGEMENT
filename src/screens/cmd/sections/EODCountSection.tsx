@@ -506,6 +506,23 @@ export default function EODCountSection() {
   };
 
   const onSubmit = async () => {
+    // Completeness gate (spec) — every item in the current worksheet scope
+    // (`filteredItems`, the same set buildSubmission ships) must be counted,
+    // even "0", before a final submit; partial work goes through Save Draft.
+    // A row counts once EITHER box has a value (hasEntry). Block on the first
+    // blank, clear the search so a searched-out row can render, and reuse the
+    // palette-action focus path to jump to it.
+    const missing = filteredItems.filter((i) => !hasEntry(i.id));
+    if (missing.length > 0) {
+      if (search.trim()) setSearch('');
+      setPendingFocusItem(missing[0].id);
+      Toast.show({
+        type: 'error',
+        text1: T('section.eod.countAllTitle'),
+        text2: T('section.eod.countAllRemaining', { count: missing.length }),
+      });
+      return;
+    }
     const submission = buildSubmission('submitted');
     if (!submission) {
       Toast.show({ type: 'error', text1: T('section.eod.enterAtLeastOne') });
@@ -1173,6 +1190,11 @@ export default function EODCountSection() {
                   // Composed editable gate. Inputs disable on REST days OR
                   // when the vendor is submitted-and-not-in-EDIT-mode.
                   const inputsDisabled = isRestDay || isVendorLocked;
+                  // Spec: flag an uncounted row red so the manager sees what's
+                  // left before submitting. "Counted" = EITHER box has a value
+                  // (cFocused/uFocused mirror the displayed cVal/uVal). Never
+                  // red on locked/rest rows — those aren't being counted now.
+                  const rowUncounted = !inputsDisabled && !cFocused && !uFocused;
                   return (
                     <View
                       key={it.id}
@@ -1187,7 +1209,7 @@ export default function EODCountSection() {
                       }}
                     >
                       <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
-                        <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg, letterSpacing: -0.1 }}>
+                        <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: rowUncounted ? C.danger : C.fg, letterSpacing: -0.1 }}>
                           {it.name}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
@@ -1220,7 +1242,7 @@ export default function EODCountSection() {
                             color: hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
                             backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
                             borderWidth: 1,
-                            borderColor: cFocused ? C.accent : C.border,
+                            borderColor: cFocused ? C.accent : (hasCase && rowUncounted ? C.danger : C.border),
                             borderRadius: CmdRadius.sm,
                             opacity: !hasCase || inputsDisabled ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
@@ -1251,7 +1273,7 @@ export default function EODCountSection() {
                             color: uFocused ? C.fg : C.fg2,
                             backgroundColor: uFocused ? C.panel2 : C.panel,
                             borderWidth: 1,
-                            borderColor: uFocused ? C.accent : C.border,
+                            borderColor: uFocused ? C.accent : (rowUncounted ? C.danger : C.border),
                             borderRadius: CmdRadius.sm,
                             opacity: inputsDisabled ? 0.5 : 1,
                             ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
