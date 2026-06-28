@@ -160,7 +160,7 @@ describe('WeeklyCount', () => {
     expect(getByTestId('weekly-item-units-item-2')).toBeTruthy();
   });
 
-  it('gates submit on ≥1 non-blank entry — disabled while empty, enabled once filled, never calls RPC empty', async () => {
+  it('gates submit on EVERY item counted — an incomplete submit is blocked (no RPC); submits once all filled', async () => {
     const mockSubmit = jest.fn().mockResolvedValue({
       count_id: 'c-1',
       conflict: false,
@@ -173,18 +173,15 @@ describe('WeeklyCount', () => {
     };
     const { getByTestId } = render(<WeeklyCount />);
     await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
-    // With no entries the Submit button is disabled — pressing it is a
-    // no-op (the disabled Pressable swallows onPress) so the RPC is never
-    // called on an empty form.
+    // The button is enabled (press-to-discover). Pressing it with the row
+    // blank fires the completeness gate, which blocks and never calls the RPC
+    // on an incomplete form — a blocked submit only toasts + jumps to the gap.
     const submit = getByTestId('weekly-submit');
-    expect(submit.props.accessibilityState?.disabled).toBe(true);
+    expect(submit.props.accessibilityState?.disabled).toBe(false);
     fireEvent.press(submit);
     expect(mockSubmit).not.toHaveBeenCalled();
-    // Once a box is non-blank the gate lifts and submit goes through.
+    // Once EVERY item has a value the gate lifts and submit goes through.
     fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '4');
-    await waitFor(() =>
-      expect(getByTestId('weekly-submit').props.accessibilityState?.disabled).toBe(false),
-    );
     fireEvent.press(getByTestId('weekly-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
   });

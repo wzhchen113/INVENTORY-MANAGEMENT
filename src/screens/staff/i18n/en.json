@@ -45,6 +45,7 @@
       "caseOf": "case of {qty}",
       "total": "total {total} {unit}"
     },
+    "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit",
     "submitting": "Submitting...",
     "banner": {
@@ -208,6 +209,7 @@
       "caseOf": "case of {qty}",
       "total": "total {total} {unit}"
     },
+    "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit weekly count",
     "submitting": "Submitting...",
     "banner": {
@@ -219,7 +221,9 @@
       "submitted": "Weekly count submitted",
       "alreadySubmitted": "Already submitted — this weekly count was previously recorded",
       "failed": "Submission failed — try again",
-      "noCountsEntered": "No counts entered"
+      "noCountsEntered": "No counts entered",
+      "countAllTitle": "Count every item first",
+      "countAllRemaining": "{count} still need a count"
     },
     "error": {
       "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."

@@ -45,6 +45,7 @@
       "caseOf": "caja de {qty}",
       "total": "total {total} {unit}"
     },
+    "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar",
     "submitting": "Enviando...",
     "banner": {
@@ -208,6 +209,7 @@
       "caseOf": "caja de {qty}",
       "total": "total {total} {unit}"
     },
+    "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar conteo semanal",
     "submitting": "Enviando...",
     "banner": {
@@ -219,7 +221,9 @@
       "submitted": "Conteo semanal enviado",
       "alreadySubmitted": "Ya enviado — este conteo semanal se registró previamente",
       "failed": "Error al enviar — inténtalo de nuevo",
-      "noCountsEntered": "No se ingresaron conteos"
+      "noCountsEntered": "No se ingresaron conteos",
+      "countAllTitle": "Cuenta cada artículo primero",
+      "countAllRemaining": "Faltan {count} por contar"
     },
     "error": {
       "forbidden": "No puedes enviar para esta tienda — tu acceso ha cambiado. Cierra sesión y vuelve a entrar."

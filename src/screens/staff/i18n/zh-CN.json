@@ -45,6 +45,7 @@
       "caseOf": "每箱 {qty}",
       "total": "共 {total} {unit}"
     },
+    "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交",
     "submitting": "正在提交...",
     "banner": {
@@ -208,6 +209,7 @@
       "caseOf": "每箱 {qty}",
       "total": "共 {total} {unit}"
     },
+    "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交每周盘点",
     "submitting": "正在提交...",
     "banner": {
@@ -219,7 +221,9 @@
       "submitted": "每周盘点已提交",
       "alreadySubmitted": "已提交 — 此每周盘点先前已记录",
       "failed": "提交失败 — 请重试",
-      "noCountsEntered": "未输入盘点数"
+      "noCountsEntered": "未输入盘点数",
+      "countAllTitle": "请先清点每个项目",
+      "countAllRemaining": "还有 {count} 项未清点"
     },
     "error": {
       "forbidden": "无法为此门店提交 — 你的权限已变更。请退出后重新登录。"

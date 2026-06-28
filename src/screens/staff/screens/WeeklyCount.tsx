@@ -15,7 +15,7 @@
 // (staff v1 has no realtime). On a successful submit the status flips to
 // 'completed' (optimistically in the store) and the banner clears.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -23,6 +23,7 @@ import {
   SectionList,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
@@ -154,6 +155,14 @@ export function WeeklyCount() {
   );
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
+  // Spec: every item must be counted (even "0") before submit. On a blocked
+  // submit we jump to the first uncounted row — `listRef` scrolls its section
+  // into view, `firstInputRefs` focuses its primary box (Cases when packed,
+  // else Units), and `pendingFocusId` drives the effect that does both.
+  const listRef = useRef<SectionList<WeeklyItem, { category: string; title: string }>>(null);
+  const firstInputRefs = useRef<Record<string, TextInput | null>>({});
+  const pendingLocationRef = useRef<{ sectionIndex: number; itemIndex: number } | null>(null);
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
@@ -198,13 +207,13 @@ export function WeeklyCount() {
     }, [activeStore, fetchWeeklyStatus]),
   );
 
-  // ─── submit ───────────────────────────────────────────────────────
-  const nonBlankCount = useMemo(
+  // Live progress for the "X of N counted" label — a row counts once EITHER
+  // box has a value (same predicate as the red marking + completeness gate).
+  const countedNum = useMemo(
     () =>
       items.filter(
         (it) =>
-          (caseCounts[it.id] ?? '').trim() !== '' ||
-          (unitCounts[it.id] ?? '').trim() !== '',
+          (caseCounts[it.id] ?? '').trim() !== '' || (unitCounts[it.id] ?? '').trim() !== '',
       ).length,
     [items, caseCounts, unitCounts],
   );
@@ -251,6 +260,43 @@ export function WeeklyCount() {
         data,
       }));
   }, [items, t, locale, categoryI18n, search]);
+
+  // Jump to the first uncounted row after a blocked submit. Re-runs when
+  // `sections` changes so a target hidden behind the search resolves once the
+  // search-clear lands. Scrolls its section/item into view, then focuses its
+  // primary box — on web the DOM focus also pulls a clipped input fully in.
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    let sectionIndex = -1;
+    let itemIndex = -1;
+    for (let s = 0; s < sections.length; s++) {
+      const i = sections[s].data.findIndex((it) => it.id === pendingFocusId);
+      if (i >= 0) {
+        sectionIndex = s;
+        itemIndex = i;
+        break;
+      }
+    }
+    if (sectionIndex < 0) return; // not rendered yet — wait for the re-render
+    pendingLocationRef.current = { sectionIndex, itemIndex };
+    let cancelled = false;
+    try {
+      listRef.current?.scrollToLocation({ sectionIndex, itemIndex, viewPosition: 0.3, animated: true });
+    } catch {
+      // scrollToLocation can throw before layout settles; onScrollToIndexFailed recovers
+    }
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        firstInputRefs.current[pendingFocusId]?.focus?.();
+        setPendingFocusId(null);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [pendingFocusId, sections]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -329,19 +375,37 @@ export function WeeklyCount() {
     }
   }, [activeStore, items, caseCounts, unitCounts, submitWeeklyCount, fetchWeeklyStatus, submitting, t]);
 
-  // ─── confirm before submitting a full-store count ─────────────────
+  // ─── gate: every item must be counted before a full-store submit ───
   const onSubmitPress = useCallback(() => {
-    if (nonBlankCount === 0) {
+    // Completeness gate — every store item must be counted (even a typed "0")
+    // before submitting. A row counts once EITHER box has a value; the first
+    // fully-blank one blocks the submit and we jump to it (clearing the search
+    // so a searched-out target can render). Checks the full `items` list, not
+    // the search-narrowed sections.
+    const isBlank = (it: WeeklyItem) =>
+      (caseCounts[it.id] ?? '').trim() === '' && (unitCounts[it.id] ?? '').trim() === '';
+    // Walk the on-screen (category-grouped) order — same sort as `sections`
+    // (category asc, then name) — so the jump lands on the TOPMOST uncounted
+    // row, not the alphabetically-first one buried mid-list.
+    const uncounted = [...items]
+      .sort(
+        (a, b) =>
+          (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name),
+      )
+      .filter(isBlank);
+    if (uncounted.length > 0) {
+      if (search.trim()) setSearch('');
+      setPendingFocusId(uncounted[0].id);
       Toast.show({
         type: 'error',
-        text1: t('weekly.toast.failed'),
-        text2: t('weekly.toast.noCountsEntered'),
+        text1: t('weekly.toast.countAllTitle'),
+        text2: t('weekly.toast.countAllRemaining', { count: uncounted.length }),
         position: 'bottom',
       });
       return;
     }
     void onSubmit();
-  }, [nonBlankCount, onSubmit, t]);
+  }, [items, caseCounts, unitCounts, search, onSubmit, t]);
 
   if (!activeStore) {
     return (
@@ -397,6 +461,23 @@ export function WeeklyCount() {
         />
       ) : null}
 
+      {/* Live "X of N counted" progress for the full store — turns green once
+          every item is counted (ties into the count-everything gate). */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+          <Text
+            testID="weekly-counted-label"
+            style={{
+              fontSize: typography.caption,
+              fontWeight: typography.semibold,
+              color: countedNum === items.length ? c.primary : c.textSecondary,
+            }}
+          >
+            {t('weekly.countedOfTotal', { counted: countedNum, total: items.length })}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Ingredient-name search — view-only; shown once the store's items
           have loaded. */}
       {!loading && items.length > 0 ? (
@@ -437,9 +518,40 @@ export function WeeklyCount() {
         </View>
       ) : (
         <SectionList
+          ref={listRef}
           testID="weekly-item-list"
           sections={sections}
           keyExtractor={(i) => i.id}
+          // Render the whole list (no windowing) — same posture as the admin
+          // inventory count's ScrollView. A virtualized SectionList unmounts
+          // far rows, so the "jump to the first uncounted row" redirect can't
+          // focus a target below the fold; keeping every row mounted lets the
+          // input's DOM focus scroll it into view on web. The full-store count
+          // is a deliberate scroll-through-everything screen, so the up-front
+          // render cost is acceptable (matches InventoryCountSection).
+          //
+          // initialNumToRender is in CELLS (rows + section headers + item
+          // separators ≈ 3× items), not rows — undersizing it leaves trailing
+          // rows unrendered where there's no layout pass to fill them in (e.g.
+          // react-test-renderer). windowSize (viewport units) keeps the fully
+          // rendered list mounted so a far target stays focusable.
+          initialNumToRender={items.length * 3 + 10}
+          maxToRenderPerBatch={items.length * 3 + 10}
+          windowSize={Math.max(21, items.length)}
+          // Variable row heights mean scrollToLocation can miss before the
+          // target is measured — retry the stored location, then the focus
+          // effect pulls it the rest of the way in (DOM focus on web).
+          onScrollToIndexFailed={() => {
+            const loc = pendingLocationRef.current;
+            if (!loc) return;
+            requestAnimationFrame(() => {
+              try {
+                listRef.current?.scrollToLocation({ ...loc, viewPosition: 0.3, animated: true });
+              } catch {
+                // give up quietly — the row still focuses once it mounts
+              }
+            });
+          }}
           ListEmptyComponent={
             <View style={styles.emptyPane}>
               <Text style={[styles.emptyText, { color: c.textSecondary }]}>
@@ -489,7 +601,10 @@ export function WeeklyCount() {
                 testID={`weekly-item-row-${item.id}`}
                 leading={
                   <View>
-                    <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                      numberOfLines={2}
+                    >
                       {displayName}
                     </Text>
                     {item.unit || hasPack ? (
@@ -516,6 +631,9 @@ export function WeeklyCount() {
                           {t('weekly.col.cases')}
                         </Text>
                         <Input
+                          ref={(r) => {
+                            firstInputRefs.current[item.id] = r;
+                          }}
                           value={caseRaw}
                           onChangeText={(txt) =>
                             setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
@@ -524,7 +642,9 @@ export function WeeklyCount() {
                           {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                           placeholder="0"
                           testID={`weekly-item-cases-${item.id}`}
-                          style={styles.countInput}
+                          // Uncounted rows (both boxes blank) get a red border so
+                          // the counter can see what's left; clears on first input.
+                          style={[styles.countInput, !entered && { borderColor: c.error }]}
                           accessibilityLabel={t('weekly.col.casesAria', { item: displayName })}
                         />
                       </View>
@@ -541,7 +661,7 @@ export function WeeklyCount() {
                           {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                           placeholder="0"
                           testID={`weekly-item-units-${item.id}`}
-                          style={styles.countInput}
+                          style={[styles.countInput, !entered && { borderColor: c.error }]}
                           accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
                         />
                       </View>
@@ -552,6 +672,9 @@ export function WeeklyCount() {
                         {t('weekly.col.units')}
                       </Text>
                       <Input
+                        ref={(r) => {
+                          firstInputRefs.current[item.id] = r;
+                        }}
                         value={unitRaw}
                         onChangeText={(txt) =>
                           setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
@@ -560,7 +683,9 @@ export function WeeklyCount() {
                         {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                         placeholder="0"
                         testID={`weekly-item-units-${item.id}`}
-                        style={styles.countInput}
+                        // Uncounted single-input rows go red too (Units is the
+                        // only box, so its value alone decides counted-ness).
+                        style={[styles.countInput, !entered && { borderColor: c.error }]}
                         accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
                       />
                     </View>
@@ -583,7 +708,7 @@ export function WeeklyCount() {
           <Button
             label={submitting ? t('weekly.submitting') : t('weekly.submit')}
             onPress={onSubmitPress}
-            disabled={items.length === 0 || forbidden || nonBlankCount === 0}
+            disabled={items.length === 0 || forbidden}
             loading={submitting}
             testID="weekly-submit"
           />

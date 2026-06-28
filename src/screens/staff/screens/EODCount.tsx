@@ -272,6 +272,17 @@ export function EODCount() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
 
+  // Live progress for the "X of N counted" label — a row counts once EITHER
+  // box has a value (the same predicate the red marking + gate use).
+  const countedNum = useMemo(
+    () =>
+      items.filter(
+        (it) =>
+          (caseCounts[it.id] ?? '').trim() !== '' || (unitCounts[it.id] ?? '').trim() !== '',
+      ).length,
+    [items, caseCounts, unitCounts],
+  );
+
   // Recompute when `t` changes (i.e. locale changes) so the header date
   // label re-translates (spec 099).
   const todayLabel = useMemo(() => todayHeaderLabel(t), [t]);
@@ -671,6 +682,23 @@ export function EODCount() {
             numberOfLines={1}
           >
             {t('eod.vendor.single', { name: vendors[0].name })}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Live "X of N counted" progress for the selected vendor — turns green
+          once every item is counted (ties into the count-everything gate). */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+          <Text
+            testID="eod-counted-label"
+            style={{
+              fontSize: typography.caption,
+              fontWeight: typography.semibold,
+              color: countedNum === items.length ? c.primary : c.textSecondary,
+            }}
+          >
+            {t('eod.countedOfTotal', { counted: countedNum, total: items.length })}
           </Text>
         </View>
       ) : null}
