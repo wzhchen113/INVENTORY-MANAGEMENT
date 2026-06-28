@@ -369,7 +369,10 @@ describe('EODCount', () => {
     ]);
   });
 
-  it('skips a fully-blank row (no Cases, no Units) → noCountsEntered toast', async () => {
+  it('blocks submit on a fully-blank row → "count every item" gate toast (no skip)', async () => {
+    // Completeness gate: every item must be counted (even "0") before submit.
+    // A fully-blank row no longer silently skips — it blocks the submit and the
+    // toast names how many remain (the prior blank-skip behavior is inverted).
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
@@ -383,11 +386,11 @@ describe('EODCount', () => {
     await findByTestId('eod-item-cases-item-1');
     fireEvent.press(await findByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
-    // submit() never called — the empty-payload guard fired first.
+    // submit() never called — the completeness gate fired first.
     expect(mockSubmit).not.toHaveBeenCalled();
     expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({
-      text1: 'Submission failed — try again',
-      text2: 'No counts entered',
+      text1: 'Count every item first',
+      text2: '1 still need a count',
     });
   });
 
