@@ -157,6 +157,19 @@ begin
   perform set_config('test.item_both',  v_both::text,  true);
 end $$;
 
+-- Spec 102 — the reorder RPC now explodes items to vendors via the
+-- `item_vendors` junction, NOT the scalar inventory_items.vendor_id. The
+-- backfill creates one primary link per vendor-bearing item; these
+-- in-transaction test items did not exist when the backfill ran, so we
+-- must insert their links explicitly (mirroring the backfill: is_primary,
+-- carrying the item's per-vendor cost). Without this, the items produce
+-- no reorder rows.
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+select isd.id, current_setting('test.vendor_id', true)::uuid, ii.cost_per_unit, ii.case_price, true
+  from _items_seed isd
+  join public.inventory_items ii on ii.id = isd.id
+on conflict (item_id, vendor_id) do nothing;
+
 -- Two recipes (one for usage item, one for both item — the par item
 -- is intentionally not linked to any recipe).
 create temp table _recipes on commit drop as

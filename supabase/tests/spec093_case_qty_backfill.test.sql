@@ -292,6 +292,16 @@ with ins as (
 )
 select id from ins;
 
+-- Spec 102 — the reorder RPC now explodes items to vendors via the
+-- `item_vendors` junction, NOT the scalar inventory_items.vendor_id. This
+-- in-transaction test item did not exist when the backfill ran, so insert
+-- its primary link explicitly (mirroring the backfill). Without this, the
+-- item produces no reorder row and the round-trip assertion reads NULL.
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+values ((select id from _reorder_item),
+        current_setting('test.vendor_id', true)::uuid, 1, 0, true)
+on conflict (item_id, vendor_id) do nothing;
+
 -- Lock the schedule to "no rows" → days_until_next_delivery = 7 (irrelevant
 -- here because usage_forecasted is 0 regardless).
 delete from public.order_schedule

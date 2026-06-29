@@ -160,6 +160,17 @@ begin
   perform set_config('test.item_empty',     v_empty::text,     true);
 end $$;
 
+-- Spec 102 — the reorder RPC now explodes items to vendors via the
+-- `item_vendors` junction, NOT the scalar inventory_items.vendor_id. These
+-- in-transaction test items did not exist when the backfill ran, so insert
+-- their primary links explicitly (mirroring the backfill). Without this,
+-- the items produce no reorder rows and the i18n_names key never appears.
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+select isd.id, current_setting('test.vendor_id', true)::uuid, ii.cost_per_unit, ii.case_price, true
+  from _items_seed isd
+  join public.inventory_items ii on ii.id = isd.id
+on conflict (item_id, vendor_id) do nothing;
+
 -- ─── Call the runner with as_of_date = today ──────────────────
 create temp table _env on commit drop as
 select public.report_reorder_list(

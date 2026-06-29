@@ -32,6 +32,18 @@ export function useRealtimeSync(
     const storeChannel = supabase
       .channel(`store-${storeId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `store_id=eq.${storeId}` }, onSync)
+      // Spec 102 — item↔vendor link / per-vendor cost edits must reach other
+      // admin clients live so a second manager's EOD tabs + item editor
+      // reflect the change. item_vendors has no store_id column (scope is
+      // transitive via item_id → inventory_items.store_id), so this
+      // subscription cannot filter by store — it fires for ANY item_vendors
+      // change and the caller's 400ms debounce + full reload absorbs the
+      // cross-store noise (same posture as ingredient_conversions on the
+      // brand channel). The table was added to the supabase_realtime
+      // publication in 20260630000000_item_vendors.sql; locally this needs
+      // `docker restart supabase_realtime_imr-inventory` after `npm run
+      // dev:db` to re-snapshot the slot (the realtime publication gotcha).
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_vendors' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waste_log', filter: `store_id=eq.${storeId}` }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'eod_submissions', filter: `store_id=eq.${storeId}` }, onSync)
       // Spec 021 — purchase_orders feeds the Reorder section's

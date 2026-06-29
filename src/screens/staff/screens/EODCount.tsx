@@ -125,16 +125,23 @@ async function fetchItemsForVendor(
   storeId: string,
   vendorId: string,
 ): Promise<EodItem[]> {
-  // inventory_items at the store filtered by vendor_id, joined to
-  // catalog_ingredients for the canonical display name + unit + the
-  // units-per-case (`case_qty`) the Cases input converts with (spec
-  // 086; same source the admin reads via db.ts:166).
+  // Spec 102 (§6d) — items the vendor can be counted under are now defined
+  // by the `item_vendors` junction (a shared item links to N vendors), NOT
+  // the single `inventory_items.vendor_id` scalar. Query item_vendors for
+  // this vendor, embedding the inventory item (inner-joined so only this
+  // store's items come back) + its catalog row for the canonical display
+  // name + unit + units-per-case (`case_qty`) the Cases input converts with
+  // (spec 086). A shared item assigned to this scheduled vendor now returns
+  // here (AC-E); the shared on-hand is reconciled server-side by
+  // staff_submit_eod's junction-membership write (§5b).
   const { data, error } = await supabase
-    .from('inventory_items')
-    .select('id, vendor_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names)')
-    .eq('store_id', storeId)
+    .from('item_vendors')
+    .select(
+      'vendor_id, item:inventory_items!inner(id, store_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names))',
+    )
     .eq('vendor_id', vendorId)
-    .order('id', { ascending: true });
+    .eq('item.store_id', storeId)
+    .order('item_id', { ascending: true });
   if (error) throw error;
   type CatalogRow = {
     name: string | null;
@@ -142,26 +149,36 @@ async function fetchItemsForVendor(
     case_qty: number | string | null;
     i18n_names: LocalizedNames | null;
   };
-  type Row = {
+  type ItemRow = {
     id: string;
-    vendor_id: string | null;
+    store_id: string | null;
     catalog: CatalogRow | CatalogRow[] | null;
   };
+  type Row = {
+    vendor_id: string | null;
+    item: ItemRow | ItemRow[] | null;
+  };
   const rows = (data ?? []) as Row[];
-  return rows.map((r) => {
-    const c = Array.isArray(r.catalog) ? r.catalog[0] : r.catalog;
-    return {
-      id: r.id,
-      vendorId: r.vendor_id,
-      name: c?.name ?? '',
-      unit: c?.unit ?? '',
-      // Preserve null (the admin collapses to 1 at hydration; we keep
-      // the distinction and apply `|| 1` at the conversion site).
-      caseQty: c?.case_qty == null ? null : Number(c.case_qty),
-      // Per-locale name overrides — null/missing → undefined so
-      // getLocalizedName falls back to the English `name`.
-      i18nNames: c?.i18n_names ?? undefined,
-    };
+  return rows.flatMap((r) => {
+    const item = Array.isArray(r.item) ? r.item[0] : r.item;
+    if (!item) return [];
+    const c = Array.isArray(item.catalog) ? item.catalog[0] : item.catalog;
+    return [
+      {
+        // `id` is the inventory item id (unchanged shape); `vendorId` is the
+        // selected (scheduled) vendor from the junction row.
+        id: item.id,
+        vendorId: r.vendor_id,
+        name: c?.name ?? '',
+        unit: c?.unit ?? '',
+        // Preserve null (the admin collapses to 1 at hydration; we keep
+        // the distinction and apply `|| 1` at the conversion site).
+        caseQty: c?.case_qty == null ? null : Number(c.case_qty),
+        // Per-locale name overrides — null/missing → undefined so
+        // getLocalizedName falls back to the English `name`.
+        i18nNames: c?.i18n_names ?? undefined,
+      },
+    ];
   });
 }
 

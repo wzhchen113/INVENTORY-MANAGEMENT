@@ -48,6 +48,27 @@ jest.mock('../../../lib/supabase', () => ({
 import { EODCount } from './EODCount';
 import { useStaffStore } from '../store/useStaffStore';
 
+// Spec 102 (§6d) — fetchItemsForVendor now queries `item_vendors` and
+// embeds the inventory item under `item:` (a shared item links to N
+// vendors via the junction). This helper builds the new row shape from the
+// fields a test cares about so the fixtures stay terse; it mirrors the
+// PostgREST embed `item_vendors → item:inventory_items!inner(... catalog)`.
+function itemVendorRow(args: {
+  id: string;
+  vendorId?: string;
+  storeId?: string;
+  catalog: Record<string, unknown>;
+}) {
+  return {
+    vendor_id: args.vendorId ?? 'v-1',
+    item: {
+      id: args.id,
+      store_id: args.storeId ?? 'store-1',
+      catalog: args.catalog,
+    },
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockSubmit.mockReset();
@@ -76,11 +97,7 @@ describe('EODCount', () => {
       // items for vendor (case_qty present → caseQty mapped)
       {
         data: [
-          {
-            id: 'item-1',
-            vendor_id: 'v-1',
-            catalog: { name: 'Flour', unit: 'lb', case_qty: 12 },
-          },
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
         ],
         error: null,
       },
@@ -106,17 +123,15 @@ describe('EODCount', () => {
       {
         data: [
           // item-1: es override present → Spanish name.
-          {
+          itemVendorRow({
             id: 'item-1',
-            vendor_id: 'v-1',
             catalog: { name: 'Flour', unit: 'lb', case_qty: 12, i18n_names: { es: 'Harina' } },
-          },
+          }),
           // item-2: no es override → English fallback.
-          {
+          itemVendorRow({
             id: 'item-2',
-            vendor_id: 'v-1',
             catalog: { name: 'Salt', unit: 'oz', case_qty: 1, i18n_names: { 'zh-CN': '盐' } },
-          },
+          }),
         ],
         error: null,
       },
@@ -132,7 +147,7 @@ describe('EODCount', () => {
   it('shows a static "Vendor: <name>" label (no chip switcher) when exactly one vendor is scheduled', async () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
     const { findByText, queryByTestId } = render(<EODCount />);
@@ -151,7 +166,7 @@ describe('EODCount', () => {
         ],
         error: null,
       },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
     const { findByTestId, queryByTestId } = render(<EODCount />);
@@ -165,7 +180,7 @@ describe('EODCount', () => {
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
         ],
         error: null,
       },
@@ -197,7 +212,7 @@ describe('EODCount', () => {
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
         ],
         error: null,
       },
@@ -229,7 +244,7 @@ describe('EODCount', () => {
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } },
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
         ],
         error: null,
       },
@@ -270,7 +285,7 @@ describe('EODCount', () => {
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         data: [
-          { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Brown Paper Bag', unit: 'each', case_qty: 20 } },
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Brown Paper Bag', unit: 'each', case_qty: 20 } }),
         ],
         error: null,
       },
@@ -297,7 +312,7 @@ describe('EODCount', () => {
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
         // No case_qty key → caseQty maps to null → conversion uses × 1.
-        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }],
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })],
         error: null,
       },
       { data: null, error: null },
@@ -322,7 +337,7 @@ describe('EODCount', () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
-        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }],
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })],
         error: null,
       },
       { data: null, error: null },
@@ -348,7 +363,7 @@ describe('EODCount', () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
-        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 4 } }],
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 4 } })],
         error: null,
       },
       { data: null, error: null },
@@ -376,7 +391,7 @@ describe('EODCount', () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
-        data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }],
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })],
         error: null,
       },
       { data: null, error: null },
@@ -398,7 +413,7 @@ describe('EODCount', () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
       { data: null, error: null },
     ];
@@ -418,7 +433,7 @@ describe('EODCount', () => {
     });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
@@ -436,7 +451,7 @@ describe('EODCount', () => {
     });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
     ];
     const { findByText, findByTestId } = render(<EODCount />);
@@ -453,7 +468,7 @@ describe('EODCount', () => {
     mockSubmit.mockResolvedValue({ kind: 'queued', client_uuid: 'q-1' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
@@ -521,7 +536,7 @@ describe('EODCount', () => {
         { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
         {
           data: [
-            { id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } },
+            itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } }),
           ],
           error: null,
         },
@@ -559,7 +574,7 @@ describe('EODCount — spec 072 scroll-pinned-footer', () => {
     // on any vendor with more items than the viewport height.
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [{ id: 'item-1', vendor_id: 'v-1', catalog: { name: 'Flour', unit: 'lb' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
     ];
     const { UNSAFE_getAllByType, findByTestId } = render(<EODCount />);

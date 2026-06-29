@@ -372,6 +372,25 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           <View style={{ paddingLeft: 2 }}>
             <BreakdownLine item={item} />
           </View>
+          {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared item
+              is also scheduled under other vendors today it appears under each
+              of their cards; surface "also available from N" so the manager
+              orders it from ONE vendor, not several. Advisory only — does not
+              change which card the item is on. Renders nothing for a
+              single-vendor item (otherVendorCount 0). Admin surface is English
+              (matches the rest of this section + the byte-for-byte exports). */}
+          {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
+            <View style={{ paddingLeft: 2 }}>
+              <Text
+                style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, fontStyle: 'italic' }}
+                testID={`reorder-also-from-${item.itemId}`}
+              >
+                {`also available from ${item.otherVendorCount === 1
+                  ? (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', ')
+                  : `${item.otherVendorCount} other vendors (${(item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', ')})`} — order from one`}
+              </Text>
+            </View>
+          ) : null}
         </View>
       ))}
 

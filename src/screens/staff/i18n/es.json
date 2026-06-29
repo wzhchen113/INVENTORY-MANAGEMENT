@@ -107,7 +107,9 @@
     },
     "item": {
       "breakdown": "en mano {onHand} · par {par}",
-      "order": "Pedir: {suggested}"
+      "order": "Pedir: {suggested}",
+      "alsoFromOne": "también disponible de {vendors} — pida a uno",
+      "alsoFromMany": "también disponible de {count} otros proveedores ({vendors}) — pida a uno"
     },
     "export": {
       "label": "Exportar / compartir",
@@ -208,6 +210,11 @@
     "row": {
       "caseOf": "caja de {qty}",
       "total": "total {total} {unit}"
+    },
+    "lowStock": {
+      "badge": "BAJO",
+      "detail": "{onHand} {unit} en mano — se agota antes de la próxima entrega {date}",
+      "detailNoUnit": "{onHand} en mano — se agota antes de la próxima entrega {date}"
     },
     "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar conteo semanal",

@@ -107,7 +107,9 @@
     },
     "item": {
       "breakdown": "on hand {onHand} · par {par}",
-      "order": "Order: {suggested}"
+      "order": "Order: {suggested}",
+      "alsoFromOne": "also available from {vendors} — order from one",
+      "alsoFromMany": "also available from {count} other vendors ({vendors}) — order from one"
     },
     "export": {
       "label": "Export / share",
@@ -208,6 +210,11 @@
     "row": {
       "caseOf": "case of {qty}",
       "total": "total {total} {unit}"
+    },
+    "lowStock": {
+      "badge": "LOW",
+      "detail": "{onHand} {unit} on hand — runs out before next delivery {date}",
+      "detailNoUnit": "{onHand} on hand — runs out before next delivery {date}"
     },
     "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit weekly count",

@@ -41,7 +41,7 @@ import { useStaffStore } from '../store/useStaffStore';
 import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
-import type { LocalizedNames } from '../../../types';
+import type { LocalizedNames, WeeklyLowStockItem } from '../../../types';
 import { spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
 
@@ -109,6 +109,41 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Spec 102 (US-5 / AC-H) — advisory low-stock warning. Calls the read-only
+// `report_weekly_lowstock` RPC for the store and returns a map keyed by item
+// id, so each row can show a "LOW" badge when on-hand won't cover usage until
+// the NEAREST next delivery (OQ-4). Staff carve-out: direct `supabase.rpc`
+// (same posture as the staff reorder fetch). Advisory ONLY — no ordering. The
+// fetch is best-effort: a failure leaves the map empty (no badges) and never
+// blocks the count list. Items with no vendor link are simply absent from the
+// payload (no next-delivery date to compare against) → no badge, which is the
+// correct degrade.
+async function fetchLowStock(storeId: string): Promise<Map<string, WeeklyLowStockItem>> {
+  const { data, error } = await supabase.rpc('report_weekly_lowstock', {
+    p_store_id: storeId,
+    p_params: {},
+  });
+  if (error) throw error;
+  const envelope = (data || {}) as { items?: any[] };
+  const map = new Map<string, WeeklyLowStockItem>();
+  for (const it of Array.isArray(envelope.items) ? envelope.items : []) {
+    const itemId = String(it?.item_id ?? '');
+    if (!itemId) continue;
+    map.set(itemId, {
+      itemId,
+      itemName: String(it?.item_name ?? ''),
+      unit: String(it?.unit ?? ''),
+      onHand: Number(it?.on_hand ?? 0),
+      nextDeliveryDate: String(it?.next_delivery_date ?? ''),
+      daysUntil: Number(it?.days_until ?? 0),
+      usagePerDay: Number(it?.usage_per_day ?? 0),
+      projectedOnHand: Number(it?.projected_on_hand ?? 0),
+      lowStock: Boolean(it?.low_stock ?? false),
+    });
+  }
+  return map;
+}
+
 // Fetch the store's ingredient categories with their per-locale name
 // overrides, keyed by the canonical category NAME (the same string the
 // catalog rows store in `category`). Staff carve-out: direct
@@ -153,6 +188,11 @@ export function WeeklyCount() {
   const [categoryI18n, setCategoryI18n] = useState<Map<string, LocalizedNames>>(
     () => new Map(),
   );
+  // Spec 102 (US-5) — advisory low-stock map, keyed by item id. Drives the
+  // per-row "LOW" badge. Best-effort: empty when the RPC fails (no badges).
+  const [lowStockByItem, setLowStockByItem] = useState<Map<string, WeeklyLowStockItem>>(
+    () => new Map(),
+  );
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
   // Spec: every item must be counted (even "0") before submit. On a blocked
@@ -188,6 +228,17 @@ export function WeeklyCount() {
         setItems([]);
       })
       .finally(() => setLoading(false));
+    // Spec 102 (US-5) — advisory low-stock warnings in parallel. Best-effort:
+    // a failure leaves the map empty (no badges) and does NOT gate `loading`
+    // (the item list is the primary content). Clears any prior store's map up
+    // front so stale badges never leak across a store switch.
+    setLowStockByItem(new Map());
+    fetchLowStock(activeStore.id)
+      .then(setLowStockByItem)
+      .catch((err) => {
+        notifyBackendError('fetchLowStock', err);
+        setLowStockByItem(new Map());
+      });
     // Category translations load in parallel — best-effort; a failure
     // leaves the map empty and headers fall back to the raw category text.
     // Does NOT gate `loading` (the item list is the primary content).
@@ -596,21 +647,56 @@ export function WeeklyCount() {
               { name: item.name, i18nNames: item.i18nNames },
               locale,
             );
+            // Spec 102 (US-5) — advisory low-stock warning. The badge + detail
+            // render when this item's `report_weekly_lowstock` row flagged
+            // `lowStock` (on-hand won't cover usage until the nearest next
+            // delivery). Advisory only — the weekly screen places no orders.
+            const low = lowStockByItem.get(item.id);
+            const isLow = low?.lowStock === true;
             return (
               <ListRow
                 testID={`weekly-item-row-${item.id}`}
                 leading={
                   <View>
-                    <Text
-                      style={[styles.itemName, { color: entered ? c.text : c.error }]}
-                      numberOfLines={2}
-                    >
-                      {displayName}
-                    </Text>
+                    <View style={styles.itemNameRow}>
+                      <Text
+                        style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                        numberOfLines={2}
+                      >
+                        {displayName}
+                      </Text>
+                      {isLow ? (
+                        <View
+                          style={[styles.lowBadge, { backgroundColor: c.warningBg, borderColor: c.warning }]}
+                          testID={`weekly-low-badge-${item.id}`}
+                        >
+                          <Text style={[styles.lowBadgeText, { color: c.warning }]}>
+                            {t('weekly.lowStock.badge')}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                     {item.unit || hasPack ? (
                       <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
                         {item.unit}
                         {hasPack ? ` · ${t('weekly.row.caseOf', { qty: item.caseQty as number })}` : ''}
+                      </Text>
+                    ) : null}
+                    {isLow && low ? (
+                      <Text
+                        style={[styles.itemLowDetail, { color: c.warning }]}
+                        testID={`weekly-low-detail-${item.id}`}
+                      >
+                        {low.unit
+                          ? t('weekly.lowStock.detail', {
+                              onHand: low.onHand,
+                              unit: low.unit,
+                              date: low.nextDeliveryDate,
+                            })
+                          : t('weekly.lowStock.detailNoUnit', {
+                              onHand: low.onHand,
+                              date: low.nextDeliveryDate,
+                            })}
                       </Text>
                     ) : null}
                     {hasPack && entered ? (
@@ -794,9 +880,34 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: typography.medium,
   },
+  // Spec 102 — name + low-stock badge share a row so the badge sits inline
+  // with the (possibly 2-line) ingredient name. `flex: 1` on the name lets it
+  // wrap while the badge keeps its intrinsic width.
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   itemName: {
+    flexShrink: 1,
     fontSize: typography.bodyLarge,
     fontWeight: typography.semibold,
+  },
+  lowBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  lowBadgeText: {
+    fontSize: typography.caption,
+    fontWeight: typography.bold,
+    letterSpacing: 0.5,
+  },
+  itemLowDetail: {
+    fontSize: typography.caption,
+    marginTop: 2,
+    fontWeight: typography.medium,
   },
   itemUnit: {
     fontSize: typography.caption,

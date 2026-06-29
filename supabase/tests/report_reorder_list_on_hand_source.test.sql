@@ -92,6 +92,21 @@ select set_config(
   true
 );
 
+-- Spec 102 — the reorder RPC explodes items to vendors via the
+-- `item_vendors` junction, NOT the scalar inventory_items.vendor_id. On a
+-- fresh `supabase db reset` the seed loads AFTER migrations, so the
+-- in-migration backfill saw an empty inventory_items and created NO links
+-- (the backfill runs against a populated table on prod, not on reset).
+-- This test selects SEED items by their scalar vendor_id, so it must
+-- create the matching links itself or the items produce no reorder rows.
+-- Insert under the master JWT (auth_can_see_store passes for master).
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+select ii.id, ii.vendor_id, coalesce(ii.cost_per_unit, 0), coalesce(ii.case_price, 0), true
+  from public.inventory_items ii
+ where ii.id in (current_setting('test.item_a', true)::uuid,
+                 current_setting('test.item_b', true)::uuid)
+on conflict (item_id, vendor_id) do nothing;
+
 -- Item A: par 50, current_stock 0 → par_replacement = 50.
 -- We'll INSERT an EOD entry with actual_remaining = 30, so item A's
 -- on_hand drives from EOD (30) instead of current_stock (0). vendor A

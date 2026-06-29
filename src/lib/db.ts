@@ -218,10 +218,16 @@ export async function fetchInventory(
   // selects catalog.i18n_names so mapItem can hydrate per-locale name
   // overrides without a second fetch.
   return useInflight.getState().track(async (signal) => {
+    // Spec 102 (§6a) — embed the item_vendors link set (per-vendor cost +
+    // case price + the derived is_primary mirror) alongside the existing
+    // scalar `vendor` (the primary pointer, SD-1) and `catalog` embeds.
+    // mapItem hydrates `vendors[]` + the derived `vendorIds` from this.
     let query = supabase
       .from('inventory_items')
       .select(`*,
         vendor:vendors(name),
+        item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
+                                  vendor:vendors(id, name)),
         updater:profiles!last_updated_by(name),
         catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names)`)
       .order('id', { ascending: true });
@@ -270,7 +276,22 @@ async function brandIdForStore(storeId: string, signal?: AbortSignal): Promise<s
 // first save — eliminating the silent-drop failure mode the architect
 // flagged at §11.
 export async function createInventoryItem(
-  item: Omit<InventoryItem, 'id'> & { i18nNames?: Record<string, string> },
+  // Spec 102 frontend — `Omit<…, 'vendors'>` overrides InventoryItem's
+  // `vendors?: ItemVendorLink[]` with the editor's link-PAYLOAD shape
+  // (`{vendorId, costPerUnit?, casePrice?}` — no vendorName/isPrimary, which
+  // this function derives). Without the Omit the intersection is
+  // `ItemVendorLink[] & payload[]` (uninhabitable), so every caller passing a
+  // bare payload fails to typecheck — the backend signature compiled only
+  // because nothing called it with `vendors` until the frontend wired it.
+  item: Omit<InventoryItem, 'id' | 'vendors'> & {
+    i18nNames?: Record<string, string>;
+    // Spec 102 (§8) — optional multi-vendor link set. When present, these
+    // become item_vendors rows after the item lands; the link whose
+    // vendorId matches the scalar `vendorId` is marked is_primary (SD-1).
+    // When omitted, a single primary link is synthesized from the scalar
+    // vendorId (back-compat with the single-vendor form).
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+  },
 ): Promise<InventoryItem & { i18nNames: Record<string, string> }> {
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
   const storeId = item.storeId && item.storeId.length > 10 ? item.storeId : null;
@@ -312,7 +333,36 @@ export async function createInventoryItem(
     if (error) throw error;
     // The RPC returns a jsonb shaped exactly like a PostgREST embed
     // response, so mapItem can consume it directly.
-    return mapItem(data);
+    const mapped = mapItem(data);
+
+    // Spec 102 (§8) — write the item_vendors link rows for the new item.
+    // The RPC's p_per_store.vendor_id already set the scalar (the primary
+    // pointer); here we persist the full link set. When `vendors[]` was
+    // omitted, synthesize a single primary link from the scalar vendorId so
+    // a single-vendor save (the legacy form) still produces exactly one
+    // link carrying the item's cost (AC-A/AC-C back-compat). The link whose
+    // vendorId matches the scalar is is_primary=true (SD-1). The composite
+    // unique (item_id, vendor_id) + onConflict make the upsert the
+    // dup-guard backstop. Mirrors the snake_case wire shape.
+    const links = (item.vendors && item.vendors.length > 0)
+      ? item.vendors
+      : (vendorId
+          ? [{ vendorId, costPerUnit: item.costPerUnit ?? 0, casePrice: item.casePrice ?? 0 }]
+          : []);
+    if (links.length > 0 && data?.id) {
+      const linkUpsert = await supabase.from('item_vendors').upsert(
+        links.map((l) => ({
+          item_id: data.id,
+          vendor_id: l.vendorId,
+          cost_per_unit: l.costPerUnit ?? 0,
+          case_price: l.casePrice ?? 0,
+          is_primary: l.vendorId === vendorId,
+        })),
+        { onConflict: 'item_id,vendor_id' },
+      ).abortSignal(signal);
+      if (linkUpsert.error) throw linkUpsert.error;
+    }
+    return mapped;
   }, { kind: 'write', label: 'createInventoryItem' });
 }
 
@@ -323,7 +373,20 @@ export async function createInventoryItem(
 // reverts the slice on error per useStore.ts:23 / notifyBackendError.
 export async function updateInventoryItem(
   id: string,
-  updates: Partial<InventoryItem> & { i18nNames?: Record<string, string> },
+  // Spec 102 frontend — `Omit<…, 'vendors'>` overrides the InventoryItem
+  // `vendors?: ItemVendorLink[]` field with the editor's link-PAYLOAD shape;
+  // see the createInventoryItem note above for why the plain intersection is
+  // uninhabitable.
+  updates: Omit<Partial<InventoryItem>, 'vendors'> & {
+    i18nNames?: Record<string, string>;
+    // Spec 102 (§8) — when present, RECONCILE the item's item_vendors link
+    // set: upsert each submitted link, then delete links whose vendorId is
+    // not in the submitted set ("removing a vendor removes its link;
+    // editing a cost updates only that link" — AC-C). Omitting the key
+    // leaves the link set untouched (a form that only touched the primary
+    // picker / a non-vendor field). An empty array removes ALL links.
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+  },
 ): Promise<void> {
   if (!id || id.length < 10) return;
 
@@ -371,13 +434,70 @@ export async function updateInventoryItem(
     if (updates.usagePerPortion !== undefined) perStore.usage_per_portion = updates.usagePerPortion;
     if (updates.expiryDate !== undefined) perStore.expiry_date = updates.expiryDate || null;
     if (updates.casePrice !== undefined) perStore.case_price = updates.casePrice;
-    if (Object.keys(perStore).length === 0) return;
-    const { error } = await supabase
-      .from('inventory_items')
-      .update(perStore)
-      .eq('id', id)
-      .abortSignal(signal);
-    if (error) throw error;
+    // Persist the per-store scalar fields when any changed. (Skipping the
+    // UPDATE when nothing changed avoids a no-op write — but we must NOT
+    // early-return here, because a `vendors[]`-only edit reconciles links
+    // below without touching any scalar field.)
+    if (Object.keys(perStore).length > 0) {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update(perStore)
+        .eq('id', id)
+        .abortSignal(signal);
+      if (error) throw error;
+    }
+
+    // Spec 102 (§8) — reconcile the item_vendors link set when the editor
+    // submitted `vendors[]`. Upsert each present link (cost/case_price
+    // edits land on exactly that link; is_primary tracks the scalar
+    // vendorId — SD-1, one writer owns both), then delete links whose
+    // vendorId is not in the submitted set ("removing a vendor removes its
+    // link" — AC-C). An empty `vendors: []` removes ALL links for the item.
+    // Omitting the key leaves links untouched (a primary-picker-only or
+    // non-vendor edit). The composite unique + onConflict make a re-submit
+    // idempotent (the dup-guard backstop).
+    if (updates.vendors !== undefined) {
+      const ids = updates.vendors.map((v) => v.vendorId);
+      // SD-1 primary basis. `is_primary` mirrors the item's scalar vendor_id.
+      // When this edit re-points the scalar (updates.vendorId present),
+      // `vendorId` above is that new value. When the edit does NOT touch the
+      // scalar (a cost-only or vendors-only edit), `vendorId` is null — and
+      // marking is_primary = (v.vendorId === null) would set EVERY link
+      // is_primary=false, wiping the SD-1 mirror. Fall back to the item's
+      // EXISTING inventory_items.vendor_id so a vendors-only edit preserves
+      // which link is primary (mirrors the optimistic store's same fallback).
+      let primaryVendorId: string | null = vendorId;
+      if (updates.vendorId === undefined && updates.vendors.length > 0) {
+        const { data: cur } = await supabase
+          .from('inventory_items')
+          .select('vendor_id')
+          .eq('id', id)
+          .abortSignal(signal)
+          .single();
+        primaryVendorId = (cur?.vendor_id as string | null) ?? null;
+      }
+      if (updates.vendors.length > 0) {
+        const linkUpsert = await supabase.from('item_vendors').upsert(
+          updates.vendors.map((v) => ({
+            item_id: id,
+            vendor_id: v.vendorId,
+            cost_per_unit: v.costPerUnit ?? 0,
+            case_price: v.casePrice ?? 0,
+            is_primary: v.vendorId === primaryVendorId,
+          })),
+          { onConflict: 'item_id,vendor_id' },
+        ).abortSignal(signal);
+        if (linkUpsert.error) throw linkUpsert.error;
+      }
+      // Remove de-selected links. With an empty submitted set, the `.in`
+      // filter is omitted so ALL links for the item are deleted.
+      let del = supabase.from('item_vendors').delete().eq('item_id', id);
+      if (ids.length > 0) {
+        del = del.not('vendor_id', 'in', `(${ids.join(',')})`);
+      }
+      const delRes = await del.abortSignal(signal);
+      if (delRes.error) throw delRes.error;
+    }
   }, { kind: 'write', label: 'updateInventoryItem' });
 }
 
@@ -628,20 +748,68 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
         throw ins.error;
       }
 
-      // Update eod_remaining on each item — vendor-scoped per Q6. Items
-      // belonging to a different vendor (e.g. via the unscheduled-item
-      // escape hatch) still get an eod_entries row above but the inventory
-      // mutation is skipped to mirror the RPC's behavior.
+      // Spec 102 (§5a) — shared on-hand reconciliation. The on-hand is keyed
+      // by ITEM, not (item, vendor): an item is countable under this vendor
+      // iff it has an `item_vendors` link for the vendor, regardless of which
+      // link is "primary". We prefetch the set of item_ids legitimately
+      // covered by this vendor AT THIS STORE once, then gate the per-entry
+      // write on membership in that set. This replaces the old
+      // `.eq('vendor_id', submission.vendorId)` predicate so a SHARED item's
+      // on-hand is not silently dropped when counted under a non-primary
+      // vendor tab (AC-D / AC-F). An entry whose itemId is NOT in the set is
+      // the escape-hatch case (an off-vendor entry) → no on-hand write,
+      // matching the prior behavior and the staff RPC (§5b).
+      //
+      // Store-scoped: the embed inner-joins inventory_items and filters
+      // `item.store_id = submission.storeId` (mirroring the staff fetch's
+      // `fetchItemsForVendor`), so the set never spans wider than this
+      // submission's store — important for a multi-store admin where the same
+      // vendor links items in several accessible stores.
+      //
+      // The write now sets BOTH current_stock and eod_remaining (the staff
+      // RPC and the admin store optimistic mirror already set both) — a
+      // deliberate consistency fix (spec 102 §12) so the persisted admin
+      // state matches what the optimistic UI already mirrored at
+      // useStore.ts (currentStock).
+      const linkRows = await supabase
+        .from('item_vendors')
+        .select('item_id, item:inventory_items!inner(store_id)')
+        .eq('vendor_id', submission.vendorId)
+        .eq('item.store_id', submission.storeId)
+        .abortSignal(signal);
+      if (linkRows.error) {
+        // A failed prefetch would empty the membership set and silently skip
+        // EVERY on-hand update for the whole submission — entries persist but
+        // current_stock/eod_remaining go stale (reorder reads stale on-hand
+        // until the next fetch). Unlike the per-item write below (a
+        // nice-to-have for one item), a prefetch failure is batch-wide, so we
+        // throw — consistent with the parent/entry writes above and the
+        // store's optimistic-revert + toast path.
+        console.warn('[Supabase] submitEODCount fetch item_vendors:', linkRows.error.message);
+        throw linkRows.error;
+      }
+      const linkedItemIdsForVendor = new Set<string>(
+        (linkRows.data ?? []).map((r: { item_id: string }) => r.item_id),
+      );
+
       for (const entry of submission.entries) {
+        // Escape-hatch: no link to the submitting vendor → skip the on-hand
+        // write (the eod_entries row above still persisted). Mirrors the
+        // staff RPC's EXISTS(item_vendors …) gate and the prior
+        // vendor-equality skip.
+        if (!linkedItemIdsForVendor.has(entry.itemId)) continue;
         const upd = await supabase
           .from('inventory_items')
-          .update({ eod_remaining: entry.actualRemaining, last_updated_by: submission.submittedByUserId })
+          .update({
+            eod_remaining: entry.actualRemaining,
+            current_stock: entry.actualRemaining,
+            last_updated_by: submission.submittedByUserId,
+          })
           .eq('id', entry.itemId)
-          .eq('vendor_id', submission.vendorId)
           .abortSignal(signal);
         if (upd.error) {
           console.warn('[Supabase] submitEODCount update item:', entry.itemId, upd.error.message);
-          // Don't throw — parent + entries already landed, item-level eod_remaining
+          // Don't throw — parent + entries already landed, item-level on-hand
           // is a nice-to-have. Surface in console for debugging.
         }
       }
@@ -2870,6 +3038,17 @@ function mapReorderVendor(v: any): ReorderVendor {
         suggestedCases: it?.suggested_cases == null ? null : Number(it.suggested_cases),
         suggestedUnits: Number(it?.suggested_units ?? it?.suggested_qty ?? 0),
         flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
+        // Spec 102 (OQ-1) — coincident-schedule "also from N" hint. Additive
+        // keys on the per-item report object (envelope shape unchanged); 0/[]
+        // for a single-vendor item so existing cards render exactly as before.
+        // `also_from_vendors` already excludes THIS card's vendor server-side.
+        otherVendorCount: Number(it?.other_vendor_count ?? 0),
+        alsoFromVendors: Array.isArray(it?.also_from_vendors)
+          ? it.also_from_vendors.map((av: any) => ({
+              vendorId: String(av?.vendor_id ?? ''),
+              vendorName: String(av?.vendor_name ?? ''),
+            }))
+          : [],
       }))
     : [];
   const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';
@@ -2885,6 +3064,22 @@ function mapReorderVendor(v: any): ReorderVendor {
     vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
   };
 }
+
+// ─── WEEKLY LOW-STOCK (advisory) ─────────────────────────────────────────
+//
+// Spec 102 (§9) — the weekly full-store low-stock warning reads the
+// `report_weekly_lowstock` RPC. The ONLY consumer is the staff WeeklyCount
+// screen, which maps the envelope inline via its own `fetchLowStock`
+// (src/screens/staff/screens/WeeklyCount.tsx) under the documented
+// staff-subtree direct-`supabase.rpc` carve-out (CLAUDE.md). A db.ts mapper
+// was authored during the design (§9/§10) but had ZERO callers — the staff
+// screen never routed through it — so it was removed (spec 102 backend
+// fix-pass, SF-1) rather than leave dead exported code + a second
+// hand-maintained snake→camel mapper for the same envelope. If a future
+// ADMIN surface needs the weekly low-stock data through the tracked db.ts
+// chain, re-add the fetcher here (mirroring `fetchReorderSuggestions`) and
+// point WeeklyCount at it for DRY. The `WeeklyLowStock` / `WeeklyLowStockItem`
+// types stay in src/types/index.ts (consumed by the staff mapper).
 
 // ─── MENU CAPACITY ──────────────────────────────────────────────────────
 //
@@ -3808,6 +4003,30 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
   const cat = row.catalog || {};
   const caseQty = parseFloat(cat.case_qty) || 1;
   const subUnitSize = parseFloat(cat.sub_unit_size) || 1;
+  // Spec 102 (§6a) — the item_vendors link set (per-(item,vendor) cost +
+  // case price + the derived is_primary mirror). The scalar vendorId /
+  // vendorName below stay the PRIMARY pointer (SD-1) for back-compat with
+  // every current consumer; `vendors[]` is the full link set and
+  // `vendorIds` the derived membership array the EOD tab filter + the
+  // submit-EOD optimistic guard (frontend phase) read. An item with no
+  // links → vendors: [], vendorIds: [] → renders exactly as today (absent
+  // from every vendor tab). The embed is aliased `item_vendors` and each
+  // row nests `vendor:vendors(id, name)`.
+  const vendorLinks: Array<{
+    vendorId: string;
+    vendorName: string;
+    costPerUnit: number;
+    casePrice: number;
+    isPrimary: boolean;
+  }> = Array.isArray(row.item_vendors)
+    ? row.item_vendors.map((lv: any) => ({
+        vendorId: lv.vendor_id || lv.vendor?.id || '',
+        vendorName: lv.vendor?.name || '',
+        costPerUnit: parseFloat(lv.cost_per_unit) || 0,
+        casePrice: parseFloat(lv.case_price) || 0,
+        isPrimary: Boolean(lv.is_primary),
+      }))
+    : [];
   return {
     id: row.id,
     catalogId: row.catalog_id || cat.id || '',
@@ -3847,5 +4066,8 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
     // the select projection). Keys: 'es', 'zh-CN'. English canonical lives
     // in `name` above and is never written here.
     i18nNames: (cat.i18n_names ?? {}) as Record<string, string>,
+    // Spec 102 (§6a) — full per-vendor link set + derived membership array.
+    vendors: vendorLinks,
+    vendorIds: vendorLinks.map((v) => v.vendorId).filter((id) => id.length > 0),
   };
 }

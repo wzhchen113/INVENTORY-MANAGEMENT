@@ -76,6 +76,17 @@ function mapReorderVendor(v: any): ReorderVendor {
         // coalesces to `{}` so getLocalizedName falls through to English
         // silently. Staff-only; admin db.ts copy does NOT carry this.
         i18nNames: (it?.i18n_names ?? {}) as LocalizedNames,
+        // Spec 102 (OQ-1) — coincident-schedule "also from N" hint. Same
+        // additive keys the admin db.ts:mapReorderVendor copy reads; 0/[] for
+        // a single-vendor item. `also_from_vendors` already excludes THIS
+        // card's vendor server-side.
+        otherVendorCount: Number(it?.other_vendor_count ?? 0),
+        alsoFromVendors: Array.isArray(it?.also_from_vendors)
+          ? it.also_from_vendors.map((av: any) => ({
+              vendorId: String(av?.vendor_id ?? ''),
+              vendorName: String(av?.vendor_name ?? ''),
+            }))
+          : [],
       }))
     : [];
   const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';

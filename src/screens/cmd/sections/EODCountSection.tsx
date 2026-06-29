@@ -41,6 +41,53 @@ const DAY_NAMES: ReadonlyArray<DayName> = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
 ];
 
+// Spec 102 (§6c) — COUNTED-ONCE-GLOBALLY derivation for the admin EOD gate.
+//
+// A shared item (linked to ≥2 vendors) appears under each vendor tab but has a
+// SINGLE shared on-hand, so counting it once is the physical truth. The
+// count-everything gate + "X of N counted" label must therefore treat the item
+// as counted in EVERY tab it appears in once it's been counted anywhere for
+// this (store, date) — re-counting it per tab would be the "count it twice" the
+// spec forbids.
+//
+// This returns the set of item ids that are counted SOMEWHERE for the current
+// (store, date): an item with a non-blank case/unit entry in ANY vendor tab's
+// local input map, OR an item present in an already-submitted submission for
+// any vendor at this (store, date). The gate's `hasEntry` predicate ORs this
+// set with the current tab's local entry so a shared item counted under tab V1
+// is not a blocking gap (nor painted red, nor jumped-to) under tab V2.
+//
+// Pure — exported for jest (AC-I).
+export function deriveCountedItemIds(args: {
+  caseCountsByVendor: Record<string, Record<string, string>>;
+  unitCountsByVendor: Record<string, Record<string, string>>;
+  submissions: ReadonlyArray<{ storeId: string; date: string; status: string; entries: ReadonlyArray<{ itemId: string }> }>;
+  storeId: string;
+  dateIso: string;
+}): Set<string> {
+  const counted = new Set<string>();
+  // (a) Any non-blank local entry in ANY vendor tab's input map.
+  for (const byItem of Object.values(args.caseCountsByVendor)) {
+    for (const [itemId, v] of Object.entries(byItem)) {
+      if ((v ?? '').trim() !== '') counted.add(itemId);
+    }
+  }
+  for (const byItem of Object.values(args.unitCountsByVendor)) {
+    for (const [itemId, v] of Object.entries(byItem)) {
+      if ((v ?? '').trim() !== '') counted.add(itemId);
+    }
+  }
+  // (b) Any item already in a submitted submission for this (store, date),
+  // under any vendor. Drafts also count — a draft entry is a recorded count of
+  // the shared on-hand, so it shouldn't read as an outstanding gap elsewhere.
+  for (const s of args.submissions) {
+    if (s.storeId !== args.storeId) continue;
+    if (s.date !== args.dateIso) continue;
+    for (const e of s.entries) counted.add(e.itemId);
+  }
+  return counted;
+}
+
 // Local-day ISO string ("YYYY-MM-DD" in the user's timezone). Avoids the
 // `new Date().toISOString().slice(0,10)` trap, which returns the UTC date —
 // at e.g. 22:04 EDT (UTC-4) on Thursday, that returns Friday's UTC date and
@@ -248,9 +295,17 @@ export default function EODCountSection() {
   // by the day's schedule (unless toggle is on, or schedule isn't configured
   // yet for this store).
   const allVendorTabs = React.useMemo(() => {
+    // Spec 102 (§6b) — tab membership is derived from the item↔vendor link set
+    // (`vendorIds`), not the scalar `vendorId`. A shared item linked to two
+    // vendors counts toward BOTH vendors' tab counts and appears under each
+    // tab. Back-compat: fall back to the scalar's singleton for legacy
+    // in-memory rows that predate the item_vendors embed.
     const counts = new Map<string, number>();
     for (const i of storeInventory) {
-      if (i.vendorId) counts.set(i.vendorId, (counts.get(i.vendorId) || 0) + 1);
+      const ids = i.vendorIds ?? (i.vendorId ? [i.vendorId] : []);
+      for (const vid of ids) {
+        if (vid) counts.set(vid, (counts.get(vid) || 0) + 1);
+      }
     }
     return vendors
       .filter((v) => counts.has(v.id))
@@ -270,7 +325,12 @@ export default function EODCountSection() {
 
   const vendorItems = React.useMemo(() => {
     if (!selectedVendorId) return [];
-    return storeInventory.filter((i) => i.vendorId === selectedVendorId);
+    // Spec 102 (§6b) — items in the selected tab are those LINKED to the
+    // vendor (junction membership), so a shared item appears under each of its
+    // vendor tabs (AC-D / US-2). Back-compat falls back to the scalar.
+    return storeInventory.filter((i) =>
+      (i.vendorIds ?? (i.vendorId ? [i.vendorId] : [])).includes(selectedVendorId),
+    );
   }, [storeInventory, selectedVendorId]);
 
   // Spec 020 — vendors already submitted for the selected date at the
@@ -408,16 +468,39 @@ export default function EODCountSection() {
     const units = isNaN(u) ? 0 : u;
     return cases * (i.caseQty || 1) + units;
   };
-  const hasEntry = (id: string) =>
+  // Spec 102 (§6c) — counted-once-globally. `localHasEntry` is the CURRENT
+  // tab's typed entry (used by buildSubmission — we only ship what was entered
+  // under this vendor). `countedItemIds` is the cross-tab + submitted set for
+  // this (store, date). `hasEntry` (the gate/counter/styling predicate) ORs
+  // them, so a shared item counted under another tab is NOT an outstanding gap
+  // here.
+  const countedItemIds = React.useMemo(
+    () =>
+      deriveCountedItemIds({
+        caseCountsByVendor,
+        unitCountsByVendor,
+        submissions: eodSubmissions,
+        storeId: currentStore.id,
+        dateIso: selectedIso,
+      }),
+    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso],
+  );
+  const localHasEntry = (id: string) =>
     (caseCounts[id] ?? '').trim() !== '' || (unitCounts[id] ?? '').trim() !== '';
+  const hasEntry = (id: string) => localHasEntry(id) || countedItemIds.has(id);
   const countedNum = filteredItems.filter((i) => hasEntry(i.id)).length;
   const total = filteredItems.length;
+  // Est. value / variance read the CURRENT tab's typed totals (itemTotal reads
+  // this tab's inputs), so they sum only locally-entered rows — a shared item
+  // counted under another tab is blank here and must not skew the footer with a
+  // 0-total row (which would otherwise subtract its full currentStock from
+  // variance). It still counts toward `countedNum` (counted-once-globally).
   const estValue = filteredItems.reduce((s, i) => {
-    if (!hasEntry(i.id)) return s;
+    if (!localHasEntry(i.id)) return s;
     return s + itemTotal(i) * i.costPerUnit;
   }, 0);
   const variance = filteredItems.reduce((s, i) => {
-    if (!hasEntry(i.id)) return s;
+    if (!localHasEntry(i.id)) return s;
     return s + (itemTotal(i) - i.currentStock);
   }, 0);
 
@@ -427,7 +510,11 @@ export default function EODCountSection() {
   // store's merge lookup partition correctly. The TODO call out below tracks
   // the type widening backend-dev is shipping in src/types/index.ts.
   const buildSubmission = (status: 'draft' | 'submitted') => {
-    const enteredItems = filteredItems.filter((i) => hasEntry(i.id));
+    // Spec 102 (§6c) — ship only items entered IN THIS TAB (localHasEntry), not
+    // items counted under another vendor's tab. The shared item's on-hand is
+    // reconciled server-side (§5) when it IS entered under this vendor; if it
+    // was only counted elsewhere it simply isn't part of this submission.
+    const enteredItems = filteredItems.filter((i) => localHasEntry(i.id));
     if (enteredItems.length === 0) return null;
     if (!selectedVendorId) return null;
     const vendorName =
@@ -1194,7 +1281,10 @@ export default function EODCountSection() {
                   // left before submitting. "Counted" = EITHER box has a value
                   // (cFocused/uFocused mirror the displayed cVal/uVal). Never
                   // red on locked/rest rows — those aren't being counted now.
-                  const rowUncounted = !inputsDisabled && !cFocused && !uFocused;
+                  // Spec 102 (§6c) — a shared item counted under ANOTHER vendor
+                  // tab (counted-once-globally) is NOT painted red here either,
+                  // so consult the widened `hasEntry`.
+                  const rowUncounted = !inputsDisabled && !cFocused && !uFocused && !hasEntry(it.id);
                   return (
                     <View
                       key={it.id}

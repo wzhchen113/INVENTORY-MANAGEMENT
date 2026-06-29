@@ -5,7 +5,7 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { IngredientForm, IngredientFormValues, blankValues } from './IngredientForm';
+import { IngredientForm, IngredientFormValues, blankValues, vendorRowsToLinkPayload, addVendorLink } from './IngredientForm';
 import { VendorFormDrawer } from './VendorFormDrawer';
 import { JsonPreview } from './JsonPreview';
 import { AuditHistory } from './AuditHistory';
@@ -49,6 +49,27 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
   // catalog i18n_names. Empty strings = no override; silent fallback applies.
   nameEs: it.i18nNames?.es ?? '',
   nameZh: it.i18nNames?.['zh-CN'] ?? '',
+  // Spec 102 — hydrate the multi-vendor link rows from the item's
+  // `item_vendors` embed (per-(item,vendor) cost + case price). Costs held as
+  // strings per the form convention. Back-compat: an item with no embed (or a
+  // legacy single-vendor row) falls back to a single row synthesized from the
+  // scalar vendorId + the item's cost — so it opens showing that one vendor
+  // and saves with no drift (AC-C). The PRIMARY pointer stays `vendorId`
+  // above; the matching row renders with the "primary" badge.
+  vendors:
+    it.vendors && it.vendors.length > 0
+      ? it.vendors.map((v) => ({
+          vendorId: v.vendorId,
+          costPerUnit: v.costPerUnit ? String(v.costPerUnit) : '',
+          casePrice: v.casePrice ? String(v.casePrice) : '',
+        }))
+      : it.vendorId
+        ? [{
+            vendorId: it.vendorId,
+            costPerUnit: it.costPerUnit ? String(it.costPerUnit) : '',
+            casePrice: it.casePrice ? String(it.casePrice) : '',
+          }]
+        : [],
 });
 
 // Spec 040 P3 — build a LocalizedNames map from the form's translation
@@ -63,7 +84,20 @@ function buildI18nNames(v: IngredientFormValues): LocalizedNames {
   return out;
 }
 
-const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
+// Spec 102 — the return type widens to carry the multi-vendor `vendors`
+// link-set payload (the shape db.createInventoryItem / db.updateInventoryItem
+// reconcile against item_vendors). `vendors` is ALWAYS present (possibly an
+// empty array, which removes all links) so an edit that detaches the last
+// vendor is honored — omitting the key would leave the links untouched.
+// `Omit<…, 'vendors'>` overrides InventoryItem's `vendors?: ItemVendorLink[]`
+// with the db-payload shape (no vendorName/isPrimary — those are derived by
+// the db reconcile / next fetch). Without the Omit the intersection would be
+// `ItemVendorLink[] & {payload}` (uninhabitable).
+type ItemUpdatesWithVendors = Omit<Partial<InventoryItem>, 'vendors'> & {
+  vendors: Array<{ vendorId: string; costPerUnit: number; casePrice: number }>;
+};
+
+const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({
   name: v.name,
   category: v.category,
   unit: v.unit,
@@ -81,6 +115,11 @@ const toUpdates = (v: IngredientFormValues): Partial<InventoryItem> => ({
   // column, so coalesce to null (undefined would be skipped by the PATCH
   // mapper in db.ts and silently keep the old value).
   expiryDate: v.expiryDate || null,
+  // Spec 102 — the multi-vendor link set. Empty-vendorId / sentinel rows are
+  // dropped; costs cast to numbers. db reconciles item_vendors: upsert each
+  // present link (cost/case_price + is_primary mirror of vendorId), delete
+  // links not in this set. An empty array removes ALL links for the item.
+  vendors: vendorRowsToLinkPayload(v.vendors),
 });
 
 // Spec 011 — drawer adapts via `ResponsiveSheet`:
@@ -147,7 +186,26 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     // Find the vendor whose id wasn't in the snapshot. If found, auto-select.
     const added = vendors.find((v) => !vendorIdsBeforeAddRef.current.has(v.id));
     if (added) {
-      setValues((prev) => ({ ...prev, vendorId: added.id, vendorName: added.name }));
+      // Spec 102 fix — mirror handleAttachVendor: an inline-created vendor must
+      // be added to the `values.vendors` link-set ROW LIST, not just the scalar
+      // primary pointer. Without this, `toUpdates(values).vendors` stayed `[]`
+      // in EDIT mode and `updateInventoryItem` with `vendors: []` DELETED every
+      // existing item_vendors link — leaving a dangling scalar vendor_id with
+      // zero junction rows (item vanishes from every vendor tab + reorder).
+      // Seed the new link's cost/case price from the form's current values
+      // (same as handleAttachVendor). `addVendorLink` is idempotent (returns the
+      // same array reference when the vendor is already present), so a re-close
+      // never double-adds. The scalar still mirrors the new vendor as PRIMARY
+      // (SD-1) so the row renders with the "primary" badge.
+      setValues((prev) => ({
+        ...prev,
+        vendors: addVendorLink(prev.vendors, added.id, {
+          costPerUnit: prev.costPerUnit,
+          casePrice: prev.casePrice,
+        }),
+        vendorId: added.id,
+        vendorName: added.name,
+      }));
     }
   }, [vendors]);
 
@@ -198,9 +256,14 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
       ? stores.filter((s) => s.brandId === currentStore.brandId)
       : [currentStore];
     const i18n = buildI18nNames(values);
+    // Spec 102 — `toUpdates` carries the `vendors` link-set payload; pull it
+    // out so it's threaded EXPLICITLY through addItem (rather than relying on
+    // the spread surviving the `as Omit<InventoryItem,'id'>` cast) and the
+    // new item gets its item_vendors links written on create.
+    const { vendors: vendorLinks, ...base } = toUpdates(values);
     targets.forEach((s) => {
       addItem({
-        ...toUpdates(values) as Omit<InventoryItem, 'id'>,
+        ...(base as Omit<InventoryItem, 'id'>),
         currentStock: 0,
         averageDailyUsage: 0,
         safetyStock: 0,
@@ -216,7 +279,9 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
         // (`create_inventory_item_with_catalog` gained a `p_i18n_names`
         // jsonb default '{}' param).
         i18nNames: i18n,
-      } as Omit<InventoryItem, 'id'>);
+        // Spec 102 — multi-vendor link set for the new item.
+        vendors: vendorLinks,
+      });
     });
     Toast.show({ type: 'success', text1: targets.length > 1 ? `Created at ${targets.length} stores` : 'Created', text2: values.name });
     onClose();

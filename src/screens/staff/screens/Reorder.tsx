@@ -214,6 +214,27 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
                 </Text>
               ) : null}
             </Text>
+            {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared
+                item is also scheduled under other vendors today it appears
+                under each of their cards; surface "also available from N" so
+                the manager orders it from ONE vendor, not several. Advisory
+                only — does not change which card the item is on. Renders
+                nothing for a single-vendor item (otherVendorCount 0). */}
+            {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
+              <Text
+                style={[styles.itemAlsoFrom, { color: c.textTertiary }]}
+                testID={`reorder-also-from-${item.itemId}`}
+              >
+                {item.otherVendorCount === 1
+                  ? t('reorder.item.alsoFromOne', {
+                      vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                    })
+                  : t('reorder.item.alsoFromMany', {
+                      count: item.otherVendorCount ?? 0,
+                      vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                    })}
+              </Text>
+            ) : null}
           </View>
         );
       })}
@@ -967,6 +988,12 @@ const styles = StyleSheet.create({
   itemOrderSub: {
     fontSize: typography.caption,
     fontWeight: typography.regular,
+  },
+  // Spec 102 (OQ-1) — the "also available from N" coincident-schedule hint.
+  itemAlsoFrom: {
+    fontSize: typography.caption,
+    fontStyle: 'italic',
+    marginTop: 2,
   },
   vendorFooter: {
     paddingHorizontal: spacing.lg,

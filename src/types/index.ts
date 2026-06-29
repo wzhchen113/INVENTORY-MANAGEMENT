@@ -152,6 +152,44 @@ export interface InventoryItem {
    * may omit it; readers must treat `undefined` as `{}`.
    */
   i18nNames?: LocalizedNames;
+  /**
+   * Spec 102 — the full item↔vendor link set from the `item_vendors`
+   * junction, hydrated by `db.fetchInventory` / `mapItem`. Each entry
+   * carries the PER-(item, vendor) cost + case price and the derived
+   * `isPrimary` mirror of the scalar `vendorId` (SD-1). The scalar
+   * `vendorId` / `vendorName` above stay the PRIMARY pointer for
+   * back-compat; this array is the source of truth for "which vendors can
+   * order this item". An item with no links → `[]` (renders absent from
+   * every vendor tab, exactly as a null `vendorId` did pre-spec). Optional
+   * because in-memory rows created before a fetch (or legacy fixtures) may
+   * omit it; readers MUST treat `undefined` as `[]`.
+   */
+  vendors?: ItemVendorLink[];
+  /**
+   * Spec 102 — convenience: `vendors.map(v => v.vendorId)`, the membership
+   * array the admin EOD vendor-tab filter and the submit-EOD optimistic
+   * guard read. Optional + treat `undefined` as `[]` (same back-compat
+   * caveat as `vendors`).
+   */
+  vendorIds?: string[];
+}
+
+/**
+ * Spec 102 — one row of the `item_vendors` junction as hydrated onto an
+ * `InventoryItem`. snake_case → camelCase mapping lives in
+ * `db.mapItem`. `isPrimary` is the derived mirror of
+ * `inventory_items.vendor_id` (SD-1) — exactly one link per item is
+ * primary; the editor's primary picker writes the scalar and the db.ts
+ * create/update helpers keep this boolean consistent. Reorder/EOD logic
+ * does NOT read `isPrimary` (they explode by schedule); it exists for the
+ * editor UI and future "primary wins" features.
+ */
+export interface ItemVendorLink {
+  vendorId: string;
+  vendorName: string;
+  costPerUnit: number;
+  casePrice: number;
+  isPrimary: boolean;
 }
 
 export type ItemStatus = 'ok' | 'low' | 'out';
@@ -767,6 +805,24 @@ export interface ReorderItem {
    * optional `i18nNames?` on the catalog/inventory types above.
    */
   i18nNames?: LocalizedNames;
+  /**
+   * Spec 102 (OQ-1) — coincident-schedule hint. When a shared item is
+   * scheduled under 2+ of its vendors the same as-of day it legitimately
+   * appears under EACH of those vendor cards; this surfaces "also available
+   * from N other vendor(s)" so the manager doesn't double-order. Additive
+   * keys on the (unchanged-shape) reorder payload:
+   *  - `otherVendorCount` = the item's total linked-vendor count − 1
+   *    (0 for a single-vendor item ⇒ no hint renders; existing rows
+   *    unaffected).
+   *  - `alsoFromVendors` = the OTHER linked vendors (id + name), excluding
+   *    the card's own vendor — the names the hint lists.
+   * Both default to `0` / `[]` so any pre-migration payload tolerates
+   * absence. Advisory text only; it does NOT change which card the item
+   * appears on. Hydrated by both the admin `db.mapReorderVendor` and the
+   * staff `fetchReorder` mapper from `other_vendor_count` / `also_from_vendors`.
+   */
+  otherVendorCount?: number;
+  alsoFromVendors?: Array<{ vendorId: string; vendorName: string }>;
 }
 
 /**
@@ -852,6 +908,55 @@ export interface MenuCapacityRow {
   lowIngredientCount: number;
   hasUnitMismatch: boolean;
   truncated: boolean;
+}
+
+/**
+ * Spec 102 — one item row from `report_weekly_lowstock(uuid, jsonb)`,
+ * mapped snake_case → camelCase in the staff WeeklyCount screen's inline
+ * `fetchLowStock` (src/screens/staff/screens/WeeklyCount.tsx, staff-subtree
+ * direct-`supabase.rpc` carve-out). The weekly full-store count is ADVISORY
+ * (AC-H): this carries the shared on-hand and a low-stock warning per
+ * ingredient; it creates no orders/POs.
+ *
+ *  - `onHand` is the SHARED on-hand (one number per item — EOD-first /
+ *    current_stock fallback, item-grained, NOT exploded per vendor link).
+ *  - `nextDeliveryDate` (YYYY-MM-DD) is the NEAREST delivery across ALL the
+ *    item's vendors (OQ-4) — `min(next_delivery_date)` over its links.
+ *  - `daysUntil` = nextDeliveryDate − asOfDate.
+ *  - `usagePerDay` is the trailing-7d depletion rate ÷ 7 (0 when no usage
+ *    signal — same degrade as the reorder runner).
+ *  - `projectedOnHand` = onHand − usagePerDay × max(0, daysUntil).
+ *  - `lowStock` = projectedOnHand < 0 (runs out before the nearest
+ *    delivery); when `usagePerDay = 0` it falls back to `onHand <= 0` so a
+ *    zero-stock item still warns, else false (conservative — no usage rate
+ *    ⇒ don't cry wolf).
+ *
+ * Only items with ≥1 vendor link appear (a no-vendor item has no next
+ * delivery to compare against; the screen renders its on-hand with no
+ * badge — it is simply absent from this payload).
+ */
+export interface WeeklyLowStockItem {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  onHand: number;
+  nextDeliveryDate: string;
+  daysUntil: number;
+  usagePerDay: number;
+  projectedOnHand: number;
+  lowStock: boolean;
+}
+
+/**
+ * Spec 102 — payload returned by `report_weekly_lowstock(uuid, jsonb)`,
+ * mapped in the staff WeeklyCount screen's inline `fetchLowStock` (staff
+ * carve-out). Advisory low-stock-vs-next-delivery data for the weekly
+ * full-store count (US-5). `items` is one row per store item with ≥1 vendor
+ * link.
+ */
+export interface WeeklyLowStock {
+  asOfDate: string;
+  items: WeeklyLowStockItem[];
 }
 
 export interface AppNotification {

@@ -64,7 +64,17 @@ jest.mock('../../lib/supabase', () => ({
   },
 }));
 
-import { validateCustomUnit, CUSTOM_UNIT_MAX_LEN } from './IngredientForm';
+import {
+  validateCustomUnit,
+  CUSTOM_UNIT_MAX_LEN,
+  vendorAlreadyLinked,
+  addVendorLink,
+  removeVendorLink,
+  updateVendorLinkField,
+  vendorRowsToLinkPayload,
+  NEW_VENDOR_SENTINEL,
+  type VendorLinkRow,
+} from './IngredientForm';
 import { CANONICAL_UNITS, calcUnitCost } from '../../utils/unitConversion';
 
 describe('validateCustomUnit', () => {
@@ -294,5 +304,197 @@ describe('calcUnitCost (spec 093 Q3a — divide by case_qty alone)', () => {
   it('returns 0 for a non-positive case_qty (guard preserved)', () => {
     expect(calcUnitCost(20, 0, 5)).toBe(0);
     expect(calcUnitCost(20, -1, 5)).toBe(0);
+  });
+});
+
+// ─── Spec 102 (AC-C) — multi-vendor editor helpers ───────────────────────────
+//
+// Pins the add / remove / dup-guard / cost-edit logic + the form→db payload
+// mapping (the array threaded to db.createInventoryItem / db.updateInventoryItem
+// which reconciles item_vendors). AC-C: "saving an item with V1+V2 persists two
+// link rows with their costs; removing a vendor removes its link row; editing a
+// vendor's cost updates only that link; the form prevents attaching the same
+// vendor twice."
+describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
+  const v1 = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const v2 = 'bbbbbbbb-0000-0000-0000-000000000002';
+  const v3 = 'cccccccc-0000-0000-0000-000000000003';
+
+  describe('vendorAlreadyLinked — dup-guard predicate', () => {
+    it('is true when the vendor is already in the rows', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      expect(vendorAlreadyLinked(rows, v1)).toBe(true);
+    });
+    it('is false for a vendor not in the rows', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      expect(vendorAlreadyLinked(rows, v2)).toBe(false);
+    });
+    it('is false for an empty vendor id (never a duplicate)', () => {
+      expect(vendorAlreadyLinked([{ vendorId: v1, costPerUnit: '', casePrice: '' }], '')).toBe(false);
+    });
+  });
+
+  describe('addVendorLink — attach with dup-guard', () => {
+    it('appends a new row seeded from the provided cost/case price', () => {
+      const next = addVendorLink([], v1, { costPerUnit: '8', casePrice: '80' });
+      expect(next).toEqual([{ vendorId: v1, costPerUnit: '8', casePrice: '80' }]);
+    });
+    it('defaults seeds to empty strings when no seed is given', () => {
+      expect(addVendorLink([], v1)).toEqual([{ vendorId: v1, costPerUnit: '', casePrice: '' }]);
+    });
+    it('is a NO-OP (returns the same reference) when the vendor is already linked', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      const next = addVendorLink(rows, v1, { costPerUnit: '9', casePrice: '90' });
+      // identity — lets the caller branch on "already linked" to toast.
+      expect(next).toBe(rows);
+    });
+    it('is a NO-OP for an empty vendor id', () => {
+      const rows: VendorLinkRow[] = [];
+      expect(addVendorLink(rows, '')).toBe(rows);
+    });
+    it('keeps existing rows when appending a second distinct vendor (V1+V2 → two rows)', () => {
+      const afterV1 = addVendorLink([], v1, { costPerUnit: '5', casePrice: '50' });
+      const afterV2 = addVendorLink(afterV1, v2, { costPerUnit: '8', casePrice: '80' });
+      expect(afterV2).toEqual([
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80' },
+      ]);
+    });
+  });
+
+  describe('removeVendorLink — detach', () => {
+    it('removes only the matching row (AC-C "removing a vendor removes its link")', () => {
+      const rows: VendorLinkRow[] = [
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80' },
+      ];
+      expect(removeVendorLink(rows, v1)).toEqual([{ vendorId: v2, costPerUnit: '8', casePrice: '80' }]);
+    });
+    it('leaves the rows unchanged when the vendor is not present', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      expect(removeVendorLink(rows, v3)).toEqual(rows);
+    });
+    it('removing the last row yields an empty array (removes ALL links)', () => {
+      expect(removeVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50' }], v1)).toEqual([]);
+    });
+  });
+
+  describe('updateVendorLinkField — edit ONE link', () => {
+    it('patches only the targeted row + field (AC-C "updates only that link")', () => {
+      const rows: VendorLinkRow[] = [
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80' },
+      ];
+      const next = updateVendorLinkField(rows, v2, 'costPerUnit', '9');
+      expect(next).toEqual([
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' }, // untouched
+        { vendorId: v2, costPerUnit: '9', casePrice: '80' }, // only cost changed
+      ]);
+    });
+    it('patches casePrice independently', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      expect(updateVendorLinkField(rows, v1, 'casePrice', '55')).toEqual([
+        { vendorId: v1, costPerUnit: '5', casePrice: '55' },
+      ]);
+    });
+  });
+
+  describe('vendorRowsToLinkPayload — form rows → db link-set payload', () => {
+    it('maps V1+V2 to two payload rows with numeric costs (AC-C persists two links)', () => {
+      const rows: VendorLinkRow[] = [
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80' },
+      ];
+      expect(vendorRowsToLinkPayload(rows)).toEqual([
+        { vendorId: v1, costPerUnit: 5, casePrice: 50 },
+        { vendorId: v2, costPerUnit: 8, casePrice: 80 },
+      ]);
+    });
+    it('coerces blank / unparseable costs to 0 (form convention)', () => {
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '', casePrice: 'abc' }];
+      expect(vendorRowsToLinkPayload(rows)).toEqual([{ vendorId: v1, costPerUnit: 0, casePrice: 0 }]);
+    });
+    it('drops rows with an empty or sentinel vendor id', () => {
+      const rows: VendorLinkRow[] = [
+        { vendorId: '', costPerUnit: '5', casePrice: '50' },
+        { vendorId: NEW_VENDOR_SENTINEL, costPerUnit: '5', casePrice: '50' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50' },
+      ];
+      expect(vendorRowsToLinkPayload(rows)).toEqual([{ vendorId: v1, costPerUnit: 5, casePrice: 50 }]);
+    });
+    it('an empty rows array maps to an empty payload (removes ALL links)', () => {
+      expect(vendorRowsToLinkPayload([])).toEqual([]);
+    });
+  });
+
+  describe('end-to-end add → edit → remove flow (the editor sequence)', () => {
+    it('attach V1, attach V2, edit V2 cost, remove V1 → single V2 link at its cost', () => {
+      let rows = addVendorLink([], v1, { costPerUnit: '5', casePrice: '50' });
+      rows = addVendorLink(rows, v2, { costPerUnit: '8', casePrice: '80' });
+      // dup-guard: re-attaching V1 is a no-op (same reference)
+      expect(addVendorLink(rows, v1)).toBe(rows);
+      rows = updateVendorLinkField(rows, v2, 'costPerUnit', '7');
+      rows = removeVendorLink(rows, v1);
+      expect(vendorRowsToLinkPayload(rows)).toEqual([{ vendorId: v2, costPerUnit: 7, casePrice: 80 }]);
+    });
+  });
+
+  // ─── Spec 102 code-review Critical — inline "+ new vendor" in EDIT mode ──────
+  //
+  // Pins the fix for IngredientFormDrawer.handleVendorDrawerClose: when a user
+  // EDITING an existing item inline-creates a brand-new vendor, that vendor must
+  // be added to `values.vendors` (the ROW LIST), not just the scalar primary
+  // pointer. Pre-fix the handler set only the scalar, so the payload builder
+  // (`vendorRowsToLinkPayload`, the array `toUpdates` threads to
+  // `db.updateInventoryItem`) stayed `[]` → a vendors-only update DELETED every
+  // existing item_vendors link, leaving the item with a dangling vendor_id and
+  // zero junction rows.
+  //
+  // The handler's post-fix transform is exactly `addVendorLink(prev.vendors,
+  // newId, {costPerUnit, casePrice})` + set the scalar. We exercise that same
+  // pure transform here (the helper layer the review asked us to pin) and assert
+  // the new vendor is in the resulting payload — so a vendors-only update can
+  // never wipe links again.
+  describe('inline-new-vendor (EDIT mode) seeds the row list, never an empty payload', () => {
+    it('adds the inline-created vendor to vendors so the update payload is NOT empty (no wipe)', () => {
+      // Item opened in EDIT mode already linked to V1 (its original vendor).
+      const existing: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50' }];
+      // User inline-creates V2; handler seeds the new link from the form's
+      // current cost/case price (mirrors the real handler call).
+      const afterInline = addVendorLink(existing, v2, { costPerUnit: '9', casePrice: '90' });
+      const payload = vendorRowsToLinkPayload(afterInline);
+      // CRITICAL: both the original AND the new vendor survive → no link wipe.
+      expect(payload).toEqual([
+        { vendorId: v1, costPerUnit: 5, casePrice: 50 },
+        { vendorId: v2, costPerUnit: 9, casePrice: 90 },
+      ]);
+      expect(payload.some((p) => p.vendorId === v2)).toBe(true);
+      expect(payload).toHaveLength(2);
+    });
+
+    it('seeds the brand-new link to the FIRST vendor when the item had none (single-vendor edit)', () => {
+      // EDIT mode on an item with no links yet (vendorless item) → the inline
+      // vendor becomes the sole link, never an empty payload.
+      const afterInline = addVendorLink([], v3, { costPerUnit: '4', casePrice: '40' });
+      expect(vendorRowsToLinkPayload(afterInline)).toEqual([
+        { vendorId: v3, costPerUnit: 4, casePrice: 40 },
+      ]);
+    });
+
+    it('is idempotent — a re-close that re-finds an already-added vendor does not duplicate', () => {
+      // The handler can fire its add path more than once (e.g. a second drawer
+      // close). `addVendorLink`'s dup-guard returns the SAME reference, so the
+      // row list (and thus the payload) is unchanged — no duplicate link row.
+      const once = addVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50' }], v2, {
+        costPerUnit: '9',
+        casePrice: '90',
+      });
+      const twice = addVendorLink(once, v2, { costPerUnit: '9', casePrice: '90' });
+      expect(twice).toBe(once); // identity — dup-guard short-circuit
+      expect(vendorRowsToLinkPayload(twice)).toHaveLength(2);
+      expect(
+        vendorRowsToLinkPayload(twice).filter((p) => p.vendorId === v2),
+      ).toHaveLength(1);
+    });
   });
 });

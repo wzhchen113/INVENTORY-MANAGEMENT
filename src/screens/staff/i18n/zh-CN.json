@@ -107,7 +107,9 @@
     },
     "item": {
       "breakdown": "在库 {onHand} · 安全库存 {par}",
-      "order": "订购：{suggested}"
+      "order": "订购：{suggested}",
+      "alsoFromOne": "也可从 {vendors} 订购 — 仅选其一",
+      "alsoFromMany": "也可从其他 {count} 家供应商订购（{vendors}）— 仅选其一"
     },
     "export": {
       "label": "导出 / 分享",
@@ -208,6 +210,11 @@
     "row": {
       "caseOf": "每箱 {qty}",
       "total": "共 {total} {unit}"
+    },
+    "lowStock": {
+      "badge": "偏低",
+      "detail": "在库 {onHand} {unit} — 将在下次送货 {date} 前用完",
+      "detailNoUnit": "在库 {onHand} — 将在下次送货 {date} 前用完"
     },
     "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交每周盘点",

@@ -80,6 +80,21 @@ select set_config(
   true
 );
 
+-- Spec 102 — the reorder RPC explodes items to vendors via the
+-- `item_vendors` junction (and vendor_delivery_offsets now EXISTS-filters
+-- on a junction link), NOT the scalar inventory_items.vendor_id. On a
+-- fresh `supabase db reset` the seed loads AFTER migrations, so the
+-- in-migration backfill created NO links. This test relies on the chosen
+-- SEED vendor surfacing a card via its Frederick items, so create the
+-- links for that vendor's Frederick items here (mirroring the backfill).
+-- Without this the vendor never surfaces and every assertion reads NULL.
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+select ii.id, ii.vendor_id, coalesce(ii.cost_per_unit, 0), coalesce(ii.case_price, 0), true
+  from public.inventory_items ii
+ where ii.store_id  = current_setting('test.frederick_id', true)::uuid
+   and ii.vendor_id = current_setting('test.vendor_id',    true)::uuid
+on conflict (item_id, vendor_id) do nothing;
+
 -- Clean pre-existing order_schedule for this (Frederick, vendor) pair
 -- so the test owns the entire schedule (no seed-side ambient days).
 delete from public.order_schedule

@@ -60,6 +60,15 @@ export interface IngredientFormValues {
   // i18n_names) so the silent-English fallback kicks in.
   nameEs: string;
   nameZh: string;
+  // Spec 102 — multi-vendor link set. Each row attaches the item to ONE
+  // vendor with its OWN cost + case price (per-(item, vendor) cost). The
+  // `vendorId` scalar above stays the PRIMARY pointer (SD-1) and is always
+  // mirrored as the row whose `vendorId === values.vendorId`. Costs held as
+  // strings (cast on save in the drawer) per the form's "everything is a
+  // string until save" convention. An item with zero links saves with an
+  // empty array (removes all `item_vendors` rows); a single-vendor item has
+  // exactly one row that mirrors the primary picker.
+  vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string }>;
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -72,6 +81,7 @@ export const blankValues = (): IngredientFormValues => ({
   createAtAllStores: false,
   defaultShelfLifeDays: '', expiryDate: '',
   nameEs: '', nameZh: '',
+  vendors: [],
 });
 
 // Sentinel value for the "+ new vendor" inline-add option in the vendor
@@ -147,6 +157,93 @@ export function validateCustomUnit(
     return { ok: true, normalized: lower, snappedToCanonical: true };
   }
   return { ok: true, normalized: trimmed, snappedToCanonical: false };
+}
+
+// ─── Spec 102: multi-vendor editor helpers (pure — exported for jest) ────────
+//
+// The IngredientForm holds the link set as `values.vendors` (rows with
+// string-typed cost/casePrice per the form convention) plus the scalar
+// `values.vendorId` (the PRIMARY pointer, SD-1). These helpers are the
+// add/remove/dup-guard/primary-mirror logic and the form→db payload mapping,
+// factored out so the mapping (AC-C: "saving V1+V2 persists two link rows;
+// removing a vendor removes its link; editing a cost updates only that link")
+// is unit-tested without mounting the component.
+
+export interface VendorLinkRow {
+  vendorId: string;
+  costPerUnit: string;
+  casePrice: string;
+}
+
+/**
+ * Dup-guard (AC-C "prevents attaching the same vendor twice"). True when
+ * `vendorId` is already present in `rows`. Empty / sentinel ids are never
+ * "duplicates" (the caller filters them out before commit).
+ */
+export function vendorAlreadyLinked(rows: readonly VendorLinkRow[], vendorId: string): boolean {
+  if (!vendorId) return false;
+  return rows.some((r) => r.vendorId === vendorId);
+}
+
+/**
+ * Append a vendor link row. No-op (returns the same array reference) when the
+ * vendor is already linked (dup-guard) or the id is empty — so a caller can
+ * branch on identity to surface a toast. Seeds the new row's cost / case price
+ * from the optional `seed` (e.g. the item's last cost) so a freshly-attached
+ * vendor isn't $0 by default; the user can override.
+ */
+export function addVendorLink(
+  rows: readonly VendorLinkRow[],
+  vendorId: string,
+  seed?: { costPerUnit?: string; casePrice?: string },
+): VendorLinkRow[] {
+  if (!vendorId || vendorAlreadyLinked(rows, vendorId)) return rows as VendorLinkRow[];
+  return [
+    ...rows,
+    { vendorId, costPerUnit: seed?.costPerUnit ?? '', casePrice: seed?.casePrice ?? '' },
+  ];
+}
+
+/**
+ * Remove the link row for `vendorId` (AC-C "removing a vendor removes its
+ * link row").
+ */
+export function removeVendorLink(rows: readonly VendorLinkRow[], vendorId: string): VendorLinkRow[] {
+  return rows.filter((r) => r.vendorId !== vendorId);
+}
+
+/**
+ * Patch exactly one link's cost or case price (AC-C "editing a vendor's cost
+ * updates only that link"). Returns a new array; other rows are untouched.
+ */
+export function updateVendorLinkField(
+  rows: readonly VendorLinkRow[],
+  vendorId: string,
+  field: 'costPerUnit' | 'casePrice',
+  value: string,
+): VendorLinkRow[] {
+  return rows.map((r) => (r.vendorId === vendorId ? { ...r, [field]: value } : r));
+}
+
+/**
+ * Map the form's vendor rows to the db link-set payload shape
+ * (`{ vendorId, costPerUnit, casePrice }` with numeric costs). Drops rows
+ * with an empty / sentinel vendorId. Costs that don't parse coerce to 0
+ * (matches the rest of the form's `parseFloat(...) || 0` convention). This is
+ * the array threaded to `db.createInventoryItem` / `db.updateInventoryItem`,
+ * which reconciles `item_vendors` (upsert present, delete de-selected). An
+ * empty result removes ALL links for the item.
+ */
+export function vendorRowsToLinkPayload(
+  rows: readonly VendorLinkRow[],
+): Array<{ vendorId: string; costPerUnit: number; casePrice: number }> {
+  return rows
+    .filter((r) => r.vendorId && r.vendorId !== NEW_VENDOR_SENTINEL)
+    .map((r) => ({
+      vendorId: r.vendorId,
+      costPerUnit: parseFloat(r.costPerUnit) || 0,
+      casePrice: parseFloat(r.casePrice) || 0,
+    }));
 }
 
 interface Props {
@@ -651,16 +748,79 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     return `No conversion defined for "${curRaw}". Recipes using this unit can't compute cost. Define on Conversions tab →`;
   }, [values.unit, allConversions]);
 
-  // Vendor pick handler — selecting the sentinel value fires onAddVendor;
-  // selecting a real vendor stores both id and a derived display name.
-  const handleVendorChange = (next: string) => {
+  // Spec 102 — vendor options NOT yet linked, for the "+ attach vendor"
+  // picker. Excludes already-attached vendors (dup-guard at the UI layer)
+  // and keeps the "+ new vendor" sentinel so a brand-new vendor can be
+  // created inline and attached.
+  const unlinkedVendorOptions = React.useMemo(() => {
+    const linked = new Set(values.vendors.map((r) => r.vendorId));
+    return vendorOptions.filter(
+      (o) => o.value === NEW_VENDOR_SENTINEL || !linked.has(o.value),
+    );
+  }, [vendorOptions, values.vendors]);
+
+  // Spec 102 — attach a vendor from the "+ attach vendor" picker. The
+  // sentinel routes to inline vendor-create; a real id appends a link row
+  // (seeded from the item's last cost). Dup-guard is enforced both by the
+  // filtered options above AND by addVendorLink (defense in depth).
+  const handleAttachVendor = (next: string) => {
     if (next === NEW_VENDOR_SENTINEL) {
       onAddVendor?.();
       return;
     }
+    if (!next) return;
+    const rows = addVendorLink(values.vendors, next, {
+      costPerUnit: values.costPerUnit,
+      casePrice: values.casePrice,
+    });
+    // If this is the first vendor attached, make it the primary so the item
+    // has a primary pointer (SD-1); otherwise leave primary untouched.
     const v = vendors.find((vv) => vv.id === next);
-    onChange({ ...values, vendorId: next, vendorName: v?.name || '' });
+    if (!values.vendorId) {
+      onChange({ ...values, vendors: rows, vendorId: next, vendorName: v?.name || '' });
+    } else {
+      onChange({ ...values, vendors: rows });
+    }
   };
+
+  // Spec 102 — remove a link row. If the removed vendor WAS the primary,
+  // re-point the primary to the first remaining link (or clear it when none
+  // remain) so the scalar never dangles at a vendor with no link (SD-1).
+  const handleRemoveVendor = (vendorId: string) => {
+    const rows = removeVendorLink(values.vendors, vendorId);
+    if (values.vendorId === vendorId) {
+      const nextPrimary = rows[0];
+      const v = nextPrimary ? vendors.find((vv) => vv.id === nextPrimary.vendorId) : undefined;
+      onChange({
+        ...values,
+        vendors: rows,
+        vendorId: nextPrimary?.vendorId || '',
+        vendorName: v?.name || '',
+      });
+    } else {
+      onChange({ ...values, vendors: rows });
+    }
+  };
+
+  // Spec 102 — make a linked vendor the primary (SD-1: writes the scalar).
+  const handleSetPrimary = (vendorId: string) => {
+    const v = vendors.find((vv) => vv.id === vendorId);
+    onChange({ ...values, vendorId, vendorName: v?.name || '' });
+  };
+
+  // Spec 102 — patch a single link's cost / case price (AC-C: only that
+  // link changes).
+  const handleVendorFieldChange = (
+    vendorId: string,
+    field: 'costPerUnit' | 'casePrice',
+    value: string,
+  ) => {
+    if (value !== '' && !isNumericInput(value)) return;
+    onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, field, value) });
+  };
+
+  const vendorNameFor = (vendorId: string) =>
+    vendors.find((vv) => vv.id === vendorId)?.name || vendorId;
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 0 }}>
@@ -944,15 +1104,91 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
         <View style={{ width: '50%' }} />
       </View>
 
-      <SectionCaption tone="fg3" size={9.5}>VENDOR DEFAULT · optional</SectionCaption>
-      <View style={{ marginTop: 8, marginBottom: 8 }}>
+      {/* Spec 102 — multi-vendor editor. Replaces the single "primary vendor"
+          picker: one ingredient can be attached to MULTIPLE vendors, each with
+          its own cost + case price (per-(item,vendor) cost). One vendor is the
+          PRIMARY (SD-1 — mirrors inventory_items.vendor_id); reorder/EOD
+          surface the item under EACH attached vendor. The composite-unique
+          (item_id, vendor_id) is the DB dup-guard backstop; the picker filters
+          out already-attached vendors so the same vendor can't be added
+          twice. */}
+      <SectionCaption tone="fg3" size={9.5}>VENDORS · order from one or more</SectionCaption>
+      <View style={{ marginTop: 8, marginBottom: 6, gap: 8 }}>
+        {values.vendors.length === 0 ? (
+          <View style={{ paddingVertical: 10, paddingHorizontal: 11, borderRadius: CmdRadius.sm, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' }}>
+            <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+              No vendors attached · this item won't appear in any vendor's count or reorder list. Attach one below.
+            </Text>
+          </View>
+        ) : (
+          values.vendors.map((row) => {
+            const isPrimary = row.vendorId === values.vendorId;
+            return (
+              <View
+                key={row.vendorId}
+                style={{ padding: 10, borderRadius: CmdRadius.sm, backgroundColor: C.panel, borderWidth: 1, borderColor: isPrimary ? C.accent : C.border, gap: 8 }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ flex: 1, fontFamily: mono(600), fontSize: 12, color: C.fg }} numberOfLines={1}>
+                    {vendorNameFor(row.vendorId)}
+                  </Text>
+                  {isPrimary ? (
+                    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accentBg }}>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9, color: C.accent, textTransform: 'uppercase', letterSpacing: 0.5 }}>primary</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => handleSetPrimary(row.vendorId)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`make ${vendorNameFor(row.vendorId)} primary`}
+                      hitSlop={4}
+                      style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, borderWidth: 1, borderColor: C.border }}
+                    >
+                      <Text style={{ fontFamily: mono(600), fontSize: 9, color: C.fg3, textTransform: 'uppercase', letterSpacing: 0.5 }}>make primary</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    onPress={() => handleRemoveVendor(row.vendorId)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`remove ${vendorNameFor(row.vendorId)}`}
+                    hitSlop={6}
+                    style={{ paddingHorizontal: 6, paddingVertical: 2 }}
+                  >
+                    <Text style={{ fontFamily: mono(700), fontSize: 14, color: C.fg3 }}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <InputLine
+                    label="cost / unit"
+                    value={row.costPerUnit}
+                    onChangeText={(v) => handleVendorFieldChange(row.vendorId, 'costPerUnit', v)}
+                    monoFont
+                    width="50%"
+                    numericOnly
+                    placeholder="0"
+                  />
+                  <InputLine
+                    label="case price"
+                    value={row.casePrice}
+                    onChangeText={(v) => handleVendorFieldChange(row.vendorId, 'casePrice', v)}
+                    monoFont
+                    width="50%"
+                    numericOnly
+                    placeholder="0"
+                  />
+                </View>
+              </View>
+            );
+          })
+        )}
         <SelectField
-          label="primary vendor"
-          value={values.vendorId}
-          options={vendorOptions}
-          onChange={handleVendorChange}
-          placeholder="— pick vendor —"
+          label="+ attach vendor"
+          value=""
+          options={unlinkedVendorOptions}
+          onChange={handleAttachVendor}
+          placeholder={values.vendors.length === 0 ? '— pick a vendor —' : '— attach another vendor —'}
           allowEmpty
+          help={values.vendors.length > 0 ? 'first vendor attached is the primary · tap "make primary" to change' : undefined}
         />
       </View>
       <InputLine label="vendor sku" value={values.vendorSku} monoFont readOnly help="schema pending" />

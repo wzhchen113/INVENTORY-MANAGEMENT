@@ -8,7 +8,7 @@ import {
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand, InventoryCountKind, ReorderPayload, MenuCapacityRow,
   LocalizedNames, RecipeCategory, IngredientCategory,
-  WeeklyCountStatus,
+  WeeklyCountStatus, ItemVendorLink,
 } from '../types';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -175,8 +175,26 @@ interface StoreActions {
   deleteProfile: (profileId: string, opts?: { silent?: boolean }) => Promise<boolean>;
 
   // Inventory
-  addItem: (item: Omit<InventoryItem, 'id'>) => void;
-  updateItem: (id: string, updates: Partial<InventoryItem>) => void;
+  // Spec 102 — `vendors?` carries the multi-vendor link set (per-(item,vendor)
+  // cost + case price) the IngredientForm editor edits. Threaded straight
+  // through to db.createInventoryItem / db.updateInventoryItem, which reconcile
+  // the item_vendors junction (upsert present, delete de-selected). Omitting
+  // it preserves the single-vendor behavior (the scalar vendorId path).
+  // `Omit<…, 'vendors'>` overrides InventoryItem's `vendors?: ItemVendorLink[]`
+  // with the editor's link-payload shape (no vendorName/isPrimary — db derives
+  // those). The plain intersection would be uninhabitable (`ItemVendorLink[] &
+  // payload`).
+  addItem: (
+    item: Omit<InventoryItem, 'id' | 'vendors'> & {
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+    },
+  ) => void;
+  updateItem: (
+    id: string,
+    updates: Omit<Partial<InventoryItem>, 'vendors'> & {
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+    },
+  ) => void;
   deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
@@ -1094,7 +1112,35 @@ export const useStore = create<FullStore>((set, get) => ({
   // Inventory
   addItem: (item) => {
     const tempId = makeId('i', ++itemCounter);
-    const newItem: InventoryItem = { ...item, id: tempId };
+    // Spec 102 — `item.vendors` (the editor's link set, shape
+    // `{vendorId, costPerUnit, casePrice}`) is NOT an InventoryItem field;
+    // strip it from the optimistic row and synthesize the InventoryItem-shaped
+    // `vendors[]` + `vendorIds` mirror so the EOD vendor tabs reflect the new
+    // links immediately (the real values land on the next fetch/realtime).
+    const { vendors: linkSet, ...itemFields } = item;
+    const optimisticLinks: ItemVendorLink[] = (linkSet && linkSet.length > 0)
+      ? linkSet.map((l) => ({
+          vendorId: l.vendorId,
+          vendorName: get().vendors.find((v) => v.id === l.vendorId)?.name || '',
+          costPerUnit: l.costPerUnit ?? 0,
+          casePrice: l.casePrice ?? 0,
+          isPrimary: l.vendorId === item.vendorId,
+        }))
+      : (item.vendorId
+          ? [{
+              vendorId: item.vendorId,
+              vendorName: item.vendorName || '',
+              costPerUnit: item.costPerUnit ?? 0,
+              casePrice: item.casePrice ?? 0,
+              isPrimary: true,
+            }]
+          : []);
+    const newItem: InventoryItem = {
+      ...(itemFields as Omit<InventoryItem, 'id'>),
+      id: tempId,
+      vendors: optimisticLinks,
+      vendorIds: optimisticLinks.map((l) => l.vendorId),
+    };
     set((s) => ({ inventory: [...s.inventory, newItem] }));
     // Swap temp id for server-assigned UUID once insert resolves so an
     // immediate edit/delete after create hits the real row.
@@ -1122,9 +1168,31 @@ export const useStore = create<FullStore>((set, get) => ({
 
   updateItem: (id, updates) => {
     const prev = get().inventory.find((i) => i.id === id);
+    // Spec 102 — `updates.vendors` is the editor's link set
+    // (`{vendorId, costPerUnit, casePrice}`), NOT the InventoryItem-shaped
+    // `vendors: ItemVendorLink[]`. Split it out so the optimistic spread
+    // doesn't clobber `item.vendors` with the wrong shape; when present,
+    // synthesize the InventoryItem-shaped mirror (so the EOD vendor tabs +
+    // editor reflect the reconciled link set immediately) and derive
+    // `vendorIds`. `is_primary` mirrors the scalar `vendorId` (SD-1). When
+    // `updates.vendors` is omitted the existing links ride along unchanged.
+    const { vendors: linkSet, ...itemUpdates } = updates;
+    const optimisticPatch: Partial<InventoryItem> = { ...itemUpdates };
+    if (linkSet !== undefined) {
+      const primaryId = updates.vendorId !== undefined ? updates.vendorId : prev?.vendorId;
+      const links: ItemVendorLink[] = linkSet.map((l) => ({
+        vendorId: l.vendorId,
+        vendorName: get().vendors.find((v) => v.id === l.vendorId)?.name || '',
+        costPerUnit: l.costPerUnit ?? 0,
+        casePrice: l.casePrice ?? 0,
+        isPrimary: l.vendorId === primaryId,
+      }));
+      optimisticPatch.vendors = links;
+      optimisticPatch.vendorIds = links.map((l) => l.vendorId);
+    }
     set((s) => ({
       inventory: s.inventory.map((item) =>
-        item.id === id ? { ...item, ...updates } : item
+        item.id === id ? { ...item, ...optimisticPatch } : item
       ),
     }));
     db.updateInventoryItem(id, updates).catch((e: any) => {
@@ -1671,20 +1739,29 @@ export const useStore = create<FullStore>((set, get) => ({
     }
 
     submission.entries.forEach((entry) => {
-      // Spec 020 Q6: vendor-scoped current_stock writes. A vendor's EOD only
-      // mutates inventory items belonging to that vendor. Items counted via
-      // the unscheduled-item escape hatch (their vendorId !== submission's
-      // vendorId, OR the item has null vendorId) still produce eod_entries
-      // (via db.submitEODCount) and an audit row (below), but their
-      // inventory_items.current_stock is NOT touched here. The previous
-      // guard short-circuited true for null-vendor items, bypassing the
-      // vendor filter and letting the admin-JWT db.adjustItemStock path
-      // overwrite escape-hatch stock — code-reviewer round-2 C2 catch.
-      // Strict equality preserves the RPC's `where vendor_id = p_vendor_id`
-      // semantics (no UPDATE fires when the item's vendor differs from
-      // the submission's vendor, including null-vendor items).
+      // Spec 020 Q6 + Spec 102 §5c: on-hand writes are gated on the item being
+      // legitimately countable under the submitting vendor. A vendor's EOD
+      // mutates the SHARED on-hand of items it can order — which, post-102, is
+      // junction membership (the item has an `item_vendors` link for this
+      // vendor), NOT scalar `vendorId` equality. This is the THIRD copy of the
+      // on-hand predicate (admin db.ts + the staff RPC are the other two, both
+      // already membership-based); it MUST agree or the optimistic UI disagrees
+      // with the server's junction-membership write — a shared item counted
+      // under its non-primary vendor would optimistically skip the on-hand
+      // mirror while the server persisted it.
+      //
+      // Items counted via the unscheduled-item escape hatch (NO link to the
+      // submitting vendor, including null-vendor items) still produce
+      // eod_entries (via db.submitEODCount) and an audit row (below), but their
+      // inventory_items.current_stock is NOT touched here — the server skips
+      // the persisted write for the same reason (preserves the spec 020 Q6
+      // escape-hatch invariant + the code-reviewer round-2 C2 catch). Read
+      // membership off `vendorIds` (back-compat: fall back to the scalar for
+      // legacy in-memory rows that predate the embed; treat undefined as the
+      // scalar's singleton set).
       const item = get().inventory.find((i) => i.id === entry.itemId);
-      const itemMatchesSubmittedVendor = item?.vendorId === subVendorId;
+      const itemVendorIds = item?.vendorIds ?? (item?.vendorId ? [item.vendorId] : []);
+      const itemMatchesSubmittedVendor = !!subVendorId && itemVendorIds.includes(subVendorId);
 
       if (itemMatchesSubmittedVendor) {
         set((s) => ({
