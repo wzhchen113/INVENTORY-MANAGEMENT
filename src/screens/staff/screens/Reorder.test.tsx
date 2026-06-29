@@ -16,6 +16,16 @@
 
 // All hoisted-factory-referenced vars are `mock`-prefixed per Jest's
 // out-of-scope allowlist.
+
+// CI render-timing headroom. These are full-screen integration renders
+// (renderScreen() + waitFor) that pass locally but sit close to jest's
+// default 5s on slower CI runners — the first happy-path render flaked the
+// suite once on a slow runner. Bump the per-test timeout file-wide so timing
+// variance can't red a logically-green suite. (Not a perf regression: spec
+// 102's per-card "also from N" hint renders null for these single-vendor
+// fixtures, so it adds no work here.)
+jest.setTimeout(20000);
+
 const mockFetchStaffReorder = jest.fn();
 const mockFetchStaffOrderSchedule = jest.fn();
 jest.mock('../lib/fetchReorder', () => ({
