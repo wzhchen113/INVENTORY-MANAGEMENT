@@ -40,7 +40,13 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned (was `latest`). v2.109.0 (2026-06-30) ported `migration
+          # list` from Go to TypeScript, changing its table output and breaking
+          # this gate's `awk -F'|'` REMOTE-column parser → every local migration
+          # falsely read as "missing from prod" despite zero drift. v2.108.0 is
+          # the last-known-good before the port. Bump deliberately after
+          # confirming the parser handles the new format.
+          version: 2.108.0
 
       - name: Check secret availability (skip on fork PRs)
         id: check_secret
