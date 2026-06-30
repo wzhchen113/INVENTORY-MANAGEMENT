@@ -1,0 +1,23 @@
+-- Drop the vestigial 6-arg public.staff_submit_eod overload.
+--
+-- History: the original staff EOD RPC (20260504000001) was 6-arg, with no
+-- vendor_id. Spec 020 made vendor_id mandatory and introduced the 7-arg
+-- overload public.staff_submit_eod(uuid, uuid, date, text, text, jsonb, uuid).
+-- The 6-arg version was CREATE-OR-REPLACE'd (since 20260514120010) into a
+-- fail-loud STUB whose entire body is
+--   raise exception 'staff_submit_eod: vendor_id is required as of spec 020
+--                    — sibling staff-app must update' using errcode = '22023';
+-- — a guard for any old sibling staff-app client still calling the pre-vendor
+-- signature. That sibling app was folded into THIS repo in spec 063, and the
+-- current staff client (src/screens/staff/hooks/useEodSubmit.ts) always passes
+-- p_vendor_id, so PostgREST resolves to the 7-arg. Spec 102's backend-architect
+-- post-impl review flagged the leftover 6-arg stub as a latent overload; this
+-- drops it as hygiene.
+--
+-- Safe: no current code or test references the 6-arg signature — the three
+-- staff pgTAP suites (staff_role_eod_rls, staff_submit_eod_cases_each,
+-- eod_submissions_multi_vendor) and the app all call the 7-arg. PostgREST
+-- resolves overloads by named arguments, so the two never collided; this is
+-- cleanup, not a bug fix. Reversible-by-design: re-create the raise-stub from
+-- 20260514120010 if a pre-vendor client ever needs the fail-loud guard again.
+drop function if exists public.staff_submit_eod(uuid, uuid, date, text, text, jsonb);
