@@ -22,13 +22,31 @@ jest.mock('../hooks/useEodSubmit', () => ({
 type QueryResult = { data: unknown; error: unknown };
 const mockFromCalls: string[] = [];
 let mockNextResultStack: QueryResult[] = [];
+// Spec 103 — the per-user saved count order (user_count_orders) is read via a
+// SEPARATE channel so it never consumes a fixture from the vendor/item/existing
+// stack. Default no-row → the screen opens in default view. The upsert/delete
+// (save/reset) just resolve OK.
+let mockCountOrderResult: QueryResult = { data: null, error: null };
 
 function mockQueryBuilder(table: string) {
   mockFromCalls.push(table);
+  if (table === 'user_count_orders') {
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      eq: () => builder,
+      is: () => builder,
+      upsert: () => Promise.resolve({ data: null, error: null }),
+      delete: () => builder,
+      maybeSingle: () => Promise.resolve(mockCountOrderResult),
+      then: (resolve: (v: QueryResult) => unknown) => resolve({ data: null, error: null }),
+    };
+    return builder;
+  }
   const result = mockNextResultStack.shift() ?? { data: [], error: null };
   const builder: Record<string, unknown> = {
     select: () => builder,
     eq: () => builder,
+    is: () => builder,
     order: () => builder,
     maybeSingle: () => Promise.resolve(result),
     // Direct-await behavior (for non-maybeSingle queries) — supabase-js
@@ -74,6 +92,7 @@ beforeEach(() => {
   mockSubmit.mockReset();
   mockFromCalls.length = 0;
   mockNextResultStack = [];
+  mockCountOrderResult = { data: null, error: null };
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
   useStaffStore.setState({
@@ -590,5 +609,106 @@ describe('EODCount — spec 072 scroll-pinned-footer', () => {
       : [styleProp as Record<string, unknown>];
     const flex = styles.filter(Boolean).map((s) => s.flex).find((v) => v !== undefined);
     expect(flex).toBe(1);
+  });
+});
+
+// ─── Spec 103 — per-user custom drag order ───────────────────────────
+describe('EODCount — spec 103 custom order', () => {
+  // A saved order [item-2, item-1] reverses the fetch order [item-1, item-2].
+  function seedTwoItems() {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Apple', unit: 'lb', case_qty: 1 } }),
+          itemVendorRow({ id: 'item-2', catalog: { name: 'Banana', unit: 'lb', case_qty: 1 } }),
+        ],
+        error: null,
+      },
+      { data: null, error: null }, // no existing submission
+    ];
+  }
+
+  it('opens in Custom view and renders rows flat in the SAVED order (AC-3/AC-7)', async () => {
+    seedTwoItems();
+    // Saved order reverses the default fetch order.
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { findByTestId, getByTestId } = render(<EODCount />);
+    // Custom toggle is selected once the saved order resolves.
+    await waitFor(() =>
+      expect(getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    // Both rows render flat (no category headers on this screen anyway).
+    expect(await findByTestId('eod-item-row-item-1')).toBeTruthy();
+    expect(getByTestId('eod-item-row-item-2')).toBeTruthy();
+  });
+
+  it('AC-9: the submit payload is byte-identical with and without a custom order', async () => {
+    // Baseline (default view, no saved order) — capture the payload.
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    seedTwoItems();
+    mockNextResultStack.push({ data: null, error: null }); // re-fetch after submit
+    const first = render(<EODCount />);
+    fireEvent.changeText(await first.findByTestId('eod-item-units-item-1'), '3');
+    fireEvent.changeText(await first.findByTestId('eod-item-units-item-2'), '5');
+    fireEvent.press(await first.findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const defaultEntries = mockSubmit.mock.calls[0][0].entries;
+    first.unmount();
+
+    // Custom view (saved order reversed) — same inputs, same store/vendor.
+    mockSubmit.mockClear();
+    seedTwoItems();
+    mockNextResultStack.push({ data: null, error: null });
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const second = render(<EODCount />);
+    await waitFor(() =>
+      expect(second.getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    fireEvent.changeText(await second.findByTestId('eod-item-units-item-1'), '3');
+    fireEvent.changeText(await second.findByTestId('eod-item-units-item-2'), '5');
+    fireEvent.press(await second.findByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const customEntries = mockSubmit.mock.calls[0][0].entries;
+
+    // The submission iterates the FULL `items` (fetch order), never the
+    // reordered view — so the entry set is byte-identical regardless of view.
+    expect(customEntries).toEqual(defaultEntries);
+  });
+
+  it('AC-12: the gate jump targets the first uncounted in the CUSTOM order', async () => {
+    // Saved order puts item-2 first. Fill item-1 only → the single uncounted is
+    // item-2, and in the custom order it is the TOP row, so the gate jumps to it.
+    seedTwoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { findByTestId, getByTestId } = render(<EODCount />);
+    await waitFor(() =>
+      expect(getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '4');
+    // item-2 left blank — press submit → blocked + jump.
+    fireEvent.press(getByTestId('eod-submit'));
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled());
+    expect(mockSubmit).not.toHaveBeenCalled();
+    // The blocked-submit toast names exactly 1 remaining (item-2).
+    const toastCall = (Toast.show as jest.Mock).mock.calls.find(
+      (c) => c[0]?.text1 === 'Count every item first',
+    );
+    expect(toastCall?.[0]).toMatchObject({ text2: '1 still need a count' });
+  });
+
+  it('Reset returns to default view (AC-4/AC-8)', async () => {
+    seedTwoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { getByTestId } = render(<EODCount />);
+    await waitFor(() =>
+      expect(getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    // The reset control is present (a saved order exists). Pressing it flips
+    // to default view.
+    fireEvent.press(getByTestId('eod-reset-order'));
+    await waitFor(() =>
+      expect(getByTestId('eod-view-default').props.accessibilityState?.selected).toBe(true),
+    );
   });
 });

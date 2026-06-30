@@ -45,6 +45,15 @@
       "caseOf": "case of {qty}",
       "total": "total {total} {unit}"
     },
+    "view": {
+      "default": "Default",
+      "custom": "Custom",
+      "reset": "Reset order"
+    },
+    "reorder": {
+      "moveUp": "Move up",
+      "moveDown": "Move down"
+    },
     "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit",
     "submitting": "Submitting...",
@@ -215,6 +224,15 @@
       "badge": "LOW",
       "detail": "{onHand} {unit} on hand — runs out before next delivery {date}",
       "detailNoUnit": "{onHand} on hand — runs out before next delivery {date}"
+    },
+    "view": {
+      "default": "Default",
+      "custom": "Custom",
+      "reset": "Reset order"
+    },
+    "reorder": {
+      "moveUp": "Move up",
+      "moveDown": "Move down"
     },
     "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit weekly count",

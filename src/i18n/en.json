@@ -173,6 +173,16 @@
     }
   },
   "section": {
+    "countOrder": {
+      "viewDefault": "Default",
+      "viewCustom": "Custom",
+      "reset": "reset order",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "saveFailed": "Could not save order",
+      "saveFailedDetail": "Check connection and try again",
+      "resetFailed": "Could not reset order"
+    },
     "dashboard": {
       "title": "Dashboard",
       "attention": "Attention",

@@ -20,6 +20,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,9 +34,17 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { QueueIndicator } from '../components/QueueIndicator';
+import { CountOrderDragList } from '../components/CountOrderDragList';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
+import {
+  applyCountOrder,
+  firstUncounted,
+  fetchCountOrder,
+  saveCountOrder,
+  resetCountOrder,
+} from '../lib/countOrder';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
@@ -261,17 +270,35 @@ export function EODCount() {
   // Ingredient-name search — view-only. Narrows the rendered rows; the full
   // `items` array still drives submission (onSubmit iterates `items`).
   const [search, setSearch] = useState('');
+  // Spec 103 — per-user custom order. `viewMode` toggles the default
+  // (vendor-scoped flat list, current behavior) vs a flat Custom view ordered
+  // by the user's saved drag arrangement. `savedIds` is the saved id array for
+  // the CURRENT vendor (the order is per-(surface, vendor), OQ-1) — refetched
+  // on vendor change. Render-only: submission + the gate still iterate the
+  // full `items` (AC-9).
+  const [viewMode, setViewMode] = useState<'default' | 'custom'>('default');
+  const [savedIds, setSavedIds] = useState<string[] | null>(null);
+  // The order to render in Custom view: the saved ranking applied to the full
+  // item set (unranked appended, deleted ignored), THEN narrowed by the search
+  // — search composes with the custom order (AC-10).
+  const orderedItems = useMemo(
+    () => applyCountOrder(items, savedIds, (i) => i.id),
+    [items, savedIds],
+  );
   const visibleItems = useMemo(() => {
-    if (!search.trim()) return items;
+    // In Custom view the base list is the custom order; in default view it is
+    // the items' default (fetch) order. Search narrows whichever is active.
+    const base = viewMode === 'custom' ? orderedItems : items;
+    if (!search.trim()) return base;
     // Match the localized label the staffer sees AND the English canonical,
     // so search works in any locale (diacritic-folded via matchesQuery).
-    return items.filter((i) =>
+    return base.filter((i) =>
       matchesQuery(search, [
         getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
         i.name,
       ]),
     );
-  }, [items, search, locale]);
+  }, [items, orderedItems, viewMode, search, locale]);
   const [existing, setExisting] = useState<ExistingSubmission | null>(null);
   // Spec 086 — two per-item maps mirroring the admin worksheet's
   // case/unit split (un-keyed-by-vendor: the staff screen already scopes
@@ -374,6 +401,68 @@ export function EODCount() {
       .finally(() => setLoading(false));
   }, [activeStore, selectedVendorId]);
 
+  // ─── Spec 103: load the saved custom order for (this vendor) on change ──
+  // The order is per-(staff-eod, vendor). On open, if a saved order exists for
+  // the active vendor, start in Custom view (AC-7); else default. A genuine
+  // fetch error falls back to default (the screen still renders; the order
+  // just isn't applied) and surfaces via notifyBackendError.
+  useEffect(() => {
+    if (!userId || !selectedVendorId) {
+      setSavedIds(null);
+      setViewMode('default');
+      return;
+    }
+    let cancelled = false;
+    fetchCountOrder(userId, 'staff-eod', selectedVendorId)
+      .then((ids) => {
+        if (cancelled) return;
+        setSavedIds(ids);
+        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        notifyBackendError('fetchCountOrder', err);
+        setSavedIds(null);
+        setViewMode('default');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, selectedVendorId]);
+
+  // Persist-on-drop. Optimistically set the new order, write it, and revert +
+  // notify on failure (AC-6). The id array passed is the FULL custom order for
+  // this vendor (the drag list hands back the visible subset's ids — but in
+  // Custom view with no search the visible subset IS the full ordered set; a
+  // reorder while a search is active is disabled below so this is always the
+  // full set).
+  const onReorder = useCallback(
+    (orderedIds: string[]) => {
+      if (!userId || !selectedVendorId) return;
+      const prev = savedIds;
+      setSavedIds(orderedIds);
+      setViewMode('custom');
+      saveCountOrder(userId, 'staff-eod', selectedVendorId, orderedIds).catch((err) => {
+        setSavedIds(prev);
+        notifyBackendError('saveCountOrder', err);
+      });
+    },
+    [userId, selectedVendorId, savedIds],
+  );
+
+  // Reset — clear this vendor's saved order, return to default view. Optimistic
+  // + revert-on-failure.
+  const onResetOrder = useCallback(() => {
+    if (!userId || !selectedVendorId) return;
+    const prev = savedIds;
+    setSavedIds(null);
+    setViewMode('default');
+    resetCountOrder(userId, 'staff-eod', selectedVendorId).catch((err) => {
+      setSavedIds(prev);
+      notifyBackendError('resetCountOrder', err);
+    });
+  }, [userId, selectedVendorId, savedIds]);
+
   // ─── header actions ───────────────────────────────────────────────
   const onSignOut = useCallback(() => {
     confirmAction(
@@ -446,10 +535,19 @@ export function EODCount() {
     // `items` list, never the search-narrowed `visibleItems`.
     const isBlank = (it: EodItem) =>
       (caseCounts[it.id] ?? '').trim() === '' && (unitCounts[it.id] ?? '').trim() === '';
+    // Completeness COUNT is against the FULL item set, order-independent (AC-9).
     const uncounted = items.filter(isBlank);
     if (uncounted.length > 0) {
       if (search.trim()) setSearch('');
-      setPendingFocusId(uncounted[0].id);
+      // Spec 103 (AC-12) — the JUMP target follows the on-screen order: in
+      // Custom view, the topmost uncounted in the user's saved order; in
+      // default view, the first uncounted in the items' default order. Resolve
+      // against the FULL item set (not the search-narrowed view), matching the
+      // clear-search-then-jump behavior.
+      const ordered =
+        viewMode === 'custom' ? applyCountOrder(items, savedIds, (i) => i.id) : items;
+      const target = firstUncounted(ordered, (it) => !isBlank(it));
+      setPendingFocusId((target ?? uncounted[0]).id);
       Toast.show({
         type: 'error',
         text1: t('eod.toast.countAllTitle'),
@@ -547,7 +645,99 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, t]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, viewMode, savedIds, t]);
+
+  // Spec 103 — one shared row body, rendered by BOTH the default FlatList and
+  // the Custom drag list, so the Custom view shows byte-identical rows (the
+  // custom order is render-only). Factored out of the FlatList renderItem.
+  const renderEodRow = useCallback(
+    (item: EodItem) => {
+      const caseRaw = caseCounts[item.id] ?? '';
+      const unitRaw = unitCounts[item.id] ?? '';
+      const hasPack = (item.caseQty ?? 0) > 1;
+      const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
+      const casesParsed = parseFloat(caseRaw);
+      const unitsParsed = parseFloat(unitRaw);
+      const total =
+        (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
+        (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+      const displayName = getLocalizedName(
+        { name: item.name, i18nNames: item.i18nNames },
+        locale,
+      );
+      return (
+        <ListRow
+          testID={`eod-item-row-${item.id}`}
+          leading={
+            <View>
+              <Text
+                style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                numberOfLines={2}
+              >
+                {displayName}
+              </Text>
+              {item.unit || hasPack ? (
+                <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
+                  {item.unit}
+                  {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
+                </Text>
+              ) : null}
+              {hasPack && entered ? (
+                <Text
+                  style={[styles.itemTotal, { color: c.textSecondary }]}
+                  testID={`eod-item-total-${item.id}`}
+                >
+                  {t('eod.row.total', { total, unit: item.unit })}
+                </Text>
+              ) : null}
+            </View>
+          }
+          trailing={
+            <View style={styles.countInputs}>
+              <View style={styles.countCol}>
+                <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                  {t('eod.col.cases')}
+                </Text>
+                <Input
+                  ref={(r) => {
+                    caseInputRefs.current[item.id] = r;
+                  }}
+                  value={caseRaw}
+                  onChangeText={(txt) =>
+                    setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
+                  }
+                  keyboardType="decimal-pad"
+                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                  placeholder="0"
+                  testID={`eod-item-cases-${item.id}`}
+                  style={[styles.countInput, !entered && { borderColor: c.error }]}
+                  accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
+                />
+              </View>
+              <View style={styles.countCol}>
+                <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                  {t('eod.col.units')}
+                </Text>
+                <Input
+                  value={unitRaw}
+                  onChangeText={(txt) =>
+                    setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
+                  }
+                  keyboardType="decimal-pad"
+                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                  placeholder="0"
+                  testID={`eod-item-units-${item.id}`}
+                  style={[styles.countInput, !entered && { borderColor: c.error }]}
+                  accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
+                />
+              </View>
+            </View>
+          }
+        />
+      );
+    },
+    [caseCounts, unitCounts, locale, c, t],
+  );
 
   if (!activeStore) {
     // Shouldn't render — RootStack swaps to picker when activeStore
@@ -747,6 +937,76 @@ export function EODCount() {
           ) : null}
         </View>
       ) : null}
+
+      {/* Spec 103 — Default ⇄ Custom view toggle + per-vendor reset. Custom
+          view flattens the list into the user's saved drag order; default is
+          the current vendor-scoped flat list. The order is per-vendor. */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Pressable
+            testID="eod-view-default"
+            onPress={() => setViewMode('default')}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'default' }}
+            style={{
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: viewMode === 'default' ? c.primary : c.border,
+              backgroundColor: viewMode === 'default' ? c.primary : 'transparent',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: typography.caption,
+                fontWeight: typography.semibold,
+                color: viewMode === 'default' ? c.textOnPrimary : c.textSecondary,
+              }}
+            >
+              {t('eod.view.default')}
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="eod-view-custom"
+            onPress={() => setViewMode('custom')}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'custom' }}
+            style={{
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: viewMode === 'custom' ? c.primary : c.border,
+              backgroundColor: viewMode === 'custom' ? c.primary : 'transparent',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: typography.caption,
+                fontWeight: typography.semibold,
+                color: viewMode === 'custom' ? c.textOnPrimary : c.textSecondary,
+              }}
+            >
+              {t('eod.view.custom')}
+            </Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          {savedIds && savedIds.length > 0 ? (
+            <Pressable
+              testID="eod-reset-order"
+              onPress={onResetOrder}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('eod.view.reset')}
+            >
+              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.primary }}>
+                {t('eod.view.reset')}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {/* Items list */}
       {loading ? (
         <View style={styles.loadingPane}>
@@ -764,6 +1024,44 @@ export function EODCount() {
             {t('eod.list.empty')}
           </Text>
         </View>
+      ) : viewMode === 'custom' ? (
+        // Spec 103 — flat Custom view in the user's saved drag order. The
+        // drag list keeps EVERY row mounted (un-windowed) inside a ScrollView
+        // so the gate jump (DOM focus → scroll-into-view on web) can reach any
+        // row. Drag/▲▼ reorder is disabled while a search is active (the
+        // visible subset isn't the full order — re-dragging a filtered list
+        // would drop the hidden ids). The shared `renderEodRow` body is
+        // byte-identical to the default view.
+        <ScrollView
+          testID="eod-item-list"
+          style={styles.itemListBody}
+          contentContainerStyle={styles.itemList}
+        >
+          {visibleItems.length === 0 ? (
+            <View style={styles.emptyPane}>
+              <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+                {t('eod.list.noMatch')}
+              </Text>
+            </View>
+          ) : search.trim() ? (
+            // Search active → render the matching rows in custom relative
+            // order, but WITHOUT the reorder affordance (reorder needs the
+            // full set). Clearing the search restores drag.
+            visibleItems.map((item) => (
+              <View key={item.id} style={{ marginBottom: spacing.sm }}>
+                {renderEodRow(item)}
+              </View>
+            ))
+          ) : (
+            <CountOrderDragList
+              items={visibleItems}
+              onReorder={onReorder}
+              renderRow={renderEodRow}
+              moveUpLabel={t('eod.reorder.moveUp')}
+              moveDownLabel={t('eod.reorder.moveDown')}
+            />
+          )}
+        </ScrollView>
       ) : (
         <FlatList
           ref={listRef}
@@ -797,106 +1095,7 @@ export function EODCount() {
           style={styles.itemListBody}
           contentContainerStyle={styles.itemList}
           ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
-          renderItem={({ item }) => {
-            const caseRaw = caseCounts[item.id] ?? '';
-            const unitRaw = unitCounts[item.id] ?? '';
-            // Pack size > 1 means the Cases box meaningfully multiplies;
-            // when caseQty is null/1 the Cases box still works (× 1) but we
-            // surface the multiplier label only when it changes the math.
-            const hasPack = (item.caseQty ?? 0) > 1;
-            const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
-            // Mirror the admin's total: cases × (caseQty || 1) + units,
-            // isNaN → 0 per input (EODCountSection.tsx:391-395).
-            const casesParsed = parseFloat(caseRaw);
-            const unitsParsed = parseFloat(unitRaw);
-            const total =
-              (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
-              (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
-            // Resolve the display name in the active locale (silent English
-            // fallback when no override). Used for the visible label and the
-            // input accessibility labels so they stay in sync.
-            const displayName = getLocalizedName(
-              { name: item.name, i18nNames: item.i18nNames },
-              locale,
-            );
-            return (
-              <ListRow
-                testID={`eod-item-row-${item.id}`}
-                leading={
-                  <View>
-                    <Text
-                      style={[styles.itemName, { color: entered ? c.text : c.error }]}
-                      numberOfLines={2}
-                    >
-                      {displayName}
-                    </Text>
-                    {item.unit || hasPack ? (
-                      <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
-                        {item.unit}
-                        {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
-                      </Text>
-                    ) : null}
-                    {/* Live total — only meaningful (and shown) once the
-                        Cases box is in play; matches the admin worksheet's
-                        per-row "· total N unit" affordance. */}
-                    {hasPack && entered ? (
-                      <Text
-                        style={[styles.itemTotal, { color: c.textSecondary }]}
-                        testID={`eod-item-total-${item.id}`}
-                      >
-                        {t('eod.row.total', { total, unit: item.unit })}
-                      </Text>
-                    ) : null}
-                  </View>
-                }
-                trailing={
-                  <View style={styles.countInputs}>
-                    <View style={styles.countCol}>
-                      <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                        {t('eod.col.cases')}
-                      </Text>
-                      <Input
-                        ref={(r) => {
-                          caseInputRefs.current[item.id] = r;
-                        }}
-                        value={caseRaw}
-                        onChangeText={(txt) =>
-                          setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
-                        }
-                        keyboardType="decimal-pad"
-                        // react-native-web maps inputMode to the underlying
-                        // <input>; native ignores it. Both belt-and-suspenders.
-                        {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                        placeholder="0"
-                        testID={`eod-item-cases-${item.id}`}
-                        // Uncounted rows (both boxes blank) get a red border so
-                        // the staffer can see what's left; clears on first input.
-                        style={[styles.countInput, !entered && { borderColor: c.error }]}
-                        accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
-                      />
-                    </View>
-                    <View style={styles.countCol}>
-                      <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                        {t('eod.col.units')}
-                      </Text>
-                      <Input
-                        value={unitRaw}
-                        onChangeText={(txt) =>
-                          setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
-                        }
-                        keyboardType="decimal-pad"
-                        {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                        placeholder="0"
-                        testID={`eod-item-units-${item.id}`}
-                        style={[styles.countInput, !entered && { borderColor: c.error }]}
-                        accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
-                      />
-                    </View>
-                  </View>
-                }
-              />
-            );
-          }}
+          renderItem={({ item }) => renderEodRow(item)}
         />
       )}
 

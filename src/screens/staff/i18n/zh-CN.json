@@ -45,6 +45,15 @@
       "caseOf": "每箱 {qty}",
       "total": "共 {total} {unit}"
     },
+    "view": {
+      "default": "默认",
+      "custom": "自定义",
+      "reset": "重置顺序"
+    },
+    "reorder": {
+      "moveUp": "上移",
+      "moveDown": "下移"
+    },
     "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交",
     "submitting": "正在提交...",
@@ -215,6 +224,15 @@
       "badge": "偏低",
       "detail": "在库 {onHand} {unit} — 将在下次送货 {date} 前用完",
       "detailNoUnit": "在库 {onHand} — 将在下次送货 {date} 前用完"
+    },
+    "view": {
+      "default": "默认",
+      "custom": "自定义",
+      "reset": "重置顺序"
+    },
+    "reorder": {
+      "moveUp": "上移",
+      "moveDown": "下移"
     },
     "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交每周盘点",

@@ -173,6 +173,16 @@
     }
   },
   "section": {
+    "countOrder": {
+      "viewDefault": "默认",
+      "viewCustom": "自定义",
+      "reset": "重置顺序",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "saveFailed": "无法保存顺序",
+      "saveFailedDetail": "请检查网络连接后重试",
+      "resetFailed": "无法重置顺序"
+    },
     "dashboard": {
       "title": "仪表板",
       "attention": "需关注",

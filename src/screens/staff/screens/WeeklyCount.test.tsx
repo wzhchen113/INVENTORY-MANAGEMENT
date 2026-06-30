@@ -13,6 +13,7 @@
 // submitWeeklyCount action. useFocusEffect is shimmed to a plain effect.
 
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import Toast from 'react-native-toast-message';
 
 // useFocusEffect → run the callback once on mount (no navigator in tests).
 jest.mock('@react-navigation/native', () => ({
@@ -31,13 +32,31 @@ let mockItemsResult: QueryResult = { data: [], error: null };
 // data (default empty for categories so existing tests are unaffected).
 let mockCategoriesResult: QueryResult = { data: [], error: null };
 let mockRpcResult: QueryResult = { data: null, error: null };
+// Spec 103 — the per-user saved count order (user_count_orders). `.maybeSingle()`
+// returns this; default no-row so existing tests open in default view. The
+// upsert/delete (save/reset) just resolve OK.
+let mockCountOrderResult: QueryResult = { data: null, error: null };
 
 function mockQueryBuilder(table: string) {
+  if (table === 'user_count_orders') {
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      eq: () => builder,
+      is: () => builder,
+      upsert: () => Promise.resolve({ data: null, error: null }),
+      delete: () => builder,
+      maybeSingle: () => Promise.resolve(mockCountOrderResult),
+      // delete() is awaited directly — make the builder thenable too.
+      then: (resolve: (v: QueryResult) => unknown) => resolve({ data: null, error: null }),
+    };
+    return builder;
+  }
   const result =
     table === 'ingredient_categories' ? mockCategoriesResult : mockItemsResult;
   const builder: Record<string, unknown> = {
     select: () => builder,
     eq: () => builder,
+    is: () => builder,
     order: () => builder,
     then: (resolve: (v: QueryResult) => unknown) => resolve(result),
   };
@@ -72,6 +91,7 @@ beforeEach(() => {
   mockItemsResult = { data: [], error: null };
   mockCategoriesResult = { data: [], error: null };
   mockRpcResult = { data: null, error: null };
+  mockCountOrderResult = { data: null, error: null };
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
   seedSignedIn();
@@ -343,5 +363,118 @@ describe('WeeklyCount', () => {
       },
     });
     expect(queryByTestId('weekly-due-banner')).toBeNull();
+  });
+});
+
+// ─── Spec 103 — per-user custom drag order ───────────────────────────
+describe('WeeklyCount — spec 103 custom order', () => {
+  function twoItems() {
+    // Default fetch order is alpha-sorted by name (Apple, Banana). A saved
+    // order [item-2, item-1] reverses that in Custom view.
+    mockItemsResult = {
+      data: [
+        { id: 'item-1', catalog: { name: 'Apple', unit: 'lb', category: 'Produce', case_qty: 1 } },
+        { id: 'item-2', catalog: { name: 'Banana', unit: 'lb', category: 'Produce', case_qty: 1 } },
+      ],
+      error: null,
+    };
+  }
+
+  it('opens in Custom view (category headers suppressed) when a saved order exists (AC-7/AC-13)', async () => {
+    twoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() =>
+      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    // Both rows render…
+    expect(getByTestId('weekly-item-row-item-1')).toBeTruthy();
+    expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
+    // …but the category header is suppressed in Custom view (flat list).
+    expect(queryByTestId('weekly-category-header-Produce')).toBeNull();
+  });
+
+  it('AC-9: the submit payload is byte-identical with and without a custom order', async () => {
+    const mockSubmit = jest.fn().mockResolvedValue({ count_id: 'c-1', conflict: false, entry_ids: ['e-1', 'e-2'] });
+    useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
+
+    // Default view, no saved order.
+    twoItems();
+    const first = render(<WeeklyCount />);
+    await waitFor(() => expect(first.getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    fireEvent.changeText(first.getByTestId('weekly-item-units-item-1'), '3');
+    fireEvent.changeText(first.getByTestId('weekly-item-units-item-2'), '5');
+    fireEvent.press(first.getByTestId('weekly-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const defaultEntries = mockSubmit.mock.calls[0][0].entries;
+    first.unmount();
+
+    // Custom view, reversed saved order.
+    mockSubmit.mockClear();
+    twoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const second = render(<WeeklyCount />);
+    await waitFor(() =>
+      expect(second.getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    fireEvent.changeText(second.getByTestId('weekly-item-units-item-1'), '3');
+    fireEvent.changeText(second.getByTestId('weekly-item-units-item-2'), '5');
+    fireEvent.press(second.getByTestId('weekly-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const customEntries = mockSubmit.mock.calls[0][0].entries;
+
+    // Submission iterates the full `items` (fetch order), never the reordered
+    // view — the entry set is identical regardless of view.
+    expect(customEntries).toEqual(defaultEntries);
+  });
+
+  it('AC-10: search composes with the custom order (matching rows in custom relative order)', async () => {
+    twoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() =>
+      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    // Search "Banana" → only item-2 remains; item-1 filtered out. The custom
+    // order is preserved among survivors (here a single match).
+    fireEvent.changeText(getByTestId('weekly-search'), 'Banana');
+    await waitFor(() => expect(queryByTestId('weekly-item-row-item-1')).toBeNull());
+    expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
+  });
+
+  it('AC-12: the gate jump targets the first uncounted in the CUSTOM order', async () => {
+    const mockSubmit = jest.fn();
+    useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
+    twoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() =>
+      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    // Fill item-1; leave item-2 blank. In the custom order item-2 is the TOP
+    // row → the gate blocks and the toast names exactly 1 remaining.
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '4');
+    fireEvent.press(getByTestId('weekly-submit'));
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled());
+    expect(mockSubmit).not.toHaveBeenCalled();
+    const toastCall = (Toast.show as jest.Mock).mock.calls.find(
+      (c) => c[0]?.text1 === 'Count every item first',
+    );
+    expect(toastCall?.[0]).toMatchObject({ text2: '1 still need a count' });
+  });
+
+  it('Reset returns to the default category-grouped view (AC-4/AC-8)', async () => {
+    twoItems();
+    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() =>
+      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+    );
+    fireEvent.press(getByTestId('weekly-reset-order'));
+    await waitFor(() =>
+      expect(getByTestId('weekly-view-default').props.accessibilityState?.selected).toBe(true),
+    );
+    // Category header returns in default view.
+    expect(getByTestId('weekly-category-header-Produce')).toBeTruthy();
   });
 });

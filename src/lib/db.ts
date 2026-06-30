@@ -31,6 +31,9 @@ import { useInflight } from './inflight';
 // below. Was file-private to auth.ts before spec 040; the export
 // boundary was added in the same change.
 import { callEdgeFunction } from './auth';
+// Spec 103 — the four stable count-screen keys. Pure module (no supabase / no
+// React), shared with the staff-subtree carve-out helper; see ./countOrder.
+import type { CountOrderScreen } from './countOrder';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -1889,6 +1892,149 @@ export async function saveLocale(
       .abortSignal(signal);
     if (error) throw error;
   }, { kind: 'write', label: 'saveLocale' });
+}
+
+// ─── COUNT-SCREEN CUSTOM ORDER (Spec 103) ──────────────────────────────
+/**
+ * Spec 103 — per-user PRIVATE custom row order for the count screens, backed
+ * by the `public.user_count_orders` side table (one row per
+ * (user_id, screen, vendor_id), `item_ids` a JSONB ordered array of
+ * inventory_items.id). These three helpers are the ADMIN path
+ * (EODCountSection, InventoryCountSection); the staff screens use the
+ * documented src/screens/staff/ direct-`supabase` carve-out with a parallel
+ * helper that imports the same pure `applyCountOrder`/`firstUncounted` from
+ * `./countOrder` (design §5).
+ *
+ * The row maps to a single field the screen needs — the ordered id array — so
+ * there is no mapItem-style camelCase object: the read returns a plain
+ * `string[]` (or `null` when no row exists → default view). The order is a VIEW
+ * concern only; it is NEVER the submission source (AC-9) — `applyCountOrder`
+ * (pure, in ./countOrder) re-points only the render list and the gate's "first"
+ * resolution.
+ *
+ * Gated by the owner-scoped RLS on user_count_orders
+ * (auth.uid() = user_id; migration 20260630000500). Every query also pins
+ * `.eq('user_id', userId)` so a cross-user write is silently 0 rows
+ * (defense-in-depth; the policy already blocks it).
+ *
+ * vendorId distinguishes the two surface families (design §1 / OQ-1):
+ *   • 'admin-eod' / 'staff-eod'        → per-vendor (pass the vendor id);
+ *   • 'admin-inventory' / 'staff-weekly' → per-surface (pass null).
+ * PostgREST distinguishes `.eq('vendor_id', v)` from `.is('vendor_id', null)`
+ * (`.eq` against null does not match), so the read/delete branch on vendorId,
+ * and the upsert uses the matching partial-unique conflict target (§1.2).
+ */
+
+/**
+ * READ (on screen open / vendor change). Returns the saved ordered id array,
+ * or `null` when no row exists (→ the screen renders its default order).
+ *
+ * `kind: 'read'`. A zero-row result is NOT an error — it is the
+ * no-custom-order state. The caller falls back to the default order on a
+ * genuine error too (AC-7: the screen still renders; the order just isn't
+ * applied), surfacing via its existing notifyBackendError path.
+ */
+export async function fetchCountOrder(
+  userId: string,
+  screen: CountOrderScreen,
+  vendorId: string | null,
+): Promise<string[] | null> {
+  return useInflight.getState().track(async (signal) => {
+    let query = supabase
+      .from('user_count_orders')
+      .select('item_ids')
+      .eq('user_id', userId)
+      .eq('screen', screen);
+    // PostgREST: `.eq('vendor_id', null)` would NOT match a NULL row — the
+    // no-vendor surfaces (Inventory/Weekly) must use `.is(..., null)`.
+    query = vendorId === null
+      ? query.is('vendor_id', null)
+      : query.eq('vendor_id', vendorId);
+    const { data, error } = await query.abortSignal(signal).maybeSingle();
+    if (error) throw error;
+    // item_ids is a JSONB array of strings; default to null (no saved order).
+    const ids = (data?.item_ids ?? null) as string[] | null;
+    return ids;
+  }, { kind: 'read', label: 'fetchCountOrder' });
+}
+
+/**
+ * WRITE (persist-on-drop). Persists the FULL ordered array for one
+ * (user, screen, vendor?) key as a delete-then-insert. Throws on error so the
+ * section can revert the optimistic on-screen order and call notifyBackendError
+ * (AC-6).
+ *
+ * NOT an upsert: PostgREST's `.upsert({ onConflict })` cannot target the two
+ * PARTIAL unique indexes (design §1.2) — it can't supply their WHERE predicate,
+ * so it 42P10s on both the vendor and no-vendor branches. So delete the one
+ * (user, screen, vendor?) row then insert the new array; the two partial indexes
+ * remain as the duplicate guard. There is no UPDATE leg, so `updated_at` is set
+ * on the insert only. The two calls are NOT atomic: if the section unmounts
+ * mid-drop the threaded abort signal can reject the insert after the delete has
+ * committed, leaving the row ABSENT (not reverted) — the next open re-reads truth
+ * and the next drop re-saves the full array. Acceptable for a private per-user
+ * view preference.
+ */
+export async function saveCountOrder(
+  userId: string,
+  screen: CountOrderScreen,
+  vendorId: string | null,
+  itemIds: string[],
+): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    // PostgREST `.upsert({ onConflict })` CANNOT target a PARTIAL unique index —
+    // it can't supply the index's WHERE predicate, so it 42P10s on both the
+    // (user_id, screen) and (user_id, screen, vendor_id) branches. Persist as a
+    // delete-then-insert for the one (user, screen, vendor?) key; the two
+    // partial unique indexes stay as the duplicate guard. Not atomic across the
+    // two PostgREST calls, but this is a private per-user VIEW preference — a
+    // torn write just means the next drop re-saves (and the section reverts +
+    // notifies on a thrown error, AC-6).
+    let del = supabase
+      .from('user_count_orders')
+      .delete()
+      .eq('user_id', userId)
+      .eq('screen', screen);
+    del = vendorId === null ? del.is('vendor_id', null) : del.eq('vendor_id', vendorId);
+    const { error: delErr } = await del.abortSignal(signal);
+    if (delErr) throw delErr;
+    const { error: insErr } = await supabase
+      .from('user_count_orders')
+      .insert({
+        user_id: userId,
+        screen,
+        vendor_id: vendorId,
+        item_ids: itemIds,
+        updated_at: new Date().toISOString(),
+      })
+      .abortSignal(signal);
+    if (insErr) throw insErr;
+  }, { kind: 'write', label: 'saveCountOrder' });
+}
+
+/**
+ * RESET (per-screen "reset to default order"). Deletes the one
+ * (user, screen, vendor?) row so the screen falls back to its default view
+ * (AC-4 / AC-8). Throws on error so the section can surface notifyBackendError.
+ * Touches ONLY this key — the other three screen keys are untouched.
+ */
+export async function resetCountOrder(
+  userId: string,
+  screen: CountOrderScreen,
+  vendorId: string | null,
+): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    let query = supabase
+      .from('user_count_orders')
+      .delete()
+      .eq('user_id', userId)
+      .eq('screen', screen);
+    query = vendorId === null
+      ? query.is('vendor_id', null)
+      : query.eq('vendor_id', vendorId);
+    const { error } = await query.abortSignal(signal);
+    if (error) throw error;
+  }, { kind: 'write', label: 'resetCountOrder' });
 }
 
 // ─── TRANSLATE-ON-SAVE (Spec 040) ─────────────────────────────────────

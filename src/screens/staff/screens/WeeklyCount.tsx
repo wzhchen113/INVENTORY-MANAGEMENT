@@ -20,6 +20,7 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  ScrollView,
   SectionList,
   StyleSheet,
   Text,
@@ -35,14 +36,22 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
+import { CountOrderDragList } from '../components/CountOrderDragList';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
-import { useStaffStore } from '../store/useStaffStore';
+import {
+  applyCountOrder,
+  firstUncounted,
+  fetchCountOrder,
+  saveCountOrder,
+  resetCountOrder,
+} from '../lib/countOrder';
+import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames, WeeklyLowStockItem } from '../../../types';
-import { spacing, typography, useStaffColors } from '../theme';
+import { radius, spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
 
 function todayIso(d = new Date()): string {
@@ -176,6 +185,7 @@ export function WeeklyCount() {
   // them on a locale switch (same reactivity contract as useI18n's `t`).
   const locale = useStaffStore((s) => s.locale);
   const activeStore = useStaffStore((s) => s.activeStore);
+  const userId = useStaffStore((s) => currentStaffUserId(s.authState));
   const fetchWeeklyStatus = useStaffStore((s) => s.fetchWeeklyStatus);
   const submitWeeklyCount = useStaffStore((s) => s.submitWeeklyCount);
 
@@ -183,6 +193,12 @@ export function WeeklyCount() {
   // Ingredient-name search — view-only; filters the grouped sections while the
   // full `items` array still drives submission.
   const [search, setSearch] = useState('');
+  // Spec 103 — per-user custom order (per-surface; no vendor → vendorId null).
+  // `viewMode` toggles the default category-grouped SectionList vs a flat
+  // Custom view in the user's saved drag order. Render-only: submission + the
+  // gate still iterate the full `items` (AC-9).
+  const [viewMode, setViewMode] = useState<'default' | 'custom'>('default');
+  const [savedIds, setSavedIds] = useState<string[] | null>(null);
   // name → per-locale category overrides (keyed by canonical English
   // category name; same string the catalog rows store in `category`).
   const [categoryI18n, setCategoryI18n] = useState<Map<string, LocalizedNames>>(
@@ -250,6 +266,60 @@ export function WeeklyCount() {
       });
   }, [activeStore]);
 
+  // ─── Spec 103: load the saved custom order on mount / store change ──────
+  // Per-surface (no vendor → null). On open, if a saved order exists, start in
+  // Custom view (AC-7); else default. A genuine error falls back to default.
+  useEffect(() => {
+    if (!userId) {
+      setSavedIds(null);
+      setViewMode('default');
+      return;
+    }
+    let cancelled = false;
+    fetchCountOrder(userId, 'staff-weekly', null)
+      .then((ids) => {
+        if (cancelled) return;
+        setSavedIds(ids);
+        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        notifyBackendError('fetchCountOrder', err);
+        setSavedIds(null);
+        setViewMode('default');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, activeStore]);
+
+  // Persist-on-drop — optimistic, revert + notify on failure (AC-6).
+  const onReorder = useCallback(
+    (orderedIds: string[]) => {
+      if (!userId) return;
+      const prev = savedIds;
+      setSavedIds(orderedIds);
+      setViewMode('custom');
+      saveCountOrder(userId, 'staff-weekly', null, orderedIds).catch((err) => {
+        setSavedIds(prev);
+        notifyBackendError('saveCountOrder', err);
+      });
+    },
+    [userId, savedIds],
+  );
+
+  // Reset — clear the saved order, return to default view.
+  const onResetOrder = useCallback(() => {
+    if (!userId) return;
+    const prev = savedIds;
+    setSavedIds(null);
+    setViewMode('default');
+    resetCountOrder(userId, 'staff-weekly', null).catch((err) => {
+      setSavedIds(prev);
+      notifyBackendError('resetCountOrder', err);
+    });
+  }, [userId, savedIds]);
+
   // ─── refresh the weekly status on focus (banner floor, no realtime) ──
   useFocusEffect(
     useCallback(() => {
@@ -312,12 +382,49 @@ export function WeeklyCount() {
       }));
   }, [items, t, locale, categoryI18n, search]);
 
+  // Spec 103 — flat Custom view list: the saved ranking applied to the full
+  // item set (unranked appended, deleted ignored), THEN narrowed by the search
+  // (search composes with the custom order — AC-10). Category headers are
+  // suppressed in Custom view (OQ-2).
+  const customVisibleItems = useMemo(() => {
+    const ordered = applyCountOrder(items, savedIds, (i) => i.id);
+    if (!search.trim()) return ordered;
+    return ordered.filter((it) =>
+      matchesQuery(search, [
+        getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale),
+        it.name,
+      ]),
+    );
+  }, [items, savedIds, search, locale]);
+
   // Jump to the first uncounted row after a blocked submit. Re-runs when
   // `sections` changes so a target hidden behind the search resolves once the
   // search-clear lands. Scrolls its section/item into view, then focuses its
   // primary box — on web the DOM focus also pulls a clipped input fully in.
+  //
+  // Spec 103 — in Custom view there is no SectionList; the flat drag list keeps
+  // every row mounted (un-windowed), so we skip the scrollToLocation machinery
+  // and just focus the target's box (DOM focus scrolls it into view on web).
   useEffect(() => {
     if (!pendingFocusId) return;
+    if (viewMode === 'custom') {
+      // Only act once the target is actually in the rendered (custom) list — a
+      // searched-out target waits for the search-clear re-render.
+      const inList = customVisibleItems.some((it) => it.id === pendingFocusId);
+      if (!inList) return;
+      let cancelled = false;
+      const raf = requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          firstInputRefs.current[pendingFocusId]?.focus?.();
+          setPendingFocusId(null);
+        }),
+      );
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(raf);
+      };
+    }
     let sectionIndex = -1;
     let itemIndex = -1;
     for (let s = 0; s < sections.length; s++) {
@@ -347,7 +454,7 @@ export function WeeklyCount() {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [pendingFocusId, sections]);
+  }, [pendingFocusId, sections, viewMode, customVisibleItems]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || submitting) return;
@@ -435,28 +542,181 @@ export function WeeklyCount() {
     // the search-narrowed sections.
     const isBlank = (it: WeeklyItem) =>
       (caseCounts[it.id] ?? '').trim() === '' && (unitCounts[it.id] ?? '').trim() === '';
-    // Walk the on-screen (category-grouped) order — same sort as `sections`
-    // (category asc, then name) — so the jump lands on the TOPMOST uncounted
-    // row, not the alphabetically-first one buried mid-list.
-    const uncounted = [...items]
-      .sort(
-        (a, b) =>
-          (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name),
-      )
-      .filter(isBlank);
-    if (uncounted.length > 0) {
+    // Completeness COUNT is against the FULL item set, order-independent (AC-9).
+    const uncountedCount = items.filter(isBlank).length;
+    if (uncountedCount > 0) {
       if (search.trim()) setSearch('');
-      setPendingFocusId(uncounted[0].id);
+      // Spec 103 (AC-12) — the JUMP target follows the on-screen order. In
+      // Custom view, walk the user's saved order; in default view, walk the
+      // category-grouped order (category asc, then name — same sort as
+      // `sections`) so the jump lands on the TOPMOST uncounted row.
+      const ordered =
+        viewMode === 'custom'
+          ? applyCountOrder(items, savedIds, (i) => i.id)
+          : [...items].sort(
+              (a, b) =>
+                (a.category || '').localeCompare(b.category || '') ||
+                a.name.localeCompare(b.name),
+            );
+      const target = firstUncounted(ordered, (it) => !isBlank(it));
+      if (target) setPendingFocusId(target.id);
       Toast.show({
         type: 'error',
         text1: t('weekly.toast.countAllTitle'),
-        text2: t('weekly.toast.countAllRemaining', { count: uncounted.length }),
+        text2: t('weekly.toast.countAllRemaining', { count: uncountedCount }),
         position: 'bottom',
       });
       return;
     }
     void onSubmit();
-  }, [items, caseCounts, unitCounts, search, onSubmit, t]);
+  }, [items, caseCounts, unitCounts, search, viewMode, savedIds, onSubmit, t]);
+
+  // Spec 103 — one shared row body, rendered by BOTH the default SectionList
+  // and the flat Custom drag list, so the Custom view shows byte-identical
+  // rows (the custom order is render-only). Factored out of the SectionList
+  // renderItem.
+  const renderWeeklyRow = useCallback(
+    (item: WeeklyItem) => {
+      const caseRaw = caseCounts[item.id] ?? '';
+      const unitRaw = unitCounts[item.id] ?? '';
+      const hasPack = (item.caseQty ?? 0) > 1;
+      const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
+      const casesParsed = parseFloat(caseRaw);
+      const unitsParsed = parseFloat(unitRaw);
+      const total =
+        (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
+        (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+      const displayName = getLocalizedName(
+        { name: item.name, i18nNames: item.i18nNames },
+        locale,
+      );
+      const low = lowStockByItem.get(item.id);
+      const isLow = low?.lowStock === true;
+      return (
+        <ListRow
+          testID={`weekly-item-row-${item.id}`}
+          leading={
+            <View>
+              <View style={styles.itemNameRow}>
+                <Text
+                  style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                  numberOfLines={2}
+                >
+                  {displayName}
+                </Text>
+                {isLow ? (
+                  <View
+                    style={[styles.lowBadge, { backgroundColor: c.warningBg, borderColor: c.warning }]}
+                    testID={`weekly-low-badge-${item.id}`}
+                  >
+                    <Text style={[styles.lowBadgeText, { color: c.warning }]}>
+                      {t('weekly.lowStock.badge')}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              {item.unit || hasPack ? (
+                <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
+                  {item.unit}
+                  {hasPack ? ` · ${t('weekly.row.caseOf', { qty: item.caseQty as number })}` : ''}
+                </Text>
+              ) : null}
+              {isLow && low ? (
+                <Text
+                  style={[styles.itemLowDetail, { color: c.warning }]}
+                  testID={`weekly-low-detail-${item.id}`}
+                >
+                  {low.unit
+                    ? t('weekly.lowStock.detail', {
+                        onHand: low.onHand,
+                        unit: low.unit,
+                        date: low.nextDeliveryDate,
+                      })
+                    : t('weekly.lowStock.detailNoUnit', {
+                        onHand: low.onHand,
+                        date: low.nextDeliveryDate,
+                      })}
+                </Text>
+              ) : null}
+              {hasPack && entered ? (
+                <Text
+                  style={[styles.itemTotal, { color: c.textSecondary }]}
+                  testID={`weekly-item-total-${item.id}`}
+                >
+                  {t('weekly.row.total', { total, unit: item.unit })}
+                </Text>
+              ) : null}
+            </View>
+          }
+          trailing={
+            hasPack ? (
+              <View style={styles.countInputs}>
+                <View style={styles.countCol}>
+                  <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                    {t('weekly.col.cases')}
+                  </Text>
+                  <Input
+                    ref={(r) => {
+                      firstInputRefs.current[item.id] = r;
+                    }}
+                    value={caseRaw}
+                    onChangeText={(txt) =>
+                      setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
+                    }
+                    keyboardType="decimal-pad"
+                    {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                    placeholder="0"
+                    testID={`weekly-item-cases-${item.id}`}
+                    style={[styles.countInput, !entered && { borderColor: c.error }]}
+                    accessibilityLabel={t('weekly.col.casesAria', { item: displayName })}
+                  />
+                </View>
+                <View style={styles.countCol}>
+                  <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                    {t('weekly.col.units')}
+                  </Text>
+                  <Input
+                    value={unitRaw}
+                    onChangeText={(txt) =>
+                      setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
+                    }
+                    keyboardType="decimal-pad"
+                    {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                    placeholder="0"
+                    testID={`weekly-item-units-${item.id}`}
+                    style={[styles.countInput, !entered && { borderColor: c.error }]}
+                    accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.countCol}>
+                <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
+                  {t('weekly.col.units')}
+                </Text>
+                <Input
+                  ref={(r) => {
+                    firstInputRefs.current[item.id] = r;
+                  }}
+                  value={unitRaw}
+                  onChangeText={(txt) =>
+                    setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
+                  }
+                  keyboardType="decimal-pad"
+                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
+                  placeholder="0"
+                  testID={`weekly-item-units-${item.id}`}
+                  style={[styles.countInput, !entered && { borderColor: c.error }]}
+                  accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
+                />
+              </View>
+            )
+          }
+        />
+      );
+    },
+    [caseCounts, unitCounts, locale, lowStockByItem, c, t],
+  );
 
   if (!activeStore) {
     return (
@@ -556,6 +816,75 @@ export function WeeklyCount() {
           ) : null}
         </View>
       ) : null}
+
+      {/* Spec 103 — Default ⇄ Custom view toggle + reset. Custom view flattens
+          the category-grouped list into the user's saved drag order. */}
+      {!loading && items.length > 0 ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Pressable
+            testID="weekly-view-default"
+            onPress={() => setViewMode('default')}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'default' }}
+            style={{
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: viewMode === 'default' ? c.primary : c.border,
+              backgroundColor: viewMode === 'default' ? c.primary : 'transparent',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: typography.caption,
+                fontWeight: typography.semibold,
+                color: viewMode === 'default' ? c.textOnPrimary : c.textSecondary,
+              }}
+            >
+              {t('weekly.view.default')}
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="weekly-view-custom"
+            onPress={() => setViewMode('custom')}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'custom' }}
+            style={{
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: viewMode === 'custom' ? c.primary : c.border,
+              backgroundColor: viewMode === 'custom' ? c.primary : 'transparent',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: typography.caption,
+                fontWeight: typography.semibold,
+                color: viewMode === 'custom' ? c.textOnPrimary : c.textSecondary,
+              }}
+            >
+              {t('weekly.view.custom')}
+            </Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          {savedIds && savedIds.length > 0 ? (
+            <Pressable
+              testID="weekly-reset-order"
+              onPress={onResetOrder}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('weekly.view.reset')}
+            >
+              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.primary }}>
+                {t('weekly.view.reset')}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {/* Items list */}
       {loading ? (
         <View style={styles.loadingPane}>
@@ -567,6 +896,40 @@ export function WeeklyCount() {
             {t('weekly.list.empty')}
           </Text>
         </View>
+      ) : viewMode === 'custom' ? (
+        // Spec 103 — flat Custom view in the user's saved drag order, category
+        // headers suppressed (OQ-2). The drag list keeps EVERY row mounted
+        // inside a ScrollView (UN-WINDOWED, spec 102) so the gate jump (DOM
+        // focus → scroll-into-view on web) reaches any row. Drag/▲▼ reorder is
+        // disabled while a search is active (the visible subset isn't the full
+        // order). Rows are byte-identical to default view (renderWeeklyRow).
+        <ScrollView
+          testID="weekly-item-list"
+          style={styles.itemListBody}
+          contentContainerStyle={styles.itemList}
+        >
+          {customVisibleItems.length === 0 ? (
+            <View style={styles.emptyPane}>
+              <Text style={[styles.emptyText, { color: c.textSecondary }]}>
+                {t('weekly.list.noMatch')}
+              </Text>
+            </View>
+          ) : search.trim() ? (
+            customVisibleItems.map((item) => (
+              <View key={item.id} style={{ marginBottom: spacing.sm }}>
+                {renderWeeklyRow(item)}
+              </View>
+            ))
+          ) : (
+            <CountOrderDragList
+              items={customVisibleItems}
+              onReorder={onReorder}
+              renderRow={renderWeeklyRow}
+              moveUpLabel={t('weekly.reorder.moveUp')}
+              moveDownLabel={t('weekly.reorder.moveDown')}
+            />
+          )}
+        </ScrollView>
       ) : (
         <SectionList
           ref={listRef}
@@ -628,158 +991,7 @@ export function WeeklyCount() {
               </Text>
             </View>
           )}
-          renderItem={({ item }) => {
-            const caseRaw = caseCounts[item.id] ?? '';
-            const unitRaw = unitCounts[item.id] ?? '';
-            // case_qty > 1 → the Cases box meaningfully multiplies → render
-            // the dual case/each inputs. Otherwise a single Units input.
-            const hasPack = (item.caseQty ?? 0) > 1;
-            const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
-            const casesParsed = parseFloat(caseRaw);
-            const unitsParsed = parseFloat(unitRaw);
-            const total =
-              (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
-              (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
-            // Resolve the display name in the active locale (silent English
-            // fallback when no override). Used for both the visible label
-            // and the input accessibility labels so they stay in sync.
-            const displayName = getLocalizedName(
-              { name: item.name, i18nNames: item.i18nNames },
-              locale,
-            );
-            // Spec 102 (US-5) — advisory low-stock warning. The badge + detail
-            // render when this item's `report_weekly_lowstock` row flagged
-            // `lowStock` (on-hand won't cover usage until the nearest next
-            // delivery). Advisory only — the weekly screen places no orders.
-            const low = lowStockByItem.get(item.id);
-            const isLow = low?.lowStock === true;
-            return (
-              <ListRow
-                testID={`weekly-item-row-${item.id}`}
-                leading={
-                  <View>
-                    <View style={styles.itemNameRow}>
-                      <Text
-                        style={[styles.itemName, { color: entered ? c.text : c.error }]}
-                        numberOfLines={2}
-                      >
-                        {displayName}
-                      </Text>
-                      {isLow ? (
-                        <View
-                          style={[styles.lowBadge, { backgroundColor: c.warningBg, borderColor: c.warning }]}
-                          testID={`weekly-low-badge-${item.id}`}
-                        >
-                          <Text style={[styles.lowBadgeText, { color: c.warning }]}>
-                            {t('weekly.lowStock.badge')}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    {item.unit || hasPack ? (
-                      <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
-                        {item.unit}
-                        {hasPack ? ` · ${t('weekly.row.caseOf', { qty: item.caseQty as number })}` : ''}
-                      </Text>
-                    ) : null}
-                    {isLow && low ? (
-                      <Text
-                        style={[styles.itemLowDetail, { color: c.warning }]}
-                        testID={`weekly-low-detail-${item.id}`}
-                      >
-                        {low.unit
-                          ? t('weekly.lowStock.detail', {
-                              onHand: low.onHand,
-                              unit: low.unit,
-                              date: low.nextDeliveryDate,
-                            })
-                          : t('weekly.lowStock.detailNoUnit', {
-                              onHand: low.onHand,
-                              date: low.nextDeliveryDate,
-                            })}
-                      </Text>
-                    ) : null}
-                    {hasPack && entered ? (
-                      <Text
-                        style={[styles.itemTotal, { color: c.textSecondary }]}
-                        testID={`weekly-item-total-${item.id}`}
-                      >
-                        {t('weekly.row.total', { total, unit: item.unit })}
-                      </Text>
-                    ) : null}
-                  </View>
-                }
-                trailing={
-                  hasPack ? (
-                    <View style={styles.countInputs}>
-                      <View style={styles.countCol}>
-                        <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                          {t('weekly.col.cases')}
-                        </Text>
-                        <Input
-                          ref={(r) => {
-                            firstInputRefs.current[item.id] = r;
-                          }}
-                          value={caseRaw}
-                          onChangeText={(txt) =>
-                            setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
-                          }
-                          keyboardType="decimal-pad"
-                          {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                          placeholder="0"
-                          testID={`weekly-item-cases-${item.id}`}
-                          // Uncounted rows (both boxes blank) get a red border so
-                          // the counter can see what's left; clears on first input.
-                          style={[styles.countInput, !entered && { borderColor: c.error }]}
-                          accessibilityLabel={t('weekly.col.casesAria', { item: displayName })}
-                        />
-                      </View>
-                      <View style={styles.countCol}>
-                        <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                          {t('weekly.col.units')}
-                        </Text>
-                        <Input
-                          value={unitRaw}
-                          onChangeText={(txt) =>
-                            setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
-                          }
-                          keyboardType="decimal-pad"
-                          {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                          placeholder="0"
-                          testID={`weekly-item-units-${item.id}`}
-                          style={[styles.countInput, !entered && { borderColor: c.error }]}
-                          accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
-                        />
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.countCol}>
-                      <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                        {t('weekly.col.units')}
-                      </Text>
-                      <Input
-                        ref={(r) => {
-                          firstInputRefs.current[item.id] = r;
-                        }}
-                        value={unitRaw}
-                        onChangeText={(txt) =>
-                          setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
-                        }
-                        keyboardType="decimal-pad"
-                        {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                        placeholder="0"
-                        testID={`weekly-item-units-${item.id}`}
-                        // Uncounted single-input rows go red too (Units is the
-                        // only box, so its value alone decides counted-ness).
-                        style={[styles.countInput, !entered && { borderColor: c.error }]}
-                        accessibilityLabel={t('weekly.col.unitsAria', { item: displayName })}
-                      />
-                    </View>
-                  )
-                }
-              />
-            );
-          }}
+          renderItem={({ item }) => renderWeeklyRow(item)}
         />
       )}
 

@@ -45,6 +45,15 @@
       "caseOf": "caja de {qty}",
       "total": "total {total} {unit}"
     },
+    "view": {
+      "default": "Predeterminado",
+      "custom": "Personalizado",
+      "reset": "Restablecer orden"
+    },
+    "reorder": {
+      "moveUp": "Subir",
+      "moveDown": "Bajar"
+    },
     "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar",
     "submitting": "Enviando...",
@@ -215,6 +224,15 @@
       "badge": "BAJO",
       "detail": "{onHand} {unit} en mano — se agota antes de la próxima entrega {date}",
       "detailNoUnit": "{onHand} en mano — se agota antes de la próxima entrega {date}"
+    },
+    "view": {
+      "default": "Predeterminado",
+      "custom": "Personalizado",
+      "reset": "Restablecer orden"
+    },
+    "reorder": {
+      "moveUp": "Subir",
+      "moveDown": "Bajar"
     },
     "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar conteo semanal",

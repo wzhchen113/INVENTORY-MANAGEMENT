@@ -5,10 +5,18 @@ import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
-import { fetchRecentInventoryCounts, fetchInventoryCount } from '../../../lib/db';
+import {
+  fetchRecentInventoryCounts,
+  fetchInventoryCount,
+  fetchCountOrder,
+  saveCountOrder,
+  resetCountOrder,
+} from '../../../lib/db';
+import { applyCountOrder } from '../../../lib/countOrder';
 import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
+import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
@@ -120,6 +128,12 @@ export default function InventoryCountSection() {
   // Ingredient-name search — view-only, composes with the category chip.
   const [search, setSearch] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 103 — per-user custom order (per-surface; no vendor → null). `viewMode`
+  // toggles the default category-grouped list vs a flat Custom view in the
+  // user's saved drag order. Render-only: counters/guards/submission still
+  // derive from `storeInventory` (AC-9; the C-FE-1 guard stays). NO gate here.
+  const [viewMode, setViewMode] = React.useState<'default' | 'custom'>('default');
+  const [savedIds, setSavedIds] = React.useState<string[] | null>(null);
 
   // Recent counts — fetched on mount + on a realtime nudge. `tick` is the
   // counter we bump from the realtime subscription to force a refetch.
@@ -168,6 +182,16 @@ export default function InventoryCountSection() {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredItems]);
+
+  // Spec 103 — flat Custom view list: the saved ranking applied to the already
+  // category-chip + search filtered `filteredItems` (unranked appended,
+  // deleted ignored). Category headers are suppressed in Custom view (OQ-2).
+  // `filteredItems` already includes the search narrowing, so search composes
+  // with the custom order (AC-10).
+  const customVisibleItems = React.useMemo(
+    () => applyCountOrder(filteredItems, savedIds, (i) => i.id),
+    [filteredItems, savedIds],
+  );
 
   // Per-row "is non-blank" check: any of case-count, unit-count are
   // non-empty / valid numbers. Aligns with the architect's blank-skip
@@ -255,6 +279,73 @@ export default function InventoryCountSection() {
     if (tabId !== 'weekly.tsx') return;
     void loadWeeklyCountStatus(todayIso());
   }, [tabId, loadWeeklyCountStatus]);
+
+  // ─── Spec 103: load the saved custom order on mount / store change ──
+  // Per-surface (no vendor → null). On open, if a saved order exists, open in
+  // Custom view (AC-7); else default. A genuine error falls back to default.
+  React.useEffect(() => {
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') {
+      setSavedIds(null);
+      setViewMode('default');
+      return;
+    }
+    let cancelled = false;
+    fetchCountOrder(uid, 'admin-inventory', null)
+      .then((ids) => {
+        if (cancelled) return;
+        setSavedIds(ids);
+        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        console.warn('[InventoryCount] fetchCountOrder failed:', e?.message || e);
+        setSavedIds(null);
+        setViewMode('default');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, storeId]);
+
+  // Persist-on-drop — optimistic, revert + toast on failure (AC-6).
+  const onReorder = React.useCallback(
+    (orderedIds: string[]) => {
+      const uid = currentUser?.id;
+      if (!uid || !storeId || storeId === '__all__') return;
+      const prev = savedIds;
+      setSavedIds(orderedIds);
+      setViewMode('custom');
+      saveCountOrder(uid, 'admin-inventory', null, orderedIds).catch((e: any) => {
+        setSavedIds(prev);
+        console.warn('[InventoryCount] saveCountOrder failed:', e?.message || e);
+        Toast.show({
+          type: 'error',
+          text1: T('section.countOrder.saveFailed'),
+          text2: T('section.countOrder.saveFailedDetail'),
+        });
+      });
+    },
+    [currentUser?.id, storeId, savedIds, T],
+  );
+
+  // Reset — clear the saved order, return to default view.
+  const onResetOrder = React.useCallback(() => {
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') return;
+    const prev = savedIds;
+    setSavedIds(null);
+    setViewMode('default');
+    resetCountOrder(uid, 'admin-inventory', null).catch((e: any) => {
+      setSavedIds(prev);
+      console.warn('[InventoryCount] resetCountOrder failed:', e?.message || e);
+      Toast.show({
+        type: 'error',
+        text1: T('section.countOrder.resetFailed'),
+        text2: T('section.countOrder.saveFailedDetail'),
+      });
+    });
+  }, [currentUser?.id, storeId, savedIds, T]);
 
   // ─── Lazy-fetch detail when a row is clicked ───────────────────────
   React.useEffect(() => {
@@ -380,6 +471,121 @@ export default function InventoryCountSection() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Spec 103 — one shared row, rendered by BOTH the default category-grouped
+  // view and the flat Custom drag view, so Custom shows byte-identical rows
+  // (the custom order is render-only). `showTopBorder` draws the dashed
+  // inter-row rule (grouped view suppresses it on the first row of each group;
+  // the flat Custom list suppresses it only on the very first row).
+  const renderInventoryRow = (it: typeof filteredItems[0], showTopBorder: boolean) => {
+    const cVal = caseCounts[it.id] || '';
+    const uVal = unitCounts[it.id] || '';
+    const cFocused = cVal.trim() !== '';
+    const uFocused = uVal.trim() !== '';
+    const hasCase = (it.caseQty || 0) > 1;
+    const total = itemTotal(it);
+    const cNum = parseFloat(cVal);
+    const uNum = parseFloat(uVal);
+    const cBad = !isNaN(cNum) && cNum < 0;
+    const uBad = !isNaN(uNum) && uNum < 0;
+    return (
+      <View
+        key={it.id}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 10,
+          gap: rowGap,
+          borderTopWidth: showTopBorder ? 1 : 0,
+          borderTopColor: C.border,
+          borderStyle: 'dashed',
+        }}
+      >
+        <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
+          <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg, letterSpacing: -0.1 }}>
+            {it.name}
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
+            {it.unit}
+            {hasCase ? ` · case ${it.caseQty}` : ''}
+            {it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
+            {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
+          </Text>
+        </View>
+        <View style={{ width: cellW, alignItems: 'center' }}>
+          <TextInput
+            value={hasCase ? cVal : ''}
+            editable={hasCase}
+            onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
+            placeholder={hasCase ? '0' : '—'}
+            placeholderTextColor={C.fg3}
+            keyboardType="numeric"
+            style={{
+              width: inputW,
+              height: 30,
+              textAlign: 'center',
+              fontFamily: mono(600),
+              fontSize: 13,
+              color: cBad ? C.danger : hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
+              backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
+              borderWidth: 1,
+              borderColor: cBad ? C.danger : cFocused ? C.accent : C.border,
+              borderRadius: CmdRadius.sm,
+              opacity: !hasCase ? 0.5 : 1,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
+            {hasCase ? `× ${it.caseQty}` : '—'}
+          </Text>
+        </View>
+        <View style={{ width: cellW, alignItems: 'center' }}>
+          <TextInput
+            value={uVal}
+            onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
+            placeholder="0"
+            placeholderTextColor={C.fg3}
+            keyboardType="numeric"
+            style={{
+              width: inputW,
+              height: 30,
+              textAlign: 'center',
+              fontFamily: mono(600),
+              fontSize: 13,
+              color: uBad ? C.danger : uFocused ? C.fg : C.fg2,
+              backgroundColor: uFocused ? C.panel2 : C.panel,
+              borderWidth: 1,
+              borderColor: uBad ? C.danger : uFocused ? C.accent : C.border,
+              borderRadius: CmdRadius.sm,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
+            {it.unit}
+          </Text>
+        </View>
+        <TextInput
+          value={itemNotes[it.id] || ''}
+          onChangeText={(text) => setItemNotes((p) => ({ ...p, [it.id]: text }))}
+          placeholder="Note…"
+          placeholderTextColor={C.fg3}
+          style={{
+            ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
+            height: 30,
+            paddingHorizontal: 10,
+            fontFamily: mono(400),
+            fontSize: 11.5,
+            color: C.fg2,
+            backgroundColor: C.panel,
+            borderWidth: 1,
+            borderColor: C.border,
+            borderRadius: CmdRadius.sm,
+            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+          }}
+        />
+      </View>
+    );
   };
 
   // ─── No-store guard ────────────────────────────────────────────────
@@ -662,6 +868,60 @@ export default function InventoryCountSection() {
                 );
               })}
             </View>
+            {/* Spec 103 — Default ⇄ Custom view toggle + reset. Custom flattens
+                the list into the user's saved drag order. No gate on this screen. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity
+                testID="inv-view-default"
+                onPress={() => setViewMode('default')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: viewMode === 'default' }}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: CmdRadius.md,
+                  borderWidth: 1,
+                  borderColor: viewMode === 'default' ? C.accent : C.border,
+                  backgroundColor: viewMode === 'default' ? C.accentBg : C.panel,
+                }}
+              >
+                <Text style={{ fontFamily: mono(viewMode === 'default' ? 700 : 500), fontSize: 10.5, color: viewMode === 'default' ? C.accent : C.fg2 }}>
+                  {T('section.countOrder.viewDefault')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="inv-view-custom"
+                onPress={() => setViewMode('custom')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: viewMode === 'custom' }}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: CmdRadius.md,
+                  borderWidth: 1,
+                  borderColor: viewMode === 'custom' ? C.accent : C.border,
+                  backgroundColor: viewMode === 'custom' ? C.accentBg : C.panel,
+                }}
+              >
+                <Text style={{ fontFamily: mono(viewMode === 'custom' ? 700 : 500), fontSize: 10.5, color: viewMode === 'custom' ? C.accent : C.fg2 }}>
+                  {T('section.countOrder.viewCustom')}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1 }} />
+              {savedIds && savedIds.length > 0 ? (
+                <TouchableOpacity
+                  testID="inv-reset-order"
+                  onPress={onResetOrder}
+                  accessibilityRole="button"
+                  accessibilityLabel={T('section.countOrder.reset')}
+                  style={{ paddingHorizontal: 8, paddingVertical: 5 }}
+                >
+                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.accent }}>
+                    {T('section.countOrder.reset')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
 
           {/* Item list — same per-category grouping as EOD */}
@@ -694,7 +954,29 @@ export default function InventoryCountSection() {
                 note
               </Text>
             </View>
-            {grouped.length === 0 ? (
+            {viewMode === 'custom' ? (
+              // Spec 103 — flat Custom view in the user's saved drag order,
+              // category headers suppressed (OQ-2). Drag/▲▼ reorder is disabled
+              // while a search is active (the visible subset isn't the full
+              // order). Rows are byte-identical to grouped view (renderInventoryRow).
+              customVisibleItems.length === 0 ? (
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
+                  no items in this filter
+                </Text>
+              ) : (
+                <View style={{ marginTop: 14 }}>
+                  {search.trim()
+                    ? customVisibleItems.map((it, i) => renderInventoryRow(it, i !== 0))
+                    : (
+                      <CountOrderDragList
+                        items={customVisibleItems}
+                        onReorder={onReorder}
+                        renderRow={(it) => renderInventoryRow(it, false)}
+                      />
+                    )}
+                </View>
+              )
+            ) : grouped.length === 0 ? (
               <Text
                 style={{
                   fontFamily: mono(400),
@@ -726,115 +1008,7 @@ export default function InventoryCountSection() {
                       {items.length} items
                     </Text>
                   </View>
-                  {items.map((it, i) => {
-                    const cVal = caseCounts[it.id] || '';
-                    const uVal = unitCounts[it.id] || '';
-                    const cFocused = cVal.trim() !== '';
-                    const uFocused = uVal.trim() !== '';
-                    const hasCase = (it.caseQty || 0) > 1;
-                    const total = itemTotal(it);
-                    const cNum = parseFloat(cVal);
-                    const uNum = parseFloat(uVal);
-                    const cBad = !isNaN(cNum) && cNum < 0;
-                    const uBad = !isNaN(uNum) && uNum < 0;
-                    return (
-                      <View
-                        key={it.id}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          paddingVertical: 10,
-                          gap: rowGap,
-                          borderTopWidth: i === 0 ? 0 : 1,
-                          borderTopColor: C.border,
-                          borderStyle: 'dashed',
-                        }}
-                      >
-                        <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
-                          <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg, letterSpacing: -0.1 }}>
-                            {it.name}
-                          </Text>
-                          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
-                            {it.unit}
-                            {hasCase ? ` · case ${it.caseQty}` : ''}
-                            {it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
-                            {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
-                          </Text>
-                        </View>
-                        <View style={{ width: cellW, alignItems: 'center' }}>
-                          <TextInput
-                            value={hasCase ? cVal : ''}
-                            editable={hasCase}
-                            onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
-                            placeholder={hasCase ? '0' : '—'}
-                            placeholderTextColor={C.fg3}
-                            keyboardType="numeric"
-                            style={{
-                              width: inputW,
-                              height: 30,
-                              textAlign: 'center',
-                              fontFamily: mono(600),
-                              fontSize: 13,
-                              color: cBad ? C.danger : hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
-                              backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
-                              borderWidth: 1,
-                              borderColor: cBad ? C.danger : cFocused ? C.accent : C.border,
-                              borderRadius: CmdRadius.sm,
-                              opacity: !hasCase ? 0.5 : 1,
-                              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                            }}
-                          />
-                          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-                            {hasCase ? `× ${it.caseQty}` : '—'}
-                          </Text>
-                        </View>
-                        <View style={{ width: cellW, alignItems: 'center' }}>
-                          <TextInput
-                            value={uVal}
-                            onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
-                            placeholder="0"
-                            placeholderTextColor={C.fg3}
-                            keyboardType="numeric"
-                            style={{
-                              width: inputW,
-                              height: 30,
-                              textAlign: 'center',
-                              fontFamily: mono(600),
-                              fontSize: 13,
-                              color: uBad ? C.danger : uFocused ? C.fg : C.fg2,
-                              backgroundColor: uFocused ? C.panel2 : C.panel,
-                              borderWidth: 1,
-                              borderColor: uBad ? C.danger : uFocused ? C.accent : C.border,
-                              borderRadius: CmdRadius.sm,
-                              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                            }}
-                          />
-                          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-                            {it.unit}
-                          </Text>
-                        </View>
-                        <TextInput
-                          value={itemNotes[it.id] || ''}
-                          onChangeText={(text) => setItemNotes((p) => ({ ...p, [it.id]: text }))}
-                          placeholder="Note…"
-                          placeholderTextColor={C.fg3}
-                          style={{
-                            ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
-                            height: 30,
-                            paddingHorizontal: 10,
-                            fontFamily: mono(400),
-                            fontSize: 11.5,
-                            color: C.fg2,
-                            backgroundColor: C.panel,
-                            borderWidth: 1,
-                            borderColor: C.border,
-                            borderRadius: CmdRadius.sm,
-                            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                          }}
-                        />
-                      </View>
-                    );
-                  })}
+                  {items.map((it, i) => renderInventoryRow(it, i !== 0))}
                 </View>
               ))
             )}

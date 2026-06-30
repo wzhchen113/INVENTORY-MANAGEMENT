@@ -173,6 +173,16 @@
     }
   },
   "section": {
+    "countOrder": {
+      "viewDefault": "Predeterminado",
+      "viewCustom": "Personalizado",
+      "reset": "restablecer orden",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "saveFailed": "No se pudo guardar el orden",
+      "saveFailedDetail": "Verifica la conexión e inténtalo de nuevo",
+      "resetFailed": "No se pudo restablecer el orden"
+    },
     "dashboard": {
       "title": "Panel",
       "attention": "Atención",

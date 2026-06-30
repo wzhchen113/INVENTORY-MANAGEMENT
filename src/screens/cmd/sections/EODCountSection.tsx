@@ -5,9 +5,11 @@ import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
-import { submitEODCount } from '../../../lib/db';
+import { submitEODCount, fetchCountOrder, saveCountOrder, resetCountOrder } from '../../../lib/db';
+import { applyCountOrder, firstUncounted } from '../../../lib/countOrder';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
+import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { usePaletteAction } from '../../../lib/paletteAction';
 import { useT } from '../../../hooks/useT';
@@ -154,6 +156,13 @@ export default function EODCountSection() {
   // overwrites and removes the vendor from this set.
   const [editingVendorIds, setEditingVendorIds] = React.useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 103 — per-user custom order. The order is per-(admin-eod, vendor)
+  // (OQ-1), so hold a per-vendor saved-id map mirroring `caseCountsByVendor`.
+  // `viewMode` toggles the default category-grouped worksheet vs a flat Custom
+  // view in the user's saved drag order. Render-only: submission + the gate
+  // still iterate `filteredItems` (AC-9).
+  const [viewMode, setViewMode] = React.useState<'default' | 'custom'>('default');
+  const [savedIdsByVendor, setSavedIdsByVendor] = React.useState<Record<string, string[] | null>>({});
 
   // Per-vendor accessors so the rest of the section can read/write a single
   // "current vendor's" map without re-typing the spread dance everywhere.
@@ -333,6 +342,70 @@ export default function EODCountSection() {
     );
   }, [storeInventory, selectedVendorId]);
 
+  // Spec 103 — saved custom order for the CURRENT vendor (per-vendor, OQ-1).
+  const savedIds = selectedVendorId ? (savedIdsByVendor[selectedVendorId] ?? null) : null;
+
+  // ─── Spec 103: load the saved order on vendor change ───────────────
+  // Order is per-(admin-eod, vendor). On change, fetch this vendor's order; if
+  // one exists, open in Custom view (AC-7), else default. A genuine fetch error
+  // falls back to default and surfaces via the toast (notifyBackendError).
+  React.useEffect(() => {
+    const uid = currentUser?.id;
+    if (!uid || !selectedVendorId) {
+      setViewMode('default');
+      return;
+    }
+    const vid = selectedVendorId;
+    let cancelled = false;
+    fetchCountOrder(uid, 'admin-eod', vid)
+      .then((ids) => {
+        if (cancelled) return;
+        setSavedIdsByVendor((p) => ({ ...p, [vid]: ids }));
+        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        console.warn('[EOD] fetchCountOrder failed:', e?.message || e);
+        setViewMode('default');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, selectedVendorId]);
+
+  // Persist-on-drop — optimistic, revert + toast on failure (AC-6).
+  const onReorder = React.useCallback(
+    (orderedIds: string[]) => {
+      const uid = currentUser?.id;
+      if (!uid || !selectedVendorId) return;
+      const vid = selectedVendorId;
+      const prev = savedIdsByVendor[vid] ?? null;
+      setSavedIdsByVendor((p) => ({ ...p, [vid]: orderedIds }));
+      setViewMode('custom');
+      saveCountOrder(uid, 'admin-eod', vid, orderedIds).catch((e: any) => {
+        setSavedIdsByVendor((p) => ({ ...p, [vid]: prev }));
+        console.warn('[EOD] saveCountOrder failed:', e?.message || e);
+        Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
+      });
+    },
+    [currentUser?.id, selectedVendorId, savedIdsByVendor, T],
+  );
+
+  // Reset — clear this vendor's saved order, return to default view.
+  const onResetOrder = React.useCallback(() => {
+    const uid = currentUser?.id;
+    if (!uid || !selectedVendorId) return;
+    const vid = selectedVendorId;
+    const prev = savedIdsByVendor[vid] ?? null;
+    setSavedIdsByVendor((p) => ({ ...p, [vid]: null }));
+    setViewMode('default');
+    resetCountOrder(uid, 'admin-eod', vid).catch((e: any) => {
+      setSavedIdsByVendor((p) => ({ ...p, [vid]: prev }));
+      console.warn('[EOD] resetCountOrder failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
+    });
+  }, [currentUser?.id, selectedVendorId, savedIdsByVendor, T]);
+
   // Spec 020 — vendors already submitted for the selected date at the
   // current store. Drives the per-tab "✓ SUBMITTED" indicator + the lock /
   // EDIT affordance below. Filters out any submission row whose vendorId
@@ -457,6 +530,16 @@ export default function EODCountSection() {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredItems, search]);
+
+  // Spec 103 — flat Custom view list: the saved ranking applied to the full
+  // `filteredItems` (unranked appended, deleted ignored), THEN narrowed by the
+  // search (search composes with the custom order — AC-10). Category headers
+  // are suppressed in Custom view (OQ-2).
+  const customVisibleItems = React.useMemo(() => {
+    const ordered = applyCountOrder(filteredItems, savedIds, (i) => i.id);
+    if (!search.trim()) return ordered;
+    return ordered.filter((i) => matchesQuery(search, [i.name]));
+  }, [filteredItems, savedIds, search]);
 
   // ── Counts/totals ───────────────────────────────────────────
   // total per item = cases × caseQty + loose units. caseQty defaults to 1
@@ -599,10 +682,20 @@ export default function EODCountSection() {
     // A row counts once EITHER box has a value (hasEntry). Block on the first
     // blank, clear the search so a searched-out row can render, and reuse the
     // palette-action focus path to jump to it.
+    // Completeness COUNT is against the full `filteredItems`, order-independent
+    // (AC-9). The JUMP target (AC-12) follows the on-screen order: in Custom
+    // view, the topmost uncounted in the user's saved order; in default view,
+    // `filteredItems` order. Resolve against the FULL set (not the
+    // search-narrowed view), matching the clear-search-then-jump behavior.
     const missing = filteredItems.filter((i) => !hasEntry(i.id));
     if (missing.length > 0) {
       if (search.trim()) setSearch('');
-      setPendingFocusItem(missing[0].id);
+      const ordered =
+        viewMode === 'custom'
+          ? applyCountOrder(filteredItems, savedIds, (i) => i.id)
+          : filteredItems;
+      const target = firstUncounted(ordered, (i) => hasEntry(i.id));
+      setPendingFocusItem((target ?? missing[0]).id);
       Toast.show({
         type: 'error',
         text1: T('section.eod.countAllTitle'),
@@ -655,6 +748,142 @@ export default function EODCountSection() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Spec 103 — one shared worksheet row, rendered by BOTH the default
+  // category-grouped view and the flat Custom drag view, so Custom shows
+  // byte-identical rows (the custom order is render-only). `showTopBorder`
+  // draws the dashed inter-row rule (grouped view suppresses it on the first
+  // row of each group; the flat Custom list suppresses it only on the very
+  // first row). Factored out of the grouped `items.map`.
+  const renderEodRow = (it: typeof filteredItems[0], showTopBorder: boolean) => {
+    const submittedEntry = isVendorLocked
+      ? currentVendorSubmission?.entries.find((e) => e.itemId === it.id)
+      : null;
+    const cVal = isVendorLocked
+      ? submittedEntry?.actualRemainingCases != null
+        ? String(submittedEntry.actualRemainingCases)
+        : ''
+      : caseCounts[it.id] || '';
+    const uVal = isVendorLocked
+      ? submittedEntry?.actualRemainingEach != null
+        ? String(submittedEntry.actualRemainingEach)
+        : submittedEntry?.actualRemaining != null
+        ? String(submittedEntry.actualRemaining)
+        : ''
+      : unitCounts[it.id] || '';
+    const nVal = isVendorLocked ? submittedEntry?.notes || '' : notes[it.id] || '';
+    const cFocused = cVal.trim() !== '';
+    const uFocused = uVal.trim() !== '';
+    const hasCase = (it.caseQty || 0) > 1;
+    const total = itemTotal(it);
+    const inputsDisabled = isRestDay || isVendorLocked;
+    const rowUncounted = !inputsDisabled && !cFocused && !uFocused && !hasEntry(it.id);
+    return (
+      <View
+        key={it.id}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 10,
+          gap: rowGap,
+          borderTopWidth: showTopBorder ? 1 : 0,
+          borderTopColor: C.border,
+          borderStyle: 'dashed',
+        }}
+      >
+        <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
+          <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: rowUncounted ? C.danger : C.fg, letterSpacing: -0.1 }}>
+            {it.name}
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
+            {it.unit}{hasCase ? ` · case ${it.caseQty}` : ''}{it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
+            {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
+          </Text>
+        </View>
+        <View style={{ width: cellW, alignItems: 'center' }}>
+          <TextInput
+            ref={(r) => {
+              if (hasCase) caseInputRefs.current[it.id] = r;
+            }}
+            value={hasCase ? cVal : ''}
+            editable={hasCase && !inputsDisabled}
+            onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
+            placeholder={hasCase ? '0' : '—'}
+            placeholderTextColor={C.fg3}
+            keyboardType="numeric"
+            style={{
+              width: inputW,
+              height: 30,
+              textAlign: 'center',
+              fontFamily: mono(600),
+              fontSize: 13,
+              color: hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
+              backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
+              borderWidth: 1,
+              borderColor: cFocused ? C.accent : (hasCase && rowUncounted ? C.danger : C.border),
+              borderRadius: CmdRadius.sm,
+              opacity: !hasCase || inputsDisabled ? 0.5 : 1,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
+            {hasCase ? `× ${it.caseQty}` : '—'}
+          </Text>
+        </View>
+        <View style={{ width: cellW, alignItems: 'center' }}>
+          <TextInput
+            ref={(r) => {
+              if (!hasCase) caseInputRefs.current[it.id] = r;
+            }}
+            value={uVal}
+            editable={!inputsDisabled}
+            onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
+            placeholder="0"
+            placeholderTextColor={C.fg3}
+            keyboardType="numeric"
+            style={{
+              width: inputW,
+              height: 30,
+              textAlign: 'center',
+              fontFamily: mono(600),
+              fontSize: 13,
+              color: uFocused ? C.fg : C.fg2,
+              backgroundColor: uFocused ? C.panel2 : C.panel,
+              borderWidth: 1,
+              borderColor: uFocused ? C.accent : (rowUncounted ? C.danger : C.border),
+              borderRadius: CmdRadius.sm,
+              opacity: inputsDisabled ? 0.5 : 1,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+          <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
+            {it.unit}
+          </Text>
+        </View>
+        <TextInput
+          value={nVal}
+          editable={!inputsDisabled}
+          onChangeText={(text) => setNotes((p) => ({ ...p, [it.id]: text }))}
+          placeholder={T('section.eod.notePlaceholder')}
+          placeholderTextColor={C.fg3}
+          style={{
+            ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
+            height: 30,
+            paddingHorizontal: 10,
+            fontFamily: mono(400),
+            fontSize: 11.5,
+            color: C.fg2,
+            backgroundColor: C.panel,
+            borderWidth: 1,
+            borderColor: C.border,
+            borderRadius: CmdRadius.sm,
+            opacity: inputsDisabled ? 0.5 : 1,
+            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+          }}
+        />
+      </View>
+    );
   };
 
   const wkNum = (() => {
@@ -1117,6 +1346,60 @@ export default function EODCountSection() {
             placeholder={T('section.eod.searchPlaceholder')}
             showKbdHint={false}
           />
+          {/* Spec 103 — Default ⇄ Custom view toggle + per-vendor reset. Custom
+              flattens the worksheet into the user's saved drag order. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity
+              testID="eod-view-default"
+              onPress={() => setViewMode('default')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: viewMode === 'default' }}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: CmdRadius.md,
+                borderWidth: 1,
+                borderColor: viewMode === 'default' ? C.accent : C.border,
+                backgroundColor: viewMode === 'default' ? C.accentBg : C.panel,
+              }}
+            >
+              <Text style={{ fontFamily: mono(viewMode === 'default' ? 700 : 500), fontSize: 10.5, color: viewMode === 'default' ? C.accent : C.fg2 }}>
+                {T('section.countOrder.viewDefault')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="eod-view-custom"
+              onPress={() => setViewMode('custom')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: viewMode === 'custom' }}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: CmdRadius.md,
+                borderWidth: 1,
+                borderColor: viewMode === 'custom' ? C.accent : C.border,
+                backgroundColor: viewMode === 'custom' ? C.accentBg : C.panel,
+              }}
+            >
+              <Text style={{ fontFamily: mono(viewMode === 'custom' ? 700 : 500), fontSize: 10.5, color: viewMode === 'custom' ? C.accent : C.fg2 }}>
+                {T('section.countOrder.viewCustom')}
+              </Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1 }} />
+            {savedIds && savedIds.length > 0 ? (
+              <TouchableOpacity
+                testID="eod-reset-order"
+                onPress={onResetOrder}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.countOrder.reset')}
+                style={{ paddingHorizontal: 8, paddingVertical: 5 }}
+              >
+                <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.accent }}>
+                  {T('section.countOrder.reset')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           {/* Category chips — phone: horizontal scroll (same rationale as
               vendor pills above). */}
           {(() => {
@@ -1230,7 +1513,29 @@ export default function EODCountSection() {
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.countCol')}</Text>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>{T('section.eod.noteCol')}</Text>
           </View>
-          {grouped.length === 0 ? (
+          {viewMode === 'custom' ? (
+            // Spec 103 — flat Custom view in the user's saved drag order,
+            // category headers suppressed (OQ-2). Drag/▲▼ reorder is disabled
+            // while a search is active (the visible subset isn't the full
+            // order). Rows are byte-identical to the grouped view (renderEodRow).
+            customVisibleItems.length === 0 ? (
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
+                {T('section.eod.noItemsInFilter')}
+              </Text>
+            ) : (
+              <View style={{ marginTop: 14 }}>
+                {search.trim()
+                  ? customVisibleItems.map((it, i) => renderEodRow(it, i !== 0))
+                  : (
+                    <CountOrderDragList
+                      items={customVisibleItems}
+                      onReorder={onReorder}
+                      renderRow={(it) => renderEodRow(it, false)}
+                    />
+                  )}
+              </View>
+            )
+          ) : grouped.length === 0 ? (
             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
               {T('section.eod.noItemsInFilter')}
             </Text>
@@ -1246,157 +1551,7 @@ export default function EODCountSection() {
                     {T('section.eod.itemsCount', { count: items.length })}
                   </Text>
                 </View>
-                {items.map((it, i) => {
-                  // Spec 020 — when the vendor is locked (submitted, not in
-                  // EDIT mode), display the prior submission's values rather
-                  // than the (empty) draft map. EDIT seeds the draft from
-                  // these values up-front, so once unlocked the user sees
-                  // the same numbers and can amend them.
-                  const submittedEntry = isVendorLocked
-                    ? currentVendorSubmission?.entries.find((e) => e.itemId === it.id)
-                    : null;
-                  const cVal = isVendorLocked
-                    ? submittedEntry?.actualRemainingCases != null
-                      ? String(submittedEntry.actualRemainingCases)
-                      : ''
-                    : caseCounts[it.id] || '';
-                  const uVal = isVendorLocked
-                    ? submittedEntry?.actualRemainingEach != null
-                      ? String(submittedEntry.actualRemainingEach)
-                      : submittedEntry?.actualRemaining != null
-                      ? String(submittedEntry.actualRemaining)
-                      : ''
-                    : unitCounts[it.id] || '';
-                  const nVal = isVendorLocked
-                    ? submittedEntry?.notes || ''
-                    : notes[it.id] || '';
-                  const cFocused = cVal.trim() !== '';
-                  const uFocused = uVal.trim() !== '';
-                  const hasCase = (it.caseQty || 0) > 1;
-                  const total = itemTotal(it);
-                  // Composed editable gate. Inputs disable on REST days OR
-                  // when the vendor is submitted-and-not-in-EDIT-mode.
-                  const inputsDisabled = isRestDay || isVendorLocked;
-                  // Spec: flag an uncounted row red so the manager sees what's
-                  // left before submitting. "Counted" = EITHER box has a value
-                  // (cFocused/uFocused mirror the displayed cVal/uVal). Never
-                  // red on locked/rest rows — those aren't being counted now.
-                  // Spec 102 (§6c) — a shared item counted under ANOTHER vendor
-                  // tab (counted-once-globally) is NOT painted red here either,
-                  // so consult the widened `hasEntry`.
-                  const rowUncounted = !inputsDisabled && !cFocused && !uFocused && !hasEntry(it.id);
-                  return (
-                    <View
-                      key={it.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingVertical: 10,
-                        gap: rowGap,
-                        borderTopWidth: i === 0 ? 0 : 1,
-                        borderTopColor: C.border,
-                        borderStyle: 'dashed',
-                      }}
-                    >
-                      <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
-                        <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: rowUncounted ? C.danger : C.fg, letterSpacing: -0.1 }}>
-                          {it.name}
-                        </Text>
-                        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}>
-                          {it.unit}{hasCase ? ` · case ${it.caseQty}` : ''}{it.parLevel > 0 ? ` · par ${it.parLevel}` : ''}
-                          {hasCase && (cFocused || uFocused) ? ` · total ${total} ${it.unit}` : ''}
-                        </Text>
-                      </View>
-                      {/* BOX/CASE input — disabled when item has no case info, or
-                          on REST days, or when this vendor is locked. All three
-                          collapse to "show the cell but don't accept input";
-                          rest/lock get a 0.5 opacity consistent with the
-                          no-case-info treatment. */}
-                      <View style={{ width: cellW, alignItems: 'center' }}>
-                        <TextInput
-                          ref={(r) => {
-                            if (hasCase) caseInputRefs.current[it.id] = r;
-                          }}
-                          value={hasCase ? cVal : ''}
-                          editable={hasCase && !inputsDisabled}
-                          onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
-                          placeholder={hasCase ? '0' : '—'}
-                          placeholderTextColor={C.fg3}
-                          keyboardType="numeric"
-                          style={{
-                            width: inputW,
-                            height: 30,
-                            textAlign: 'center',
-                            fontFamily: mono(600),
-                            fontSize: 13,
-                            color: hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
-                            backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
-                            borderWidth: 1,
-                            borderColor: cFocused ? C.accent : (hasCase && rowUncounted ? C.danger : C.border),
-                            borderRadius: CmdRadius.sm,
-                            opacity: !hasCase || inputsDisabled ? 0.5 : 1,
-                            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                          }}
-                        />
-                        <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-                          {hasCase ? `× ${it.caseQty}` : '—'}
-                        </Text>
-                      </View>
-                      {/* Loose units input */}
-                      <View style={{ width: cellW, alignItems: 'center' }}>
-                        <TextInput
-                          ref={(r) => {
-                            if (!hasCase) caseInputRefs.current[it.id] = r;
-                          }}
-                          value={uVal}
-                          editable={!inputsDisabled}
-                          onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
-                          placeholder="0"
-                          placeholderTextColor={C.fg3}
-                          keyboardType="numeric"
-                          style={{
-                            width: inputW,
-                            height: 30,
-                            textAlign: 'center',
-                            fontFamily: mono(600),
-                            fontSize: 13,
-                            color: uFocused ? C.fg : C.fg2,
-                            backgroundColor: uFocused ? C.panel2 : C.panel,
-                            borderWidth: 1,
-                            borderColor: uFocused ? C.accent : (rowUncounted ? C.danger : C.border),
-                            borderRadius: CmdRadius.sm,
-                            opacity: inputsDisabled ? 0.5 : 1,
-                            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                          }}
-                        />
-                        <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-                          {it.unit}
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={nVal}
-                        editable={!inputsDisabled}
-                        onChangeText={(text) => setNotes((p) => ({ ...p, [it.id]: text }))}
-                        placeholder={T('section.eod.notePlaceholder')}
-                        placeholderTextColor={C.fg3}
-                        style={{
-                          ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
-                          height: 30,
-                          paddingHorizontal: 10,
-                          fontFamily: mono(400),
-                          fontSize: 11.5,
-                          color: C.fg2,
-                          backgroundColor: C.panel,
-                          borderWidth: 1,
-                          borderColor: C.border,
-                          borderRadius: CmdRadius.sm,
-                          opacity: inputsDisabled ? 0.5 : 1,
-                          ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-                        }}
-                      />
-                    </View>
-                  );
-                })}
+                {items.map((it, i) => renderEodRow(it, i !== 0))}
               </View>
             ))
           )}
