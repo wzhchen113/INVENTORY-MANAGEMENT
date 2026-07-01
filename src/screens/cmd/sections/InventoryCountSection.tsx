@@ -11,7 +11,15 @@ import {
   fetchCountOrder,
   saveCountOrder,
   resetCountOrder,
+  fetchReorderForCountedOnHand,
 } from '../../../lib/db';
+import type { CountedReorderItem } from '../../../types';
+import {
+  parStateFor,
+  buildCountedOnHandMap,
+  formatCountedReorderSuggestion,
+  type ParInventoryRow,
+} from './countHistoryPar';
 import { applyCountOrder } from '../../../lib/countOrder';
 import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
@@ -142,6 +150,13 @@ export default function InventoryCountSection() {
   const [refreshTick, setRefreshTick] = React.useState(0);
   const [detail, setDetail] = React.useState<InventoryCount | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  // Spec 105 — companion reorder-suggestion fetch for the detail view, keyed by
+  // itemId. Read-only, component-local (NOT Zustand). Populated only for the
+  // below-par entries the FE sends; an item present in the request but absent
+  // here means "nothing to reorder" (the suggested_qty < 0.001 collapse). On
+  // RPC failure this stays `{}` and the par ✓/red dots still render (they need
+  // no backend) — the below-par rows simply omit the suggestion text.
+  const [reorderByItem, setReorderByItem] = React.useState<Record<string, CountedReorderItem>>({});
 
   const storeId = currentStore?.id;
   const isAllOrEmpty = !storeId || storeId === '__all__';
@@ -347,17 +362,51 @@ export default function InventoryCountSection() {
     });
   }, [currentUser?.id, storeId, savedIds, T]);
 
+  // Spec 105 — the store's CURRENT inventory rows the par join reads, keyed by
+  // item id (OQ-1: current par, client-side, no fetch). Reused by DetailFrame
+  // for the ✓/red comparison AND here to build the below-par on-hand map for
+  // the companion reorder fetch.
+  const inventoryById = React.useMemo(() => {
+    const m = new Map<string, ParInventoryRow>();
+    for (const i of inventory) {
+      if (i.storeId !== storeId) continue;
+      m.set(i.id, { id: i.id, parLevel: i.parLevel, caseQty: i.caseQty, unit: i.unit });
+    }
+    return m;
+  }, [inventory, storeId]);
+
   // ─── Lazy-fetch detail when a row is clicked ───────────────────────
   React.useEffect(() => {
     if (view !== 'detail' || !selectedCountId) {
       setDetail(null);
+      setReorderByItem({});
       return;
     }
     let cancelled = false;
     setDetailLoading(true);
+    setReorderByItem({});
     fetchInventoryCount(selectedCountId)
       .then((row) => {
-        if (!cancelled) setDetail(row);
+        if (cancelled) return;
+        setDetail(row);
+        // Spec 105 companion fetch — after the detail resolves, build the
+        // { itemId → countedTotal } map from ONLY the below-par, resolvable,
+        // non-null entries and ask the reorder RPC for the suggestion. This is
+        // a READ; on failure it degrades to just the par badges (no toast,
+        // matching the fetchDetail .catch below). Empty map → skip the call.
+        if (!row) return;
+        const onHandMap = buildCountedOnHandMap(row.entries, inventoryById);
+        if (Object.keys(onHandMap).length === 0) return;
+        fetchReorderForCountedOnHand(row.storeId, onHandMap, todayIso())
+          .then((byItem) => {
+            if (!cancelled) setReorderByItem(byItem);
+          })
+          .catch((e: any) => {
+            // Read-only degradation — the par ✓/red dots need no backend, so a
+            // failed suggestion fetch MUST NOT toast-spam or block them.
+            console.warn('[InventoryCount] fetchReorderForCountedOnHand failed:', e?.message || e);
+            if (!cancelled) setReorderByItem({});
+          });
       })
       .catch((e: any) => {
         console.warn('[InventoryCount] fetchDetail failed:', e?.message || e);
@@ -369,6 +418,12 @@ export default function InventoryCountSection() {
     return () => {
       cancelled = true;
     };
+    // inventoryById intentionally omitted: the detail-open reorder snapshot is
+    // taken once against the inventory present when the row is opened (the view
+    // is a point-in-time historical read; par-join re-color as inventory drifts
+    // is the accepted OQ-1 caveat, surfaced by the caption). Re-running on every
+    // inventory realtime nudge would re-fire the RPC needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, selectedCountId]);
 
   // Web-only Escape closes detail.
@@ -678,6 +733,8 @@ export default function InventoryCountSection() {
             countId={selectedCountId}
             detail={detail}
             loading={detailLoading}
+            inventoryById={inventoryById}
+            reorderByItem={reorderByItem}
             onBack={() => {
               setView('list');
               setSelectedCountId(null);
@@ -1300,11 +1357,17 @@ function DetailFrame({
   countId,
   detail,
   loading,
+  inventoryById,
+  reorderByItem,
   onBack,
 }: {
   countId: string;
   detail: InventoryCount | null;
   loading: boolean;
+  // Spec 105 — the store's CURRENT inventory rows keyed by item id (the par
+  // join source, OQ-1) + the companion reorder suggestion keyed by item id.
+  inventoryById: ReadonlyMap<string, ParInventoryRow>;
+  reorderByItem: Record<string, CountedReorderItem>;
   onBack: () => void;
 }) {
   const C = useCmdColors();
@@ -1381,6 +1444,23 @@ function DetailFrame({
               </SectionCaption>
               <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>read-only</Text>
             </View>
+            {/* Spec 105 — dual-basis honesty caption (AC line 93). The ✓/red
+                check is vs CURRENT par (re-colors as par drifts, OQ-1), and the
+                below-par reorder suggestion mixes THIS count's on-hand with LIVE
+                usage-forecast + delivery timing — i.e. "what you'd order right
+                now given this count", not a pure point-in-time value. */}
+            <Text
+              style={{
+                fontFamily: mono(400),
+                fontSize: 9.5,
+                color: C.fg3,
+                paddingHorizontal: 14,
+                paddingBottom: 8,
+                lineHeight: 14,
+              }}
+            >
+              ✓ / ● checked vs current par · reorder suggestion mixes this count's on-hand with live forecast + delivery timing
+            </Text>
             {detail.entries.length === 0 ? (
               <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
                 no entries recorded
@@ -1434,7 +1514,7 @@ function DetailFrame({
                       textAlign: 'right',
                     }}
                   >
-                    each
+                    loose units
                   </Text>
                   <Text
                     style={{
@@ -1462,67 +1542,121 @@ function DetailFrame({
                     note
                   </Text>
                 </View>
-                {detail.entries.map((e, i) => (
-                  <View
-                    key={e.id}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingVertical: 9,
-                      paddingHorizontal: 14,
-                      gap: 10,
-                      borderTopWidth: i === 0 ? 0 : 1,
-                      borderTopColor: C.border,
-                      borderStyle: 'dashed',
-                    }}
-                  >
-                    <Text
-                      style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }}
-                      numberOfLines={1}
-                    >
-                      {e.itemName || '(unknown item)'}
-                    </Text>
-                    <Text
+                {detail.entries.map((e, i) => {
+                  // Spec 105 — par join off the store's CURRENT inventory (OQ-1):
+                  // above → green ✓, below → red dot + inline suggestion, none →
+                  // NO marker (item unresolvable, par <= 0, or null total; OQ-4).
+                  const parItem = inventoryById.get(e.itemId);
+                  const parState = parStateFor(e.actualRemaining, parItem?.parLevel ?? 0);
+                  // Below-par suggestion (may be absent when suggested_qty <
+                  // 0.001 collapsed the item out of the response → bare red dot).
+                  const suggestion = parState === 'below' ? reorderByItem[e.itemId] : undefined;
+                  const suggestionText = suggestion
+                    ? formatCountedReorderSuggestion(suggestion, e.unit ?? parItem?.unit)
+                    : '';
+                  return (
+                    <View
+                      key={e.id}
                       style={{
-                        fontFamily: mono(400),
-                        fontSize: 11.5,
-                        color: C.fg2,
-                        width: 80,
-                        textAlign: 'right',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 9,
+                        paddingHorizontal: 14,
+                        gap: 10,
+                        borderTopWidth: i === 0 ? 0 : 1,
+                        borderTopColor: C.border,
+                        borderStyle: 'dashed',
                       }}
                     >
-                      {e.actualRemainingCases != null ? e.actualRemainingCases : '—'}
-                    </Text>
-                    <Text
-                      style={{
-                        fontFamily: mono(400),
-                        fontSize: 11.5,
-                        color: C.fg2,
-                        width: 80,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {e.actualRemainingEach != null ? e.actualRemainingEach : '—'}
-                    </Text>
-                    <Text
-                      style={{
-                        fontFamily: mono(600),
-                        fontSize: 11.5,
-                        color: C.fg,
-                        width: 110,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {e.actualRemaining != null ? e.actualRemaining : '—'} {e.unit || ''}
-                    </Text>
-                    <Text
-                      style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, flex: 1.2 }}
-                      numberOfLines={1}
-                    >
-                      {e.notes || ''}
-                    </Text>
-                  </View>
-                ))}
+                      {/* item cell — par indicator (✓ / ●) inline before the
+                          name; no marker at all for the 'none' state (OQ-4). */}
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        {parState === 'above' ? (
+                          <Text
+                            accessibilityLabel="at or above par"
+                            style={{ fontFamily: mono(700), fontSize: 12, color: C.ok, width: 12, textAlign: 'center' }}
+                          >
+                            ✓
+                          </Text>
+                        ) : parState === 'below' ? (
+                          <Text
+                            accessibilityLabel="below par"
+                            style={{ fontFamily: mono(700), fontSize: 13, color: C.danger, width: 12, textAlign: 'center' }}
+                          >
+                            ●
+                          </Text>
+                        ) : (
+                          <View style={{ width: 12 }} />
+                        )}
+                        <Text
+                          style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1, minWidth: 0 }}
+                          numberOfLines={1}
+                        >
+                          {e.itemName || '(unknown item)'}
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          fontFamily: mono(400),
+                          fontSize: 11.5,
+                          color: C.fg2,
+                          width: 80,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {e.actualRemainingCases != null ? e.actualRemainingCases : '—'}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: mono(400),
+                          fontSize: 11.5,
+                          color: C.fg2,
+                          width: 80,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {e.actualRemainingEach != null ? e.actualRemainingEach : '—'}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: mono(600),
+                          fontSize: 11.5,
+                          color: C.fg,
+                          width: 110,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {e.actualRemaining != null ? e.actualRemaining : '—'} {e.unit || ''}
+                      </Text>
+                      {/* note cell — persisted entry note, and BELOW it the
+                          inline reorder suggestion for below-par rows (no 6th
+                          column; OQ-5). Quantity/timing only, NO cost. */}
+                      <View style={{ flex: 1.2, minWidth: 0 }}>
+                        {e.notes ? (
+                          <Text
+                            style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}
+                            numberOfLines={1}
+                          >
+                            {e.notes}
+                          </Text>
+                        ) : null}
+                        {suggestionText ? (
+                          <Text
+                            style={{
+                              fontFamily: mono(500),
+                              fontSize: 10,
+                              color: C.danger,
+                              marginTop: e.notes ? 3 : 0,
+                              lineHeight: 13,
+                            }}
+                          >
+                            {suggestionText}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
               </>
             )}
           </View>

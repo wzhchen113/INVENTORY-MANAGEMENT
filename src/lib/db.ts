@@ -45,6 +45,7 @@ import {
   SidebarLayoutOverride, POSImport, Brand, User,
   InventoryCount, InventoryCountKind, InventoryCountSummary,
   ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
+  CountedReorderItem,
   MenuCapacityRow, OrderSchedule, OrderSubmission,
   WeeklyCountStatus, WeeklyCountStatusValue,
 } from '../types';
@@ -3234,6 +3235,90 @@ function mapReorderVendor(v: any): ReorderVendor {
     eodSubmittedAt: v?.eod_submitted_at ? String(v.eod_submitted_at) : null,
     items,
     vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
+  };
+}
+
+// ─── COUNTED-ON-HAND REORDER (Spec 105) ─────────────────────────────────
+/**
+ * Spec 105 — reorder math for a CALLER-SUPPLIED counted on-hand map, used by
+ * the inventory-count history detail's below-par inline suggestion. Calls the
+ * server-side `report_reorder_for_counted_onhand(p_store_id, p_on_hand, p_params)`
+ * RPC (migration 20260702000000), which copies `report_reorder_list`'s
+ * forecast/case/delivery CTEs verbatim but reads on-hand from the supplied
+ * `{ itemId → countedTotal }` map and returns a FLAT item-keyed array (no
+ * vendor grouping, no `$`/cost fields).
+ *
+ * The suggestion mixes this record's HISTORICAL counted on-hand with LIVE
+ * usage-forecast + LIVE delivery timing ("what you'd order right now given
+ * this count") — the FE caption surfaces both bases. `daysUntil` is the item's
+ * SOONEST vendor.
+ *
+ * Returns a `Record<itemId, CountedReorderItem>` (NOT an array) so the detail
+ * render loop can do `byItem[e.itemId]` per row without an O(entries × items)
+ * scan. An item present in the request but ABSENT from the response means
+ * "nothing to reorder" (`suggested_qty < 0.001` collapse) — the caller renders
+ * the red par dot without a suggestion.
+ *
+ * `asOfDate` — optional YYYY-MM-DD override; the FE passes the store-local
+ * "today" so the live forecast/timing is correct across time zones (same
+ * contract as `fetchReorderSuggestions`). When omitted the RPC defaults to the
+ * server's `current_date` (UTC).
+ *
+ * This is a READ. On error the caller degrades gracefully (the par ✓/red dot
+ * needs no backend) rather than toast-spamming — so errors bubble up for the
+ * caller's `.catch`, they are not swallowed here.
+ */
+export async function fetchReorderForCountedOnHand(
+  storeId: string,
+  onHandByItemId: Record<string, number>,   // { itemId: countedTotal }
+  asOfDate?: string,
+): Promise<Record<string, CountedReorderItem>> {
+  const params: Record<string, unknown> = {};
+  if (asOfDate) params.as_of_date = asOfDate;
+
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('report_reorder_for_counted_onhand', {
+      p_store_id: storeId,
+      p_on_hand: onHandByItemId,
+      p_params: params,
+    }).abortSignal(signal);
+
+    if (error) {
+      // Don't swallow — the caller decides whether to surface (spec 105:
+      // degrade to the par badges + omit the suggestion, no toast).
+      throw error;
+    }
+
+    const envelope = (data || {}) as any;
+    const byItem: Record<string, CountedReorderItem> = {};
+    if (Array.isArray(envelope.items)) {
+      for (const it of envelope.items) {
+        const mapped = mapCountedReorderItem(it);
+        if (mapped.itemId) byItem[mapped.itemId] = mapped;
+      }
+    }
+    return byItem;
+  }, { kind: 'read', label: 'fetchReorderForCountedOnHand' });
+}
+
+function mapCountedReorderItem(it: any): CountedReorderItem {
+  return {
+    itemId: String(it?.item_id ?? ''),
+    onHand: Number(it?.on_hand ?? 0),
+    parLevel: Number(it?.par_level ?? 0),
+    parReplacement: Number(it?.par_replacement ?? 0),
+    usageForecasted: Number(it?.usage_forecasted ?? 0),
+    suggestedQty: Number(it?.suggested_qty ?? 0),
+    // Case fields mirror mapReorderVendor's per-item block, MINUS cost:
+    // caseQty always present (1 = no case size); suggestedCases is null when
+    // caseQty <= 1; suggestedUnits is the server's ordered base-unit total.
+    caseQty: Number(it?.case_qty ?? 1),
+    suggestedCases: it?.suggested_cases == null ? null : Number(it.suggested_cases),
+    suggestedUnits: Number(it?.suggested_units ?? it?.suggested_qty ?? 0),
+    daysUntil: Number(it?.days_until ?? 0),
+    nextDeliveryDate: String(it?.next_delivery_date ?? ''),
+    scheduleKnown: Boolean(it?.schedule_known ?? false),
+    flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
   };
 }
 

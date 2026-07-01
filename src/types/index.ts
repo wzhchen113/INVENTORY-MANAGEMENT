@@ -869,6 +869,43 @@ export interface ReorderPayload {
 }
 
 /**
+ * Spec 105 — one item's reorder suggestion computed against a CALLER-SUPPLIED
+ * counted on-hand (the inventory-count history detail's below-par inline hint).
+ * Returned by the `report_reorder_for_counted_onhand(uuid, jsonb, jsonb)` RPC,
+ * mapped in `db.fetchReorderForCountedOnHand`.
+ *
+ * This is a deliberate **cost-free subset** of `ReorderItem`: the RPC omits
+ * every `$`/cost field (`costPerUnit` / `estimatedCost` / vendor totals) because
+ * spec 105 surfaces only quantity + timing — do NOT reuse `ReorderItem` here,
+ * whose missing cost fields would surface as misleading `0`s. The quantity
+ * (`parReplacement` / `usageForecasted` / `suggestedQty` / `suggestedCases` /
+ * `suggestedUnits`) and timing (`daysUntil` / `nextDeliveryDate` /
+ * `scheduleKnown`) semantics are IDENTICAL to `ReorderItem`, so the same
+ * numbers the Reorder screen shows render here. `daysUntil` is the item's
+ * SOONEST vendor (min across its linked vendors) — "when the next truck that
+ * carries this item arrives".
+ *
+ * `flags` is the item-grain subset of the engine vocabulary: `'no_par'` /
+ * `'no_usage_rate'` / `'truncated'` (the EOD-only `'eod_missing_for_item'`
+ * token is absent — the counted total IS the on-hand snapshot, no EOD path).
+ */
+export interface CountedReorderItem {
+  itemId: string;
+  onHand: number;
+  parLevel: number;
+  parReplacement: number;
+  usageForecasted: number;
+  suggestedQty: number;
+  caseQty: number;
+  suggestedCases: number | null;
+  suggestedUnits: number;
+  daysUntil: number;
+  nextDeliveryDate: string;        // YYYY-MM-DD ('' if unknown)
+  scheduleKnown: boolean;
+  flags: string[];
+}
+
+/**
  * Spec 060 — one row per recipe from `compute_menu_capacity` RPC.
  * Mapped from snake_case → camelCase in `db.fetchMenuCapacity`.
  *
