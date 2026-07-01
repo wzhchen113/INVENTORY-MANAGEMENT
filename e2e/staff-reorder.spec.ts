@@ -66,7 +66,12 @@ test.use({ storageState: STORAGE_STATE.staff });
 const REORDER_CASE_QTY = 12;
 const EXPECTED_CASES = 2; // ceil(24 / 12)
 const EXPECTED_UNITS = 24; // suggested_units = cases × case_qty (server-authoritative)
-const REORDER_UNIT = 'EA';
+// Lowercase to match the catalog's stored/rendered casing — every real seed
+// unit is lowercase ('each', 'cases', 'bags'), and the reorder card renders the
+// unit verbatim ("24 ea"). An uppercase 'EA' here made AC-092-CASES assert a
+// string the app never renders (the failure surfaced only once the item_vendors
+// fix made the card render at all).
+const REORDER_UNIT = 'ea';
 const REORDER_STORE_NAME = 'E2E Reorder Store';
 const REORDER_EMPTY_STORE_NAME = 'E2E Reorder Empty Store';
 
@@ -194,6 +199,33 @@ test.describe('staff Reorder', () => {
         `[e2e staff-reorder] inventory_items fixture upsert failed: ${itemErr.message}. ` +
           `Expected the dedicated store ${SEED.e2eReorderStoreId}, vendor ${SEED.vendorUsFoodId}, ` +
           `and catalog ${SEED.e2eReorderCatalogId} (catalog_id is NOT NULL post-P3).`,
+      );
+    }
+
+    // 4b. item_vendors — the junction link (spec 102). report_reorder_list
+    //     resolves vendor membership via an INNER JOIN on item_vendors, NOT the
+    //     scalar inventory_items.vendor_id, so WITHOUT this link the fixture item
+    //     produces zero reorder cards and AC-092-LIST's tripwire fails. The
+    //     migration backfill (20260630000000) can't cover it — it ran before this
+    //     runtime insert — and there's no vendor_id→item_vendors trigger (it's
+    //     app-discipline; db.createInventoryItem writes the link in the real UI).
+    //     cost_per_unit is per-each (spec 104); the value is not asserted (the
+    //     AC keys off quantities), only the link's existence. Idempotent upsert
+    //     on the (item_id, vendor_id) composite unique.
+    const { error: linkErr } = await admin.from('item_vendors').upsert(
+      {
+        item_id: SEED.e2eReorderItemId,
+        vendor_id: SEED.vendorUsFoodId,
+        cost_per_unit: 1.0,
+        case_price: 12.0,
+        is_primary: true,
+      },
+      { onConflict: 'item_id,vendor_id', ignoreDuplicates: true },
+    );
+    if (linkErr) {
+      throw new Error(
+        `[e2e staff-reorder] item_vendors link upsert failed: ${linkErr.message}. ` +
+          `Expected item ${SEED.e2eReorderItemId} + vendor ${SEED.vendorUsFoodId}.`,
       );
     }
 

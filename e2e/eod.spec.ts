@@ -134,6 +134,16 @@ test.describe('staff EOD', () => {
   }) => {
     const { itemId, unitsTestId } = await gotoTowsonEod(page);
 
+    // Count-everything gate (EODCount.tsx): every row needs a value (even 0)
+    // before submit, or the submit is BLOCKED and jumps to the first uncounted
+    // row (so eod-prefill-banner never appears). Fill every Units box with 0 —
+    // the list is un-windowed so all rows are mounted — then the target row is
+    // overridden with the real value below.
+    const allUnits = page.getByTestId(/^eod-item-units-/);
+    for (let i = 0, n = await allUnits.count(); i < n; i++) {
+      await allUnits.nth(i).fill('0');
+    }
+
     // Enter a count into the first rendered item's Units box (Cases blank →
     // total === units). The online case fills '7' (the offline case fills '5')
     // so a stale-row read can never match the wrong case (design ordering
@@ -206,6 +216,12 @@ test.describe('staff EOD', () => {
     context,
   }) => {
     const { unitsTestId } = await gotoTowsonEod(page);
+    // Count-everything gate — see AC-EOD1. Fill every Units box 0 (un-windowed
+    // list → all rows mounted), then override the target row with the real value.
+    const allUnits = page.getByTestId(/^eod-item-units-/);
+    for (let i = 0, n = await allUnits.count(); i < n; i++) {
+      await allUnits.nth(i).fill('0');
+    }
     await page.getByTestId(unitsTestId).fill('5');
 
     // ── Go offline + force the queue path deterministically ─────────────

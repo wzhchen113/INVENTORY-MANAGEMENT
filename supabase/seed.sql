@@ -1761,3 +1761,21 @@ insert into public.prep_recipe_ingredients (id, prep_recipe_id, catalog_id, sub_
   ('84747e89-c70e-4ac1-846e-04ac1b556bd9', 'fb1e76b4-f8f2-40bb-ae1b-faf6534dfbf5', 'eadfaf2c-b74f-437b-a6ac-89c73114426f', NULL, 'raw', '5', 'lbs', '2267.96', 'g')
 on conflict (id) do nothing;
 
+-- ─── Spec 102/104 (e2e + fresh-local-dev fix) ──────────────────────────────
+-- Backfill item_vendors from the scalar inventory_items.vendor_id AFTER the
+-- seed rows above have loaded. Spec 102 gates reorder (report_reorder_list
+-- INNER-joins item_vendors) and the staff EOD item fetch on item_vendors links,
+-- but the migration backfill (20260630000000_item_vendors.sql) runs BEFORE
+-- seed.sql on a fresh `supabase db reset`, so it covers ZERO rows and every
+-- seeded item is left vendor-less — invisible to those paths (empty reorder
+-- cards, empty EOD count lists; the spec-092 + EOD e2e failures). There is no
+-- vendor_id→item_vendors trigger (consistency is app-discipline — db.ts writes
+-- the link in the real UI), so this must run at seed time. Idempotent
+-- (on conflict do nothing). cost_per_unit is per-each, mirroring the per-each
+-- inventory_items.cost_per_unit the spec-104 seed regen wrote.
+insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+select ii.id, ii.vendor_id, coalesce(ii.cost_per_unit, 0), coalesce(ii.case_price, 0), true
+  from public.inventory_items ii
+ where ii.vendor_id is not null
+on conflict (item_id, vendor_id) do nothing;
+

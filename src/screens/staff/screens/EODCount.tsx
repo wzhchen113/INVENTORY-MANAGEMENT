@@ -1068,6 +1068,14 @@ export function EODCount() {
           testID="eod-item-list"
           data={visibleItems}
           keyExtractor={(i) => i.id}
+          // Count-everything gate: render the WHOLE list un-windowed so the
+          // "jump to first uncounted row" scroll (pendingFocusId effect) can
+          // reach ANY row — a windowed row that isn't mounted can't be scrolled
+          // to or focused — and so every row is countable in a single pass.
+          // Mirrors WeeklyCount; the per-vendor list is small (tens of rows).
+          initialNumToRender={visibleItems.length + 10}
+          maxToRenderPerBatch={visibleItems.length + 10}
+          windowSize={Math.max(21, visibleItems.length)}
           // Rows are variable-height, so scrollToIndex can miss before the
           // target is measured — approximate the offset, then the focus effect
           // pulls it the rest of the way in.
