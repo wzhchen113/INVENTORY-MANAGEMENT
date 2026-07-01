@@ -37,9 +37,9 @@
     },
     "col": {
       "cases": "箱",
-      "units": "单位",
+      "units": "散装单位",
       "casesAria": "{item} 的箱数",
-      "unitsAria": "{item} 的单位数"
+      "unitsAria": "{item} 的散装单位数"
     },
     "row": {
       "caseOf": "每箱 {qty}",
@@ -212,9 +212,9 @@
     },
     "col": {
       "cases": "箱",
-      "units": "单位",
+      "units": "散装单位",
       "casesAria": "{item} 的箱数",
-      "unitsAria": "{item} 的单位数"
+      "unitsAria": "{item} 的散装单位数"
     },
     "row": {
       "caseOf": "每箱 {qty}",

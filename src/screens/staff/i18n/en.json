@@ -37,9 +37,9 @@
     },
     "col": {
       "cases": "Cases",
-      "units": "Units",
+      "units": "Loose Units",
       "casesAria": "Cases for {item}",
-      "unitsAria": "Units for {item}"
+      "unitsAria": "Loose Units for {item}"
     },
     "row": {
       "caseOf": "case of {qty}",
@@ -212,9 +212,9 @@
     },
     "col": {
       "cases": "Cases",
-      "units": "Units",
+      "units": "Loose Units",
       "casesAria": "Cases for {item}",
-      "unitsAria": "Units for {item}"
+      "unitsAria": "Loose Units for {item}"
     },
     "row": {
       "caseOf": "case of {qty}",

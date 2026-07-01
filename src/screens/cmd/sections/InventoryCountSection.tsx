@@ -940,10 +940,10 @@ export default function InventoryCountSection() {
                 item · pack
               </Text>
               <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>
-                box/case
+                cases
               </Text>
               <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>
-                count
+                loose units
               </Text>
               <Text
                 style={[

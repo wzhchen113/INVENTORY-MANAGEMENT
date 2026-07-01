@@ -397,7 +397,7 @@
       "editingBannerBody": "正在修改已提交的盘点。按更新盘点以覆盖之前的提交。",
       "itemPackCol": "项目 · 包装",
       "boxCaseCol": "箱",
-      "countCol": "计数",
+      "countCol": "散装单位",
       "noteCol": "备注",
       "noItemsInFilter": "此筛选下无项目",
       "itemsCount": "{count} 项",

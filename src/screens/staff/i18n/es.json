@@ -37,9 +37,9 @@
     },
     "col": {
       "cases": "Cajas",
-      "units": "Unidades",
+      "units": "Unidades sueltas",
       "casesAria": "Cajas de {item}",
-      "unitsAria": "Unidades de {item}"
+      "unitsAria": "Unidades sueltas de {item}"
     },
     "row": {
       "caseOf": "caja de {qty}",
@@ -212,9 +212,9 @@
     },
     "col": {
       "cases": "Cajas",
-      "units": "Unidades",
+      "units": "Unidades sueltas",
       "casesAria": "Cajas de {item}",
-      "unitsAria": "Unidades de {item}"
+      "unitsAria": "Unidades sueltas de {item}"
     },
     "row": {
       "caseOf": "caja de {qty}",
