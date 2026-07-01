@@ -69,13 +69,13 @@
 --
 --   Category A — "no grant by design" → ON the allowlist.
 --     public.spec093_case_qty_backfill_audit (spec 093,
---     20260602120000:68): `revoke all ... from anon, authenticated`. It
---     receives NO table grant for those two roles by deliberate design, so
---     the positive SELECT sentinel SKIPS it for anon/authenticated. This is
---     the ONE and ONLY current allowlist row — and only for anon and
---     authenticated; service_role RETAINS its grant, so the
+--     20260602120000:68) AND public.spec104_per_each_cost_audit (spec 104,
+--     20260701000000): each runs `revoke all ... from anon, authenticated`. They
+--     receive NO table grant for those two roles by deliberate design, so
+--     the positive SELECT sentinel SKIPS them for anon/authenticated — and only
+--     for anon and authenticated; service_role RETAINS its grant, so the
 --     (audit_table, service_role) pair is NOT allowlisted and is asserted
---     SELECT-true.
+--     SELECT-true. These are the two current allowlist tables (4 role-keyed rows).
 --
 --   Category B — "has grant but RLS-unreachable" → OFF the allowlist.
 --     public.username_resolve_rate_limit (spec 095) and public._edge_auth
@@ -93,14 +93,14 @@
 --
 -- The litmus test for an allowlist row: "does this table run
 -- `REVOKE ... on <table> ... from {anon|authenticated}` at the GRANT
--- layer?" Only spec093_case_qty_backfill_audit answers yes. RLS-on-no-policy
--- is NOT the test — that is Category B and stays off the list. Add a row ONLY
--- if a future migration deliberately REVOKEs a table-level grant from a role,
--- with a one-line justification in the same PR — AND add a matching negative
--- assertion (cf. arms 5/6).
+-- layer?" spec093_case_qty_backfill_audit and spec104_per_each_cost_audit both
+-- answer yes. RLS-on-no-policy is NOT the test — that is Category B and stays
+-- off the list. Add a row ONLY if a future migration deliberately REVOKEs a
+-- table-level grant from a role, with a one-line justification in the same PR —
+-- AND add a matching negative assertion (cf. arms 5/6/7).
 --
--- Plan (10 assertions across 6 arms — arms (1)-(4) are 1 is() call each,
--- arms (5)-(6) are 3 ok() calls each: 1+1+1+1+3+3 = 10):
+-- Plan (13 assertions across 7 arms — arms (1)-(4) are 1 is() call each,
+-- arms (5)-(7) are 3 ok() calls each: 1+1+1+1+3+3+3 = 13):
 --   (1) positive — count of (table, role) pairs missing SELECT, minus the
 --       role-keyed allowlist, is 0. (1 is() call.)
 --   (2) positive — string_agg of the offending `public.<table> / <role>`
@@ -115,6 +115,9 @@
 --       service_role. (3 ok() calls.)
 --   (6) negative — spec093_case_qty_backfill_audit.SELECT is FALSE for
 --       authenticated AND anon, TRUE for service_role. (3 ok() calls.)
+--   (7) negative — spec104_per_each_cost_audit.SELECT is FALSE for
+--       authenticated AND anon, TRUE for service_role (spec 104's audit table,
+--       same Category-A `revoke all from anon, authenticated` posture). (3 ok() calls.)
 --
 -- ROLE: the probe runs as `postgres` (the scripts/test-db.sh connection
 -- role). `has_table_privilege('<role>', ...)` queries the catalog for an
@@ -146,7 +149,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(10);
+select plan(13);
 
 
 -- ─── Detection CTE shape (reused across arms 1-4) ──────────────
@@ -159,9 +162,9 @@ select plan(10);
 -- has_table_privilege(..., 'SELECT') is false. `format('%I.%I', ...)`
 -- builds the privilege argument from the live schema-qualified table name.
 --
--- The allowlist is a 1-row role-keyed VALUES list: the spec-093 audit
--- table for anon + authenticated (Category A). It is keyed
--- (schemaname, tablename, rolename) — NOT just table — so the same table
+-- The allowlist is a role-keyed VALUES list: the spec-093 AND spec-104 audit
+-- tables for anon + authenticated (Category A, 4 rows). It is keyed
+-- (schemaname, tablename, rolename) — NOT just table — so each table
 -- is allowlisted for anon/authenticated while still asserted for
 -- service_role. RLS-locked / no-policy tables (username_resolve_rate_limit,
 -- _edge_auth) still receive the GRANT and are NOT listed here (Category B).
@@ -188,7 +191,12 @@ select is(
     ),
     allowlist (schemaname, tablename, rolename) as (values
       ('public', 'spec093_case_qty_backfill_audit', 'anon'),
-      ('public', 'spec093_case_qty_backfill_audit', 'authenticated')
+      ('public', 'spec093_case_qty_backfill_audit', 'authenticated'),
+      -- Spec 104's audit table — same Category-A `revoke all from anon,
+      -- authenticated` posture (20260701000000). Negative arm (7) asserts the
+      -- lock actually holds for these two roles.
+      ('public', 'spec104_per_each_cost_audit', 'anon'),
+      ('public', 'spec104_per_each_cost_audit', 'authenticated')
       -- Category A only (a deliberate table-level REVOKE). RLS-locked tables
       -- (username_resolve_rate_limit, _edge_auth) HOLD the grant and are NOT
       -- listed (Category B). See header. Add a row + a matching negative
@@ -233,7 +241,9 @@ select is(
     ),
     allowlist (schemaname, tablename, rolename) as (values
       ('public', 'spec093_case_qty_backfill_audit', 'anon'),
-      ('public', 'spec093_case_qty_backfill_audit', 'authenticated')
+      ('public', 'spec093_case_qty_backfill_audit', 'authenticated'),
+      ('public', 'spec104_per_each_cost_audit', 'anon'),
+      ('public', 'spec104_per_each_cost_audit', 'authenticated')
     )
     select coalesce(
       string_agg(
@@ -406,6 +416,33 @@ select ok(
 select ok(
   has_table_privilege('service_role', 'public.spec093_case_qty_backfill_audit', 'SELECT'),
   'arm (6c): public_grants_explicit — `service_role` DOES retain SELECT on public.spec093_case_qty_backfill_audit (spec 093 revoked only ' ||
+  'anon/authenticated; service_role keeps its grant). Documents the asymmetry; if this fails the service_role table grant lost its `GRANT ALL`.'
+);
+
+
+-- ─── Arm (7): spec104 audit table grant-locked for anon/authenticated ──
+-- Identical guard to arm (6) for the spec-104 per-each-cost audit table
+-- (20260701000000_spec104_per_each_cost_basis.sql). The migration creates the
+-- table then `revoke all on public.spec104_per_each_cost_audit from anon,
+-- authenticated`, and (like spec 093) the broad grant migration's default-
+-- privileges inheritance would otherwise re-grant SELECT — so this arm asserts
+-- the deliberate lock actually holds for those two roles, while service_role
+-- retains its grant. Without this arm, dropping the migration's revoke would
+-- slip past the allowlisted positive arm unnoticed.
+select ok(
+  not has_table_privilege('authenticated', 'public.spec104_per_each_cost_audit', 'SELECT'),
+  'arm (7a): public_grants_explicit — `authenticated` does NOT hold SELECT on public.spec104_per_each_cost_audit. ' ||
+  'If this fails, the broad table grant re-opened the spec-104 audit table — the `revoke all ... from anon, authenticated` in ' ||
+  '20260701000000_spec104_per_each_cost_basis.sql is missing or was emitted BEFORE the broad grant (it must follow it). See spec 097 §1a.'
+);
+select ok(
+  not has_table_privilege('anon', 'public.spec104_per_each_cost_audit', 'SELECT'),
+  'arm (7b): public_grants_explicit — `anon` does NOT hold SELECT on public.spec104_per_each_cost_audit. ' ||
+  'Same guard as 7a for the anon role. See 20260701000000_spec104_per_each_cost_basis.sql + spec 097 §1a.'
+);
+select ok(
+  has_table_privilege('service_role', 'public.spec104_per_each_cost_audit', 'SELECT'),
+  'arm (7c): public_grants_explicit — `service_role` DOES retain SELECT on public.spec104_per_each_cost_audit (spec 104 revoked only ' ||
   'anon/authenticated; service_role keeps its grant). Documents the asymmetry; if this fails the service_role table grant lost its `GRANT ALL`.'
 );
 

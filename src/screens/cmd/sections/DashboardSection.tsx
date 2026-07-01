@@ -238,7 +238,9 @@ export default function DashboardSection() {
     [inventory, currentStore.id],
   );
   const totalInvValue = React.useMemo(
-    () => inventory.reduce((sum, i) => sum + i.currentStock * i.costPerUnit, 0),
+    // Spec 104 (OQ-5) — per-each costPerUnit × counted currentStock needs the
+    // `× subUnitSize` bridge so stock value is unchanged from the pre-flip basis.
+    () => inventory.reduce((sum, i) => sum + i.currentStock * i.costPerUnit * (i.subUnitSize || 1), 0),
     [inventory],
   );
   const itemCount = inventory.length;
@@ -246,6 +248,10 @@ export default function DashboardSection() {
 
   const wasteWeek = React.useMemo(() => {
     const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    // Spec 104 (R1) — `w.costPerUnit` is the FROZEN waste_log snapshot, kept
+    // per-COUNTED-unit on BOTH sides of the flip by the write-side bridge
+    // (logWasteEntry / staff log_waste RPC). Do NOT add `× subUnitSize` here —
+    // this read stays UNBRIDGED (unlike the LIVE-costPerUnit reads above).
     return wasteLog
       .filter((w) => new Date(w.timestamp).getTime() >= cutoff)
       .reduce((sum, w) => sum + w.quantity * w.costPerUnit, 0);
@@ -789,7 +795,8 @@ const StoreCol: React.FC<StoreColProps> = ({
 
   // Per-store mini-stat derivations.
   const storeInv = inventory.filter((i) => i.storeId === store.id);
-  const invValue = storeInv.reduce((sum, i) => sum + i.currentStock * i.costPerUnit, 0);
+  // Spec 104 (OQ-5) — per-each costPerUnit × counted stock → `× subUnitSize` bridge.
+  const invValue = storeInv.reduce((sum, i) => sum + i.currentStock * i.costPerUnit * (i.subUnitSize || 1), 0);
   const lowOut = storeInv.filter((i) => {
     const s = getItemStatus(i);
     return s === 'low' || s === 'out';

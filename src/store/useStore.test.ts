@@ -114,7 +114,7 @@ jest.mock('../lib/db', () => ({
 import Toast from 'react-native-toast-message';
 import { deleteUser } from '../lib/auth';
 import { useStore } from './useStore';
-import type { User } from '../types';
+import type { User, InventoryItem, IngredientConversion } from '../types';
 
 // Snapshot the initial state object once. Zustand `setState(state, true)`
 // in beforeEach restores this whole object — actions + data slices both —
@@ -293,5 +293,144 @@ describe('hydrateBrand (spec 044)', () => {
     // pure `set({ brand })` may produce a new reference but the shape
     // must match.
     expect(afterSecond).toEqual(afterFirst);
+  });
+});
+
+// ─── Spec 104 — getIngredientLineCost per-each regression (§8 R7) ─────────────
+//
+// Spec 104 flips the STORED `costPerUnit` from per-COUNTED-unit
+// (case_price / case_qty) to per-EACH (case_price / (case_qty × sub_unit_size)).
+// The governing constraint is that every recipe/BOM dollar figure stays
+// UNCHANGED across the flip. This suite seeds the store with the NEW per-each
+// costPerUnit and asserts the line dollar equals the PRE-FLIP dollar (computed by
+// hand under the old per-counted-unit basis). It exercises ALL THREE branches of
+// getIngredientLineCost — the function §8 R8 calls the highest-risk single
+// function — each of which needed a different edit to preserve the invariant:
+//   1. short-circuit (ing.unit === item.unit)        → `× subUnitSize` bridge added
+//   2. standard conversion (recipe unit → sub-unit)  → the 2nd `/ subUnitSize` divide removed
+//   3. abstract conversion (ingredient_conversions)  → `× subUnitSize` bridge into costPerBase
+// A miss in any branch silently shifts recipe costs by sub_unit_size×.
+describe('getIngredientLineCost — per-each basis (spec 104)', () => {
+  const STORE_ID = 'store-1';
+
+  // Minimal InventoryItem factory — only the fields getIngredientLineCost reads
+  // carry meaning; the rest are inert defaults to satisfy the strict type.
+  function makeItem(over: Partial<InventoryItem>): InventoryItem {
+    return {
+      id: 'item-x',
+      catalogId: 'cat-x',
+      name: 'X',
+      category: 'misc',
+      unit: 'each',
+      costPerUnit: 0,
+      currentStock: 0,
+      parLevel: 0,
+      averageDailyUsage: 0,
+      safetyStock: 0,
+      vendorId: '',
+      vendorName: '',
+      usagePerPortion: 0,
+      lastUpdatedBy: '',
+      lastUpdatedAt: '',
+      eodRemaining: 0,
+      storeId: STORE_ID,
+      casePrice: 0,
+      caseQty: 1,
+      subUnitSize: 1,
+      subUnitUnit: '',
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useStore.setState(INITIAL_STATE, true);
+    useStore.setState({ currentStore: { id: STORE_ID, name: 'Store 1' } as any });
+  });
+
+  it('branch 1 (short-circuit, ing.unit === item.unit) bridges × subUnitSize', () => {
+    // Item: bags of 10 each. casePrice 20, caseQty 4 → per-each = 20/(4×10) = 0.5.
+    // Pre-flip cost_per_unit (per bag) = 20/4 = 5.0. Recipe "2 bag" (short-circuit).
+    // Pre-flip dollar = 5.0 × 2 = 10.0.  New = 0.5 × 2 × 10 (bridge) = 10.0.
+    useStore.setState({
+      inventory: [makeItem({ catalogId: 'cat-bag', unit: 'bag', subUnitUnit: 'each', subUnitSize: 10, costPerUnit: 0.5 })],
+    });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'cat-bag', itemName: 'Bagged item', unit: 'bag', quantity: 2,
+    } as any);
+    expect(cost).toBeCloseTo(10.0, 6);
+  });
+
+  it('branch 1b (short-circuit, each-tracked item, subUnitSize=1) is a no-op bridge', () => {
+    // Item tracked in each, subUnitSize 1. casePrice 12, caseQty 12 → per-each = 1.0.
+    // Recipe "3 each". Pre-flip = 1.0 × 3 = 3.0.  New = 1.0 × 3 × 1 = 3.0.
+    useStore.setState({
+      inventory: [makeItem({ catalogId: 'cat-each', unit: 'each', subUnitSize: 1, costPerUnit: 1.0 })],
+    });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'cat-each', itemName: 'Each item', unit: 'each', quantity: 3,
+    } as any);
+    expect(cost).toBeCloseTo(3.0, 6);
+  });
+
+  it('branch 2 (standard conversion) drops the 2nd sub-unit divide', () => {
+    // Item tracked in lbs, sub-unit oz (16 oz/lb). casePrice 32, caseQty 2 →
+    // per-each (per oz) = 32/(2×16) = 1.0. Pre-flip cost_per_unit (per lb) = 16.0.
+    // Recipe "8 oz". Pre-flip: (8/16) × 16 = 8.0.  New: 1.0 × 8 = 8.0.
+    useStore.setState({
+      inventory: [makeItem({ catalogId: 'cat-lb', unit: 'lbs', subUnitUnit: 'oz', subUnitSize: 16, costPerUnit: 1.0 })],
+    });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'cat-lb', itemName: 'Weighed item', unit: 'oz', quantity: 8,
+    } as any);
+    expect(cost).toBeCloseTo(8.0, 6);
+  });
+
+  it('branch 3 (abstract conversion, representative subUnitSize=1) is dollar-unchanged', () => {
+    // Item tracked in each, no standard sub-unit, ingredient_conversion 1 each =
+    // 400 g. casePrice 20, caseQty 10, sub 1 → per-each = 2.0 (== pre-flip per each).
+    // Recipe "800 g". costPerBase = (2.0 × 1)/400 = 0.005/g. × 800 = 4.0.
+    // Pre-flip: 2.0/400 × 800 = 4.0.
+    const conv: IngredientConversion = {
+      id: 'conv-1', inventoryItemId: 'cat-abs', purchaseUnit: 'each', baseUnit: 'g',
+      conversionFactor: 400, netYieldPct: 100,
+    } as IngredientConversion;
+    useStore.setState({
+      inventory: [makeItem({ catalogId: 'cat-abs', unit: 'each', subUnitUnit: '', subUnitSize: 1, costPerUnit: 2.0 })],
+      ingredientConversions: [conv],
+    });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'cat-abs', itemName: 'Abstract item', unit: 'g', quantity: 800,
+    } as any);
+    expect(cost).toBeCloseTo(4.0, 6);
+  });
+
+  it('branch 3b (abstract conversion, subUnitSize>1) bridges × subUnitSize into costPerBase', () => {
+    // Synthetic: subUnitSize 5 AND an abstract conversion (subUnitUnit non-standard
+    // so grams can't convert to it → abstract branch fires). casePrice 50, caseQty
+    // 2, sub 5 → per-each = 50/(2×5) = 5.0. Pre-flip cost_per_unit = 50/2 = 25.0.
+    // conversion 1 each = 100 g. Recipe "200 g".
+    // Pre-flip: costPerBase = 25.0/100 = 0.25/g × 200 = 50.0.
+    // New: costPerBase = (5.0 × 5)/100 = 0.25/g × 200 = 50.0.
+    const conv: IngredientConversion = {
+      id: 'conv-2', inventoryItemId: 'cat-abs2', purchaseUnit: 'each', baseUnit: 'g',
+      conversionFactor: 100, netYieldPct: 100,
+    } as IngredientConversion;
+    useStore.setState({
+      inventory: [makeItem({ catalogId: 'cat-abs2', unit: 'each', subUnitUnit: '', subUnitSize: 5, costPerUnit: 5.0 })],
+      ingredientConversions: [conv],
+    });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'cat-abs2', itemName: 'Abstract sub>1', unit: 'g', quantity: 200,
+    } as any);
+    expect(cost).toBeCloseTo(50.0, 6);
+  });
+
+  it('returns 0 when the recipe item resolves to no inventory row', () => {
+    useStore.setState({ inventory: [] });
+    const cost = useStore.getState().getIngredientLineCost({
+      itemId: 'missing', itemName: 'Nope', unit: 'each', quantity: 5,
+    } as any);
+    expect(cost).toBe(0);
   });
 });

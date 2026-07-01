@@ -82,11 +82,13 @@ describe('perEachCost (spec 096 §Q-A — additive, never touches db.ts:3769-377
     expect(r as number).toBeCloseTo(0.0245, 4);
   });
 
-  it('falls back to costPerUnit / subUnitSize when casePrice is 0/unset', () => {
-    // No case price → divide the per-tracking-unit cost by the sub-unit axis.
-    // costPerUnit=10 per tracking unit, subUnitSize=5 sub-units/unit → $2/each.
+  it('falls back to costPerUnit AS-IS (identity) when casePrice is 0/unset — spec 104', () => {
+    // Spec 104 REVERSES the old `costPerUnit / subUnitSize` fallback: `costPerUnit`
+    // is now per-EACH end-to-end (the db.ts no-stored-cost fallback is per-each
+    // too), so the per-each cost IS costPerUnit itself. Dividing by subUnitSize
+    // again would double-divide. costPerUnit=10 (already per-each) → $10/each.
     // caseQty=2 keeps piecesPerCase (=10) > 1 so the row is eligible.
-    expect(perEachCost({ casePrice: 0, costPerUnit: 10, caseQty: 2, subUnitSize: 5 })).toBeCloseTo(2, 10);
+    expect(perEachCost({ casePrice: 0, costPerUnit: 10, caseQty: 2, subUnitSize: 5 })).toBeCloseTo(10, 10);
   });
 
   it('fallback prefers casePrice when BOTH bases are positive (primary path wins)', () => {
@@ -98,9 +100,11 @@ describe('perEachCost (spec 096 §Q-A — additive, never touches db.ts:3769-377
     expect(perEachCost({ casePrice: 0, costPerUnit: 0, caseQty: 2, subUnitSize: 5 })).toBeNull();
   });
 
-  it('fallback guards a zero subUnitSize divisor (defaults to 1)', () => {
-    // caseQty=10, subUnitSize=0 → piecesPerCase=10 (>1), casePrice unset, so
-    // fallback uses costPerUnit / 1 = costPerUnit.
+  it('fallback is subUnitSize-independent now (identity) — spec 104', () => {
+    // Pre-104 this test pinned the zero-subUnitSize divisor guard. Post-104 the
+    // fallback is identity and does not read subUnitSize at all, so a zero
+    // subUnitSize is irrelevant: costPerUnit=7 (per-each) → 7. piecesPerCase=10
+    // (caseQty=10, subUnitSize floored to 1) keeps the row eligible (>1).
     expect(perEachCost({ casePrice: 0, costPerUnit: 7, caseQty: 10, subUnitSize: 0 })).toBeCloseTo(7, 10);
   });
 });

@@ -79,9 +79,10 @@ export default function ReconciliationSection() {
     rows.length > 0
       ? Math.round(rows.reduce((s, r) => s + r.pct, 0) / rows.length * 10) / 10
       : 0;
+  // Spec 104 (OQ-5) — per-each costPerUnit × counted currentStock → `× subUnitSize` bridge.
   const inventoryValue = inventory
     .filter((i) => i.storeId === currentStore.id)
-    .reduce((s, i) => s + i.currentStock * i.costPerUnit, 0);
+    .reduce((s, i) => s + i.currentStock * i.costPerUnit * (i.subUnitSize || 1), 0);
   const netPctOfInv = inventoryValue > 0 ? +(netDollar / inventoryValue * 100).toFixed(1) : 0;
   const favorable = rows.filter((r) => r.diff > 0).length;
   const short = rows.filter((r) => r.diff < 0).length;
@@ -266,7 +267,8 @@ function ReconByCategoryTab() {
       const expected = item.parLevel || 0;
       const counted = entry.actualRemaining;
       const delta = counted - expected;
-      const deltaCost = delta * (item.costPerUnit || 0);
+      // Spec 104 (OQ-5) — per-each costPerUnit × counted delta → `× subUnitSize` bridge.
+      const deltaCost = delta * (item.costPerUnit || 0) * (item.subUnitSize || 1);
       const cat = item.category || 'uncategorized';
       const cur = map.get(cat) || { delta: 0, deltaCost: 0, n: 0 };
       cur.delta += delta;
@@ -350,7 +352,8 @@ function ReconTimelineTab() {
       let delta = 0;
       for (const entry of sub.entries || []) {
         const item = inventory.find((it) => it.id === entry.itemId);
-        if (item) delta += (entry.actualRemaining - (item.parLevel || 0)) * (item.costPerUnit || 0);
+        // Spec 104 (OQ-5) — per-each costPerUnit × counted delta → `× subUnitSize` bridge.
+        if (item) delta += (entry.actualRemaining - (item.parLevel || 0)) * (item.costPerUnit || 0) * (item.subUnitSize || 1);
       }
       out.push({ date: iso, delta, status: 'submitted' });
     }

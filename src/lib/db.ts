@@ -34,6 +34,11 @@ import { callEdgeFunction } from './auth';
 // Spec 103 — the four stable count-screen keys. Pure module (no supabase / no
 // React), shared with the staff-subtree carve-out helper; see ./countOrder.
 import type { CountOrderScreen } from './countOrder';
+// Spec 104 — `piecesPerCase` (caseQty × subUnitSize, each factor || 1) is the
+// single-source divisor for the per-EACH cost basis. The mapItem no-stored-cost
+// fallback below divides case_price by it so the fallback matches calcUnitCost
+// and the spec-104 migration. Pure util (no supabase), allowed in db.ts.
+import { piecesPerCase } from '../utils/perEachCost';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -670,12 +675,33 @@ export async function fetchWasteLog(storeId: string): Promise<WasteEntry[]> {
 
 export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void> {
   return useInflight.getState().track(async (signal) => {
+    // Spec 104 (R1 option a) — WRITE-SIDE waste snapshot bridge. After the
+    // per-each basis flip, `entry.costPerUnit` (mapped from the live
+    // inventory_items.cost_per_unit) is per-EACH. `waste_log.cost_per_unit`
+    // must stay per-COUNTED-unit so the read side (getWasteThisWeek /
+    // DashboardSection waste) stays UNBRIDGED and historical + new waste
+    // dollars both reconcile. Re-bridge per (★): cost_old = perEach ×
+    // sub_unit_size. We read sub_unit_size from the item's catalog row here (a
+    // single indexed read on a rare write) rather than trusting the caller, so
+    // the snapshot is correct regardless of the caller's shape. The mirror
+    // server-side fix lives in the staff staff_log_waste RPC (spec-104
+    // migration). cost_old is an exact 2-dp value → fits numeric(10,2)
+    // losslessly (no waste-column widening).
+    const { data: itemRow, error: lookupError } = await supabase
+      .from('inventory_items')
+      .select('catalog:catalog_ingredients(sub_unit_size)')
+      .eq('id', entry.itemId)
+      .abortSignal(signal)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    const cat = (itemRow as any)?.catalog;
+    const subUnitSize = parseFloat(cat?.sub_unit_size) || 1;
     const { error } = await supabase.from('waste_log').insert({
       store_id: entry.storeId,
       item_id: entry.itemId,
       quantity: entry.quantity,
       unit: entry.unit,
-      cost_per_unit: entry.costPerUnit,
+      cost_per_unit: entry.costPerUnit * subUnitSize,
       reason: entry.reason,
       logged_by: entry.loggedByUserId,
       notes: entry.notes,
@@ -4183,12 +4209,15 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
       const stored = parseFloat(row.cost_per_unit) || 0;
       if (stored > 0) return stored;
       const cp = parseFloat(row.case_price) || 0;
-      // Spec 093 (Q3a): fallback per-unit cost = case_price / case_qty,
-      // matching how prod default_cost was computed. sub_unit_size is the
-      // separate recipe-costing axis and must NOT divide the per-unit cost
-      // (conflating them is the documented 12×-class error). Still read for
-      // the subUnitSize field below.
-      return caseQty > 0 && cp > 0 ? cp / caseQty : 0;
+      // Spec 104: when cost_per_unit is 0 (the migration's population 'X' —
+      // a row NOT flipped), the live per-each cost comes from THIS fallback.
+      // It is the per-EACH cost = case_price / (caseQty × subUnitSize), via
+      // the same `piecesPerCase` single-source the migration and calcUnitCost
+      // use, so the fallback and the stored basis agree. This reverses the
+      // spec-093 fallback (case_price / case_qty); the consumer `× subUnitSize`
+      // bridge then reconstructs case_price / case_qty (= cost_old) for the row.
+      const pieces = piecesPerCase(caseQty, subUnitSize);
+      return cp > 0 && pieces > 0 ? cp / pieces : 0;
     })(),
     currentStock: row.current_stock || 0,
     parLevel: row.par_level || 0,

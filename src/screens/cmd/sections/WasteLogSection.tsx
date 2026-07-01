@@ -63,6 +63,11 @@ export default function WasteLogSection() {
 
   const pickedItem = storeInventory.find((i) => i.id === pickItemId);
 
+  // Spec 104 (R1) — every `w.costPerUnit` read in this file (here + the log
+  // rows below) is the FROZEN waste_log snapshot, kept per-COUNTED-unit on BOTH
+  // sides of the flip by the write-side bridge (logWasteEntry / staff log_waste
+  // RPC). These reads stay UNBRIDGED — do NOT add `× subUnitSize` (unlike the
+  // LIVE `pickedItem.costPerUnit` preview above). Same as DashboardSection.wasteWeek.
   const totalWeekCost = React.useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
     return storeWaste
@@ -79,7 +84,11 @@ export default function WasteLogSection() {
   }, [storeWaste]);
 
   const qtyNum = parseFloat(qty) || 0;
-  const previewCost = pickedItem ? qtyNum * pickedItem.costPerUnit : 0;
+  // Spec 104 — `pickedItem.costPerUnit` is a LIVE inventory cost (per-EACH), and
+  // `qtyNum` is in counted units, so the on-screen preview bridges `× subUnitSize`
+  // to stay per-counted-unit (matches the frozen dollar the write-side snapshot
+  // stores). Without the bridge the preview reads sub_unit_size× too low.
+  const previewCost = pickedItem ? qtyNum * pickedItem.costPerUnit * (pickedItem.subUnitSize || 1) : 0;
   const onHandPct =
     pickedItem && pickedItem.currentStock > 0 ? Math.round((qtyNum / pickedItem.currentStock) * 100) : 0;
 
@@ -297,7 +306,10 @@ export default function WasteLogSection() {
                   </View>
                   {pickedItem ? (
                     <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                      on-hand {pickedItem.currentStock} {pickedItem.unit} · cost ${pickedItem.costPerUnit.toFixed(2)}/{pickedItem.unit}
+                      {/* Spec 104 (OQ-3) — `costPerUnit` is per-EACH; label with the
+                          item's smallest unit (subUnitUnit, else "each") so the
+                          figure no longer implies per-counted-unit. */}
+                      on-hand {pickedItem.currentStock} {pickedItem.unit} · cost ${pickedItem.costPerUnit.toFixed(2)}/{pickedItem.subUnitUnit || 'each'}
                     </Text>
                   ) : null}
                   {/* Mini-list of items as quick-pick */}

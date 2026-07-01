@@ -47,10 +47,13 @@ export function piecesPerCase(caseQty: number, subUnitSize: number): number {
  *      AC7-correct axis: it divides by `caseQty × subUnitSize`, never just
  *      `caseQty` (so it can't re-introduce the spec-093 12×-error) and never
  *      touches the `db.ts` fallback.
- *   3. Fallback when `casePrice` is 0 / unset — `costPerUnit / subUnitSize`.
- *      `costPerUnit` is already per-tracking-unit (it came OUT of the spec-093
- *      `db.ts` fallback), so only the sub-unit axis remains to divide out.
- *      Returns `null` if neither price basis is positive.
+ *   3. Fallback when `casePrice` is 0 / unset — the per-each cost IS
+ *      `costPerUnit` itself. Spec 104 made `cost_per_unit` (and the `db.ts`
+ *      no-stored-cost fallback) per-EACH end-to-end, so `costPerUnit` is already
+ *      the per-each value — dividing it by `subUnitSize` again (the pre-104
+ *      behavior) would shrink it `sub_unit_size×` (double-divide). The fallback
+ *      is therefore IDENTITY now. Returns `null` if neither price basis is
+ *      positive.
  */
 export function perEachCost(args: {
   casePrice: number;    // g.primary.casePrice — the whole-case purchase price
@@ -68,12 +71,13 @@ export function perEachCost(args: {
     return casePrice / pieces;
   }
 
-  // Fallback: per-tracking-unit cost ÷ sub-units-per-tracking-unit. Guard the
-  // divisor to the same `|| 1` default piecesPerCase uses so we never divide
-  // by zero / NaN.
-  const size = Number.isFinite(subUnitSize) && subUnitSize > 0 ? subUnitSize : 1;
+  // Fallback (spec 104): `costPerUnit` is ALREADY per-each end-to-end, so the
+  // per-each cost is `costPerUnit` itself — identity, NOT `costPerUnit /
+  // subUnitSize` (that was the pre-104 double-divide). `subUnitSize` is no
+  // longer read here; `pieces > 1` above still gates that we only render a
+  // per-each segment when the tracking unit differs from the smallest unit.
   if (Number.isFinite(costPerUnit) && costPerUnit > 0) {
-    return costPerUnit / size;
+    return costPerUnit;
   }
 
   return null;

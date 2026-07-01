@@ -580,7 +580,9 @@ export default function EODCountSection() {
   // variance). It still counts toward `countedNum` (counted-once-globally).
   const estValue = filteredItems.reduce((s, i) => {
     if (!localHasEntry(i.id)) return s;
-    return s + itemTotal(i) * i.costPerUnit;
+    // Spec 104 (OQ-5) — itemTotal is in COUNTED units, costPerUnit is per-each
+    // → `× subUnitSize` bridge so the count-screen dollar total is unchanged.
+    return s + itemTotal(i) * i.costPerUnit * (i.subUnitSize || 1);
   }, 0);
   const variance = filteredItems.reduce((s, i) => {
     if (!localHasEntry(i.id)) return s;
@@ -1785,7 +1787,8 @@ function VarianceLogTab() {
         if (!item) return null;
         const expected = item.parLevel || 0; // par as proxy when no expected stock signal
         const delta = counted - expected;
-        const cost = item.costPerUnit || 0;
+        // Spec 104 (OQ-5) — per-each costPerUnit × counted delta → `× subUnitSize` bridge.
+        const cost = (item.costPerUnit || 0) * (item.subUnitSize || 1);
         const deltaCost = delta * cost;
         let tag: 'SHRINK' | 'MINOR' | 'OK' | 'FAVORABLE';
         if (deltaCost <= -25) tag = 'SHRINK';

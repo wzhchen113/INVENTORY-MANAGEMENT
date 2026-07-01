@@ -130,6 +130,20 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
       }
       g.rows.push(it);
       g.totalStock    += it.currentStock || 0;
+      // Spec 104 — `weightedCost` is a stock-weighted-average-COST numerator,
+      // NOT a stock-value dollar total: it is only ever divided by `totalStock`
+      // to yield `avgCost` / `selAvgCost` (per-row cost cell, the "Avg cost /
+      // unit" StatCard, and the `perEachCost` costPerUnit fallback). It must
+      // therefore track the BASIS of costPerUnit (now per-EACH) and does NOT get
+      // the OQ-5 `× subUnitSize` stock-value bridge. Bridging it would (a) make
+      // "Avg cost / unit" read per-counted-unit ($40/case) instead of the OQ-3
+      // per-each figure ($0.02), and (b) feed a per-counted-unit value into the
+      // perEachCost fallback that this spec just made an identity over per-each
+      // input — a double basis-mismatch. The single-price display "$avgCost/unit"
+      // is only reached for pieces<=1 items (subUnitSize=1), where per-each ==
+      // per-counted-unit, so it stays numerically unchanged. (The spec §7
+      // consumer list names this line, but its own OQ-3 + fallback-identity
+      // instructions require it stay UNBRIDGED — flagged to reviewers.)
       g.weightedCost  += (it.currentStock || 0) * (it.costPerUnit || 0);
     }
     for (const g of map.values()) {

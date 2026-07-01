@@ -72,10 +72,12 @@ import {
   removeVendorLink,
   updateVendorLinkField,
   vendorRowsToLinkPayload,
+  derivedUnitCost,
   NEW_VENDOR_SENTINEL,
   type VendorLinkRow,
 } from './IngredientForm';
 import { CANONICAL_UNITS, calcUnitCost } from '../../utils/unitConversion';
+import { piecesPerCase } from '../../utils/perEachCost';
 
 describe('validateCustomUnit', () => {
   describe('rejects empty / whitespace-only input', () => {
@@ -275,35 +277,102 @@ describe('validateCustomUnit', () => {
   });
 });
 
-// ─── Spec 093 (Q3a) — calcUnitCost divides by case_qty alone ─────────────────
+// ─── Spec 104 — calcUnitCost is the true per-EACH (smallest-unit) cost ────────
 //
-// Pins the cost-math alignment: per-unit cost = case_price / case_qty, matching
-// how prod `default_cost` was computed. The third argument (`subUnitSize`) is
-// retained in the 3-arg signature for call-site compatibility but must no
-// longer affect the result — conflating case_qty × sub_unit_size is the
-// documented 12×-class error spec 093 fixes.
-describe('calcUnitCost (spec 093 Q3a — divide by case_qty alone)', () => {
-  it('calcUnitCost(20.00, 20, anything) === 1.00 — third arg does not affect result', () => {
-    // The AC literally pins a 3-arg call with the third argument irrelevant.
-    expect(calcUnitCost(20.0, 20, 0)).toBe(1.0);
-    expect(calcUnitCost(20.0, 20, 1)).toBe(1.0);
-    expect(calcUnitCost(20.0, 20, 999)).toBe(1.0);
+// Spec 104 REVERSES spec 093: `cost_per_unit` is now `case_price / (case_qty ×
+// sub_unit_size)` = `case_price / piecesPerCase`. `sub_unit_size` is NOW part of
+// the divisor (the exact opposite of the spec-093 pin these tests replace, which
+// called `× sub_unit_size` "the 12×-class error"). The divisor is SINGLE-SOURCED
+// through `piecesPerCase` (§8 R4) so the per-each display path and this cost path
+// can never drift.
+describe('calcUnitCost (spec 104 — per-each = case_price / (case_qty × sub_unit_size))', () => {
+  it('divides case price by units/case × sub-unit size', () => {
+    // 50 / (1 × 500) = 0.10 — the AC-pinned case_qty=1, sub=500 shape.
+    expect(calcUnitCost(50, 1, 500)).toBeCloseTo(0.1, 10);
+    // 20 / (20 × 1) = 1.00 — bulk item, sub_unit_size=1.
+    expect(calcUnitCost(20, 20, 1)).toBe(1.0);
+    // sub_unit_size > 1 NOW moves the result (the reversal): 20 / (20 × 5) = 0.20.
+    expect(calcUnitCost(20, 20, 5)).toBeCloseTo(0.2, 10);
   });
 
-  it('calcUnitCost(20, 20, 5) === 1.00 — sub_unit_size > 1 changes nothing', () => {
-    expect(calcUnitCost(20, 20, 5)).toBe(1.0);
-  });
-
-  it('per-unit cost is case_price / case_qty regardless of sub_unit_size', () => {
-    // 50 / 500 = 0.10 — the migrated Brown-Paper-Bag shape (case_qty=500).
-    expect(calcUnitCost(50, 500, 1)).toBeCloseTo(0.1, 10);
-    // sub_unit_size varying does not move the result.
-    expect(calcUnitCost(50, 500, 10)).toBeCloseTo(0.1, 10);
+  it('handles the 2000-count cup shape (deep sub-cent)', () => {
+    // 33 / (1 × 2000) = 0.0165 — the 2oz Cup w/ Lid migrated per-each value.
+    expect(calcUnitCost(33, 1, 2000)).toBeCloseTo(0.0165, 10);
   });
 
   it('returns 0 for a non-positive case_qty (guard preserved)', () => {
+    // AC line 81 pins calcUnitCost(20,0,5) === 0. The caseQty<=0 guard fires
+    // BEFORE the piecesPerCase divisor (which would otherwise floor caseQty to 1
+    // and return 20/5). Live data never has case_qty<=0 — it defaults to 1.
     expect(calcUnitCost(20, 0, 5)).toBe(0);
     expect(calcUnitCost(20, -1, 5)).toBe(0);
+  });
+
+  it('returns 0 for a non-positive case price (no derivable cost)', () => {
+    expect(calcUnitCost(0, 20, 5)).toBe(0);
+    expect(calcUnitCost(-1, 20, 5)).toBe(0);
+  });
+
+  it('is single-sourced with piecesPerCase over the positive-case_qty domain (§8 R4)', () => {
+    // AC line 83 identity: calcUnitCost(p,q,s) === p/piecesPerCase(q,s) for all
+    // positive case_qty. (The caseQty<=0 guard is the one documented exception —
+    // exercised above — so this property is asserted over the live domain.)
+    const samples: Array<[number, number, number]> = [
+      [50, 1, 500], [20, 20, 1], [20, 20, 5], [33, 1, 2000], [32, 1, 6000],
+      [40, 250, 1], [12.5, 4, 10], [0.9, 3, 1], [100, 12, 24],
+    ];
+    for (const [p, q, s] of samples) {
+      const expected = p > 0 && piecesPerCase(q, s) > 0 ? p / piecesPerCase(q, s) : 0;
+      expect(calcUnitCost(p, q, s)).toBe(expected);
+    }
+  });
+});
+
+// ─── Spec 104 — derivedUnitCost (per-each cost/unit, 3-arg) ───────────────────
+//
+// The editor's per-unit cost is DERIVED, never hand-entered, and is now the
+// per-EACH cost = case price ÷ (units/case × sub-unit size), single-sourced
+// through calcUnitCost. This string wrapper is what the form binds to the
+// read-only inputs and what the load path (fromItem) and the
+// case-price/units-case/sub-unit handlers all call. It gains a THIRD arg
+// (subUnitSize) in spec 104; the pre-104 2-arg case_price/case_qty asserts these
+// replace are gone (they contradict this spec).
+describe('derivedUnitCost (spec 104 — 3-arg per-each string wrapper)', () => {
+  it('divides case price by units/case × sub-unit size', () => {
+    // 50 / (1 × 500) = 0.1 — the AC-pinned shape (§8 R7).
+    expect(derivedUnitCost('50', '1', '500')).toBe('0.1');
+    // 40 / (250 × 1) = 0.16.
+    expect(derivedUnitCost('40', '250', '1')).toBe('0.16');
+    // 20 / (20 × 5) = 0.2 — sub-unit size now moves the result.
+    expect(derivedUnitCost('20', '20', '5')).toBe('0.2');
+  });
+
+  it('units/case AND sub-unit size of 1 → cost equals the case price', () => {
+    expect(derivedUnitCost('40', '1', '1')).toBe('40');
+  });
+
+  it('keeps deep sub-cent precision (6 dp) without binary-float noise', () => {
+    // 32 / (1 × 6000) = 0.005333… — the Napkin (Togo) shape; survives to 6 dp.
+    expect(derivedUnitCost('32', '1', '6000')).toBe('0.005333');
+    // 33 / (1 × 2000) = 0.0165 — the 2oz Cup w/ Lid per-each value.
+    expect(derivedUnitCost('33', '1', '2000')).toBe('0.0165');
+    // 0.1-class divisions stay clean (no 0.30000000000000004).
+    expect(derivedUnitCost('0.9', '3', '1')).toBe('0.3');
+  });
+
+  it('returns "" (→ the "0" placeholder) when there is no positive cost yet', () => {
+    expect(derivedUnitCost('40', '0', '500')).toBe('');   // zero units/case → caseQty<=0 guard
+    expect(derivedUnitCost('40', '', '500')).toBe('');     // blank units/case (parses to 0 → guard)
+    expect(derivedUnitCost('', '250', '1')).toBe('');      // blank case price
+    expect(derivedUnitCost('0', '250', '1')).toBe('');     // zero case price
+    expect(derivedUnitCost('abc', '250', '1')).toBe('');   // unparseable case price
+  });
+
+  it('floors a zero/blank sub-unit size to 1 (piecesPerCase default), NOT a guard', () => {
+    // subUnitSize 0/blank → piecesPerCase floors to 1, so the per-each cost is
+    // just case_price / units_case (the tracking unit IS the smallest unit).
+    expect(derivedUnitCost('40', '250', '0')).toBe('0.16');
+    expect(derivedUnitCost('40', '250', '')).toBe('0.16');
   });
 });
 

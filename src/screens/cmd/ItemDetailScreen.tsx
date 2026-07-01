@@ -93,16 +93,21 @@ export default function ItemDetailScreen() {
 
   const meta = `${item.category} · ${vendor?.name || 'no vendor'} · ${relativeTime(item.lastUpdatedAt) || 'never'} ago`;
 
-  const inventoryValue = item.currentStock * (item.costPerUnit || 0);
+  // Spec 104 (OQ-5) — per-each costPerUnit × counted currentStock → `× subUnitSize` bridge.
+  const inventoryValue = item.currentStock * (item.costPerUnit || 0) * (item.subUnitSize || 1);
   const daysOfCover =
     item.averageDailyUsage > 0
       ? `${(item.currentStock / item.averageDailyUsage).toFixed(1)}d`
       : '—';
+  // Spec 104 (OQ-3) — `costPerUnit` is the per-EACH (smallest-unit) cost; label
+  // it with the item's smallest unit (subUnitUnit, else "each") so the figure
+  // no longer implies per-counted-unit.
+  const eachLabel = item.subUnitUnit || 'each';
   const stats = [
-    { label: 'On hand',       value: `${item.currentStock} ${item.unit}`,                                sub: `par ${item.parLevel}` },
-    { label: 'Cost / unit',   value: item.costPerUnit ? `$${item.costPerUnit.toFixed(2)}` : '—',        sub: 'avg' },
-    { label: 'Stock value',   value: `$${inventoryValue.toFixed(0)}`,                                    sub: 'at current cost' },
-    { label: 'Days of cover', value: daysOfCover,                                                        sub: 'at avg usage' },
+    { label: 'On hand',            value: `${item.currentStock} ${item.unit}`,                           sub: `par ${item.parLevel}` },
+    { label: `Cost / ${eachLabel}`, value: item.costPerUnit ? `$${item.costPerUnit.toFixed(2)}` : '—',   sub: 'per-each' },
+    { label: 'Stock value',        value: `$${inventoryValue.toFixed(0)}`,                                sub: 'at current cost' },
+    { label: 'Days of cover',      value: daysOfCover,                                                    sub: 'at avg usage' },
   ];
 
   const props = [

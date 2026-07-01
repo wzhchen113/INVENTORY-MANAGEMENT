@@ -23,7 +23,10 @@ const COLUMN_DEFS: ColumnDef[] = [
   { key: 'on_hand',    type: 'decimal',  pick: (i) => i.currentStock },
   { key: 'par',        type: 'decimal',  pick: (i) => i.parLevel },
   { key: 'last_cost',  type: 'currency', pick: (i) => i.costPerUnit },
-  { key: 'value',      type: 'currency', pick: (i) => (i.currentStock * (i.costPerUnit || 0)).toFixed(2) },
+  // Spec 104 (OQ-5) — stock value = counted currentStock × per-each costPerUnit
+  // × subUnitSize so the exported dollar is unchanged (last_cost above stays the
+  // raw per-each figure, self-consistent with the detail/list cells).
+  { key: 'value',      type: 'currency', pick: (i) => (i.currentStock * (i.costPerUnit || 0) * (i.subUnitSize || 1)).toFixed(2) },
   { key: 'vendor',     type: 'string',   pick: (i) => i.vendorName || '' },
   { key: 'updated_at', type: 'datetime', pick: (i) => i.lastUpdatedAt || '' },
   { key: 'notes',      type: 'string',   pick: () => '' },

@@ -72,7 +72,9 @@ export default function POsSection() {
         unit: i.unit,
         qty,
         unitCost: i.costPerUnit,
-        lineCost: qty * i.costPerUnit,
+        // Spec 104 (OQ-5) — `qty` is in COUNTED units, `costPerUnit` is per-each
+        // → `× subUnitSize` bridge so the PO line cost is unchanged.
+        lineCost: qty * i.costPerUnit * (i.subUnitSize || 1),
       };
     });
   }, [sel, vendors, inventory, currentStore.id]);

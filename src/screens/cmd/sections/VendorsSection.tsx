@@ -383,7 +383,7 @@ export default function VendorsSection() {
                             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60 }}>{shortId(it.id)}</Text>
                             <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{it.name}</Text>
                             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg, width: 110, fontVariant: ['tabular-nums'] }}>
-                              ${it.costPerUnit.toFixed(2)}/{it.unit}
+                              ${it.costPerUnit.toFixed(2)}/{it.subUnitUnit || 'each'}
                             </Text>
                             <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'right' }}>
                               {T('section.vendors.par', { value: it.parLevel })}

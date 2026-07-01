@@ -5,7 +5,7 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { IngredientForm, IngredientFormValues, blankValues, vendorRowsToLinkPayload, addVendorLink } from './IngredientForm';
+import { IngredientForm, IngredientFormValues, blankValues, vendorRowsToLinkPayload, addVendorLink, derivedUnitCost } from './IngredientForm';
 import { VendorFormDrawer } from './VendorFormDrawer';
 import { JsonPreview } from './JsonPreview';
 import { AuditHistory } from './AuditHistory';
@@ -31,7 +31,10 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
   name: it.name,
   category: it.category,
   unit: it.unit,
-  costPerUnit: it.costPerUnit ? String(it.costPerUnit) : '',
+  // Spec 104 — cost/unit is DERIVED, never hand-entered: always the per-EACH
+  // cost = case_price / (case_qty × sub_unit_size) (derivedUnitCost), so it
+  // opens showing the formula result rather than a possibly-stale stored scalar.
+  costPerUnit: derivedUnitCost(String(it.casePrice || 0), String(it.caseQty || 1), String(it.subUnitSize || 1)),
   parLevel: it.parLevel != null ? String(it.parLevel) : '',
   vendorName: it.vendorName || '',
   vendorId: it.vendorId || '',
@@ -50,23 +53,24 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
   nameEs: it.i18nNames?.es ?? '',
   nameZh: it.i18nNames?.['zh-CN'] ?? '',
   // Spec 102 — hydrate the multi-vendor link rows from the item's
-  // `item_vendors` embed (per-(item,vendor) cost + case price). Costs held as
-  // strings per the form convention. Back-compat: an item with no embed (or a
-  // legacy single-vendor row) falls back to a single row synthesized from the
-  // scalar vendorId + the item's cost — so it opens showing that one vendor
-  // and saves with no drift (AC-C). The PRIMARY pointer stays `vendorId`
+  // `item_vendors` embed. Each row carries its OWN case price; cost/unit is
+  // DERIVED (spec 104: per-EACH = case price ÷ (units/case × sub-unit size),
+  // never the stored per-vendor scalar). Back-compat: an item with no embed (or
+  // a legacy single-vendor row) falls back to a single row synthesized from the
+  // scalar vendorId + the item's case price — so it opens showing that one
+  // vendor and saves with no drift (AC-C). The PRIMARY pointer stays `vendorId`
   // above; the matching row renders with the "primary" badge.
   vendors:
     it.vendors && it.vendors.length > 0
       ? it.vendors.map((v) => ({
           vendorId: v.vendorId,
-          costPerUnit: v.costPerUnit ? String(v.costPerUnit) : '',
+          costPerUnit: derivedUnitCost(String(v.casePrice || 0), String(it.caseQty || 1), String(it.subUnitSize || 1)),
           casePrice: v.casePrice ? String(v.casePrice) : '',
         }))
       : it.vendorId
         ? [{
             vendorId: it.vendorId,
-            costPerUnit: it.costPerUnit ? String(it.costPerUnit) : '',
+            costPerUnit: derivedUnitCost(String(it.casePrice || 0), String(it.caseQty || 1), String(it.subUnitSize || 1)),
             casePrice: it.casePrice ? String(it.casePrice) : '',
           }]
         : [],

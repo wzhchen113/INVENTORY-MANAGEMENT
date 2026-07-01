@@ -151,10 +151,15 @@ describe('IngredientForm — spec 093 case-size readback', () => {
       subUnitUnit: 'lbs',
     });
     expect(screen.queryByText(/20 cases per order/)).toBeNull();
-    // Belt-and-suspenders: the old "× … per order" arithmetic is gone
-    // entirely, in any form.
+    // Belt-and-suspenders: the old "… per order" arithmetic is gone entirely.
     expect(screen.queryByText(/per order/)).toBeNull();
-    expect(screen.queryByText(/×/)).toBeNull();
+    // Spec 104 — the old blanket `queryByText(/×/)` ban was narrowed: the "×"
+    // glyph now legitimately appears in the cost-field help ("case price ÷
+    // (units/case × sub-units)", the spec-104-mandated per-each divisor
+    // wording). The original intent was to ban the old case-size "× … per
+    // order" arithmetic sentence specifically, which the "per order" assert
+    // above already covers.
+    expect(screen.queryByText(/×\s*\S+\s*per order/)).toBeNull();
   });
 
   it('falls back to the tracking unit when no PACK UNIT is set (e.g. 1 case = 450 each)', () => {

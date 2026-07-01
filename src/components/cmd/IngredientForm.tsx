@@ -4,7 +4,7 @@ import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono } from '../../theme/typography';
 import { SectionCaption } from './SectionCaption';
 import { useStore } from '../../store/useStore';
-import { CANONICAL_UNITS, isCanonicalUnit } from '../../utils/unitConversion';
+import { CANONICAL_UNITS, isCanonicalUnit, calcUnitCost } from '../../utils/unitConversion';
 import { deriveBrandUnitPool } from '../../utils/brandUnitPool';
 import { piecesPerCase } from '../../utils/perEachCost';
 import { isNumericInput } from '../../utils/validators';
@@ -244,6 +244,24 @@ export function vendorRowsToLinkPayload(
       costPerUnit: parseFloat(r.costPerUnit) || 0,
       casePrice: parseFloat(r.casePrice) || 0,
     }));
+}
+
+/**
+ * Spec 104 — the per-unit cost is DERIVED, never hand-entered, and is now the
+ * true per-EACH (smallest-unit) cost: `case_price / (case_qty × sub_unit_size)`
+ * = `case_price / piecesPerCase`. `calcUnitCost` is the single source of that
+ * formula (it divides by `piecesPerCase`), so this string wrapper just forwards
+ * all three args and drops any divide of its own. The editor calls it whenever
+ * case price, units/case, OR sub-unit size changes — and on load — so the
+ * read-only cost/unit stays live. Returns a STRING for the text inputs, rounded
+ * to 6 dp so genuinely sub-cent per-each costs (e.g. $0.0165/piece for a
+ * 2000-count cup) survive while binary-float noise never reaches the saved
+ * value; an empty string (→ the "0" placeholder) when there is no positive cost
+ * yet (blank/zero/unparseable case price, units/case, or sub-unit size).
+ */
+export function derivedUnitCost(casePrice: string, caseQty: string, subUnitSize: string): string {
+  const per = calcUnitCost(parseFloat(casePrice) || 0, parseFloat(caseQty) || 0, parseFloat(subUnitSize) || 0);
+  return per > 0 ? String(Number(per.toFixed(6))) : '';
 }
 
 interface Props {
@@ -808,15 +826,41 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     onChange({ ...values, vendorId, vendorName: v?.name || '' });
   };
 
-  // Spec 102 — patch a single link's cost / case price (AC-C: only that
-  // link changes).
-  const handleVendorFieldChange = (
-    vendorId: string,
-    field: 'costPerUnit' | 'casePrice',
-    value: string,
-  ) => {
+  // Spec 104 — cost/unit is DERIVED (read-only) per-EACH, so the only editable
+  // per-vendor field is case price; changing it recomputes that ONE link's
+  // per-each cost = case_price / (units/case × sub-unit size). AC-C: patches
+  // only the targeted link.
+  const handleVendorCasePriceChange = (vendorId: string, value: string) => {
     if (value !== '' && !isNumericInput(value)) return;
-    onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, field, value) });
+    const withPrice = updateVendorLinkField(values.vendors, vendorId, 'casePrice', value);
+    const withCost = updateVendorLinkField(withPrice, vendorId, 'costPerUnit', derivedUnitCost(value, values.caseQty, values.subUnitSize));
+    onChange({ ...values, vendors: withCost });
+  };
+
+  // Spec 104 — the top-level case price drives the headline per-each cost/unit
+  // (same formula). cost/unit is read-only; case price is the only input.
+  const handleCasePriceChange = (value: string) => {
+    if (value !== '' && !isNumericInput(value)) return;
+    onChange({ ...values, casePrice: value, costPerUnit: derivedUnitCost(value, values.caseQty, values.subUnitSize) });
+  };
+
+  // Spec 104 — units/case is a DENOMINATOR of every per-each cost/unit, so a
+  // change recomputes the headline cost AND every vendor link's cost in lockstep.
+  const handleCaseQtyChange = (value: string) => {
+    if (value !== '' && !isNumericInput(value)) return;
+    const vendors = values.vendors.map((r) => ({ ...r, costPerUnit: derivedUnitCost(r.casePrice, value, values.subUnitSize) }));
+    onChange({ ...values, caseQty: value, costPerUnit: derivedUnitCost(values.casePrice, value, values.subUnitSize), vendors });
+  };
+
+  // Spec 104 — sub-unit size is the OTHER denominator of the per-each cost, so a
+  // change must recompute the headline cost AND every vendor link's cost too
+  // (mirrors handleCaseQtyChange). Without this, editing sub-unit size would
+  // leave a stale derived cost. (This axis is also the recipe-costing sub-unit
+  // count spec 093 defined; see the sub-unit input's inline note.)
+  const handleSubUnitSizeChange = (value: string) => {
+    if (value !== '' && !isNumericInput(value)) return;
+    const vendors = values.vendors.map((r) => ({ ...r, costPerUnit: derivedUnitCost(r.casePrice, values.caseQty, value) }));
+    onChange({ ...values, subUnitSize: value, costPerUnit: derivedUnitCost(values.casePrice, values.caseQty, value), vendors });
   };
 
   const vendorNameFor = (vendorId: string) =>
@@ -940,13 +984,14 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             20 in sub_unit_size and left case_qty=1 — invisible to those
             features. The form key stays `caseQty` so db.ts:278-280 needs no
             change. */}
-        <InputLine label="units / case" value={values.caseQty} onChangeText={(v) => set('caseQty', v)} monoFont width="33%" numericOnly help="how many tracking units come in one case (e.g. 20 lbs per case)" />
+        <InputLine label="units / case" value={values.caseQty} onChangeText={handleCaseQtyChange} monoFont width="33%" numericOnly help="how many tracking units come in one case (e.g. 20 lbs per case)" />
         {/* Spec 093 — SUB-UNIT breakdown input. Binds `subUnitSize`
-            (→ sub_unit_size), the SEPARATE recipe-costing axis: how many
-            sub-units make up ONE tracking unit (per unitConversion's
-            documented meaning). Distinct from the case size above; never
-            conflated. */}
-        <InputLine label="sub-unit / unit" value={values.subUnitSize} onChangeText={(v) => set('subUnitSize', v)} monoFont width="33%" numericOnly help="how many sub-units make up ONE tracking unit (e.g. a bag of 10 each)" />
+            (→ sub_unit_size): how many sub-units make up ONE tracking unit (per
+            unitConversion's documented meaning). Distinct from the case size
+            above. Spec 104 makes this a co-denominator of the per-EACH cost/unit
+            (case_price ÷ (units/case × sub-units)), so editing it recomputes the
+            read-only cost via handleSubUnitSizeChange. */}
+        <InputLine label="sub-unit / unit" value={values.subUnitSize} onChangeText={handleSubUnitSizeChange} monoFont width="33%" numericOnly help="how many sub-units make up ONE tracking unit (e.g. a bag of 10 each)" />
       </View>
       <View style={{ marginBottom: 6 }}>
         {customMode.pack ? (
@@ -1095,12 +1140,14 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
 
       <SectionCaption tone="fg3" size={9.5}>{isNew ? 'COSTING · snapshot' : 'COSTING · auto-computed'}</SectionCaption>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 14 }}>
-        <InputLine label="last cost" value={values.costPerUnit} onChangeText={(v) => set('costPerUnit', v)} monoFont width="50%" numericOnly />
-        <InputLine label="avg cost (30d)" value={isNew ? '—' : values.costPerUnit} monoFont width="50%" readOnly
-          help={isNew ? 'available after first receipt' : 'auto-computed'} />
+        {/* Spec 104 (OQ-3) — per-EACH (smallest-unit) cost. Label + help make it
+            read as per-each and expose the full divisor (units/case × sub-units). */}
+        <InputLine label="cost / each" value={values.costPerUnit} monoFont width="50%" readOnly placeholder="0" help="auto · case price ÷ (units/case × sub-units)" />
+        <InputLine label="avg cost / each" value={isNew ? '—' : values.costPerUnit} monoFont width="50%" readOnly
+          help={isNew ? 'available after first receipt' : 'auto-computed · per-each'} />
       </View>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 0, marginBottom: 6 }}>
-        <InputLine label="case price" value={values.casePrice} onChangeText={(v) => set('casePrice', v)} monoFont width="50%" numericOnly />
+        <InputLine label="case price" value={values.casePrice} onChangeText={handleCasePriceChange} monoFont width="50%" numericOnly />
         <View style={{ width: '50%' }} />
       </View>
 
@@ -1159,18 +1206,18 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <InputLine
-                    label="cost / unit"
+                    label="cost / each"
                     value={row.costPerUnit}
-                    onChangeText={(v) => handleVendorFieldChange(row.vendorId, 'costPerUnit', v)}
                     monoFont
                     width="50%"
-                    numericOnly
+                    readOnly
                     placeholder="0"
+                    help="auto · case price ÷ (units/case × sub-units)"
                   />
                   <InputLine
                     label="case price"
                     value={row.casePrice}
-                    onChangeText={(v) => handleVendorFieldChange(row.vendorId, 'casePrice', v)}
+                    onChangeText={(v) => handleVendorCasePriceChange(row.vendorId, v)}
                     monoFont
                     width="50%"
                     numericOnly

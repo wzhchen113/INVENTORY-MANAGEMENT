@@ -2557,8 +2557,12 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   getInventoryValue: () => {
+    // Spec 104 (OQ-5) — `costPerUnit` is per-EACH; `currentStock` stays in
+    // COUNTED units. Bridge with `× subUnitSize` (unconditional per option (b))
+    // so stock value = current_stock × sub_unit_size × perEachCost ≡ today's
+    // value. subUnitSize defaults to 1 → no-op for each-tracked items.
     return get().inventory.reduce(
-      (sum, item) => sum + item.currentStock * item.costPerUnit,
+      (sum, item) => sum + item.currentStock * item.costPerUnit * (item.subUnitSize || 1),
       0
     );
   },
@@ -2658,10 +2662,18 @@ export const useStore = create<FullStore>((set, get) => ({
     return totalCost / yieldQty;
   },
 
-  // Shared helper: calculate cost of a single raw ingredient line item
-  // costPerUnit is per counted unit (per bag/case/each). To cost a recipe line we must
-  // convert the recipe quantity into counted units: recipe unit → sub-unit (g/oz/lbs via
-  // getConversionFactor) → counted unit (via subUnitSize).
+  // Shared helper: calculate cost of a single raw ingredient line item.
+  //
+  // Spec 104 — `costPerUnit` is now the per-EACH (smallest-unit) cost, not the
+  // per-counted-unit cost. The recipe line cost must stay numerically UNCHANGED
+  // across the basis flip (governing constraint). Per the invariant (★):
+  //   cost_old(per counted unit) = costPerUnit(per each) × subUnitSize.
+  // So every branch that used to consume a per-counted-unit cost gets ONE
+  // `× subUnitSize` (the "bridge") on the per-each side of (★); the branch that
+  // used to divide the recipe qty INTO counted units drops that second divide
+  // instead (the removed `/ subUnitSize` and the added `× subUnitSize` cancel).
+  // subUnitSize defaults to 1, so for an item whose tracking unit IS the
+  // smallest unit every bridge is a self-evident no-op.
   getIngredientLineCost: (ing) => {
     const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
     // After the catalog refactor `ing.itemId` is a catalog id. Resolve to
@@ -2673,24 +2685,32 @@ export const useStore = create<FullStore>((set, get) => ({
       get().inventory.find((i) => i.id === ing.itemId) || // legacy item_id callers
       get().inventory.find((i) => i.name.toLowerCase() === (ing.itemName || '').toLowerCase() && i.storeId === storeId);
     if (!item) return 0;
-    // Short-circuit: recipe uses the counted unit directly (e.g. 1 each, 2 bags)
-    if (ing.unit === item.unit) return item.costPerUnit * ing.quantity;
-    // Standard conversion: recipe unit → sub-unit → counted unit
+    const subUnitSize = item.subUnitSize || 1;
+    // Short-circuit: recipe uses the counted unit directly (e.g. 1 each, 2 bags).
+    // `costPerUnit` is per-each, so "1 counted unit" costs `costPerUnit ×
+    // subUnitSize` (= cost_old). For an each-tracked item subUnitSize = 1, so
+    // "1 each" correctly costs one per-each unit.
+    if (ing.unit === item.unit) return item.costPerUnit * ing.quantity * subUnitSize;
+    // Standard conversion: recipe unit → sub-unit. Cost the sub-unit quantity
+    // directly at the per-each cost — NO second divide into counted units. Per
+    // (★) `costPerUnit(each) × qtyInSubUnit` equals the old
+    // `costPerUnit_old × (qtyInSubUnit / subUnitSize)`, so the dollar is unchanged.
     let factor = getConversionFactor(ing.unit, item.subUnitUnit || item.unit);
     if (factor === null && item.subUnitUnit) factor = getConversionFactor(ing.unit, item.unit);
     if (factor !== null) {
       const qtyInSubUnit = ing.quantity * factor;
-      const subUnitSize = item.subUnitSize || 1;
-      const qtyInCountedUnit = subUnitSize > 0 ? qtyInSubUnit / subUnitSize : qtyInSubUnit;
-      return item.costPerUnit * qtyInCountedUnit;
+      return item.costPerUnit * qtyInSubUnit;
     }
     // Fallback: ingredient_conversions for abstract units (e.g. 1 each = 400g).
     // Conversions live at brand level now (keyed by catalog id).
+    // `conversionFactor` is sub-units-per-abstract-unit; `costPerUnit` is
+    // per-each, so bridge it to per-counted-unit (× subUnitSize) BEFORE dividing
+    // by the factor — otherwise the sub-unit axis is double-counted.
     const allConversions = get().ingredientConversions || [];
     const conv = allConversions.find((c: any) =>
       c.inventoryItemId === item.catalogId || c.inventoryItemId === item.id);
     if (conv && conv.conversionFactor > 0) {
-      const costPerBase = item.costPerUnit / conv.conversionFactor;
+      const costPerBase = (item.costPerUnit * subUnitSize) / conv.conversionFactor;
       const base = smartToBase(ing.quantity, ing.unit);
       return costPerBase * base.quantity;
     }

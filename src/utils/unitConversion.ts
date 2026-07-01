@@ -1,5 +1,6 @@
 // src/utils/unitConversion.ts
 import { IngredientConversion, InventoryItem } from '../types';
+import { piecesPerCase } from './perEachCost';
 
 // ─── Standard unit conversion to absolute base units ────────────────────
 // Weight → grams (base unit: 'g')
@@ -277,28 +278,38 @@ export function convertToItemUnit(
 }
 
 /**
- * Calculate unit cost from case pricing.
+ * Calculate the per-EACH (smallest-unit) unit cost from case pricing.
  *
- * Spec 093 (Q3a): the per-unit cost is `case_price / case_qty`, matching how
- * prod `default_cost` was computed (and the canonical UNITS-PER-CASE meaning of
- * `case_qty` that reorder 088 / EOD 086 / orderCalculator read). `subUnitSize`
- * is the *separate* recipe-costing sub-unit axis and must NOT enter the per-unit
- * cost — conflating the two produced the documented 12×-class error (see the
- * `convertToUnit` Case-3 comment above). The third parameter is retained for
- * call-site compatibility (the AC pins a 3-arg call) but no longer affects the
- * result. `calcCasePrice` keeps its `× subUnitSize` factor (spec 093 R4 —
- * out of scope), so cost→price→cost round-trips diverge on sub_unit_size > 1.
+ * Spec 104 reverses spec 093: the stored `cost_per_unit` is now the TRUE
+ * per-each cost = `case_price / (case_qty × sub_unit_size)` = `case_price /
+ * piecesPerCase(caseQty, subUnitSize)`. Both `caseQty` and `subUnitSize` default
+ * to `1` when absent / zero / non-finite — that defaulting is owned by
+ * `piecesPerCase`, which this function SINGLE-SOURCES (spec 104 §8 R4): the
+ * divisor is `piecesPerCase(caseQty, subUnitSize)`, never an inlined `q × s`, so
+ * the two can never drift (the same single-source contract spec 096 §Q-A set for
+ * the display path).
+ *
+ * Examples (AC): `calcUnitCost(50, 1, 500) === 0.1`,
+ * `calcUnitCost(20, 20, 1) === 1.0`, `calcUnitCost(20, 0, 5) === 0` (guard).
+ *
+ * The `caseQty <= 0` guard (AC line 81, `calcUnitCost(20,0,5) === 0`) is applied
+ * BEFORE the `piecesPerCase` divisor: `piecesPerCase` floors a zero `caseQty` to
+ * 1 (so it would otherwise return `casePrice / subUnitSize`), but the owner-pinned
+ * guard example requires a non-positive units/case to read as "no derivable cost"
+ * (mirrors the spec-093 guard the editor relies on for malformed input — live data
+ * never has `case_qty <= 0`, it defaults to 1). For every positive `caseQty` input
+ * the single-source identity `casePrice / piecesPerCase(caseQty, subUnitSize)`
+ * holds (AC line 83). See spec 104 §8 R4 — flagged to reviewers as a narrow
+ * dead-domain reconciliation of the two ACs.
+ *
+ * `calcCasePrice` keeps its `× subUnitSize` factor (spec 093 R4, spec 104 §Out
+ * of scope), so with a per-each `unitCost` the cost→price→cost round-trip now
+ * reconstructs `case_price` (`perEach × pieces = casePrice`) — R5.
  */
 export function calcUnitCost(casePrice: number, caseQty: number, subUnitSize: number): number {
-  // `subUnitSize` is intentionally unused post-spec-093 (kept in the signature
-  // for call-site compatibility — the AC pins a 3-arg call). Referenced via
-  // `void` so it doesn't read as an accidental omission.
-  void subUnitSize;
-  // Spec 093 code-review: divide by case_qty directly. The old `totalPerCase`
-  // alias only existed to hold `caseQty * subUnitSize`; post-fix it was a
-  // single-value passthrough, so it's inlined.
   if (caseQty <= 0) return 0;
-  return casePrice / caseQty;
+  const pieces = piecesPerCase(caseQty, subUnitSize);
+  return casePrice > 0 && pieces > 0 ? casePrice / pieces : 0;
 }
 
 /** Calculate case price from unit cost */

@@ -669,13 +669,16 @@ function RecipeSalesTab({ recipeId, recipeName }: { recipeId: string; recipeName
   const totalUnits = salesRows.reduce((s, r) => s + r.qty, 0);
   const totalRevenue = salesRows.reduce((s, r) => s + r.revenue, 0);
 
-  // Recipe cost from BOM × current cost_per_unit.
+  // Recipe cost from BOM × current cost_per_unit. This is an inline copy of the
+  // getIngredientLineCost SHORT-CIRCUIT path (qty in the item's counted unit ×
+  // cost). Spec 104 — `costPerUnit` is per-each, so bridge `× subUnitSize` to
+  // match the store helper's short-circuit and keep the roll-up dollar unchanged.
   const recipeCost = React.useMemo(() => {
     if (!recipe) return 0;
     let c = 0;
     for (const ing of recipe.ingredients || []) {
       const item = inventory.find((i) => (i as any).catalogId === ing.itemId || i.id === ing.itemId);
-      if (item?.costPerUnit) c += (ing.quantity || 0) * item.costPerUnit;
+      if (item?.costPerUnit) c += (ing.quantity || 0) * item.costPerUnit * (item.subUnitSize || 1);
     }
     return c;
   }, [recipe, inventory]);

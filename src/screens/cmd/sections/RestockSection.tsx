@@ -68,7 +68,9 @@ export default function RestockSection() {
         gap,
         suggested,
         costPerUnit: i.costPerUnit,
-        estCost: suggested * i.costPerUnit,
+        // Spec 104 (OQ-5) — `suggested` is in COUNTED units, `costPerUnit` is
+        // per-each → `× subUnitSize` bridge so the est. cost is unchanged.
+        estCost: suggested * i.costPerUnit * (i.subUnitSize || 1),
         status: status as 'low' | 'out',
       });
     }

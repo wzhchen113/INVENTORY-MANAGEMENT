@@ -97,7 +97,9 @@ export default function ReceivingSection() {
         unit: i.unit,
         ordered: orderedQty,
         received: receivedQty,
-        cost: orderedQty * i.costPerUnit,
+        // Spec 104 (OQ-5) — `orderedQty` is in COUNTED units, `costPerUnit` is
+        // per-each → `× subUnitSize` bridge so the received-line cost is unchanged.
+        cost: orderedQty * i.costPerUnit * (i.subUnitSize || 1),
         state,
         // Spec 010 §5 — display-only expiry per line. Reads from the
         // underlying inventory_items.expiry_date so the auto-stamp side
