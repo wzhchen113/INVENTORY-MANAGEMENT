@@ -23,9 +23,16 @@
 --       (the FE passes the count's store; a manager who can't see it is
 --       refused). Mirrors report_run_vendor's 42501 assertion.
 --   (6) EMPTY p_on_hand → items: [] with no scan/error (the fast-path guard).
--- NOTE: the numeric labels are LOGICAL, not run-order — at runtime (6) EMPTY
--- executes BEFORE (5) NON-MEMBER (the empty-map probe must run under the master
--- JWT, before the switch to the non-member manager JWT). (code-review CR3)
+--   (7) FORECAST-dominated collapse — with a LIVE usage rate the per-vendor
+--       suggested_qty DIFFERS across an item's vendors (forecast scales with
+--       days_until), so the collapse's row choice changes the surfaced
+--       quantity: it must be the SOONEST vendor's (smaller) number, never the
+--       max. Pins the semantic against a refactor flipping the distinct-on
+--       order (architect drift-review S1).
+-- NOTE: the numeric labels are LOGICAL, not run-order — at runtime (7) runs
+-- after (4), then (6) EMPTY executes BEFORE (5) NON-MEMBER (the empty-map
+-- probe must run under the master JWT, before the switch to the non-member
+-- manager JWT). (code-review CR3)
 --
 -- All fixtures (catalog, items, item_vendors links, schedule) are created
 -- INSIDE the transaction, so the suite is identical under the prod-pulled seed
@@ -36,7 +43,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(9);
+select plan(10);
 
 -- ─── fixtures ──────────────────────────────────────────────────
 -- Resolve Frederick + brand + two DISTINCT vendors. We control the vendors'
@@ -239,6 +246,74 @@ select is(
     where i->>'item_id' = current_setting('test.item_case', true)),
   0::bigint,
   '(4) CASE item counted AT par is absent from items[] (suggested_qty < 0.001)'
+);
+
+-- ─── (7) FORECAST-dominated collapse — soonest vendor's QUANTITY wins ───
+-- ARCH-S1: usage_forecasted = usage_per_portion × qty_per_day × days_until −
+-- on_hand scales with the PER-VENDOR days_until, so a multi-vendor item's
+-- rows carry DIFFERENT suggested_qty and the distinct-on row choice is
+-- load-bearing. Fixture: FORECAST item linked to V1 (+5) and V2 (+1) on the
+-- schedules locked above, par 10, usage_per_portion 2, POS rate 49 sold / 7d
+-- = 7/day (recipe qty 1), counted on-hand 5:
+--   V2 (soonest, days_until 1): forecast = 2×7×1 − 5 = 9;  par gap 5 → suggested 9
+--   V1 (later,   days_until 5): forecast = 2×7×5 − 5 = 65             → suggested 65
+-- The collapse must surface 9 (the soonest truck's row), NOT the max 65 — a
+-- refactor flipping the distinct-on order to `days_until desc` (or a max())
+-- fails here. Runs under the master JWT (inserts need privileged RLS).
+do $$
+declare
+  v_cat uuid; v_item uuid; v_recipe uuid; v_pos uuid;
+begin
+  insert into public.catalog_ingredients (brand_id, name, unit, case_qty)
+  values (current_setting('test.brand_id', true)::uuid,
+          'SPEC105-FORECAST-'||gen_random_uuid()::text, 'each', 1)
+  returning id into v_cat;
+
+  insert into public.inventory_items
+    (store_id, catalog_id, vendor_id, cost_per_unit, current_stock, par_level, usage_per_portion)
+  values (current_setting('test.frederick_id', true)::uuid, v_cat,
+          current_setting('test.vendor1', true)::uuid, 1, 999, 10, 2)
+  returning id into v_item;
+
+  insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+  values (v_item, current_setting('test.vendor1', true)::uuid, 1, 0, true),
+         (v_item, current_setting('test.vendor2', true)::uuid, 1, 0, false)
+  on conflict (item_id, vendor_id) do nothing;
+
+  -- POS path (mirrors report_reorder_list_hybrid_formula.test.sql): recipe →
+  -- recipe_ingredients(qty 1) → pos_imports(today) → pos_import_items(49 sold,
+  -- mapped) ⇒ pos_daily_per_item.qty_per_day = 49 × 1 / 7 = 7.
+  insert into public.recipes (brand_id, menu_item, sell_price)
+  values (current_setting('test.brand_id', true)::uuid,
+          'SPEC105-FC-MENU-'||gen_random_uuid()::text, 0)
+  returning id into v_recipe;
+
+  insert into public.recipe_ingredients (recipe_id, catalog_id, quantity, unit)
+  values (v_recipe, v_cat, 1, 'ea');
+
+  insert into public.pos_imports (store_id, filename, import_date)
+  values (current_setting('test.frederick_id', true)::uuid,
+          'spec-105-forecast.csv', current_date)
+  returning id into v_pos;
+
+  insert into public.pos_import_items (import_id, menu_item, qty_sold, recipe_id, recipe_mapped)
+  values (v_pos, 'SPEC105 FC', 49, v_recipe, true);
+
+  perform set_config('test.item_forecast', v_item::text, true);
+end $$;
+
+select is(
+  (select (i->>'suggested_qty')::numeric
+     from jsonb_array_elements(
+       public.report_reorder_for_counted_onhand(
+         current_setting('test.frederick_id', true)::uuid,
+         jsonb_build_object(current_setting('test.item_forecast', true), 5),
+         jsonb_build_object('as_of_date', to_char(current_date, 'YYYY-MM-DD'))
+       )->'items'
+     ) i
+    where i->>'item_id' = current_setting('test.item_forecast', true)),
+  9::numeric,
+  '(7) forecast-dominated collapse surfaces the SOONEST vendor''s suggested_qty (9 @ +1 day), not the max (65 @ +5 days)'
 );
 
 -- ─── (6) EMPTY p_on_hand → items: [] (fast-path, no scan/error) ─
