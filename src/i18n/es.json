@@ -183,6 +183,18 @@
       "saveFailedDetail": "Verifica la conexión e inténtalo de nuevo",
       "resetFailed": "No se pudo restablecer el orden"
     },
+    "countDraft": {
+      "save": "Guardar borrador",
+      "saving": "Guardando…",
+      "saved": "Borrador guardado",
+      "savedLocal": "Guardado en este dispositivo — se sincronizará cuando estés en línea",
+      "restored": "Borrador restaurado (guardado hace {time})",
+      "discard": "Descartar borrador",
+      "discardConfirmTitle": "¿Descartar borrador?",
+      "discardConfirmBody": "Esto borra los valores guardados de este conteo. No se puede deshacer.",
+      "discardFailed": "No se pudo descartar el borrador — inténtalo de nuevo",
+      "saveFailed": "No se pudo guardar el borrador"
+    },
     "dashboard": {
       "title": "Panel",
       "attention": "Atención",

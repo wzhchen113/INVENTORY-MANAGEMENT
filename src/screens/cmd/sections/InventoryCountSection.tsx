@@ -12,6 +12,9 @@ import {
   saveCountOrder,
   resetCountOrder,
   fetchReorderForCountedOnHand,
+  fetchCountDraft,
+  saveCountDraft,
+  deleteCountDraft,
 } from '../../../lib/db';
 import type { CountedReorderItem } from '../../../types';
 import {
@@ -20,7 +23,28 @@ import {
   formatCountedReorderSuggestion,
   type ParInventoryRow,
 } from './countHistoryPar';
-import { applyCountOrder } from '../../../lib/countOrder';
+import { applyCountOrder, firstUncounted } from '../../../lib/countOrder';
+// Spec 106 — save-draft + resume. The pure (de)serialize + reconcile + stale-id
+// helpers live in the dependency-free src/lib/countDrafts module (shared with
+// the staff carve-out); the admin device-local offline copy lives in
+// src/lib/countDraftLocal (localStorage web / best-effort AsyncStorage native).
+import {
+  reconcileDrafts,
+  applyDraftStaleFilter,
+  serializeAdminInventoryDraft,
+  deserializeAdminInventoryDraft,
+} from '../../../lib/countDrafts';
+import {
+  readLocalCountDraft,
+  writeLocalCountDraft,
+  clearLocalCountDraft,
+} from '../../../lib/countDraftLocal';
+// Admin-side connection signal (realtime socket state; web-only, native →
+// optimistic-true). Drives the Save online/offline branch + the reconnect
+// draft-sync (design §9). Deliberately the ADMIN top-level hook, NOT the staff
+// subtree copy — no cross-surface import.
+import { useConnectionStatus } from '../../../hooks/useConnectionStatus';
+import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
@@ -136,6 +160,23 @@ export default function InventoryCountSection() {
   // Ingredient-name search — view-only, composes with the category chip.
   const [search, setSearch] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 106 — save-draft + resume. `draftSavedAt` (ISO of the restored draft's
+  // client-stamped saved_at) drives the restored-draft banner; null = no banner.
+  // `savingDraft` guards the Save button while a save is in flight. The draft
+  // form state itself reuses the existing kind/countedAtLocal/notes/case/unit/
+  // itemNotes useState above — no separate mirror (design §14: draft state stays
+  // in the section's local React state).
+  const [draftSavedAt, setDraftSavedAt] = React.useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = React.useState(false);
+  // Spec 106 (AC-6) — first-uncounted jump on draft restore. `firstInputRefs`
+  // holds the primary TextInput per row (Cases when packed, else Units) and
+  // `pendingFocusId` names the row to focus after a restore. The list is a plain
+  // ScrollView with every row mounted (no windowing), so a DOM focus() on web
+  // pulls the target into view. Admin has NO submit gate, so this is a
+  // scroll/focus affordance (not a submit-blocker), mirroring the staff jump
+  // (design §14).
+  const [pendingFocusId, setPendingFocusId] = React.useState<string | null>(null);
+  const firstInputRefs = React.useRef<Record<string, TextInput | null>>({});
   // Spec 103 — per-user custom order (per-surface; no vendor → null). `viewMode`
   // toggles the default category-grouped list vs a flat Custom view in the
   // user's saved drag order. Render-only: counters/guards/submission still
@@ -157,6 +198,22 @@ export default function InventoryCountSection() {
   // RPC failure this stays `{}` and the par ✓/red dots still render (they need
   // no backend) — the below-par rows simply omit the suggestion text.
   const [reorderByItem, setReorderByItem] = React.useState<Record<string, CountedReorderItem>>({});
+
+  // Spec 106 — connection signal for the reconnect draft-sync ONLY. The Save
+  // path is server-first/error-fallback and does NOT read this (see onSaveDraft);
+  // this hook stays purely the reconnect-sync TRIGGER. `wasOnlineRef` mirrors the
+  // useEodSubmit Effect-1 shape (fire a reconcile-and-push on a false→true flip).
+  const isOnline = useConnectionStatus();
+  const wasOnlineRef = React.useRef<boolean>(isOnline);
+  // Restore-once guard (architect SF-1). The draft-load effect re-keys on
+  // `isOnline`, so a mid-count realtime socket blip (false→true) re-runs it — but
+  // the form RESTORE must fire at most once per (user, store) slot so a reconnect
+  // never clobbers keystrokes the counter typed since the last Save. This ref
+  // holds the slot key we have already done the first-pass restore for; the
+  // reconnect effect owns all post-first-restore sync (it touches only storage +
+  // the banner, never the form). A slot change re-arms the restore for the new
+  // store's draft; an `isOnline` re-run does not.
+  const restoredSlotRef = React.useRef<string | null>(null);
 
   const storeId = currentStore?.id;
   const isAllOrEmpty = !storeId || storeId === '__all__';
@@ -362,6 +419,324 @@ export default function InventoryCountSection() {
     });
   }, [currentUser?.id, storeId, savedIds, T]);
 
+  // ─── Spec 106: save-draft + resume ─────────────────────────────────
+  // The live item-id set for the active store — drives applyDraftStaleFilter on
+  // restore (an id deleted since the draft was saved is dropped, AC-11).
+  const liveItemIds = React.useMemo(
+    () => new Set(storeInventory.map((i) => i.id)),
+    [storeInventory],
+  );
+
+  // Jump to the first uncounted row after a restore (AC-6). Order follows the
+  // on-screen order: the saved custom order in Custom view, else category asc +
+  // name (the same order `grouped` renders). Reuses the shared `firstUncounted`
+  // helper (spec 103). Admin has no submit gate — this is a scroll/focus
+  // affordance only.
+  const jumpToFirstUncounted = React.useCallback(
+    (nextCase: Record<string, string>, nextUnit: Record<string, string>) => {
+      const isBlank = (it: typeof storeInventory[0]) =>
+        (nextCase[it.id] ?? '').trim() === '' && (nextUnit[it.id] ?? '').trim() === '';
+      const ordered =
+        viewMode === 'custom'
+          ? applyCountOrder(storeInventory, savedIds, (i) => i.id)
+          : [...storeInventory].sort(
+              (a, b) =>
+                (a.category || '').localeCompare(b.category || '') ||
+                a.name.localeCompare(b.name),
+            );
+      const target = firstUncounted(ordered, (it) => !isBlank(it));
+      if (target) setPendingFocusId(target.id);
+    },
+    [storeInventory, viewMode, savedIds],
+  );
+
+  // Restore a reconciled draft payload into the form. Stale-filters against the
+  // current live items (AC-11), deserializes (verbatim strings, AC-5), sets the
+  // form state, shows the restored banner, and jumps to the first uncounted row
+  // (AC-6; admin has NO submit gate, so the jump is a scroll/focus affordance).
+  const restoreDraftToForm = React.useCallback(
+    (payload: Record<string, unknown>, savedAt: string) => {
+      const filtered = applyDraftStaleFilter(payload, liveItemIds);
+      const form = deserializeAdminInventoryDraft(filtered);
+      setKind(form.kind);
+      // Keep the restored counted-at only when present; else leave the current
+      // "now" seed so a draft saved before the datetime was touched still shows
+      // a sensible value.
+      if (form.countedAtLocal) setCountedAtLocal(form.countedAtLocal);
+      setNotes(form.notes);
+      setCaseCounts(form.caseCounts);
+      setUnitCounts(form.unitCounts);
+      setItemNotes(form.itemNotes);
+      setDraftSavedAt(savedAt);
+      jumpToFirstUncounted(form.caseCounts, form.unitCounts);
+    },
+    [liveItemIds, jumpToFirstUncounted],
+  );
+
+  // Draft-load effect — parallel to the spec-103 fetchCountOrder effect (a
+  // separate table + a distinct failure degrade, so NOT folded in). On open:
+  // read the device-local copy, fetch the server copy when online, reconcile
+  // (whole-draft last-write-wins), run the resulting sync action, and restore
+  // from the winner. A failed server fetch degrades to "no draft" (best-effort;
+  // a fetch error must not block the count — AC-5).
+  React.useEffect(() => {
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') {
+      setDraftSavedAt(null);
+      return;
+    }
+    // Restore-once guard (SF-1): the form RESTORE may fire exactly once per
+    // (user, store) slot. `mayRestore` is true only when this slot hasn't been
+    // restored yet; a slot change re-arms it, an `isOnline` re-run (socket blip)
+    // does not — so a reconnect can't clobber keystrokes typed since the last
+    // Save. We consume the once-restore (set the ref) after the first pass's
+    // restore decision, whether or not a draft was found.
+    const slot = `${uid}:${storeId}`;
+    const mayRestore = restoredSlotRef.current !== slot;
+    let cancelled = false;
+    (async () => {
+      const local = readLocalCountDraft(uid, 'admin-inventory', storeId);
+      let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
+      if (isOnline) {
+        try {
+          server = await fetchCountDraft(uid, 'admin-inventory', storeId);
+        } catch (e: any) {
+          console.warn('[InventoryCount] fetchCountDraft failed:', e?.message || e);
+          server = null;
+        }
+      }
+      if (cancelled) return;
+      const { winner, restoreFrom, action } = reconcileDrafts(local, server);
+      // Run the reconcile sync action (best-effort; failures are non-fatal — the
+      // local copy simply stays until the next reconcile retries). This always
+      // runs (it only touches storage) — only the form RESTORE below is guarded.
+      if (action === 'push' && winner) {
+        saveCountDraft(uid, 'admin-inventory', storeId, winner.payload, winner.savedAt)
+          .then(() => {
+            writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+              payload: winner.payload,
+              savedAt: winner.savedAt,
+              unsynced: false,
+            });
+          })
+          .catch((e: any) => {
+            console.warn('[InventoryCount] draft push failed:', e?.message || e);
+          });
+      } else if (action === 'adopt-clear-local') {
+        clearLocalCountDraft(uid, 'admin-inventory', storeId);
+      } else if (action === 'clear-local-flag' && winner) {
+        writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+          payload: winner.payload,
+          savedAt: winner.savedAt,
+          unsynced: false,
+        });
+      }
+      // Only APPLY the winner to the form on the first pass for this slot — a
+      // later `isOnline` flip re-runs the effect but must not re-restore over
+      // in-progress typing (SF-1). The reconnect effect keeps the storage synced.
+      if (mayRestore) {
+        restoredSlotRef.current = slot; // consume the once-restore for this slot
+        if (winner && restoreFrom !== 'none') {
+          restoreDraftToForm(winner.payload, winner.savedAt);
+        } else {
+          setDraftSavedAt(null); // fresh form — no draft for this slot
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // restoreDraftToForm depends on liveItemIds; intentionally omitted so a live
+    // inventory nudge doesn't re-run the whole reconcile (it would re-apply and
+    // clobber in-progress edits). The initial restore captures the item set at
+    // open; a stale id that only appears later is a non-issue for a fresh open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, storeId, isOnline]);
+
+  // Reconnect draft-sync — on a connectivity false→true flip, reconcile the
+  // local+server copies and push a newer unsynced local up WITHOUT clobbering
+  // in-progress edits (only the storage + the banner's saved-at are touched;
+  // the form is left as the user has it — design §9). Admin native stays
+  // optimistic-online so this is effectively web-only.
+  React.useEffect(() => {
+    const was = wasOnlineRef.current;
+    wasOnlineRef.current = isOnline;
+    if (was || !isOnline) return; // only act on a false→true flip
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') return;
+    const local = readLocalCountDraft(uid, 'admin-inventory', storeId);
+    if (!local) return;
+    let cancelled = false;
+    (async () => {
+      let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
+      try {
+        server = await fetchCountDraft(uid, 'admin-inventory', storeId);
+      } catch (e: any) {
+        console.warn('[InventoryCount] reconnect fetchCountDraft failed:', e?.message || e);
+        return;
+      }
+      if (cancelled) return;
+      const { winner, action } = reconcileDrafts(local, server);
+      if (action === 'push' && winner) {
+        try {
+          await saveCountDraft(uid, 'admin-inventory', storeId, winner.payload, winner.savedAt);
+          if (cancelled) return;
+          writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+            payload: winner.payload,
+            savedAt: winner.savedAt,
+            unsynced: false,
+          });
+          setDraftSavedAt((prev) => prev ?? winner.savedAt);
+        } catch (e: any) {
+          console.warn('[InventoryCount] reconnect draft push failed:', e?.message || e);
+        }
+      } else if (action === 'adopt-clear-local') {
+        clearLocalCountDraft(uid, 'admin-inventory', storeId);
+      } else if (action === 'clear-local-flag' && winner) {
+        writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+          payload: winner.payload,
+          savedAt: winner.savedAt,
+          unsynced: false,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, currentUser?.id, storeId]);
+
+  // First-uncounted focus effect (AC-6). When a restore sets `pendingFocusId`,
+  // focus that row's primary input once it is in the rendered list. The admin
+  // list is a plain ScrollView with every row mounted (no windowing), so a DOM
+  // focus() on web scrolls the target into view; on native focus() is a
+  // best-effort no-op. Re-runs when the visible order changes so a target hidden
+  // behind a search resolves once the filter clears.
+  React.useEffect(() => {
+    if (!pendingFocusId) return;
+    // Only act once the target is actually rendered (a searched-out target waits
+    // for the search-clear re-render).
+    const isVisible =
+      viewMode === 'custom'
+        ? customVisibleItems.some((it) => it.id === pendingFocusId)
+        : filteredItems.some((it) => it.id === pendingFocusId);
+    if (!isVisible) return;
+    let cancelled = false;
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        firstInputRefs.current[pendingFocusId]?.focus?.();
+        setPendingFocusId(null);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [pendingFocusId, filteredItems, customVisibleItems, viewMode]);
+
+  // Save the current form as a draft. UNGATED — a draft may be partial (AC-1);
+  // the count-everything gate applies only to Submit. Mints `savedAt` ONCE at
+  // press so the same stamp lands on both the server row and the local copy
+  // (design §9).
+  //
+  // SERVER-FIRST with LOCAL-FALLBACK-ON-ERROR — the Save path does NOT consult a
+  // connectivity oracle (the admin `useConnectionStatus` tracks the realtime
+  // SOCKET, which false-flips on websocket blips while genuinely online, and is
+  // hardcoded true on admin native — either way the wrong gate for a write).
+  // Instead: always ATTEMPT the server write; on a network-type failure, write
+  // the device-local unsynced copy + show the offline toast (this IS the AC-14
+  // observable). Success → mirror local synced + "Draft saved" (AC-13). The
+  // socket hook remains only the reconnect-sync TRIGGER (below), where the
+  // screen-open reconcile + push-on-reconnect make the eventual sync idempotent.
+  const onSaveDraft = React.useCallback(async () => {
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') {
+      Toast.show({ type: 'error', text1: 'Select a store first' });
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const payload = serializeAdminInventoryDraft({
+      kind,
+      countedAtLocal,
+      notes,
+      caseCounts,
+      unitCounts,
+      itemNotes,
+    });
+    setSavingDraft(true);
+    try {
+      // Server-first: attempt the source-of-truth write, then mirror the local
+      // copy as synced so the two do not diverge.
+      await saveCountDraft(uid, 'admin-inventory', storeId, payload, savedAt);
+      writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+        payload,
+        savedAt,
+        unsynced: false,
+      });
+      setDraftSavedAt(savedAt);
+      Toast.show({ type: 'success', text1: T('section.countDraft.saved') });
+    } catch (e: any) {
+      // The server write failed (offline / network error) — fall back to a
+      // device-local unsynced copy so the work is NOT lost, and surface the
+      // offline toast (AC-14). No error toast: the save succeeded locally and
+      // the reconnect-sync / next screen-open reconcile pushes it up (idempotent
+      // by the shared savedAt stamp, design §11).
+      console.warn('[InventoryCount] saveCountDraft failed; local fallback:', e?.message || e);
+      writeLocalCountDraft(uid, 'admin-inventory', storeId, {
+        payload,
+        savedAt,
+        unsynced: true,
+      });
+      setDraftSavedAt(savedAt);
+      Toast.show({ type: 'info', text1: T('section.countDraft.savedLocal') });
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [currentUser?.id, storeId, kind, countedAtLocal, notes, caseCounts, unitCounts, itemNotes, T]);
+
+  // Discard the restored draft (AC-7) — delete BOTH the server row and the
+  // device-local copy, then clear the form back to a fresh state. Confirmed via
+  // the cross-platform confirm util.
+  const onDiscardDraft = React.useCallback(() => {
+    const uid = currentUser?.id;
+    if (!uid || !storeId || storeId === '__all__') return;
+    confirmAction(
+      T('section.countDraft.discardConfirmTitle'),
+      T('section.countDraft.discardConfirmBody'),
+      () => {
+        // Server-first: attempt the server-row delete and only proceed if it
+        // succeeds. A silent proceed-on-failure would drop the local copy + the
+        // banner while the server row survives — the next screen-open reconcile
+        // would then RESURRECT the "discarded" draft (code-reviewer). On failure
+        // we keep the banner + values and toast so the discard isn't a silent
+        // no-op the user can't see.
+        (async () => {
+          try {
+            await deleteCountDraft(uid, 'admin-inventory', storeId);
+          } catch (e: any) {
+            console.warn('[InventoryCount] deleteCountDraft failed:', e?.message || e);
+            Toast.show({
+              type: 'error',
+              text1: T('section.countDraft.discardFailed'),
+            });
+            return; // keep the draft (banner + values) — nothing was deleted
+          }
+          // Server delete succeeded → clear the device-local copy + the form
+          // back to fresh (mirrors the successful-submit clear).
+          clearLocalCountDraft(uid, 'admin-inventory', storeId);
+          setCaseCounts({});
+          setUnitCounts({});
+          setItemNotes({});
+          setNotes('');
+          setCountedAtLocal(localNowForInput());
+          setKind('spot');
+          setDraftSavedAt(null);
+        })();
+      },
+      T('section.countDraft.discard'),
+    );
+  }, [currentUser?.id, storeId, T]);
+
   // Spec 105 — the store's CURRENT inventory rows the par join reads, keyed by
   // item id (OQ-1: current par, client-side, no fetch). Reused by DetailFrame
   // for the ✓/red comparison AND here to build the below-par on-hand map for
@@ -520,6 +895,20 @@ export default function InventoryCountSection() {
       setItemNotes({});
       setNotes('');
       setCountedAtLocal(localNowForInput());
+      // Spec 106 (AC-8) — a completed count deletes its resumable draft (server
+      // row + device-local copy) so reopening the screen shows a fresh form with
+      // no stale banner. Best-effort: a delete failure only leaves a dangling
+      // draft the next reconcile can still clear; it must not block the submit
+      // success UX. The `conflict` replay path also lands here — the count is
+      // recorded, so its draft is equally done.
+      const uid = currentUser?.id;
+      if (uid) {
+        clearLocalCountDraft(uid, 'admin-inventory', storeId);
+        deleteCountDraft(uid, 'admin-inventory', storeId).catch((e: any) => {
+          console.warn('[InventoryCount] delete-on-submit failed:', e?.message || e);
+        });
+      }
+      setDraftSavedAt(null);
       // Bump tick so the recent-counts list refreshes immediately even
       // before the realtime nudge arrives.
       setRefreshTick((t) => t + 1);
@@ -570,6 +959,7 @@ export default function InventoryCountSection() {
         </View>
         <View style={{ width: cellW, alignItems: 'center' }}>
           <TextInput
+            ref={hasCase ? (r) => { firstInputRefs.current[it.id] = r; } : undefined}
             value={hasCase ? cVal : ''}
             editable={hasCase}
             onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
@@ -597,6 +987,7 @@ export default function InventoryCountSection() {
         </View>
         <View style={{ width: cellW, alignItems: 'center' }}>
           <TextInput
+            ref={!hasCase ? (r) => { firstInputRefs.current[it.id] = r; } : undefined}
             value={uVal}
             onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
             placeholder="0"
@@ -696,6 +1087,34 @@ export default function InventoryCountSection() {
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
                 {nonBlankCount}/{totalItems} entered
               </Text>
+              {/* Spec 106 — Save draft. UNGATED by the non-blank count (a draft
+                  may be partial, AC-1); guarded only by the store selection +
+                  an in-flight save. Ghost/outlined style to distinguish it from
+                  the filled accent Submit. */}
+              <TouchableOpacity
+                testID="inv-save-draft"
+                onPress={onSaveDraft}
+                disabled={savingDraft || isAllOrEmpty}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.countDraft.save')}
+                style={{
+                  paddingVertical: 4,
+                  paddingHorizontal: 10,
+                  borderWidth: 1,
+                  borderColor: C.borderStrong,
+                  borderRadius: CmdRadius.sm,
+                  opacity: savingDraft || isAllOrEmpty ? 0.5 : 1,
+                  ...(Platform.OS === 'web' && (savingDraft || isAllOrEmpty)
+                    ? ({ pointerEvents: 'none' } as any)
+                    : {}),
+                }}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2 }}>
+                  {savingDraft
+                    ? T('section.countDraft.saving').toUpperCase()
+                    : T('section.countDraft.save').toUpperCase()}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={onSubmit}
                 disabled={submitting || nonBlankCount === 0 || hasNegative}
@@ -771,6 +1190,48 @@ export default function InventoryCountSection() {
                 Advisory snapshot — this count does NOT affect live stock until the next EOD.
               </Text>
             </View>
+            {/* Spec 106 — restored-draft banner + Discard. Non-blocking; shown
+                only when a draft was auto-restored on open. relativeTime gives
+                the saved-at staleness signal (AC-6). Discard deletes the server
+                row + the device-local copy and clears the form (AC-7). */}
+            {draftSavedAt ? (
+              <View
+                testID="inv-draft-banner"
+                accessibilityRole="alert"
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 10,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: CmdRadius.md,
+                  borderWidth: 1,
+                  borderColor: C.accent,
+                  backgroundColor: C.accentBg,
+                }}
+              >
+                <Text style={{ flex: 1, fontFamily: mono(500), fontSize: 11.5, color: C.accent }}>
+                  {T('section.countDraft.restored', { time: relativeTime(draftSavedAt) })}
+                </Text>
+                <TouchableOpacity
+                  testID="inv-draft-discard"
+                  onPress={onDiscardDraft}
+                  accessibilityRole="button"
+                  accessibilityLabel={T('section.countDraft.discard')}
+                  style={{
+                    paddingVertical: 3,
+                    paddingHorizontal: 8,
+                    borderWidth: 1,
+                    borderColor: C.accent,
+                    borderRadius: CmdRadius.sm,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accent }}>
+                    {T('section.countDraft.discard').toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             {/* Kind segmented control */}
             <View
               style={{

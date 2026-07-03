@@ -36,6 +36,17 @@ let mockRpcResult: QueryResult = { data: null, error: null };
 // returns this; default no-row so existing tests open in default view. The
 // upsert/delete (save/reset) just resolve OK.
 let mockCountOrderResult: QueryResult = { data: null, error: null };
+// Spec 106 — the per-user resumable draft (user_count_drafts). `.maybeSingle()`
+// returns this; default no-row so existing tests see no draft. The upsert/delete
+// (save/discard/delete-on-submit) are captured so the tests can assert them.
+let mockDraftResult: QueryResult = { data: null, error: null };
+// Bare jest.fn() (permissive jest.Mock<any, any> signature) so the
+// `draftUpsert(...args)` spread below type-checks under tsconfig.test.json — a
+// `jest.fn(() => Promise.resolve(...))` inline impl infers a ZERO-arg call
+// signature that rejects the spread (TS2556). The builder returns its own
+// resolved value; these spies exist only to capture the call + args.
+const draftUpsert = jest.fn();
+const draftDelete = jest.fn();
 
 function mockQueryBuilder(table: string) {
   if (table === 'user_count_orders') {
@@ -47,6 +58,30 @@ function mockQueryBuilder(table: string) {
       delete: () => builder,
       maybeSingle: () => Promise.resolve(mockCountOrderResult),
       // delete() is awaited directly — make the builder thenable too.
+      then: (resolve: (v: QueryResult) => unknown) => resolve({ data: null, error: null }),
+    };
+    return builder;
+  }
+  if (table === 'user_count_drafts') {
+    // Staff carve-out I/O shapes (src/screens/staff/lib/countDrafts.ts):
+    //   save   → `.upsert(...)` awaited DIRECTLY (no abortSignal — that's the
+    //            admin db.ts path).
+    //   delete → `.delete().eq().eq().eq()` awaited directly.
+    //   read   → `.select().eq().eq().eq().maybeSingle()`.
+    // Make the builder thenable so the awaited delete-chain resolves ok.
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      eq: () => builder,
+      upsert: (...args: unknown[]) => {
+        draftUpsert(...args);
+        return Promise.resolve({ data: null, error: null });
+      },
+      delete: () => {
+        draftDelete();
+        return builder;
+      },
+      maybeSingle: () => Promise.resolve(mockDraftResult),
+      // delete() is awaited after the .eq() chain — make the builder thenable.
       then: (resolve: (v: QueryResult) => unknown) => resolve({ data: null, error: null }),
     };
     return builder;
@@ -63,6 +98,31 @@ function mockQueryBuilder(table: string) {
   return builder;
 }
 
+// Spec 106 — a controllable online/offline signal for the Save branch + the
+// sync-on-reconnect effect. `setMockOnline(false)` before render simulates an
+// offline device.
+let mockOnline = true;
+const setMockOnline = (v: boolean) => {
+  mockOnline = v;
+};
+jest.mock('../hooks/useConnectionStatus', () => ({
+  useConnectionStatus: () => mockOnline,
+}));
+
+// Spec 106 — the Discard flow gates on the cross-platform confirm util, which
+// routes to Alert.alert on native (Platform.OS is 'ios' in the jest-expo
+// jsdom env). Auto-confirm it so the test exercises the post-confirm delete +
+// clear behavior deterministically (the confirm-routing itself is covered by
+// confirmAction's own contract, not re-tested here). `mockConfirm` lets a test
+// assert the confirm was invoked with the draft-discard copy.
+const mockConfirm = jest.fn(
+  (_title: string, _message: string, onConfirm: () => void) => onConfirm(),
+);
+jest.mock('../../../utils/confirmAction', () => ({
+  confirmAction: (...args: unknown[]) =>
+    (mockConfirm as unknown as (...a: unknown[]) => void)(...args),
+}));
+
 jest.mock('../../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => mockQueryBuilder(table),
@@ -73,6 +133,17 @@ jest.mock('../../../lib/supabase', () => ({
 
 import { WeeklyCount } from './WeeklyCount';
 import { useStaffStore } from '../store/useStaffStore';
+// Spec 106 — the staff device-local draft trio (AsyncStorage-backed; the global
+// jest.setup in-memory AsyncStorage mock makes these real reads/writes). Used to
+// seed a local draft before render and to assert the offline-save + reconnect
+// sync wrote/cleared the slot.
+import {
+  readLocalStaffDraft,
+  writeLocalStaffDraft,
+  staffCountDraftKey,
+  serializeWeeklyDraft,
+} from '../lib/countDrafts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function seedSignedIn() {
   useStaffStore.setState({
@@ -86,12 +157,16 @@ function seedSignedIn() {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
   mockItemsResult = { data: [], error: null };
   mockCategoriesResult = { data: [], error: null };
   mockRpcResult = { data: null, error: null };
   mockCountOrderResult = { data: null, error: null };
+  // Spec 106 — reset the draft server-mock + the online signal + the local KV.
+  mockDraftResult = { data: null, error: null };
+  setMockOnline(true);
+  await AsyncStorage.clear();
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
   seedSignedIn();
@@ -476,5 +551,241 @@ describe('WeeklyCount — spec 103 custom order', () => {
     );
     // Category header returns in default view.
     expect(getByTestId('weekly-category-header-Produce')).toBeTruthy();
+  });
+});
+
+// ─── Spec 106 — save-draft + resume ──────────────────────────────────
+describe('WeeklyCount — spec 106 save-draft + resume', () => {
+  function oneItem() {
+    // A single dual-input item (case_qty > 1) so both cases + units render.
+    mockItemsResult = {
+      data: [{ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 12 } }],
+      error: null,
+    };
+  }
+
+  it('AC-5/AC-6/AC-16: restores the SERVER draft (newer saved_at) into the inputs and shows the banner', async () => {
+    oneItem();
+    // Server draft is newer than any local (none here). saved_at ~2 min ago.
+    const serverSavedAt = new Date(Date.now() - 2 * 60_000).toISOString();
+    mockDraftResult = {
+      data: {
+        payload: serializeWeeklyDraft({ caseCounts: { 'item-1': '2' }, unitCounts: { 'item-1': '5' } }),
+        saved_at: serverSavedAt,
+      },
+      error: null,
+    };
+    const { getByTestId } = render(<WeeklyCount />);
+    // The restored banner renders…
+    await waitFor(() => expect(getByTestId('weekly-draft-banner')).toBeTruthy());
+    // …and the typed values are restored VERBATIM into the two inputs.
+    await waitFor(() => expect(getByTestId('weekly-item-cases-item-1').props.value).toBe('2'));
+    expect(getByTestId('weekly-item-units-item-1').props.value).toBe('5');
+    // A Discard affordance is present when a draft is restored (AC-7).
+    expect(getByTestId('weekly-draft-discard')).toBeTruthy();
+  });
+
+  it('AC-15/AC-16: restores the LOCAL draft when its saved_at is NEWER than the server (and pushes it up)', async () => {
+    oneItem();
+    const storeId = 'store-1';
+    // Local draft newer (now); server draft older (10 min ago).
+    const localSavedAt = new Date().toISOString();
+    const serverSavedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    await writeLocalStaffDraft('user-1', 'staff-weekly', storeId, {
+      payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '9' } }),
+      savedAt: localSavedAt,
+      unsynced: true,
+    });
+    mockDraftResult = {
+      data: {
+        payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '3' } }),
+        saved_at: serverSavedAt,
+      },
+      error: null,
+    };
+    const { getByTestId } = render(<WeeklyCount />);
+    // The NEWER local value wins the restore.
+    await waitFor(() => expect(getByTestId('weekly-item-units-item-1').props.value).toBe('9'));
+    // reconcile action was 'push' → the local draft was upserted to the server…
+    await waitFor(() => expect(draftUpsert).toHaveBeenCalled());
+    // …and its local unsynced flag was cleared.
+    await waitFor(async () => {
+      const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+      expect(rec?.unsynced).toBe(false);
+    });
+  });
+
+  it('AC-11: a stale item id in a restored draft is ignored (never crashes; only live ids restore)', async () => {
+    oneItem(); // only item-1 is live
+    mockDraftResult = {
+      data: {
+        payload: serializeWeeklyDraft({
+          caseCounts: {},
+          // item-ghost was deleted since the draft was saved → must be dropped.
+          unitCounts: { 'item-1': '7', 'item-ghost': '99' },
+        }),
+        saved_at: new Date().toISOString(),
+      },
+      error: null,
+    };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-units-item-1').props.value).toBe('7'));
+    // The stale id never rendered a row (it isn't a live item) and the screen
+    // did not crash — the live value restored fine.
+    expect(queryByTestId('weekly-item-row-item-ghost')).toBeNull();
+  });
+
+  it('AC-7: Discard deletes the server row + the local copy and clears the form', async () => {
+    // confirmAction is mocked to auto-confirm (see top of file).
+    oneItem();
+    const storeId = 'store-1';
+    // Seed a local copy too so we can prove BOTH sides are cleared.
+    await writeLocalStaffDraft('user-1', 'staff-weekly', storeId, {
+      payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '4' } }),
+      savedAt: new Date().toISOString(),
+      unsynced: false,
+    });
+    mockDraftResult = {
+      data: {
+        payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '4' } }),
+        saved_at: new Date().toISOString(),
+      },
+      error: null,
+    };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-draft-banner')).toBeTruthy());
+    expect(getByTestId('weekly-item-units-item-1').props.value).toBe('4');
+    fireEvent.press(getByTestId('weekly-draft-discard'));
+    // Server delete fired…
+    await waitFor(() => expect(draftDelete).toHaveBeenCalled());
+    // …the local copy is gone…
+    await waitFor(async () => {
+      const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+      expect(rec).toBeNull();
+    });
+    // …the banner is dismissed and the input cleared back to fresh.
+    await waitFor(() => expect(queryByTestId('weekly-draft-banner')).toBeNull());
+    expect(getByTestId('weekly-item-units-item-1').props.value).toBe('');
+    // The confirm was invoked before any delete side-effect.
+    expect(mockConfirm).toHaveBeenCalled();
+  });
+
+  it('AC-8: a successful Submit deletes the draft (server + local) — no stale banner on reopen', async () => {
+    const mockSubmit = jest.fn().mockResolvedValue({ count_id: 'c-1', conflict: false, entry_ids: ['e-1'] });
+    useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
+    oneItem();
+    const storeId = 'store-1';
+    await writeLocalStaffDraft('user-1', 'staff-weekly', storeId, {
+      payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '6' } }),
+      savedAt: new Date().toISOString(),
+      unsynced: false,
+    });
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // Fill the single item so the count-everything gate lifts, then submit.
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '6');
+    fireEvent.press(getByTestId('weekly-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // The draft is deleted on submit success — server delete fired…
+    await waitFor(() => expect(draftDelete).toHaveBeenCalled());
+    // …and the local copy is cleared.
+    await waitFor(async () => {
+      const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+      expect(rec).toBeNull();
+    });
+  });
+
+  it('AC-14: offline Save writes an UNSYNCED local copy + the "saved on this device" toast (no server write)', async () => {
+    setMockOnline(false);
+    oneItem();
+    const storeId = 'store-1';
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '8');
+    fireEvent.press(getByTestId('weekly-save-draft'));
+    // The offline toast (not the plain "Draft saved") is shown.
+    await waitFor(() => {
+      const call = (Toast.show as jest.Mock).mock.calls.find(
+        (c) => c[0]?.text1 === 'Saved on this device — will sync when online',
+      );
+      expect(call).toBeTruthy();
+    });
+    // A device-local UNSYNCED copy was written; the server was NOT touched.
+    const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+    expect(rec?.unsynced).toBe(true);
+    expect(rec?.payload).toMatchObject({ unitCounts: { 'item-1': '8' } });
+    expect(draftUpsert).not.toHaveBeenCalled();
+  });
+
+  it('AC-9: pressing Save calls ONLY the draft helper — Submit is never invoked (no history row)', async () => {
+    // AC-9: a draft is purely resumable state — Save must NOT route through
+    // submitWeeklyCount (the only path that writes the weekly-count history row).
+    const mockSubmit = jest.fn().mockResolvedValue({ count_id: 'c-1', conflict: false, entry_ids: ['e-1'] });
+    useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
+    oneItem();
+    const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // Partially fill (Save is ungated) and press Save — NOT Submit.
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '3');
+    fireEvent.press(getByTestId('weekly-save-draft'));
+    // The draft upsert fired (online default)…
+    await waitFor(() => expect(draftUpsert).toHaveBeenCalled());
+    // …and Submit was NOT — Save and Submit are independent affordances.
+    expect(mockSubmit).not.toHaveBeenCalled();
+  });
+
+  it('AC-17: a fresh mount (new device, empty local slot) restores the server draft the first device saved', async () => {
+    // Cross-device visibility (AC-17): the server is the source of truth once
+    // synced. This "second device" starts with an EMPTY AsyncStorage slot
+    // (cleared in beforeEach) and the server fetch returns the row the first
+    // device saved — the fresh mount must fetch + restore it. (The DB owner-read
+    // layer that makes this the SAME user's row across sessions is covered by the
+    // pgTAP owner-scoped RLS suite; here we prove the client restores a
+    // server-only draft on a device with no local copy.)
+    oneItem();
+    const storeId = 'store-1';
+    // Assert this device truly has no local draft before render.
+    expect(await readLocalStaffDraft('user-1', 'staff-weekly', storeId)).toBeNull();
+    const serverSavedAt = new Date(Date.now() - 60_000).toISOString();
+    mockDraftResult = {
+      data: {
+        payload: serializeWeeklyDraft({ caseCounts: {}, unitCounts: { 'item-1': '42' } }),
+        saved_at: serverSavedAt,
+      },
+      error: null,
+    };
+    const { getByTestId } = render(<WeeklyCount />);
+    // The server draft restores on the fresh device…
+    await waitFor(() => expect(getByTestId('weekly-item-units-item-1').props.value).toBe('42'));
+    // …with the restored banner.
+    expect(getByTestId('weekly-draft-banner')).toBeTruthy();
+  });
+
+  it('AC-15: on reconnect (offline→online flip), a newer unsynced local draft is pushed up to the server', async () => {
+    setMockOnline(false);
+    oneItem();
+    const storeId = 'store-1';
+    const { getByTestId, rerender } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // Save offline → unsynced local copy, no server write yet.
+    fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '5');
+    fireEvent.press(getByTestId('weekly-save-draft'));
+    await waitFor(async () => {
+      const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+      expect(rec?.unsynced).toBe(true);
+    });
+    expect(draftUpsert).not.toHaveBeenCalled();
+    // No server draft exists → the lone unsynced local is the push winner.
+    mockDraftResult = { data: null, error: null };
+    // Flip online + re-render so the reconnect effect (wasOnlineRef false→true)
+    // fires.
+    setMockOnline(true);
+    rerender(<WeeklyCount />);
+    // The local draft is pushed up to the server and its flag cleared.
+    await waitFor(() => expect(draftUpsert).toHaveBeenCalled());
+    await waitFor(async () => {
+      const rec = await readLocalStaffDraft('user-1', 'staff-weekly', storeId);
+      expect(rec?.unsynced).toBe(false);
+    });
   });
 });

@@ -183,6 +183,18 @@
       "saveFailedDetail": "请检查网络连接后重试",
       "resetFailed": "无法重置顺序"
     },
+    "countDraft": {
+      "save": "保存草稿",
+      "saving": "保存中…",
+      "saved": "草稿已保存",
+      "savedLocal": "已保存到本设备 — 联网后将同步",
+      "restored": "草稿已恢复（{time}前保存）",
+      "discard": "放弃草稿",
+      "discardConfirmTitle": "放弃草稿？",
+      "discardConfirmBody": "这将清除此盘点已保存的数值。此操作无法撤销。",
+      "discardFailed": "无法放弃草稿 — 请重试",
+      "saveFailed": "无法保存草稿"
+    },
     "dashboard": {
       "title": "仪表板",
       "attention": "需关注",

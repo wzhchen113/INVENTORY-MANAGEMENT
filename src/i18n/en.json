@@ -183,6 +183,18 @@
       "saveFailedDetail": "Check connection and try again",
       "resetFailed": "Could not reset order"
     },
+    "countDraft": {
+      "save": "Save draft",
+      "saving": "Saving…",
+      "saved": "Draft saved",
+      "savedLocal": "Saved on this device — will sync when online",
+      "restored": "Draft restored (saved {time} ago)",
+      "discard": "Discard draft",
+      "discardConfirmTitle": "Discard draft?",
+      "discardConfirmBody": "This clears the saved values for this count. This cannot be undone.",
+      "discardFailed": "Could not discard draft — try again",
+      "saveFailed": "Could not save draft"
+    },
     "dashboard": {
       "title": "Dashboard",
       "attention": "Attention",

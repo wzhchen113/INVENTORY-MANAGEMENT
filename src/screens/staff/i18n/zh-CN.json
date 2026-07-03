@@ -252,6 +252,17 @@
     },
     "error": {
       "forbidden": "无法为此门店提交 — 你的权限已变更。请退出后重新登录。"
+    },
+    "draft": {
+      "save": "保存草稿",
+      "saved": "草稿已保存",
+      "savedLocal": "已保存到本设备 — 联网后将同步",
+      "restored": "草稿已恢复（{time}前保存）",
+      "discard": "放弃草稿",
+      "discardConfirmTitle": "放弃草稿？",
+      "discardConfirmBody": "这将清除此盘点已保存的数值。此操作无法撤销。",
+      "saveFailed": "无法保存草稿 — 请重试",
+      "discardFailed": "无法放弃草稿 — 请重试"
     }
   },
   "chrome": {

@@ -46,6 +46,25 @@ import {
   saveCountOrder,
   resetCountOrder,
 } from '../lib/countOrder';
+// Spec 106 — save-draft + resume (staff carve-out). Server I/O authored against
+// supabase.from('user_count_drafts') directly + an AsyncStorage device-local
+// trio; the pure reconcile/(de)serialize/stale-filter helpers are re-exported
+// from the shared src/lib/countDrafts module (single-sourced with the admin path).
+import {
+  fetchCountDraft,
+  saveCountDraft,
+  deleteCountDraft,
+  readLocalStaffDraft,
+  writeLocalStaffDraft,
+  clearLocalStaffDraft,
+  reconcileDrafts,
+  applyDraftStaleFilter,
+  serializeWeeklyDraft,
+  deserializeWeeklyDraft,
+} from '../lib/countDrafts';
+import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { confirmAction } from '../../../utils/confirmAction';
+import { relativeTime } from '../../../utils/relativeTime';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
@@ -223,6 +242,27 @@ export function WeeklyCount() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
   const [completedFor, setCompletedFor] = useState<string | null>(null);
+  // Spec 106 — save-draft + resume. `draftSavedAt` (ISO of the restored draft's
+  // client-stamped saved_at) drives the restored-draft banner; null = no banner.
+  // `savingDraft` guards the Save button while a save is in flight. The draft
+  // form state itself reuses the existing caseCounts/unitCounts maps (design
+  // §14: draft state stays in the screen's local state).
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState<boolean>(false);
+  // Connection signal for the Save online/offline branch + the sync-on-reconnect
+  // effect (design §7/§9). The staff hook listens to the window 'online'/'offline'
+  // event (a genuine connectivity signal), so the offline-gated Save is correct
+  // here. `wasOnlineRef` mirrors the useEodSubmit Effect-1 shape (push a newer
+  // unsynced local draft on a false→true flip).
+  const isOnline = useConnectionStatus();
+  const wasOnlineRef = useRef<boolean>(isOnline);
+  // Restore-once guard (architect SF-1). The draft-load effect re-keys on
+  // `isOnline`, so a connectivity flip re-runs it — but the form RESTORE must
+  // fire at most once per (user, store) slot so a reconnect never clobbers
+  // keystrokes typed since the last Save. This ref holds the slot key already
+  // restored; the reconnect effect owns all post-first-restore sync (storage +
+  // banner only, never the form). A slot change re-arms the restore.
+  const restoredSlotRef = useRef<string | null>(null);
 
   // Recompute when `t` (locale) changes so the header date re-translates.
   const todayLabel = useMemo(() => todayHeaderLabel(t), [t]);
@@ -319,6 +359,276 @@ export function WeeklyCount() {
       notifyBackendError('resetCountOrder', err);
     });
   }, [userId, savedIds]);
+
+  // ─── Spec 106: save-draft + resume ─────────────────────────────────
+  // The live item-id set for the active store — drives applyDraftStaleFilter on
+  // restore (an id deleted since the draft was saved is dropped, AC-11).
+  const liveItemIds = useMemo(() => new Set(items.map((i) => i.id)), [items]);
+
+  // Jump to the first uncounted row after a restore (reuses the gate's jump
+  // machinery). Order follows the on-screen order: custom order in Custom view,
+  // category+name in default view (matching onSubmitPress).
+  const jumpToFirstUncounted = useCallback(
+    (nextCase: Record<string, string>, nextUnit: Record<string, string>) => {
+      const isBlank = (it: WeeklyItem) =>
+        (nextCase[it.id] ?? '').trim() === '' && (nextUnit[it.id] ?? '').trim() === '';
+      const ordered =
+        viewMode === 'custom'
+          ? applyCountOrder(items, savedIds, (i) => i.id)
+          : [...items].sort(
+              (a, b) =>
+                (a.category || '').localeCompare(b.category || '') ||
+                a.name.localeCompare(b.name),
+            );
+      const target = firstUncounted(ordered, (it) => !isBlank(it));
+      if (target) setPendingFocusId(target.id);
+    },
+    [items, viewMode, savedIds],
+  );
+
+  // Restore a reconciled draft payload into the form. Stale-filters against the
+  // current live items (AC-11), deserializes (verbatim strings, AC-5), sets the
+  // case/unit maps, shows the restored banner, and jumps to the first uncounted
+  // row (reuse firstUncounted).
+  const restoreDraftToForm = useCallback(
+    (payload: Record<string, unknown>, savedAt: string) => {
+      const filtered = applyDraftStaleFilter(payload, liveItemIds);
+      const form = deserializeWeeklyDraft(filtered);
+      setCaseCounts(form.caseCounts);
+      setUnitCounts(form.unitCounts);
+      setDraftSavedAt(savedAt);
+      jumpToFirstUncounted(form.caseCounts, form.unitCounts);
+    },
+    [liveItemIds, jumpToFirstUncounted],
+  );
+
+  // Draft-load effect — parallel to the spec-103 fetchCountOrder effect (a
+  // separate table + distinct failure degrade, so NOT folded in). Runs once the
+  // items have loaded (so the stale-filter has the live id set). On open: read
+  // the AsyncStorage copy, fetch the server copy when online, reconcile
+  // (whole-draft last-write-wins), run the sync action, restore from the winner.
+  // A failed server fetch degrades to "no draft" (best-effort; AC-5).
+  useEffect(() => {
+    if (!userId || !activeStore || loading) return;
+    const storeId = activeStore.id;
+    // Restore-once guard (SF-1): the form RESTORE may fire exactly once per
+    // (user, store) slot. `mayRestore` is true only when this slot hasn't been
+    // restored yet; a slot change re-arms it, an `isOnline`/`loading` re-run does
+    // not — so a reconnect can't clobber keystrokes typed since the last Save.
+    // The reconcile sync action below always runs (it only touches storage).
+    const slot = `${userId}:${storeId}`;
+    const mayRestore = restoredSlotRef.current !== slot;
+    let cancelled = false;
+    (async () => {
+      const local = await readLocalStaffDraft(userId, 'staff-weekly', storeId);
+      let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
+      if (isOnline) {
+        try {
+          server = await fetchCountDraft(userId, 'staff-weekly', storeId);
+        } catch (err) {
+          notifyBackendError('fetchCountDraft', err);
+          server = null;
+        }
+      }
+      if (cancelled) return;
+      const { winner, restoreFrom, action } = reconcileDrafts(local, server);
+      // Run the reconcile sync action (best-effort — a failure leaves the local
+      // copy until the next reconcile retries).
+      if (action === 'push' && winner) {
+        try {
+          await saveCountDraft(userId, 'staff-weekly', storeId, winner.payload, winner.savedAt);
+          if (!cancelled) {
+            await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+              payload: winner.payload,
+              savedAt: winner.savedAt,
+              unsynced: false,
+            });
+          }
+        } catch (err) {
+          notifyBackendError('saveCountDraft', err);
+        }
+      } else if (action === 'adopt-clear-local') {
+        await clearLocalStaffDraft(userId, 'staff-weekly', storeId);
+      } else if (action === 'clear-local-flag' && winner) {
+        await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+          payload: winner.payload,
+          savedAt: winner.savedAt,
+          unsynced: false,
+        });
+      }
+      if (cancelled) return;
+      // Only APPLY the winner to the form on the first pass for this slot — a
+      // later re-run (connectivity flip) must not re-restore over in-progress
+      // typing (SF-1). The reconnect effect keeps the storage synced.
+      if (mayRestore) {
+        restoredSlotRef.current = slot; // consume the once-restore for this slot
+        if (winner && restoreFrom !== 'none') {
+          restoreDraftToForm(winner.payload, winner.savedAt);
+        } else {
+          setDraftSavedAt(null); // fresh form — no draft for this slot
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // restoreDraftToForm depends on liveItemIds/jumpToFirstUncounted; omitted so
+    // an unrelated re-render doesn't re-run the reconcile and clobber in-progress
+    // edits. The restore captures the item set at load; keyed on user/store/
+    // online/loading only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, activeStore, isOnline, loading]);
+
+  // Sync-on-reconnect — on a connectivity false→true flip, reconcile the local+
+  // server copies and push a newer unsynced local up WITHOUT clobbering
+  // in-progress edits (only the storage + the banner's saved-at are touched;
+  // the form is left as the user has it — design §7/§9).
+  useEffect(() => {
+    const was = wasOnlineRef.current;
+    wasOnlineRef.current = isOnline;
+    if (was || !isOnline) return; // only act on a false→true flip
+    if (!userId || !activeStore) return;
+    const storeId = activeStore.id;
+    let cancelled = false;
+    (async () => {
+      const local = await readLocalStaffDraft(userId, 'staff-weekly', storeId);
+      if (cancelled || !local) return;
+      let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
+      try {
+        server = await fetchCountDraft(userId, 'staff-weekly', storeId);
+      } catch (err) {
+        notifyBackendError('fetchCountDraft', err);
+        return;
+      }
+      if (cancelled) return;
+      const { winner, action } = reconcileDrafts(local, server);
+      if (action === 'push' && winner) {
+        try {
+          await saveCountDraft(userId, 'staff-weekly', storeId, winner.payload, winner.savedAt);
+          if (cancelled) return;
+          await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+            payload: winner.payload,
+            savedAt: winner.savedAt,
+            unsynced: false,
+          });
+          setDraftSavedAt((prev) => prev ?? winner.savedAt);
+        } catch (err) {
+          notifyBackendError('saveCountDraft', err);
+        }
+      } else if (action === 'adopt-clear-local') {
+        await clearLocalStaffDraft(userId, 'staff-weekly', storeId);
+      } else if (action === 'clear-local-flag' && winner) {
+        await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+          payload: winner.payload,
+          savedAt: winner.savedAt,
+          unsynced: false,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, userId, activeStore]);
+
+  // Save the current form as a draft. UNGATED — a draft may be partial (AC-2).
+  // Mints `savedAt` ONCE at press so the same stamp lands on both the server row
+  // and the AsyncStorage copy (design §9). Online → write server, refresh local
+  // as synced, "Draft saved". Offline → write local unsynced, "Saved on this
+  // device — will sync when online" (AC-13/14). A server error reverts to an
+  // unsynced-local copy + a failure toast (optimistic-then-revert).
+  const onSaveDraft = useCallback(async () => {
+    if (!userId || !activeStore || savingDraft) return;
+    const storeId = activeStore.id;
+    const savedAt = new Date().toISOString();
+    const payload = serializeWeeklyDraft({ caseCounts, unitCounts });
+    setSavingDraft(true);
+    try {
+      if (!isOnline) {
+        await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+          payload,
+          savedAt,
+          unsynced: true,
+        });
+        setDraftSavedAt(savedAt);
+        Toast.show({
+          type: 'success',
+          text1: t('weekly.draft.savedLocal'),
+          position: 'bottom',
+        });
+        return;
+      }
+      try {
+        await saveCountDraft(userId, 'staff-weekly', storeId, payload, savedAt);
+        await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+          payload,
+          savedAt,
+          unsynced: false,
+        });
+        setDraftSavedAt(savedAt);
+        Toast.show({
+          type: 'success',
+          text1: t('weekly.draft.saved'),
+          position: 'bottom',
+        });
+      } catch (err) {
+        // Server write failed — keep a device-local unsynced copy so the work is
+        // not lost, and surface the failure. The next reconnect/open pushes it.
+        notifyBackendError('saveCountDraft', err);
+        await writeLocalStaffDraft(userId, 'staff-weekly', storeId, {
+          payload,
+          savedAt,
+          unsynced: true,
+        });
+        setDraftSavedAt(savedAt);
+        Toast.show({
+          type: 'error',
+          text1: t('weekly.draft.saveFailed'),
+          text2: t('weekly.draft.savedLocal'),
+          position: 'bottom',
+        });
+      }
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [userId, activeStore, isOnline, caseCounts, unitCounts, savingDraft, t]);
+
+  // Discard the restored draft (AC-7) — delete BOTH the server row and the
+  // AsyncStorage copy, then clear the form back to fresh. Confirmed via the
+  // cross-platform confirm util.
+  const onDiscardDraft = useCallback(() => {
+    if (!userId || !activeStore) return;
+    const storeId = activeStore.id;
+    confirmAction(
+      t('weekly.draft.discardConfirmTitle'),
+      t('weekly.draft.discardConfirmBody'),
+      () => {
+        // Server-first: attempt the server-row delete and only proceed if it
+        // succeeds. A silent proceed-on-failure would drop the local copy + the
+        // banner while the server row survives, so the next screen-open reconcile
+        // would RESURRECT the "discarded" draft (code-reviewer). On failure we
+        // keep the banner + values and toast so the discard isn't a silent no-op.
+        (async () => {
+          try {
+            await deleteCountDraft(userId, 'staff-weekly', storeId);
+          } catch (err) {
+            notifyBackendError('deleteCountDraft', err);
+            Toast.show({
+              type: 'error',
+              text1: t('weekly.draft.discardFailed'),
+              position: 'bottom',
+            });
+            return; // keep the draft (banner + values) — nothing was deleted
+          }
+          // Server delete succeeded → clear the local copy + the form.
+          await clearLocalStaffDraft(userId, 'staff-weekly', storeId);
+          setCaseCounts({});
+          setUnitCounts({});
+          setDraftSavedAt(null);
+        })();
+      },
+      t('weekly.draft.discard'),
+    );
+  }, [userId, activeStore, t]);
 
   // ─── refresh the weekly status on focus (banner floor, no realtime) ──
   useFocusEffect(
@@ -525,13 +835,25 @@ export function WeeklyCount() {
       // the background so the next focus reflects the server truth.
       setCaseCounts({});
       setUnitCounts({});
+      // Spec 106 (AC-8) — a completed count deletes its resumable draft (server
+      // row + AsyncStorage copy) so reopening shows a fresh form with no stale
+      // banner. Best-effort: a delete failure only leaves a dangling draft the
+      // next reconcile can clear; it must not block the submit success UX. The
+      // `conflict` replay path also lands here — the count is recorded.
+      void clearLocalStaffDraft(userId ?? '', 'staff-weekly', activeStore.id);
+      if (userId) {
+        deleteCountDraft(userId, 'staff-weekly', activeStore.id).catch((err) => {
+          notifyBackendError('deleteCountDraft', err);
+        });
+      }
+      setDraftSavedAt(null);
       const ws = useStaffStore.getState().weeklyStatus;
       setCompletedFor(ws?.windowStart ?? todayIso());
       void fetchWeeklyStatus(activeStore.id, todayIso());
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, items, caseCounts, unitCounts, submitWeeklyCount, fetchWeeklyStatus, submitting, t]);
+  }, [activeStore, items, caseCounts, unitCounts, submitWeeklyCount, fetchWeeklyStatus, submitting, userId, t]);
 
   // ─── gate: every item must be counted before a full-store submit ───
   const onSubmitPress = useCallback(() => {
@@ -772,6 +1094,35 @@ export function WeeklyCount() {
         />
       ) : null}
 
+      {/* Spec 106 — restored-draft banner + Discard. Non-blocking; shown only
+          when a draft was auto-restored on open. relativeTime gives the saved-at
+          staleness signal (AC-6). Discard deletes the server row + the
+          AsyncStorage copy and clears the form (AC-7). The Discard control sits
+          under the Banner (which is text-only) as a staff-styled link, matching
+          the reset-order affordance. */}
+      {draftSavedAt ? (
+        <View>
+          <Banner
+            tone="info"
+            text={t('weekly.draft.restored', { time: relativeTime(draftSavedAt) })}
+            testID="weekly-draft-banner"
+          />
+          <View style={{ paddingHorizontal: spacing.lg, marginTop: -spacing.xs, marginBottom: spacing.sm, flexDirection: 'row' }}>
+            <Pressable
+              testID="weekly-draft-discard"
+              onPress={onDiscardDraft}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('weekly.draft.discard')}
+            >
+              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.error }}>
+                {t('weekly.draft.discard')}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       {/* Live "X of N counted" progress for the full store — turns green once
           every item is counted (ties into the count-everything gate). */}
       {!loading && items.length > 0 ? (
@@ -995,13 +1346,27 @@ export function WeeklyCount() {
         />
       )}
 
-      {/* Footer — submit */}
+      {/* Footer — save draft (secondary) + submit (primary) */}
       <View
         style={[
           styles.footer,
           { backgroundColor: c.surface, borderTopColor: c.border },
         ]}
       >
+        {/* Spec 106 — Save draft. UNGATED by the count-everything rule (a draft
+            may be partial, AC-2); disabled only while a save is in flight or the
+            store's items are still loading. Secondary (outlined) variant so it
+            reads below the primary Submit. */}
+        <View style={styles.saveWrap}>
+          <Button
+            label={t('weekly.draft.save')}
+            onPress={onSaveDraft}
+            variant="secondary"
+            disabled={savingDraft || loading}
+            loading={savingDraft}
+            testID="weekly-save-draft"
+          />
+        </View>
         <View style={styles.submitWrap}>
           <Button
             label={submitting ? t('weekly.submitting') : t('weekly.submit')}
@@ -1153,6 +1518,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     borderTopWidth: 1,
     gap: spacing.sm,
+  },
+  // Spec 106 — the Save-draft row sits above the Submit; both full-width.
+  saveWrap: {
+    width: '100%',
   },
   submitWrap: {
     width: '100%',

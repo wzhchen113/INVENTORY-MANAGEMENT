@@ -252,6 +252,17 @@
     },
     "error": {
       "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."
+    },
+    "draft": {
+      "save": "Save draft",
+      "saved": "Draft saved",
+      "savedLocal": "Saved on this device — will sync when online",
+      "restored": "Draft restored (saved {time} ago)",
+      "discard": "Discard draft",
+      "discardConfirmTitle": "Discard draft?",
+      "discardConfirmBody": "This clears the saved values for this count. This cannot be undone.",
+      "saveFailed": "Could not save draft — try again",
+      "discardFailed": "Could not discard draft — try again"
     }
   },
   "chrome": {

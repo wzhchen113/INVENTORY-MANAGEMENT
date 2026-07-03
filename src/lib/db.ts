@@ -2064,6 +2064,140 @@ export async function resetCountOrder(
   }, { kind: 'write', label: 'resetCountOrder' });
 }
 
+// ─── COUNT-SCREEN SAVE-DRAFT + RESUME (Spec 106) ───────────────────────
+/**
+ * Spec 106 — per-user PRIVATE resumable DRAFT for the two count screens,
+ * backed by the `public.user_count_drafts` side table (one row per
+ * (user_id, screen, store_id); `payload` an opaque JSONB blob whose shape is
+ * owned by the pure serializers in `./countDrafts`, `saved_at` the
+ * client-stamped whole-draft last-write-wins key). These three helpers are the
+ * ADMIN path (InventoryCountSection); the staff Weekly screen uses the
+ * documented src/screens/staff/ direct-`supabase` carve-out with a parallel
+ * helper that re-exports the same pure `./countDrafts` module (design §5 / §6).
+ *
+ * A draft is resumable scratch ONLY — saving one NEVER writes current_stock /
+ * inventory_items and NEVER produces a history row (AC-9). The row envelope is
+ * camelCased inline (payload stays raw; the serializer owns its shape) — no
+ * mapItem-scale entity.
+ *
+ * Gated by the owner-scoped RLS on user_count_drafts
+ * (auth.uid() = user_id; migration 20260703000000), NO admin/super_admin
+ * bypass. Every query also pins `.eq('user_id', userId)` so a cross-user
+ * read/delete is silently 0 rows and a cross-user upsert is 42501
+ * (defense-in-depth; the policy already blocks it).
+ *
+ * PERSIST IS A PLAIN UPSERT (design §4, the deliberate divergence from spec
+ * 103): the FULL `unique (user_id, screen, store_id)` constraint (all three
+ * columns NOT NULL — no NULL-vendor branch) IS a valid ON CONFLICT target, so
+ * `saveCountDraft` uses `.upsert({ onConflict: 'user_id,screen,store_id' })`
+ * — NOT the spec-103 delete-then-insert (that was forced by spec 103's two
+ * PARTIAL indexes, which a `.upsert` can't target → 42P10).
+ */
+
+/** The camelCase row envelope the admin screen consumes. `payload` stays as the
+ *  raw JSONB object (the pure serializer in ./countDrafts owns its shape); only
+ *  the envelope is camelCased (saved_at → savedAt). */
+export type CountDraftRow = {
+  payload: Record<string, unknown>;
+  savedAt: string; // ISO-8601, client-stamped (saved_at)
+};
+
+/**
+ * READ (on screen open). Returns the draft row or `null` when no draft exists
+ * for the (user, screen, store) slot (the no-draft state — NOT an error).
+ * `kind: 'read'`. On a genuine error the caller degrades to "no draft" and the
+ * form renders fresh (AC-5 restore is best-effort; a failed fetch must not
+ * block the count) — surfacing via its existing notifyBackendError path.
+ */
+export async function fetchCountDraft(
+  userId: string,
+  screen: CountOrderScreen,
+  storeId: string,
+): Promise<CountDraftRow | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('user_count_drafts')
+      .select('payload, saved_at')
+      .eq('user_id', userId)
+      .eq('screen', screen)
+      .eq('store_id', storeId)
+      .abortSignal(signal)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    // Camel-case the envelope inline (no mapItem). payload is opaque JSONB.
+    return {
+      payload: (data.payload ?? {}) as Record<string, unknown>,
+      savedAt: data.saved_at as string,
+    };
+  }, { kind: 'read', label: 'fetchCountDraft' });
+}
+
+/**
+ * SAVE (upsert whole-draft, design §4). Replaces the one (user, screen, store)
+ * slot with the given payload as a plain `.upsert` on the FULL unique
+ * constraint (whole-draft overwrite, AC-4). `kind: 'write'`. Throws on error so
+ * the section can revert + notifyBackendError.
+ *
+ * `savedAt` is minted by the CALLER at Save time (design §9) and passed
+ * through UNCHANGED so the SAME stamp lands on both the server row and the
+ * device-local copy — that is what makes the reconcile equal-tie a true
+ * "already synced" no-op rather than a spurious push. The helper does NOT mint
+ * `saved_at` itself. `updated_at` is set to a fresh server-audit timestamp on
+ * the upsert, but the AUTHORITATIVE ordering value is the caller's `savedAt`
+ * (the reconcile never reads updated_at).
+ *
+ * MUST use `onConflict: 'user_id,screen,store_id'` (matching the constraint
+ * columns) — a mismatched or omitted onConflict would 42P10 or duplicate.
+ */
+export async function saveCountDraft(
+  userId: string,
+  screen: CountOrderScreen,
+  storeId: string,
+  payload: Record<string, unknown>,
+  savedAt: string,
+): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('user_count_drafts')
+      .upsert(
+        {
+          user_id: userId,
+          screen,
+          store_id: storeId,
+          payload,
+          saved_at: savedAt,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,screen,store_id' },
+      )
+      .abortSignal(signal);
+    if (error) throw error;
+  }, { kind: 'write', label: 'saveCountDraft' });
+}
+
+/**
+ * DELETE the one (user, screen, store) slot. Used by both Discard (AC-7) and
+ * the successful-Submit cleanup (AC-8). `kind: 'write'`. Throws on error so the
+ * section can surface notifyBackendError. Touches ONLY this slot.
+ */
+export async function deleteCountDraft(
+  userId: string,
+  screen: CountOrderScreen,
+  storeId: string,
+): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('user_count_drafts')
+      .delete()
+      .eq('user_id', userId)
+      .eq('screen', screen)
+      .eq('store_id', storeId)
+      .abortSignal(signal);
+    if (error) throw error;
+  }, { kind: 'write', label: 'deleteCountDraft' });
+}
+
 // ─── TRANSLATE-ON-SAVE (Spec 040) ─────────────────────────────────────
 /**
  * Spec 040 P3b — invoke the `translate-on-save` edge function to auto-fill
