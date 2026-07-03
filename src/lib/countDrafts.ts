@@ -51,6 +51,26 @@ export type LocalDraftCandidate =
   | null;
 
 /**
+ * Shape-validator for a parsed device-local slot record
+ * ({ payload, savedAt, unsynced }). Shared by BOTH storage trios —
+ * `src/lib/countDraftLocal.ts` (admin, localStorage) and
+ * `src/screens/staff/lib/countDrafts.ts` (staff, AsyncStorage) — which
+ * previously duplicated this body byte-for-byte. A malformed record is
+ * treated as no-draft (never crashes a restore).
+ */
+export function isLocalDraftRecord(x: unknown): x is NonNullable<LocalDraftCandidate> {
+  if (typeof x !== 'object' || x === null) return false;
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.payload === 'object' &&
+    o.payload !== null &&
+    !Array.isArray(o.payload) &&
+    typeof o.savedAt === 'string' &&
+    typeof o.unsynced === 'boolean'
+  );
+}
+
+/**
  * The sync action the CALLER runs after reconcile (the pure function does no
  * I/O):
  *   - 'none'              → nothing to do (both absent, or server-only).

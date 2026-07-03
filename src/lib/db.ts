@@ -679,8 +679,8 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
     // Spec 104 (R1 option a) — WRITE-SIDE waste snapshot bridge. After the
     // per-each basis flip, `entry.costPerUnit` (mapped from the live
     // inventory_items.cost_per_unit) is per-EACH. `waste_log.cost_per_unit`
-    // must stay per-COUNTED-unit so the read side (getWasteThisWeek /
-    // DashboardSection waste) stays UNBRIDGED and historical + new waste
+    // must stay per-COUNTED-unit so the read side (DashboardSection.wasteWeek /
+    // WasteLogSection totals) stays UNBRIDGED and historical + new waste
     // dollars both reconcile. Re-bridge per (★): cost_old = perEach ×
     // sub_unit_size. We read sub_unit_size from the item's catalog row here (a
     // single indexed read on a rare write) rather than trusting the caller, so
@@ -957,24 +957,6 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
       })),
     }));
   }, { kind: 'read', label: 'fetchRecentEODSubmissions' });
-}
-
-export async function fetchEODSubmissions(storeId: string, date?: string): Promise<any[]> {
-  return useInflight.getState().track(async (signal) => {
-    let query = supabase
-      .from('eod_submissions')
-      .select(`*, submitter:profiles!submitted_by(name), eod_entries(*, item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
-      .eq('store_id', storeId)
-      .order('submitted_at', { ascending: false });
-
-    if (date) {
-      query = query.eq('date', date);
-    }
-
-    const { data, error } = await query.abortSignal(signal);
-    if (error) throw error;
-    return data || [];
-  }, { kind: 'read', label: 'fetchEODSubmissions' });
 }
 
 // Spec 009 §5/D2 — cross-store EOD fan-out for the All-Stores dashboard.
@@ -2492,40 +2474,6 @@ export async function createPrepRecipe(recipe: any): Promise<string> {
     }
     return data.id;
   }, { kind: 'write', label: 'createPrepRecipe' });
-}
-
-export async function updatePrepRecipe(id: string, updates: any): Promise<void> {
-  return useInflight.getState().track(async (signal) => {
-    const dbUpdates: any = {};
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.category !== undefined) dbUpdates.category = updates.category;
-    if (updates.yieldQuantity !== undefined) dbUpdates.yield_quantity = updates.yieldQuantity;
-    if (updates.yieldUnit !== undefined) dbUpdates.yield_unit = updates.yieldUnit;
-    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
-    // Spec 040 P3: per-locale name overrides. Same omit-key-to-skip semantics.
-    if (updates.i18nNames !== undefined) dbUpdates.i18n_names = updates.i18nNames;
-    if (Object.keys(dbUpdates).length > 0) {
-      await supabase.from('prep_recipes').update(dbUpdates).eq('id', id).abortSignal(signal);
-    }
-    if (updates.ingredients) {
-      await supabase.from('prep_recipe_ingredients').delete().eq('prep_recipe_id', id).abortSignal(signal);
-      if (updates.ingredients.length > 0) {
-        await supabase.from('prep_recipe_ingredients').insert(
-          updates.ingredients.map((i: any) => {
-            const isPrep = (i.type || 'raw') === 'prep';
-            return {
-              prep_recipe_id: id,
-              catalog_id: isPrep ? null : i.itemId,
-              sub_recipe_id: isPrep ? i.itemId : null,
-              type: i.type || 'raw',
-              quantity: i.quantity, unit: i.unit,
-              base_quantity: i.baseQuantity || 0, base_unit: i.baseUnit || 'g',
-            };
-          })
-        ).abortSignal(signal);
-      }
-    }
-  }, { kind: 'write', label: 'updatePrepRecipe' });
 }
 
 export async function deletePrepRecipe(id: string): Promise<void> {

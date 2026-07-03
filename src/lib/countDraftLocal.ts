@@ -21,6 +21,7 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CountOrderScreen } from './countOrder';
+import { isLocalDraftRecord } from './countDrafts';
 
 /**
  * The local single-slot record. One per (user, screen, store) key. `savedAt` is
@@ -48,17 +49,11 @@ export function countDraftLocalKey(
 }
 
 /** Shape-validator: a parsed local record must be a single-slot draft, else it
- *  is treated as no-draft (a malformed record never crashes a restore). */
+ *  is treated as no-draft (a malformed record never crashes a restore).
+ *  Delegates to the shared predicate in countDrafts.ts (single-sourced with
+ *  the staff trio — hygiene sweep dedup). */
 function isLocalCountDraft(x: unknown): x is LocalCountDraft {
-  if (typeof x !== 'object' || x === null) return false;
-  const o = x as Record<string, unknown>;
-  return (
-    typeof o.payload === 'object' &&
-    o.payload !== null &&
-    !Array.isArray(o.payload) &&
-    typeof o.savedAt === 'string' &&
-    typeof o.unsynced === 'boolean'
-  );
+  return isLocalDraftRecord(x);
 }
 
 /**

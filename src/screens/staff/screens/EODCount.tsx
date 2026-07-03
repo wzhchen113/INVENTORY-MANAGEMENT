@@ -45,6 +45,7 @@ import {
   saveCountOrder,
   resetCountOrder,
 } from '../lib/countOrder';
+import { todayIso } from '../lib/date';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
@@ -66,14 +67,6 @@ const WEEKDAYS = [
 
 function todayWeekday(d = new Date()): string {
   return WEEKDAYS[d.getDay()];
-}
-
-function todayIso(d = new Date()): string {
-  // yyyy-mm-dd in local time.
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
 }
 
 // Takes a `t` so the caller can pass the reactive `useI18n()` t (spec

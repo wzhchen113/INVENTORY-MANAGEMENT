@@ -492,8 +492,6 @@ interface StoreActions {
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
-  getFoodCostPercent: () => number;
-  getWasteThisWeek: () => number;
   getRecipeCost: (recipeId: string) => number;
   getRecipeFoodCostPct: (recipeId: string) => number;
   getPrepRecipe: (prepRecipeId: string) => PrepRecipe | undefined;
@@ -509,7 +507,6 @@ let recipeCounter = RECIPES.length + 1;
 let prepRecipeCounter = PREP_RECIPES.length + 1;
 let wasteCounter = WASTE_LOG.length + 1;
 let vendorCounter = VENDORS.length + 1;
-let auditCounter = AUDIT_LOG.length + 1;
 let userCounter = USERS.length + 1;
 
 const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
@@ -1102,8 +1099,10 @@ export const useStore = create<FullStore>((set, get) => ({
           });
         }).catch((e: any) => console.warn('[Supabase] fetchNotifications:', e?.message || e));
       }
-    } catch (e) {
-      console.log('[Supabase] Load failed, using local data:', e);
+    } catch (e: any) {
+      // No local fallback exists (src/data/seed.ts arrays are permanently
+      // empty) — a failed load just keeps the prior in-memory state.
+      console.warn('[Supabase] loadFromSupabase failed:', e?.message || e);
     } finally {
       set({ storeLoading: false });
     }
@@ -2563,15 +2562,6 @@ export const useStore = create<FullStore>((set, get) => ({
     // value. subUnitSize defaults to 1 → no-op for each-tracked items.
     return get().inventory.reduce(
       (sum, item) => sum + item.currentStock * item.costPerUnit * (item.subUnitSize || 1),
-      0
-    );
-  },
-
-  getFoodCostPercent: () => 31.4,
-
-  getWasteThisWeek: () => {
-    return get().wasteLog.reduce(
-      (sum, entry) => sum + entry.quantity * entry.costPerUnit,
       0
     );
   },

@@ -503,7 +503,7 @@ function DetailPane({
               accessibilityLabel="Add count for this item"
               style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm }}
             >
-              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>+ COUNT</Text>
+              <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accentFg }}>+ COUNT</Text>
             </TouchableOpacity>
           </View>
         }

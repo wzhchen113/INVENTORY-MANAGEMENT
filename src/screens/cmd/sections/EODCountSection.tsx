@@ -1146,6 +1146,8 @@ export default function EODCountSection() {
                   <TouchableOpacity
                     onPress={onSubmit}
                     disabled={submitting || isRestDay}
+                    accessibilityRole="button"
+                    accessibilityLabel={isCurrentVendorEditing ? T('section.eod.updateCount') : T('section.eod.submitCount')}
                     style={{
                       paddingVertical: 4, paddingHorizontal: 10,
                       backgroundColor: C.accent, borderRadius: CmdRadius.sm,
@@ -1153,7 +1155,7 @@ export default function EODCountSection() {
                       ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
                     }}
                   >
-                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>
+                    <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accentFg }}>
                       {isCurrentVendorEditing ? T('section.eod.updateCount') : T('section.eod.submitCount')}
                     </Text>
                   </TouchableOpacity>

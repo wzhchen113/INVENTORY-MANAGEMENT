@@ -1058,7 +1058,7 @@ export default function InventoryCountSection() {
         />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontFamily: mono(400), fontSize: 13, color: C.fg2 }}>
-            Select a store to count inventory.
+            {T('section.eod.selectStoreToCount')}
           </Text>
         </View>
       </View>
@@ -1118,6 +1118,8 @@ export default function InventoryCountSection() {
               <TouchableOpacity
                 onPress={onSubmit}
                 disabled={submitting || nonBlankCount === 0 || hasNegative}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.eod.submitCount')}
                 style={{
                   paddingVertical: 4,
                   paddingHorizontal: 10,
@@ -1185,7 +1187,7 @@ export default function InventoryCountSection() {
             }}
           >
             <View>
-              <Text style={[Type.h2, { color: C.fg }]}>Inventory count</Text>
+              <Text style={[Type.h2, { color: C.fg }]}>{T('section.inventoryCount.title')}</Text>
               <Text style={{ fontFamily: sans(400), fontSize: 12.5, color: C.fg2, marginTop: 2 }}>
                 Advisory snapshot — this count does NOT affect live stock until the next EOD.
               </Text>
@@ -1370,6 +1372,8 @@ export default function InventoryCountSection() {
                   <TouchableOpacity
                     key={c.id}
                     onPress={() => setSelectedCategory(c.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={c.label}
                     style={{
                       paddingHorizontal: 11,
                       paddingVertical: 5,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, ViewStyle, Pressable } from 'react-native';
+import { View, Text, TextInput, ViewStyle, Pressable, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { KbdHint } from './KbdHint';
@@ -53,7 +53,7 @@ export const FilterInput: React.FC<Props> = ({
           fontSize: 11,
           color: C.fg,
           // remove default web outline; the outer pill border serves as focus surface
-          ...(require('react-native').Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
+          ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
         }}
       />
       {value ? (

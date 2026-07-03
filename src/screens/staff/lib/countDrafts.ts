@@ -31,6 +31,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../../lib/supabase';
+import { isLocalDraftRecord } from '../../../lib/countDrafts';
 import type { CountOrderScreen } from '../../../lib/countOrder';
 import type { CountDraftRow } from '../../../lib/db';
 
@@ -171,17 +172,11 @@ export function staffCountDraftKey(
 }
 
 /** Shape-validator: a parsed local record must be a single-slot draft, else it
- *  is treated as no-draft (a malformed record never crashes a restore). */
+ *  is treated as no-draft (a malformed record never crashes a restore).
+ *  Delegates to the shared predicate in src/lib/countDrafts.ts (single-sourced
+ *  with the admin trio — hygiene sweep dedup). */
 function isLocalStaffDraft(x: unknown): x is LocalStaffDraft {
-  if (typeof x !== 'object' || x === null) return false;
-  const o = x as Record<string, unknown>;
-  return (
-    typeof o.payload === 'object' &&
-    o.payload !== null &&
-    !Array.isArray(o.payload) &&
-    typeof o.savedAt === 'string' &&
-    typeof o.unsynced === 'boolean'
-  );
+  return isLocalDraftRecord(x);
 }
 
 /**

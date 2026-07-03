@@ -85,6 +85,7 @@ scripts/                      # one-off ts-node + curl smoke scripts; pgTAP runn
 
 **Placeholder behavior (intentional)**
 - [src/hooks/useRole.ts](src/hooks/useRole.ts) hardcodes `'admin'`.
+- Three edge functions are permanent HTTP 410 stubs (spec 061 retired the staff v1 API; the staff app talks to PostgREST/RPCs directly): [supabase/functions/staff-eod-submit/](supabase/functions/staff-eod-submit/), [supabase/functions/staff-catalog/](supabase/functions/staff-catalog/), [supabase/functions/staff-waste-log/](supabase/functions/staff-waste-log/). CORS headers are kept for preflight. Not dormant/orphaned — do not "clean up."
 
 **Gaps and unknowns**
 - **Test framework.** See [tests/README.md](tests/README.md) — three tracks (jest, pgTAP DB tests, shell smokes). v1 ships infra + 1-2 example tests per track; retroactive coverage of past Criticals is a follow-up.

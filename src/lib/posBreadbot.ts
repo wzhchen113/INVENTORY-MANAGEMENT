@@ -1,10 +1,10 @@
 // src/lib/posBreadbot.ts
 //
-// Shared constants + helpers for the Breadbot POS-import flow. Consumed
-// by the legacy `src/screens/POSImportScreen.tsx` and the new Cmd UI
-// section `src/screens/cmd/sections/POSImportsSection.tsx`. Extracted
-// per spec 014 design (architect Q1) so the two surfaces don't drift
-// while the legacy screen is being phased out.
+// Shared constants + helpers for the Breadbot POS-import flow. Consumed by
+// the Cmd UI section `src/screens/cmd/sections/POSImportsSection.tsx` and
+// `src/components/cmd/FetchBreadbotModal.tsx`. Extracted per spec 014 design
+// (architect Q1); the other original consumer, the legacy POSImportScreen,
+// was deleted in spec 025.
 //
 // Backend touch-points (do not change here — see db.ts and the edge
 // function for the data path):

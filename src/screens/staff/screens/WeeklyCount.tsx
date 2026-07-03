@@ -63,6 +63,7 @@ import {
   deserializeWeeklyDraft,
 } from '../lib/countDrafts';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { todayIso } from '../lib/date';
 import { confirmAction } from '../../../utils/confirmAction';
 import { relativeTime } from '../../../utils/relativeTime';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
@@ -72,15 +73,6 @@ import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames, WeeklyLowStockItem } from '../../../types';
 import { radius, spacing, typography, useStaffColors } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
-
-function todayIso(d = new Date()): string {
-  // yyyy-mm-dd in local time (matches EODCount.todayIso — avoids the UTC
-  // off-by-one the spec's week-window math depends on).
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 // Takes a `t` so the caller can pass the reactive `useI18n()` t (spec
 // 099) — the header label must re-translate on a locale change.

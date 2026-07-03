@@ -38,6 +38,7 @@ import {
   shareReorderText,
 } from '../lib/shareReorder';
 import { useStaffStore } from '../store/useStaffStore';
+import { todayIso } from '../lib/date';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { t, useI18n } from '../i18n';
 import {
@@ -57,13 +58,6 @@ import {
 } from '../../../utils/reorderDayFilter';
 import type { DayName } from '../../../utils/enumLabels';
 import type { OrderSchedule, ReorderItem, ReorderPayload, ReorderVendor } from '../../../types';
-
-function todayIso(d = new Date()): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 // Localized long weekday name via the staff catalog (`reorder.weekday.*`),
 // keyed off the canonical English DayName. Self-contained — does NOT reuse
