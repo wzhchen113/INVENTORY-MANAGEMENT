@@ -1374,7 +1374,12 @@ export async function createPurchaseOrder(params: {
         vendor_id: vendorId,
         created_by: params.submittedByUserId || null,
         total_cost: params.totalCost ?? null,
-        status: 'submitted',
+        // Spec 107 §1 — status vocabulary reconciled to
+        // draft|sent|partial|received|cancelled (CHECK landed in
+        // 20260704000000_po_loop.sql). The "Mark as Submitted" path means the
+        // order has gone to the vendor, which maps to 'sent' (the legacy
+        // 'submitted' token was normalized to 'sent' by the same migration).
+        status: 'sent',
         ...(referenceDate ? { reference_date: referenceDate } : {}),
       })
       .select('id')
@@ -1383,6 +1388,246 @@ export async function createPurchaseOrder(params: {
     if (error) { console.warn('[Supabase] createPurchaseOrder:', error.message); return null; }
     return data?.id || null;
   }, { kind: 'write', label: 'createPurchaseOrder' });
+}
+
+// ─── Spec 107 — PURCHASE-ORDER LOOP (create-draft, receive, lifecycle) ────
+// Frontend slice of spec 107. The BACKEND slice (RPCs, status CHECK,
+// pending_po_qty swap, send-po-email edge fn) landed in
+// 20260704000000_po_loop.sql + supabase/functions/send-po-email/.
+
+/**
+ * One PO line, mapped snake→camel from a `po_items` row joined through
+ * `inventory_items → catalog_ingredients` for the item name / unit and
+ * `sub_unit_size` (spec 107 §8). Drives the POsSection detail table and the
+ * ReceivingSection PO-driven mode's outstanding-remainder prefill.
+ */
+export interface PoLine {
+  poItemId: string;              // po_items.id
+  itemId: string;                // inventory_items.id
+  itemName: string;
+  unit: string;
+  orderedQty: number;
+  receivedQty: number;           // cumulative across partial receives (0 when null)
+  costPerUnit: number;           // per-COUNTED-unit snapshot at PO-create time (OQ-6)
+  subUnitSize: number;           // for any downstream per-each bridge; 1 when null
+}
+
+function mapPoItemRow(r: any): PoLine {
+  const ii = r.inventory_items || {};
+  const ci = ii.catalog_ingredients || {};
+  return {
+    poItemId: r.id,
+    itemId: r.item_id,
+    itemName: ci.name || '',
+    unit: ci.unit || '',
+    orderedQty: Number(r.ordered_qty) || 0,
+    receivedQty: Number(r.received_qty) || 0,
+    costPerUnit: Number(r.cost_per_unit) || 0,
+    subUnitSize: Number(ci.sub_unit_size) || 1,
+  };
+}
+
+/**
+ * Spec 107 §5 — first `po_items` write path: create an EDITABLE DRAFT PO from
+ * a reorder vendor card. Client-side PostgREST insert (NOT an RPC — the insert
+ * RLS policies already exist and are correct; a draft is a benign, deletable
+ * state so the 2-round-trip atomicity gap is acceptable, per §5). Inserts the
+ * header (`status: 'draft'`) then bulk-inserts the lines. On a lines-insert
+ * failure, best-effort deletes the header so no orphan is left, and returns
+ * null.
+ *
+ * `costPerUnitCounted` is the OQ-6 per-COUNTED-unit snapshot the caller
+ * computes via the spec-104 ★ bridge (`inventory_items.costPerUnit` per-each
+ * × `subUnitSize`); it is stored verbatim into `po_items.cost_per_unit`
+ * (documented basis in the migration's column comment).
+ */
+export async function createPurchaseOrderDraft(params: {
+  storeId: string;
+  vendorId: string;
+  createdByUserId?: string;
+  referenceDate?: string;                 // YYYY-MM-DD → reference_date
+  lines: Array<{
+    itemId: string;
+    orderedQty: number;                   // COUNTED units (= suggestedUnits from reorder)
+    costPerUnitCounted: number;           // OQ-6 per-COUNTED-unit snapshot
+  }>;
+}): Promise<string | null> {
+  return useInflight.getState().track(async (signal) => {
+    if (!params.storeId || !params.vendorId || params.lines.length === 0) return null;
+
+    const totalCost = params.lines.reduce(
+      (sum, ln) => sum + (Number(ln.orderedQty) || 0) * (Number(ln.costPerUnitCounted) || 0),
+      0,
+    );
+
+    const { data: header, error: headerErr } = await supabase
+      .from('purchase_orders')
+      .insert({
+        store_id: params.storeId,
+        vendor_id: params.vendorId,
+        created_by: params.createdByUserId || null,
+        status: 'draft',
+        total_cost: totalCost,
+        ...(params.referenceDate ? { reference_date: params.referenceDate } : {}),
+      })
+      .select('id')
+      .abortSignal(signal)
+      .single();
+    if (headerErr || !header?.id) {
+      console.warn('[Supabase] createPurchaseOrderDraft (header):', headerErr?.message);
+      return null;
+    }
+
+    const poId = header.id as string;
+    const { error: linesErr } = await supabase
+      .from('po_items')
+      .insert(
+        params.lines.map((ln) => ({
+          po_id: poId,
+          item_id: ln.itemId,
+          ordered_qty: ln.orderedQty,
+          received_qty: null,
+          cost_per_unit: ln.costPerUnitCounted,
+        })),
+      )
+      .abortSignal(signal);
+    if (linesErr) {
+      console.warn('[Supabase] createPurchaseOrderDraft (lines):', linesErr.message);
+      // Best-effort clean up the orphan header so no empty draft is left.
+      await supabase.from('purchase_orders').delete().eq('id', poId);
+      return null;
+    }
+    return poId;
+  }, { kind: 'write', label: 'createPurchaseOrderDraft' });
+}
+
+/**
+ * Spec 107 §8 — read a PO's `po_items` lines (header stays in the
+ * orderSubmissions list). Joined through inventory_items → catalog_ingredients
+ * for the item name / unit / sub_unit_size. Drives the POsSection detail and
+ * the ReceivingSection PO-driven mode.
+ */
+export async function fetchPurchaseOrderLines(poId: string): Promise<PoLine[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('po_items')
+      .select('id, item_id, ordered_qty, received_qty, cost_per_unit, inventory_items(catalog_id, catalog_ingredients(name, unit, sub_unit_size))')
+      .eq('po_id', poId)
+      .abortSignal(signal);
+    if (error) { console.warn('[Supabase] fetchPurchaseOrderLines:', error.message); return []; }
+    return (data || []).map(mapPoItemRow);
+  }, { kind: 'read', label: 'fetchPurchaseOrderLines' });
+}
+
+/**
+ * Spec 107 §5/§8 — edit a DRAFT PO line's ordered_qty (lines are editable
+ * before send). Plain PostgREST UPDATE (RLS `store_member_update_po_items`
+ * scopes it through the parent PO). Recomputes nothing server-side; the header
+ * total_cost is display-derived from the lines. Returns true on success.
+ */
+export async function updatePoItemQty(poItemId: string, orderedQty: number): Promise<boolean> {
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('po_items')
+      .update({ ordered_qty: orderedQty })
+      .eq('id', poItemId)
+      .abortSignal(signal);
+    if (error) { console.warn('[Supabase] updatePoItemQty:', error.message); throw error; }
+    return true;
+  }, { kind: 'write', label: 'updatePoItemQty' });
+}
+
+/**
+ * Spec 107 §5/§8 — remove a line from a DRAFT PO (editable before send). Plain
+ * PostgREST DELETE (RLS `store_member_delete_po_items` scopes through the
+ * parent PO). Returns true on success.
+ */
+export async function deletePoItem(poItemId: string): Promise<boolean> {
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('po_items')
+      .delete()
+      .eq('id', poItemId)
+      .abortSignal(signal);
+    if (error) { console.warn('[Supabase] deletePoItem:', error.message); throw error; }
+    return true;
+  }, { kind: 'write', label: 'deletePoItem' });
+}
+
+/**
+ * Spec 107 §3 — receive against a PO. Wraps `receive_purchase_order`. `lines`
+ * are the this-receive deltas (received_qty ADDITIVE — the caller submits how
+ * much arrived THIS receive, prefilled with the OUTSTANDING remainder, NOT the
+ * ordered total). `clientUuid` is minted once per receive event for
+ * idempotency (mirrors submitInventoryCount). Returns the resulting status +
+ * conflict flag, or null on error (caller wraps with notifyBackendError).
+ */
+export async function receivePurchaseOrder(
+  poId: string,
+  lines: Array<{ poItemId: string; receivedQty: number }>,
+  clientUuid: string,
+): Promise<{ status: string; conflict: boolean } | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('receive_purchase_order', {
+      p_po_id: poId,
+      p_lines: lines.map((ln) => ({ po_item_id: ln.poItemId, received_qty: ln.receivedQty })),
+      p_client_uuid: clientUuid,
+    }).abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] receivePurchaseOrder:', error.message, error);
+      throw error;
+    }
+    const result = (data || {}) as { status?: string; conflict?: boolean };
+    return { status: result.status || '', conflict: !!result.conflict };
+  }, { kind: 'write', label: 'receivePurchaseOrder' });
+}
+
+/**
+ * Spec 107 §3 — close a `partial` PO short: releases the outstanding remainder
+ * out of pending_po_qty (stamps received_at, status → received). Wraps
+ * `close_short_purchase_order`. Returns the resulting status, or null on error.
+ */
+export async function closePurchaseOrderShort(poId: string): Promise<string | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('close_short_purchase_order', {
+      p_po_id: poId,
+    }).abortSignal(signal);
+    if (error) { console.warn('[Supabase] closePurchaseOrderShort:', error.message, error); throw error; }
+    return ((data || {}) as { status?: string }).status || null;
+  }, { kind: 'write', label: 'closePurchaseOrderShort' });
+}
+
+/**
+ * Spec 107 §3 — cancel a draft/sent/partial PO (releases its pending quantity;
+ * does NOT touch already-received stock). Wraps `cancel_purchase_order`.
+ * Returns the resulting status, or null on error.
+ */
+export async function cancelPurchaseOrder(poId: string): Promise<string | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('cancel_purchase_order', {
+      p_po_id: poId,
+    }).abortSignal(signal);
+    if (error) { console.warn('[Supabase] cancelPurchaseOrder:', error.message, error); throw error; }
+    return ((data || {}) as { status?: string }).status || null;
+  }, { kind: 'write', label: 'cancelPurchaseOrder' });
+}
+
+/**
+ * Spec 107 §7 — mark a PO as sent WITHOUT emailing (the manual fallback for
+ * phone/text vendors and empty-vendors.email). Plain PostgREST UPDATE
+ * (`store_member_update_purchase_orders` already permits it). Returns true on
+ * success.
+ */
+export async function markPurchaseOrderSent(poId: string): Promise<boolean> {
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('purchase_orders')
+      .update({ status: 'sent' })
+      .eq('id', poId)
+      .abortSignal(signal);
+    if (error) { console.warn('[Supabase] markPurchaseOrderSent:', error.message); throw error; }
+    return true;
+  }, { kind: 'write', label: 'markPurchaseOrderSent' });
 }
 
 // Shared row→object mapper for a `purchase_orders` select that uses the

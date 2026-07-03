@@ -9,6 +9,7 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { confirmAction } from '../../../utils/confirmAction';
 import ReorderDatePicker from '../../../components/cmd/ReorderDatePicker';
 import { toISODate } from '../../../utils/reportDates';
 import {
@@ -48,12 +49,14 @@ export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 // | par → order` breakdown per item, sourced from a server-side RPC
 // (`report_reorder_list`).
 //
-// v1 contract notes (carried from the spec's §0 + §1):
-//   - `pending_po_qty` is always 0 server-side; the column / "inbound"
-//     segment of the breakdown still renders so the v2 swap is
-//     transparent.
-//   - "Create PO" button is DISABLED with a tooltip — the underlying
-//     po_items write path doesn't exist yet (architect's §10).
+// v2 contract notes (spec 107 landed the loop):
+//   - `pending_po_qty` is now a REAL open-PO aggregate server-side (both
+//     reorder engines) — an open (sent/partial) PO reduces the suggestion
+//     for its items. The "inbound" segment renders the live value.
+//   - "Create PO" is ENABLED: it creates an editable DRAFT PO from the
+//     vendor card (lines prefilled from the suggested cases, per-counted-unit
+//     cost snapshot) via `createPoDraft`, behind a confirm. The operator then
+//     edits/sends it in the Purchase Orders section (spec 107 §5/§8).
 //   - Vendors with zero suggested items are filtered out server-side;
 //     a true empty state means either no EOD has been done, every
 //     active item is at par, or the store has no active vendors at all.
@@ -172,35 +175,65 @@ function FlagChip({ token }: { token: string }) {
   );
 }
 
-// "Create PO" is deferred to v2 (spec 022 — see architect's §10).
-// v1 ships a disabled button with a hover-tooltip explainer so the
-// affordance is visible but unclickable. The tooltip uses Web's
-// native `title` for now (matches the lightweight pattern already in
-// use elsewhere in Cmd UI) and falls back to a static label on native.
-function DisabledCreatePoButton() {
+// Spec 107 §5/§8 — "+ Create PO" creates an editable DRAFT PO from the vendor
+// card behind a confirm dialog (a draft is benign, but a confirm avoids
+// accidental double-drafts). On success it toasts and points the user to the
+// Purchase Orders section to edit/send. Disabled while the create is in flight.
+function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
   const C = useCmdColors();
-  const tooltip = 'Coming soon — manual PO entry only for now (po_items write path lands in spec 022).';
-  const webTitleProps =
-    Platform.OS === 'web' ? ({ accessibilityLabel: tooltip, title: tooltip } as any) : { accessibilityLabel: tooltip };
+  const T = useT();
+  const createPoDraft = useStore((s) => s.createPoDraft);
+  const [busy, setBusy] = React.useState(false);
+
+  const onPress = () => {
+    if (busy) return;
+    const vendorName = vendor.vendorName || 'this vendor';
+    confirmAction(
+      T('section.reorder.createPoConfirmTitle'),
+      T('section.reorder.createPoConfirmBody', { vendor: vendorName, count: vendor.items.length }),
+      () => {
+        setBusy(true);
+        void createPoDraft(vendor)
+          .then((poId) => {
+            if (poId) {
+              Toast.show({
+                type: 'success',
+                text1: T('section.reorder.createPoToastTitle'),
+                text2: T('section.reorder.createPoToastBody', { vendor: vendorName }),
+                visibilityTime: 4000,
+              });
+            }
+          })
+          .finally(() => setBusy(false));
+      },
+      T('section.reorder.createPoConfirmCta'),
+    );
+  };
+
   return (
-    <View
-      {...webTitleProps}
+    <TouchableOpacity
+      testID={`reorder-create-po-${vendor.vendorId}`}
+      onPress={onPress}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={T('section.reorder.createPoAria', { vendor: vendor.vendorName || '' })}
       style={{
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: CmdRadius.sm,
         borderWidth: 1,
-        borderColor: C.border,
-        backgroundColor: 'transparent',
-        opacity: 0.55,
+        borderColor: C.accent,
+        backgroundColor: C.accentBg,
+        opacity: busy ? 0.55 : 1,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
       }}
     >
-      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.3 }}>+ CREATE PO</Text>
-      <Text style={{ fontFamily: mono(600), fontSize: 9, color: C.fg3, letterSpacing: 0.4 }}>· COMING SOON</Text>
-    </View>
+      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.3 }}>
+        {busy ? T('section.reorder.createPoBusy') : T('section.reorder.createPoLabel')}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -419,7 +452,7 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           </>
         ) : null}
         <View style={{ flex: 1 }} />
-        <DisabledCreatePoButton />
+        <CreatePoButton vendor={vendor} />
       </View>
     </View>
   );

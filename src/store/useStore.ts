@@ -6,10 +6,12 @@ import {
   AuditEvent, AuditAction, Store, ItemStatus, PrepRecipe,
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
-  Brand, InventoryCountKind, ReorderPayload, MenuCapacityRow,
+  Brand, InventoryCountKind, ReorderPayload, ReorderVendor, MenuCapacityRow,
   LocalizedNames, RecipeCategory, IngredientCategory,
   WeeklyCountStatus, ItemVendorLink,
 } from '../types';
+import type { PoLine } from '../lib/db';
+import { callEdgeFunction } from '../lib/auth';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
   WASTE_LOG, AUDIT_LOG, PREP_RECIPES,
@@ -373,6 +375,59 @@ interface StoreActions {
    *  reverts on failure via notifyBackendError. */
   removeOrderScheduleEntry: (day: string, vendorId: string) => void;
   submitOrder: (submission: Omit<OrderSubmission, 'id'>) => void;
+
+  // ─── Spec 107 — purchase-order loop (admin Cmd only) ──────────────────
+  /**
+   * Cache of a PO's `po_items` lines, keyed by po id. Loaded lazily by
+   * `loadPurchaseOrderLines` when a PO is opened in POsSection or picked in
+   * the ReceivingSection PO-driven mode. Not persisted; refreshed on demand
+   * (and after a receive, which mutates received_qty).
+   */
+  poLinesById: Record<string, PoLine[]>;
+  /**
+   * Re-pull the store's recent purchase_orders into `orderSubmissions` (the PO
+   * list source for POsSection + ReceivingSection) WITHOUT the full-store
+   * reload `loadFromSupabase` does. Called after a PO lifecycle mutation.
+   */
+  refreshPurchaseOrders: () => Promise<void>;
+  /** Lazy-load (and cache) a PO's `po_items` lines. Plain read. */
+  loadPurchaseOrderLines: (poId: string) => Promise<PoLine[]>;
+  /** Edit a DRAFT PO line's ordered qty (spec 107 §5/§8). Optimistic. */
+  updatePoLineQty: (poId: string, poItemId: string, orderedQty: number) => Promise<void>;
+  /** Remove a line from a DRAFT PO (spec 107 §5/§8). Optimistic. */
+  removePoLine: (poId: string, poItemId: string) => Promise<void>;
+  /**
+   * Create an editable DRAFT PO from a reorder vendor card (spec 107 §5).
+   * Builds lines from `vendor.items` (suggestedUnits → orderedQty; the
+   * per-COUNTED-unit cost = costPerUnit × subUnitSize bridge, reading
+   * subUnitSize from `inventory` by itemId). Refreshes the PO list + reorder
+   * on success. Returns the new po id or null. Confirm-gated at the section.
+   */
+  createPoDraft: (vendor: ReorderVendor) => Promise<string | null>;
+  /**
+   * Receive against a PO (spec 107 §3). `lines` are the this-receive deltas
+   * (received_qty ADDITIVE). Mints the client_uuid internally for idempotency.
+   * On success the PO list + inventory + reorder are refreshed. Returns the
+   * resulting status ('partial' | 'received') or null on error.
+   */
+  receivePurchaseOrder: (
+    poId: string,
+    lines: Array<{ poItemId: string; receivedQty: number }>,
+  ) => Promise<string | null>;
+  /** Close a `partial` PO short (spec 107 §3). Refreshes list + reorder. */
+  closeShortPurchaseOrder: (poId: string) => Promise<string | null>;
+  /** Cancel a draft/sent/partial PO (spec 107 §3). Refreshes list + reorder. */
+  cancelPurchaseOrder: (poId: string) => Promise<string | null>;
+  /**
+   * Send a PO to its vendor by email (spec 107 §7) via the send-po-email edge
+   * function (confirm-gated at the section). The edge fn flips status→sent
+   * server-side on a Resend 2xx. Refreshes the PO list on success. Returns
+   * true on success.
+   */
+  sendPurchaseOrderEmail: (poId: string) => Promise<boolean>;
+  /** Mark a PO sent manually, no email (spec 107 §7). Refreshes the list. */
+  markPurchaseOrderSentManually: (poId: string) => Promise<boolean>;
+
   setTimezone: (tz: string) => void;
   toggleDarkMode: () => void;
   /** Apply a dark-mode value WITHOUT persisting — used at boot to restore
@@ -549,6 +604,8 @@ export const useStore = create<FullStore>((set, get) => ({
     Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
   },
   orderSubmissions: [],
+  // Spec 107 — per-PO `po_items` line cache, loaded lazily.
+  poLinesById: {},
   timezone: 'America/New_York',
   darkMode: false,
   // Spec 038 — preferred chrome language. Defaults to 'en'. Hydrated
@@ -2260,6 +2317,205 @@ export const useStore = create<FullStore>((set, get) => ({
         p_exclude_user_id: get().currentUser?.id || null,
       })
     ).catch((e: any) => console.warn('[Supabase] broadcast_notification (order):', e?.message || e));
+  },
+
+  // ─── Spec 107 — purchase-order loop (admin Cmd only) ──────────────────
+  // Shared: after a lifecycle mutation, re-pull the store's recent POs (they
+  // ride the `orderSubmissions` array, which carries `status`) + inventory via
+  // `refreshPurchaseOrders`, and re-run reorder so the inbound-quantity change
+  // is visible. Realtime ALSO fires from the purchase_orders UPDATE (§6) and
+  // re-runs the section's date-specific reorder fetch on the 400ms debounce;
+  // refreshing here makes the surfaces update deterministically without the
+  // wait. `loadReorderSuggestions()` with no arg fetches as-of the server's
+  // today — the section's realtime-driven refetch reconciles any picked date.
+
+  // Targeted refresh of the store's recent purchase_orders into the
+  // orderSubmissions array (the PO list source for POsSection + Receiving).
+  // Keeps every OTHER slice untouched (unlike loadFromSupabase's full reload)
+  // so a lifecycle action doesn't churn the whole store.
+  refreshPurchaseOrders: async () => {
+    const storeId = get().currentStore?.id;
+    if (!storeId || storeId === '__all__') return;
+    try {
+      const rows = await db.fetchRecentPurchaseOrders(storeId);
+      const stores = get().stores;
+      set({
+        orderSubmissions: (rows || []).map((o: any) => ({
+          ...o,
+          storeName: o.storeName || stores.find((st) => st.id === o.storeId)?.name || '',
+        })),
+      });
+    } catch (e: any) {
+      console.warn('[Supabase] refreshPurchaseOrders:', e?.message || e);
+    }
+  },
+
+  loadPurchaseOrderLines: async (poId) => {
+    const lines = await db.fetchPurchaseOrderLines(poId);
+    set((s) => ({ poLinesById: { ...s.poLinesById, [poId]: lines } }));
+    return lines;
+  },
+
+  updatePoLineQty: async (poId, poItemId, orderedQty) => {
+    const prev = get().poLinesById[poId] || [];
+    // Optimistic — reflect the new qty immediately in the cached lines.
+    set((s) => ({
+      poLinesById: {
+        ...s.poLinesById,
+        [poId]: (s.poLinesById[poId] || []).map((ln) =>
+          ln.poItemId === poItemId ? { ...ln, orderedQty } : ln,
+        ),
+      },
+    }));
+    try {
+      await db.updatePoItemQty(poItemId, orderedQty);
+    } catch (e: any) {
+      set((s) => ({ poLinesById: { ...s.poLinesById, [poId]: prev } }));
+      notifyBackendError('Update PO line', e);
+    }
+  },
+
+  removePoLine: async (poId, poItemId) => {
+    const prev = get().poLinesById[poId] || [];
+    set((s) => ({
+      poLinesById: {
+        ...s.poLinesById,
+        [poId]: (s.poLinesById[poId] || []).filter((ln) => ln.poItemId !== poItemId),
+      },
+    }));
+    try {
+      await db.deletePoItem(poItemId);
+    } catch (e: any) {
+      set((s) => ({ poLinesById: { ...s.poLinesById, [poId]: prev } }));
+      notifyBackendError('Remove PO line', e);
+    }
+  },
+
+  createPoDraft: async (vendor) => {
+    const storeId = get().currentStore?.id;
+    if (!storeId || storeId === '__all__') {
+      const e = new Error('No active store');
+      notifyBackendError('Create PO draft', e);
+      return null;
+    }
+    // Build lines from the vendor's suggested items. orderedQty = the
+    // server-authoritative suggestedUnits (base/counted units). The
+    // per-COUNTED-unit cost snapshot (OQ-6) = the item's per-each costPerUnit
+    // × subUnitSize — the spec-104 ★ bridge — read from the `inventory` array
+    // by itemId (POsSection:77 / ReceivingSection:100-102 pattern).
+    const inventory = get().inventory;
+    const lines = vendor.items
+      .map((it) => {
+        const inv = inventory.find((i) => i.id === it.itemId);
+        const subUnitSize = inv?.subUnitSize || 1;
+        const orderedQty = it.suggestedUnits || it.suggestedQty || 0;
+        return {
+          itemId: it.itemId,
+          orderedQty,
+          costPerUnitCounted: it.costPerUnit * subUnitSize,
+        };
+      })
+      .filter((ln) => ln.itemId && ln.orderedQty > 0);
+    if (lines.length === 0) {
+      notifyBackendError('Create PO draft', new Error('No orderable lines'));
+      return null;
+    }
+    try {
+      const poId = await db.createPurchaseOrderDraft({
+        storeId,
+        vendorId: vendor.vendorId,
+        createdByUserId: get().currentUser?.id,
+        lines,
+      });
+      if (!poId) {
+        notifyBackendError('Create PO draft', new Error('Draft not created'));
+        return null;
+      }
+      // Refresh the PO list so the new draft shows in POsSection. A draft is
+      // 'draft' so it does NOT yet reduce pending (that happens on send), but
+      // a reorder refresh keeps the surfaces in sync.
+      await get().refreshPurchaseOrders();
+      get().loadReorderSuggestions();
+      return poId;
+    } catch (e: any) {
+      notifyBackendError('Create PO draft', e);
+      return null;
+    }
+  },
+
+  receivePurchaseOrder: async (poId, lines) => {
+    // Mint the client_uuid ONCE per receive event for idempotency (a network
+    // retry inside the tracked call dedupes via the RPC's receive_client_uuid
+    // check; mirrors submitInventoryCount). Deltas are ADDITIVE — `lines`
+    // carry how much arrived THIS receive (the section prefills the
+    // OUTSTANDING remainder), NOT the ordered total.
+    const clientUuid =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `rcv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      const result = await db.receivePurchaseOrder(poId, lines, clientUuid);
+      if (!result) return null;
+      // Refresh the lines cache (received_qty changed) + the PO list (status
+      // flipped partial/received). Inventory (current_stock) + reorder ride the
+      // full store reload so the received quantity lands in both surfaces.
+      await get().loadPurchaseOrderLines(poId);
+      await get().refreshPurchaseOrders();
+      await get().loadFromSupabase();
+      get().loadReorderSuggestions();
+      return result.status;
+    } catch (e: any) {
+      notifyBackendError('Receive purchase order', e);
+      return null;
+    }
+  },
+
+  closeShortPurchaseOrder: async (poId) => {
+    try {
+      const status = await db.closePurchaseOrderShort(poId);
+      await get().refreshPurchaseOrders();
+      get().loadReorderSuggestions();
+      return status;
+    } catch (e: any) {
+      notifyBackendError('Close short purchase order', e);
+      return null;
+    }
+  },
+
+  cancelPurchaseOrder: async (poId) => {
+    try {
+      const status = await db.cancelPurchaseOrder(poId);
+      await get().refreshPurchaseOrders();
+      get().loadReorderSuggestions();
+      return status;
+    } catch (e: any) {
+      notifyBackendError('Cancel purchase order', e);
+      return null;
+    }
+  },
+
+  sendPurchaseOrderEmail: async (poId) => {
+    // Edge-function call via callEdgeFunction (CLAUDE.md — surfaces non-2xx as
+    // a string `error`, never a silent success). The edge fn flips status→sent
+    // server-side on a Resend 2xx; realtime + our refresh reflect it.
+    const { error } = await callEdgeFunction('send-po-email', { poId });
+    if (error) {
+      notifyBackendError('Send purchase order', new Error(error));
+      return false;
+    }
+    await get().refreshPurchaseOrders();
+    return true;
+  },
+
+  markPurchaseOrderSentManually: async (poId) => {
+    try {
+      await db.markPurchaseOrderSent(poId);
+      await get().refreshPurchaseOrders();
+      return true;
+    } catch (e: any) {
+      notifyBackendError('Mark purchase order sent', e);
+      return false;
+    }
   },
 
   setTimezone: (tz) => {

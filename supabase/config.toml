@@ -441,6 +441,18 @@ verify_jwt = false
 [functions.weekly-reminder-cron]
 verify_jwt = false
 
+# send-po-email (spec 107, OQ-1) is the OPPOSITE posture of the staff-*/cron
+# functions above: it is an admin-triggered action that carries the CALLER's
+# Supabase JWT and gates on it (requireAdminCaller / ADMIN_ROLES mirror of
+# auth_is_privileged()). verify_jwt is pinned TRUE explicitly — the JWT check
+# MUST stay on (a CLI redeploy that silently turned it off would drop the
+# gateway's auth in front of an outbound, side-effecting email + status flip).
+# Other JWT-default functions (delete-user, send-invite-email, …) rely on the
+# implicit default; this one states it to make the posture unmistakable and to
+# document why it is NOT in the verify_jwt=false set.
+[functions.send-po-email]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327
