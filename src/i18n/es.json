@@ -11,7 +11,7 @@
       "inventory": "Inventario",
       "dashboard": "Panel",
       "eodCount": "Conteo de fin de día",
-      "inventoryCount": "Conteo de inventario",
+      "inventoryCount": "Conteo semanal",
       "wasteLog": "Registro de mermas",
       "receiving": "Recepción",
       "purchaseOrders": "Órdenes de compra",
@@ -182,6 +182,25 @@
       "saveFailed": "No se pudo guardar el orden",
       "saveFailedDetail": "Verifica la conexión e inténtalo de nuevo",
       "resetFailed": "No se pudo restablecer el orden"
+    },
+    "countLayout": {
+      "default": "Predeterminado",
+      "saveLayout": "Guardar diseño",
+      "saveAsNew": "Guardar como nuevo diseño",
+      "overwrite": "Sobrescribir \"{name}\"",
+      "rename": "Renombrar",
+      "delete": "Eliminar",
+      "nameNewTitle": "Nombra este diseño",
+      "nameNewPlaceholder": "p. ej. Orden de recorrido",
+      "renameTitle": "Renombrar diseño",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "limitReached": "Máximo 3 diseños — sobrescribe o elimina uno primero",
+      "deleteConfirmTitle": "¿Eliminar diseño?",
+      "deleteConfirmBody": "Esto elimina \"{name}\" para todos los que cuentan en esta tienda. No se puede deshacer.",
+      "saved": "Diseño guardado",
+      "renamed": "Diseño renombrado",
+      "deleted": "Diseño eliminado"
     },
     "countDraft": {
       "save": "Guardar borrador",
@@ -466,7 +485,7 @@
       "vTagCol": "etiqueta"
     },
     "inventoryCount": {
-      "title": "Conteo de inventario",
+      "title": "Conteo semanal",
       "searchPlaceholder": "nombre del ingrediente…",
       "recentTitle": "Conteos recientes",
       "submit": "Enviar conteo",
@@ -1046,20 +1065,20 @@
       "noBrandsYetDetail": "aún no hay marcas",
       "selectBrand": "selecciona una marca",
       "brandCount": {
-        "one":   "{count} marca",
+        "one": "{count} marca",
         "other": "{count} marcas"
       },
       "cardCounts": "{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients} {ingredientsLabel}",
       "cardCountsStores": {
-        "one":   "tienda",
+        "one": "tienda",
         "other": "tiendas"
       },
       "cardCountsAdmins": {
-        "one":   "administrador",
+        "one": "administrador",
         "other": "administradores"
       },
       "cardCountsIngredients": {
-        "one":   "ingrediente",
+        "one": "ingrediente",
         "other": "ingredientes"
       }
     },
@@ -1198,108 +1217,108 @@
   },
   "enum": {
     "itemStatus": {
-      "ok":   "OK",
-      "low":  "BAJO",
-      "out":  "AGOTADO",
+      "ok": "OK",
+      "low": "BAJO",
+      "out": "AGOTADO",
       "info": "INFO"
     },
     "wasteReason": {
-      "expired":        "Vencido",
+      "expired": "Vencido",
       "droppedSpilled": "Caído/derramado",
-      "overPrepped":    "Sobre-preparado",
-      "qualityIssue":   "Problema de calidad",
-      "theft":          "Robo",
-      "other":          "Otro",
+      "overPrepped": "Sobre-preparado",
+      "qualityIssue": "Problema de calidad",
+      "theft": "Robo",
+      "other": "Otro",
       "short": {
-        "expired":        "vencido",
+        "expired": "vencido",
         "droppedSpilled": "caído",
-        "overPrepped":    "sobreprep",
-        "qualityIssue":   "calidad",
-        "theft":          "robo",
-        "other":          "otro"
+        "overPrepped": "sobreprep",
+        "qualityIssue": "calidad",
+        "theft": "robo",
+        "other": "otro"
       }
     },
     "auditAction": {
-      "eodEntry":          "envió conteo EOD",
-      "itemEdit":          "editó artículo",
-      "itemAdded":         "añadió artículo",
-      "itemDeleted":       "eliminó artículo",
-      "posImport":         "importó POS",
-      "wasteLog":          "registró merma",
-      "userInvite":        "invitó usuario",
-      "userDeleted":       "eliminó usuario",
-      "recipeSaved":       "guardó receta",
-      "recipeDeleted":     "eliminó receta",
-      "prepRecipeSaved":   "guardó receta de prep",
+      "eodEntry": "envió conteo EOD",
+      "itemEdit": "editó artículo",
+      "itemAdded": "añadió artículo",
+      "itemDeleted": "eliminó artículo",
+      "posImport": "importó POS",
+      "wasteLog": "registró merma",
+      "userInvite": "invitó usuario",
+      "userDeleted": "eliminó usuario",
+      "recipeSaved": "guardó receta",
+      "recipeDeleted": "eliminó receta",
+      "prepRecipeSaved": "guardó receta de prep",
       "prepRecipeDeleted": "eliminó receta de prep",
-      "stockAdjusted":     "ajustó stock",
-      "orderMissed":       "pedido omitido"
+      "stockAdjusted": "ajustó stock",
+      "orderMissed": "pedido omitido"
     },
     "inventoryCountKind": {
-      "spot":     "Puntual",
-      "open":     "Apertura",
+      "spot": "Puntual",
+      "open": "Apertura",
       "midShift": "Medio turno",
-      "close":    "Cierre",
-      "weekly":   "Semanal",
+      "close": "Cierre",
+      "weekly": "Semanal",
       "sub": {
-        "spot":     "verificación ad-hoc",
-        "open":     "apertura mañana",
+        "spot": "verificación ad-hoc",
+        "open": "apertura mañana",
         "midShift": "entre turnos",
-        "close":    "previo a EOD",
-        "weekly":   "conteo semanal completo"
+        "close": "previo a EOD",
+        "weekly": "conteo semanal completo"
       }
     },
     "role": {
-      "user":       "Usuario",
-      "admin":      "Administrador",
-      "master":     "Maestro",
+      "user": "Usuario",
+      "admin": "Administrador",
+      "master": "Maestro",
       "superAdmin": "Super administrador"
     },
     "userStatus": {
-      "active":  "ACTIVO",
+      "active": "ACTIVO",
       "pending": "PENDIENTE"
     },
     "dayOfWeek": {
       "short": {
-        "monday":    "LUN",
-        "tuesday":   "MAR",
+        "monday": "LUN",
+        "tuesday": "MAR",
         "wednesday": "MIÉ",
-        "thursday":  "JUE",
-        "friday":    "VIE",
-        "saturday":  "SÁB",
-        "sunday":    "DOM"
+        "thursday": "JUE",
+        "friday": "VIE",
+        "saturday": "SÁB",
+        "sunday": "DOM"
       },
       "long": {
-        "monday":    "Lunes",
-        "tuesday":   "Martes",
+        "monday": "Lunes",
+        "tuesday": "Martes",
         "wednesday": "Miércoles",
-        "thursday":  "Jueves",
-        "friday":    "Viernes",
-        "saturday":  "Sábado",
-        "sunday":    "Domingo"
+        "thursday": "Jueves",
+        "friday": "Viernes",
+        "saturday": "Sábado",
+        "sunday": "Domingo"
       },
       "twoLetter": {
-        "monday":    "lu",
-        "tuesday":   "ma",
+        "monday": "lu",
+        "tuesday": "ma",
         "wednesday": "mi",
-        "thursday":  "ju",
-        "friday":    "vi",
-        "saturday":  "sá",
-        "sunday":    "do"
+        "thursday": "ju",
+        "friday": "vi",
+        "saturday": "sá",
+        "sunday": "do"
       }
     },
     "unit": {
-      "g":     "g",
-      "kg":    "kg",
-      "oz":    "oz",
-      "lbs":   "lbs",
-      "flOz":  "fl_oz",
-      "cups":  "tazas",
-      "qt":    "qt",
-      "gal":   "gal",
-      "each":  "ud",
+      "g": "g",
+      "kg": "kg",
+      "oz": "oz",
+      "lbs": "lbs",
+      "flOz": "fl_oz",
+      "cups": "tazas",
+      "qt": "qt",
+      "gal": "gal",
+      "each": "ud",
       "cases": "cajas",
-      "bags":  "bolsas"
+      "bags": "bolsas"
     }
   }
 }

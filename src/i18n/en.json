@@ -11,7 +11,7 @@
       "inventory": "Inventory",
       "dashboard": "Dashboard",
       "eodCount": "EOD count",
-      "inventoryCount": "Inventory count",
+      "inventoryCount": "Weekly count",
       "wasteLog": "Waste log",
       "receiving": "Receiving",
       "purchaseOrders": "Purchase orders",
@@ -182,6 +182,25 @@
       "saveFailed": "Could not save order",
       "saveFailedDetail": "Check connection and try again",
       "resetFailed": "Could not reset order"
+    },
+    "countLayout": {
+      "default": "Default",
+      "saveLayout": "Save layout",
+      "saveAsNew": "Save as new layout",
+      "overwrite": "Overwrite \"{name}\"",
+      "rename": "Rename",
+      "delete": "Delete",
+      "nameNewTitle": "Name this layout",
+      "nameNewPlaceholder": "e.g. Walk order",
+      "renameTitle": "Rename layout",
+      "save": "Save",
+      "cancel": "Cancel",
+      "limitReached": "3 layouts max — overwrite or delete one first",
+      "deleteConfirmTitle": "Delete layout?",
+      "deleteConfirmBody": "This removes \"{name}\" for everyone counting at this store. This cannot be undone.",
+      "saved": "Layout saved",
+      "renamed": "Layout renamed",
+      "deleted": "Layout deleted"
     },
     "countDraft": {
       "save": "Save draft",
@@ -466,7 +485,7 @@
       "vTagCol": "tag"
     },
     "inventoryCount": {
-      "title": "Inventory count",
+      "title": "Weekly count",
       "searchPlaceholder": "ingredient name…",
       "recentTitle": "Recent counts",
       "submit": "Submit count",
@@ -1046,20 +1065,20 @@
       "noBrandsYetDetail": "no brands yet",
       "selectBrand": "select a brand",
       "brandCount": {
-        "one":   "{count} brand",
+        "one": "{count} brand",
         "other": "{count} brands"
       },
       "cardCounts": "{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients} {ingredientsLabel}",
       "cardCountsStores": {
-        "one":   "store",
+        "one": "store",
         "other": "stores"
       },
       "cardCountsAdmins": {
-        "one":   "admin",
+        "one": "admin",
         "other": "admins"
       },
       "cardCountsIngredients": {
-        "one":   "ingredient",
+        "one": "ingredient",
         "other": "ingredients"
       }
     },
@@ -1198,108 +1217,108 @@
   },
   "enum": {
     "itemStatus": {
-      "ok":   "OK",
-      "low":  "LOW",
-      "out":  "OUT",
+      "ok": "OK",
+      "low": "LOW",
+      "out": "OUT",
       "info": "INFO"
     },
     "wasteReason": {
-      "expired":        "Expired",
+      "expired": "Expired",
       "droppedSpilled": "Dropped/spilled",
-      "overPrepped":    "Over-prepped",
-      "qualityIssue":   "Quality issue",
-      "theft":          "Theft",
-      "other":          "Other",
+      "overPrepped": "Over-prepped",
+      "qualityIssue": "Quality issue",
+      "theft": "Theft",
+      "other": "Other",
       "short": {
-        "expired":        "expired",
+        "expired": "expired",
         "droppedSpilled": "dropped",
-        "overPrepped":    "overproduction",
-        "qualityIssue":   "quality",
-        "theft":          "theft",
-        "other":          "other"
+        "overPrepped": "overproduction",
+        "qualityIssue": "quality",
+        "theft": "theft",
+        "other": "other"
       }
     },
     "auditAction": {
-      "eodEntry":          "submitted EOD count",
-      "itemEdit":          "edited item",
-      "itemAdded":         "added item",
-      "itemDeleted":       "deleted item",
-      "posImport":         "imported POS",
-      "wasteLog":          "logged waste",
-      "userInvite":        "invited user",
-      "userDeleted":       "deleted user",
-      "recipeSaved":       "saved recipe",
-      "recipeDeleted":     "deleted recipe",
-      "prepRecipeSaved":   "saved prep recipe",
+      "eodEntry": "submitted EOD count",
+      "itemEdit": "edited item",
+      "itemAdded": "added item",
+      "itemDeleted": "deleted item",
+      "posImport": "imported POS",
+      "wasteLog": "logged waste",
+      "userInvite": "invited user",
+      "userDeleted": "deleted user",
+      "recipeSaved": "saved recipe",
+      "recipeDeleted": "deleted recipe",
+      "prepRecipeSaved": "saved prep recipe",
       "prepRecipeDeleted": "deleted prep recipe",
-      "stockAdjusted":     "adjusted stock",
-      "orderMissed":       "order missed"
+      "stockAdjusted": "adjusted stock",
+      "orderMissed": "order missed"
     },
     "inventoryCountKind": {
-      "spot":     "Spot",
-      "open":     "Open",
+      "spot": "Spot",
+      "open": "Open",
       "midShift": "Mid-shift",
-      "close":    "Close",
-      "weekly":   "Weekly",
+      "close": "Close",
+      "weekly": "Weekly",
       "sub": {
-        "spot":     "ad-hoc check",
-        "open":     "morning open",
+        "spot": "ad-hoc check",
+        "open": "morning open",
         "midShift": "between shifts",
-        "close":    "pre-EOD close",
-        "weekly":   "weekly full count"
+        "close": "pre-EOD close",
+        "weekly": "weekly full count"
       }
     },
     "role": {
-      "user":       "User",
-      "admin":      "Admin",
-      "master":     "Master",
+      "user": "User",
+      "admin": "Admin",
+      "master": "Master",
       "superAdmin": "Super admin"
     },
     "userStatus": {
-      "active":  "ACTIVE",
+      "active": "ACTIVE",
       "pending": "PENDING"
     },
     "dayOfWeek": {
       "short": {
-        "monday":    "MON",
-        "tuesday":   "TUE",
+        "monday": "MON",
+        "tuesday": "TUE",
         "wednesday": "WED",
-        "thursday":  "THU",
-        "friday":    "FRI",
-        "saturday":  "SAT",
-        "sunday":    "SUN"
+        "thursday": "THU",
+        "friday": "FRI",
+        "saturday": "SAT",
+        "sunday": "SUN"
       },
       "long": {
-        "monday":    "Monday",
-        "tuesday":   "Tuesday",
+        "monday": "Monday",
+        "tuesday": "Tuesday",
         "wednesday": "Wednesday",
-        "thursday":  "Thursday",
-        "friday":    "Friday",
-        "saturday":  "Saturday",
-        "sunday":    "Sunday"
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
       },
       "twoLetter": {
-        "monday":    "Mo",
-        "tuesday":   "Tu",
+        "monday": "Mo",
+        "tuesday": "Tu",
         "wednesday": "We",
-        "thursday":  "Th",
-        "friday":    "Fr",
-        "saturday":  "Sa",
-        "sunday":    "Su"
+        "thursday": "Th",
+        "friday": "Fr",
+        "saturday": "Sa",
+        "sunday": "Su"
       }
     },
     "unit": {
-      "g":     "g",
-      "kg":    "kg",
-      "oz":    "oz",
-      "lbs":   "lbs",
-      "flOz":  "fl_oz",
-      "cups":  "cups",
-      "qt":    "qt",
-      "gal":   "gal",
-      "each":  "each",
+      "g": "g",
+      "kg": "kg",
+      "oz": "oz",
+      "lbs": "lbs",
+      "flOz": "fl_oz",
+      "cups": "cups",
+      "qt": "qt",
+      "gal": "gal",
+      "each": "each",
       "cases": "cases",
-      "bags":  "bags"
+      "bags": "bags"
     }
   }
 }

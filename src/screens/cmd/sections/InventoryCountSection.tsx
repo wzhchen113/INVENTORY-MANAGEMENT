@@ -8,14 +8,12 @@ import { useStore } from '../../../store/useStore';
 import {
   fetchRecentInventoryCounts,
   fetchInventoryCount,
-  fetchCountOrder,
-  saveCountOrder,
-  resetCountOrder,
   fetchReorderForCountedOnHand,
   fetchCountDraft,
   saveCountDraft,
   deleteCountDraft,
 } from '../../../lib/db';
+import type { StoreCountLayout } from '../../../lib/db';
 import type { CountedReorderItem } from '../../../types';
 import {
   parStateFor,
@@ -49,6 +47,7 @@ import { supabase } from '../../../lib/supabase';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
+import { CountLayoutNameModal } from '../../../components/cmd/CountLayoutNameModal';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { relativeTime } from '../../../utils/relativeTime';
@@ -143,6 +142,12 @@ export default function InventoryCountSection() {
   const weeklyCountStatusLoading = useStore((s) => s.weeklyCountStatusLoading);
   const loadWeeklyCountStatus = useStore((s) => s.loadWeeklyCountStatus);
   const setStoreWeeklyDueDow = useStore((s) => s.setStoreWeeklyDueDow);
+  // Spec 110 — store-shared named weekly-count layout actions (thin I/O
+  // wrappers; the list + selection live in section-local state below, design §8).
+  const fetchStoreCountLayouts = useStore((s) => s.fetchStoreCountLayouts);
+  const saveStoreCountLayout = useStore((s) => s.saveStoreCountLayout);
+  const renameStoreCountLayout = useStore((s) => s.renameStoreCountLayout);
+  const deleteStoreCountLayout = useStore((s) => s.deleteStoreCountLayout);
 
   const [tabId, setTabId] = React.useState('count.tsx');
   const [view, setView] = React.useState<'list' | 'detail'>('list');
@@ -177,12 +182,31 @@ export default function InventoryCountSection() {
   // (design §14).
   const [pendingFocusId, setPendingFocusId] = React.useState<string | null>(null);
   const firstInputRefs = React.useRef<Record<string, TextInput | null>>({});
-  // Spec 103 — per-user custom order (per-surface; no vendor → null). `viewMode`
-  // toggles the default category-grouped list vs a flat Custom view in the
-  // user's saved drag order. Render-only: counters/guards/submission still
-  // derive from `storeInventory` (AC-9; the C-FE-1 guard stays). NO gate here.
+  // Spec 110 — store-SHARED named layouts (this is the AUTHORING surface).
+  // `viewMode`/`savedIds` are the SAME spec-103 render/apply levers (reused
+  // verbatim, design §9): Default → savedIds=null (category-grouped); a picked
+  // layout → savedIds=<its item_ids> + viewMode='custom' (flat, headers
+  // suppressed). Render-only: counters/guards/submission still derive from
+  // `storeInventory` (AC-9/AC-11; the C-FE-1 guard stays). NO count gate here.
+  //
+  // What spec 110 CHANGES vs spec 103 on this surface: the ordered id array
+  // comes from a picked `store_count_layouts.item_ids` (not the per-user
+  // `user_count_orders` row), and it persists only on an explicit Save (not
+  // auto-save-on-drag). `layouts` is the store's shared set (0–3);
+  // `selectedLayoutId` is which pill is active (null = Default). `dragIds` is
+  // the WORKING order the drag list edits — it diverges from the saved layout
+  // until Save, and is what a create/overwrite persists.
   const [viewMode, setViewMode] = React.useState<'default' | 'custom'>('default');
   const [savedIds, setSavedIds] = React.useState<string[] | null>(null);
+  const [layouts, setLayouts] = React.useState<StoreCountLayout[]>([]);
+  const [selectedLayoutId, setSelectedLayoutId] = React.useState<string | null>(null);
+  // The name-entry modal: 'create' prompts for a new layout name; 'rename'
+  // targets an existing layout id. null = closed.
+  const [nameModal, setNameModal] = React.useState<
+    { mode: 'create' } | { mode: 'rename'; layoutId: string; initial: string } | null
+  >(null);
+  const [savingLayout, setSavingLayout] = React.useState(false);
+  const MAX_LAYOUTS = 3;
 
   // Recent counts — fetched on mount + on a realtime nudge. `tick` is the
   // counter we bump from the realtime subscription to force a refetch.
@@ -352,72 +376,199 @@ export default function InventoryCountSection() {
     void loadWeeklyCountStatus(todayIso());
   }, [tabId, loadWeeklyCountStatus]);
 
-  // ─── Spec 103: load the saved custom order on mount / store change ──
-  // Per-surface (no vendor → null). On open, if a saved order exists, open in
-  // Custom view (AC-7); else default. A genuine error falls back to default.
+  // ─── Spec 110: load the store's shared named layouts on mount/store change ──
+  // Fresh fetch, no client cache (AC-4). Start on Default (no pill selected);
+  // the admin opts into a layout by picking a pill. A load error degrades to
+  // Default-only (the toast fires inside the store action). Re-runs on store
+  // change so switching stores shows that store's shared set.
   React.useEffect(() => {
-    const uid = currentUser?.id;
-    if (!uid || !storeId || storeId === '__all__') {
+    if (!storeId || storeId === '__all__') {
+      setLayouts([]);
+      setSelectedLayoutId(null);
       setSavedIds(null);
       setViewMode('default');
       return;
     }
     let cancelled = false;
-    fetchCountOrder(uid, 'admin-inventory', null)
-      .then((ids) => {
-        if (cancelled) return;
-        setSavedIds(ids);
-        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
-      })
-      .catch((e: any) => {
-        if (cancelled) return;
-        console.warn('[InventoryCount] fetchCountOrder failed:', e?.message || e);
-        setSavedIds(null);
-        setViewMode('default');
-      });
+    fetchStoreCountLayouts(storeId).then((rows) => {
+      if (cancelled) return;
+      setLayouts(rows ?? []);
+      // Reset selection on a (re)load — the picked layout may no longer exist
+      // (deleted by another admin); the admin re-picks. Default view until then.
+      setSelectedLayoutId(null);
+      setSavedIds(null);
+      setViewMode('default');
+    });
     return () => {
       cancelled = true;
     };
-  }, [currentUser?.id, storeId]);
+  }, [storeId, fetchStoreCountLayouts]);
 
-  // Persist-on-drop — optimistic, revert + toast on failure (AC-6).
-  const onReorder = React.useCallback(
-    (orderedIds: string[]) => {
-      const uid = currentUser?.id;
-      if (!uid || !storeId || storeId === '__all__') return;
-      const prev = savedIds;
-      setSavedIds(orderedIds);
-      setViewMode('custom');
-      saveCountOrder(uid, 'admin-inventory', null, orderedIds).catch((e: any) => {
-        setSavedIds(prev);
-        console.warn('[InventoryCount] saveCountOrder failed:', e?.message || e);
-        Toast.show({
-          type: 'error',
-          text1: T('section.countOrder.saveFailed'),
-          text2: T('section.countOrder.saveFailedDetail'),
-        });
-      });
-    },
-    [currentUser?.id, storeId, savedIds, T],
-  );
-
-  // Reset — clear the saved order, return to default view.
-  const onResetOrder = React.useCallback(() => {
-    const uid = currentUser?.id;
-    if (!uid || !storeId || storeId === '__all__') return;
-    const prev = savedIds;
+  // Pick a pill. Default → category-grouped (savedIds=null). A named layout →
+  // flat Custom view in its saved order (design §9, the spec-103 apply path).
+  // This is available to any counter; the authoring affordances below are the
+  // admin-only extras. Selecting a layout seeds the working drag order from it.
+  const onPickDefault = React.useCallback(() => {
+    setSelectedLayoutId(null);
     setSavedIds(null);
     setViewMode('default');
-    resetCountOrder(uid, 'admin-inventory', null).catch((e: any) => {
-      setSavedIds(prev);
-      console.warn('[InventoryCount] resetCountOrder failed:', e?.message || e);
-      Toast.show({
-        type: 'error',
-        text1: T('section.countOrder.resetFailed'),
-        text2: T('section.countOrder.saveFailedDetail'),
+  }, []);
+
+  const onPickLayout = React.useCallback(
+    (layout: StoreCountLayout) => {
+      setSelectedLayoutId(layout.id);
+      setSavedIds(layout.itemIds);
+      setViewMode('custom');
+    },
+    [],
+  );
+
+  // The layout the pill row currently has selected (or null for Default).
+  const selectedLayout = React.useMemo(
+    () => layouts.find((l) => l.id === selectedLayoutId) ?? null,
+    [layouts, selectedLayoutId],
+  );
+
+  // Drag reorder — ON-SCREEN ONLY. Unlike spec 103 (auto-save-on-drop), spec
+  // 110 defers persistence to an explicit Save (AC-9): dragging updates
+  // `savedIds` (the rendered order) but writes nothing. Save reads `savedIds`
+  // back as the item_ids to persist.
+  const onReorder = React.useCallback((orderedIds: string[]) => {
+    setSavedIds(orderedIds);
+    setViewMode('custom');
+  }, []);
+
+  // Persist the current on-screen order to a layout. `layoutId` set → overwrite
+  // that layout keeping its name (AC-5); null → this is a create, so the caller
+  // has already collected a name via the modal. Optimistic-then-revert on the
+  // local `layouts` list; the store action toasts on failure and returns null.
+  const persistLayout = React.useCallback(
+    async (name: string, layoutId: string | null) => {
+      if (!storeId || storeId === '__all__') return;
+      // The order to persist is the on-screen order. In Custom view that is
+      // `savedIds` (the picked/dragged order). In Default view `savedIds` is
+      // null, so capture the default category-grouped order (category asc, then
+      // name — the same order `grouped` renders) so "arrange in Default → Save
+      // as new" stores a meaningful starting layout rather than an empty array.
+      const ids =
+        savedIds ??
+        [...storeInventory]
+          .sort(
+            (a, b) =>
+              (a.category || '').localeCompare(b.category || '') ||
+              a.name.localeCompare(b.name),
+          )
+          .map((i) => i.id);
+      setSavingLayout(true);
+      const savedId = await saveStoreCountLayout(storeId, name, ids, layoutId);
+      setSavingLayout(false);
+      if (!savedId) {
+        // The store action already toasted. Nothing to revert: `layouts` is
+        // never optimistically mutated on this path — the authoritative row
+        // shape comes back from the refetch below on success.
+        return;
+      }
+      // Re-fetch the authoritative list so the new/overwritten row (with its
+      // server-assigned slot + updated_at) is reflected on the pill row (AC-4).
+      const rows = await fetchStoreCountLayouts(storeId);
+      if (rows) setLayouts(rows);
+      setSelectedLayoutId(savedId);
+      // Keep the just-saved order on screen (savedIds already holds it).
+      setViewMode('custom');
+      Toast.show({ type: 'success', text1: T('section.countLayout.saved') });
+    },
+    [storeId, savedIds, storeInventory, saveStoreCountLayout, fetchStoreCountLayouts, T],
+  );
+
+  // Shared client-side cap pre-block for the two create paths (AC-9). Returns
+  // true when the cap toast fired and the caller should bail. UX only — the
+  // save RPC backstops the cap server-side (AC-2).
+  const blockIfAtCap = React.useCallback(() => {
+    if (layouts.length >= MAX_LAYOUTS) {
+      Toast.show({ type: 'error', text1: T('section.countLayout.limitReached') });
+      return true;
+    }
+    return false;
+  }, [layouts.length, T]);
+
+  // Save button. A layout is selected → overwrite it (AC-5, no name prompt).
+  // No layout selected → this is a NEW layout: block client-side at the cap
+  // then open the name modal.
+  const onSaveLayout = React.useCallback(() => {
+    if (!storeId || storeId === '__all__') return;
+    if (selectedLayout) {
+      void persistLayout(selectedLayout.name, selectedLayout.id);
+      return;
+    }
+    if (blockIfAtCap()) return;
+    setNameModal({ mode: 'create' });
+  }, [storeId, selectedLayout, blockIfAtCap, persistLayout]);
+
+  // "Save as new" — always creates a fresh layout (even when one is selected),
+  // subject to the client-side cap. Distinct from Save's overwrite path.
+  const onSaveAsNew = React.useCallback(() => {
+    if (!storeId || storeId === '__all__') return;
+    if (blockIfAtCap()) return;
+    setNameModal({ mode: 'create' });
+  }, [storeId, blockIfAtCap]);
+
+  // Modal submit — resolves create vs rename from the modal mode.
+  const onNameSubmit = React.useCallback(
+    (name: string) => {
+      const modal = nameModal;
+      setNameModal(null);
+      if (!modal) return;
+      if (modal.mode === 'create') {
+        void persistLayout(name, null);
+        return;
+      }
+      // Rename — optimistic on the local list, revert on failure.
+      const prevLayouts = layouts;
+      setLayouts((ls) => ls.map((l) => (l.id === modal.layoutId ? { ...l, name } : l)));
+      renameStoreCountLayout(modal.layoutId, name).then((ok) => {
+        if (!ok) {
+          setLayouts(prevLayouts);
+          return;
+        }
+        Toast.show({ type: 'success', text1: T('section.countLayout.renamed') });
       });
-    });
-  }, [currentUser?.id, storeId, savedIds, T]);
+    },
+    [nameModal, layouts, persistLayout, renameStoreCountLayout, T],
+  );
+
+  // Rename the selected layout — opens the modal prefilled with its name.
+  const onRenameSelected = React.useCallback(() => {
+    if (!selectedLayout) return;
+    setNameModal({ mode: 'rename', layoutId: selectedLayout.id, initial: selectedLayout.name });
+  }, [selectedLayout]);
+
+  // Delete the selected layout — confirm-gated (cross-platform). On success the
+  // pill disappears and the screen returns to Default (AC-6). Optimistic remove
+  // from the local list, revert on failure.
+  const onDeleteSelected = React.useCallback(() => {
+    const layout = selectedLayout;
+    if (!layout) return;
+    confirmAction(
+      T('section.countLayout.deleteConfirmTitle'),
+      T('section.countLayout.deleteConfirmBody', { name: layout.name }),
+      () => {
+        const prevLayouts = layouts;
+        setLayouts((ls) => ls.filter((l) => l.id !== layout.id));
+        // Deleting the currently-selected layout returns to Default (AC-6).
+        setSelectedLayoutId(null);
+        setSavedIds(null);
+        setViewMode('default');
+        deleteStoreCountLayout(layout.id).then((ok) => {
+          if (!ok) {
+            setLayouts(prevLayouts);
+            return;
+          }
+          Toast.show({ type: 'success', text1: T('section.countLayout.deleted') });
+        });
+      },
+      T('section.countLayout.delete'),
+    );
+  }, [selectedLayout, layouts, deleteStoreCountLayout, T]);
 
   // ─── Spec 106: save-draft + resume ─────────────────────────────────
   // The live item-id set for the active store — drives applyDraftStaleFilter on
@@ -1390,59 +1541,142 @@ export default function InventoryCountSection() {
                 );
               })}
             </View>
-            {/* Spec 103 — Default ⇄ Custom view toggle + reset. Custom flattens
-                the list into the user's saved drag order. No gate on this screen. */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <TouchableOpacity
-                testID="inv-view-default"
-                onPress={() => setViewMode('default')}
-                accessibilityRole="button"
-                accessibilityState={{ selected: viewMode === 'default' }}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: CmdRadius.md,
-                  borderWidth: 1,
-                  borderColor: viewMode === 'default' ? C.accent : C.border,
-                  backgroundColor: viewMode === 'default' ? C.accentBg : C.panel,
-                }}
-              >
-                <Text style={{ fontFamily: mono(viewMode === 'default' ? 700 : 500), fontSize: 10.5, color: viewMode === 'default' ? C.accent : C.fg2 }}>
-                  {T('section.countOrder.viewDefault')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                testID="inv-view-custom"
-                onPress={() => setViewMode('custom')}
-                accessibilityRole="button"
-                accessibilityState={{ selected: viewMode === 'custom' }}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: CmdRadius.md,
-                  borderWidth: 1,
-                  borderColor: viewMode === 'custom' ? C.accent : C.border,
-                  backgroundColor: viewMode === 'custom' ? C.accentBg : C.panel,
-                }}
-              >
-                <Text style={{ fontFamily: mono(viewMode === 'custom' ? 700 : 500), fontSize: 10.5, color: viewMode === 'custom' ? C.accent : C.fg2 }}>
-                  {T('section.countOrder.viewCustom')}
-                </Text>
-              </TouchableOpacity>
-              <View style={{ flex: 1 }} />
-              {savedIds && savedIds.length > 0 ? (
+            {/* Spec 110 — layout pill row (Default + up to 3 named layouts) +
+                the admin-only authoring controls. Picking a pill applies its
+                saved order as a flat Custom view (headers suppressed); Default
+                renders the category-grouped built-in order. The drag list below
+                edits the selected layout's order and persists ONLY on "Save
+                layout" (explicit, replacing spec-103 auto-save-on-drag). The
+                "Save layout" control is textually + visually distinct from the
+                spec-106 "Save draft" button (which lives in the tab strip) so
+                the two are not confused. */}
+            <View style={{ gap: 8 }}>
+              {/* Pills — Default + one per named layout. */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                 <TouchableOpacity
-                  testID="inv-reset-order"
-                  onPress={onResetOrder}
+                  testID="inv-layout-default"
+                  onPress={onPickDefault}
                   accessibilityRole="button"
-                  accessibilityLabel={T('section.countOrder.reset')}
-                  style={{ paddingHorizontal: 8, paddingVertical: 5 }}
+                  accessibilityState={{ selected: selectedLayoutId === null }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: CmdRadius.md,
+                    borderWidth: 1,
+                    borderColor: selectedLayoutId === null ? C.accent : C.border,
+                    backgroundColor: selectedLayoutId === null ? C.accentBg : C.panel,
+                  }}
                 >
-                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.accent }}>
-                    {T('section.countOrder.reset')}
+                  <Text style={{ fontFamily: mono(selectedLayoutId === null ? 700 : 500), fontSize: 10.5, color: selectedLayoutId === null ? C.accent : C.fg2 }}>
+                    {T('section.countLayout.default')}
                   </Text>
                 </TouchableOpacity>
-              ) : null}
+                {layouts.map((l) => {
+                  const sel = l.id === selectedLayoutId;
+                  return (
+                    <TouchableOpacity
+                      key={l.id}
+                      testID={`inv-layout-pill-${l.id}`}
+                      onPress={() => onPickLayout(l)}
+                      accessibilityRole="button"
+                      accessibilityLabel={l.name}
+                      accessibilityState={{ selected: sel }}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: CmdRadius.md,
+                        borderWidth: 1,
+                        borderColor: sel ? C.accent : C.border,
+                        backgroundColor: sel ? C.accentBg : C.panel,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 10.5, color: sel ? C.accent : C.fg2 }} numberOfLines={1}>
+                        {l.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {/* Authoring controls (admin-only surface). Save overwrites the
+                  selected layout or, with none selected, prompts to name a new
+                  one (blocked client-side at 3). Rename/Delete act on the
+                  selected pill. */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  testID="inv-layout-save"
+                  onPress={onSaveLayout}
+                  disabled={savingLayout}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    selectedLayout
+                      ? T('section.countLayout.overwrite', { name: selectedLayout.name })
+                      : T('section.countLayout.saveLayout')
+                  }
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: CmdRadius.sm,
+                    borderWidth: 1,
+                    borderColor: C.accent,
+                    backgroundColor: C.accentBg,
+                    opacity: savingLayout ? 0.5 : 1,
+                    ...(Platform.OS === 'web' && savingLayout ? ({ pointerEvents: 'none' } as any) : {}),
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent }}>
+                    {selectedLayout
+                      ? T('section.countLayout.overwrite', { name: selectedLayout.name })
+                      : T('section.countLayout.saveLayout')}
+                  </Text>
+                </TouchableOpacity>
+                {selectedLayout ? (
+                  <TouchableOpacity
+                    testID="inv-layout-save-as-new"
+                    onPress={onSaveAsNew}
+                    disabled={savingLayout}
+                    accessibilityRole="button"
+                    accessibilityLabel={T('section.countLayout.saveAsNew')}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: CmdRadius.sm,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      opacity: savingLayout ? 0.5 : 1,
+                    }}
+                  >
+                    <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
+                      {T('section.countLayout.saveAsNew')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {selectedLayout ? (
+                  <>
+                    <TouchableOpacity
+                      testID="inv-layout-rename"
+                      onPress={onRenameSelected}
+                      accessibilityRole="button"
+                      accessibilityLabel={T('section.countLayout.rename')}
+                      style={{ paddingHorizontal: 8, paddingVertical: 5 }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.accent }}>
+                        {T('section.countLayout.rename')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      testID="inv-layout-delete"
+                      onPress={onDeleteSelected}
+                      accessibilityRole="button"
+                      accessibilityLabel={T('section.countLayout.delete')}
+                      style={{ paddingHorizontal: 8, paddingVertical: 5 }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.danger }}>
+                        {T('section.countLayout.delete')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+              </View>
             </View>
           </View>
 
@@ -1479,15 +1713,18 @@ export default function InventoryCountSection() {
             {viewMode === 'custom' ? (
               // Spec 103 — flat Custom view in the user's saved drag order,
               // category headers suppressed (OQ-2). Drag/▲▼ reorder is disabled
-              // while a search is active (the visible subset isn't the full
-              // order). Rows are byte-identical to grouped view (renderInventoryRow).
+              // while a search OR a category chip narrows the list: onReorder
+              // replaces the ranking wholesale with the VISIBLE ids, so a
+              // filtered drag would silently shrink what Save persists to the
+              // store-shared layout (spec 110 code-review SF-1). Rows are
+              // byte-identical to grouped view (renderInventoryRow).
               customVisibleItems.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 32, textAlign: 'center' }}>
                   no items in this filter
                 </Text>
               ) : (
                 <View style={{ marginTop: 14 }}>
-                  {search.trim()
+                  {search.trim() || selectedCategory !== 'all'
                     ? customVisibleItems.map((it, i) => renderInventoryRow(it, i !== 0))
                     : (
                       <CountOrderDragList
@@ -1583,6 +1820,21 @@ export default function InventoryCountSection() {
           </Text>
         </View>
       ) : null}
+
+      {/* Spec 110 — layout name-entry modal (create + rename). Self-gates on
+          `visible`; the caller resolves the create-vs-rename copy + initial. */}
+      <CountLayoutNameModal
+        visible={nameModal !== null}
+        title={
+          nameModal?.mode === 'rename'
+            ? T('section.countLayout.renameTitle')
+            : T('section.countLayout.nameNewTitle')
+        }
+        initialValue={nameModal?.mode === 'rename' ? nameModal.initial : ''}
+        placeholder={T('section.countLayout.nameNewPlaceholder')}
+        onSubmit={onNameSubmit}
+        onClose={() => setNameModal(null)}
+      />
     </View>
   );
 }

@@ -234,6 +234,9 @@
       "moveUp": "Move up",
       "moveDown": "Move down"
     },
+    "layout": {
+      "default": "Default"
+    },
     "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit weekly count",
     "submitting": "Submitting...",

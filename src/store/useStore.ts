@@ -357,6 +357,35 @@ interface StoreActions {
    *  errors leave the previous slice in place. */
   loadWeeklyCountStatus: (asOfDate: string) => Promise<void>;
 
+  // Spec 110 — store-shared named weekly-count layouts. Thin I/O wrappers
+  // over the db.ts helpers (§6). The layout LIST + selection are section-local
+  // React state in InventoryCountSection (design §8, mirroring spec-103's
+  // section-local `savedIds`/`viewMode`), so there is no layouts slice here —
+  // these actions are the tracked() I/O boundary + the notifyBackendError
+  // funnel. Each returns its result on success, or `null` after toasting on
+  // failure, letting the section run its optimistic-then-revert around the call
+  // (identical posture to `submitInventoryCount`). Write authorization is
+  // enforced SERVER-SIDE (privileged-only RLS/RPC, AC-3b) — these wrappers do
+  // no role check; the admin UI simply doesn't surface them to non-admins.
+  /** LIST — read the active store's shared layouts (0–3). Returns the rows,
+   *  or `null` on error (the section falls back to Default-only). */
+  fetchStoreCountLayouts: (storeId: string) => Promise<db.StoreCountLayout[] | null>;
+  /** SAVE — create (`layoutId` omitted/null) or overwrite (`layoutId` set) a
+   *  layout. Returns the created/overwritten id, or `null` on error. The
+   *  3-per-store cap is a server backstop (AC-2); the FE pre-blocks a 4th
+   *  create (AC-9). */
+  saveStoreCountLayout: (
+    storeId: string,
+    name: string,
+    itemIds: string[],
+    layoutId?: string | null,
+  ) => Promise<string | null>;
+  /** RENAME — rename a layout (name only; item_ids unchanged). Returns the id,
+   *  or `null` on error. */
+  renameStoreCountLayout: (layoutId: string, name: string) => Promise<string | null>;
+  /** DELETE — delete a layout. Returns the deleted id, or `null` on error. */
+  deleteStoreCountLayout: (layoutId: string) => Promise<string | null>;
+
   // Users
   inviteUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
@@ -1943,6 +1972,52 @@ export const useStore = create<FullStore>((set, get) => ({
       return { countId: result.countId, conflict: result.conflict };
     } catch (e: any) {
       notifyBackendError('Submit inventory count', e);
+      return null;
+    }
+  },
+
+  // ─── Spec 110 — store-shared named weekly-count layouts ────────────
+  // Thin I/O wrappers over the db.ts helpers (§6). No local slice — the
+  // section owns the list + selection state (design §8). Each catches +
+  // toasts via notifyBackendError and returns null so the caller can revert
+  // its optimistic local mutation (same shape as submitInventoryCount).
+  fetchStoreCountLayouts: async (storeId) => {
+    if (!storeId || storeId === '__all__') return null;
+    try {
+      return await db.fetchStoreCountLayouts(storeId);
+    } catch (e: any) {
+      notifyBackendError('Load layouts', e);
+      return null;
+    }
+  },
+
+  saveStoreCountLayout: async (storeId, name, itemIds, layoutId) => {
+    if (!storeId || storeId === '__all__') {
+      notifyBackendError('Save layout', new Error('No active store'));
+      return null;
+    }
+    try {
+      return await db.saveStoreCountLayout(storeId, name, itemIds, layoutId ?? null);
+    } catch (e: any) {
+      notifyBackendError('Save layout', e);
+      return null;
+    }
+  },
+
+  renameStoreCountLayout: async (layoutId, name) => {
+    try {
+      return await db.renameStoreCountLayout(layoutId, name);
+    } catch (e: any) {
+      notifyBackendError('Rename layout', e);
+      return null;
+    }
+  },
+
+  deleteStoreCountLayout: async (layoutId) => {
+    try {
+      return await db.deleteStoreCountLayout(layoutId);
+    } catch (e: any) {
+      notifyBackendError('Delete layout', e);
       return null;
     }
   },

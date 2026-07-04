@@ -2333,6 +2333,150 @@ export async function resetCountOrder(
   }, { kind: 'write', label: 'resetCountOrder' });
 }
 
+// ─── NAMED STORE-SHARED WEEKLY LAYOUTS (Spec 110) ──────────────────────
+/**
+ * Spec 110 — named, store-SHARED layouts for the two WEEKLY count surfaces
+ * (admin "Weekly count" section = 'admin-inventory'; staff Weekly =
+ * 'staff-weekly'), backed by the `public.store_count_layouts` table. Up to THREE
+ * named layouts per store, as ONE shared set both Weekly surfaces read. This is
+ * the deliberate DIVERGENCE from the spec-103 `user_count_orders` model above:
+ * layouts are store-SCOPED and SHARED (not per-user/owner-private), READABLE by
+ * any store member (auth_can_see_store, AC-3) and WRITABLE only by privileged
+ * callers (auth_is_privileged, OQ-1 / AC-3b) — the write gate is server-side
+ * (RLS + the SECURITY DEFINER RPCs), not UI hiding.
+ *
+ * READS go through PostgREST on the table (RLS SELECT gate). WRITES
+ * (create / overwrite / rename / delete) go through three SECURITY DEFINER RPCs
+ * that co-locate the role gate, the store gate, and the atomic 3-cap (design §0
+ * / §4). The three write helpers mirror `demoteProfileToUser` (a `track()`-
+ * wrapped `.rpc(...).abortSignal(signal)` that throws the PostgREST error on
+ * refusal so the section reverts + notifyBackendError). RPC arg names are the
+ * snake_case `p_*` params (PostgREST passes the JS object keys verbatim as named
+ * args). These are the ADMIN path (InventoryCountSection); the staff Weekly
+ * screen READS via the documented src/screens/staff/ direct-`supabase` carve-out
+ * (src/screens/staff/lib/countLayouts.ts) and has NO write helper (staff cannot
+ * write — OQ-1).
+ *
+ * Error mapping (from the RPCs): non-privileged / non-member / null caller → 403
+ * ('forbidden'); missing-or-empty-or-overlong name / bad item_ids / 4th create
+ * ('layout limit reached') → 400; overwrite/rename/delete of a non-existent id →
+ * 404 ('layout not found'). Concurrency is whole-row last-write-wins by
+ * updated_at (AC-7) — no optimistic version check.
+ */
+export type StoreCountLayout = {
+  id: string;
+  name: string;
+  itemIds: string[]; // from item_ids jsonb array
+  position: number; // from position smallint (1..3)
+  updatedAt: string; // from updated_at (ISO)
+};
+
+/** snake→camel for a store_count_layouts row (item_ids → itemIds, updated_at →
+ *  updatedAt). item_ids is a JSONB array of strings; default to [] defensively. */
+function mapStoreCountLayout(row: {
+  id: string;
+  name: string;
+  item_ids: unknown;
+  position: number;
+  updated_at: string;
+}): StoreCountLayout {
+  return {
+    id: row.id,
+    name: row.name,
+    itemIds: (row.item_ids ?? []) as string[],
+    position: row.position,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * LIST (PostgREST SELECT; read). Returns the store's 0–3 layouts ordered by
+ * `position` (the stable left-to-right pill order). RLS scopes to store members
+ * (auth_can_see_store); a non-member or an empty store yields 0 rows → `[]` (not
+ * an error — the pill row shows Default only). Each row snake→camel via
+ * mapStoreCountLayout.
+ */
+export async function fetchStoreCountLayouts(
+  storeId: string,
+): Promise<StoreCountLayout[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('store_count_layouts')
+      .select('id,name,item_ids,position,updated_at')
+      .eq('store_id', storeId)
+      .order('position')
+      .abortSignal(signal);
+    if (error) throw error;
+    return (data ?? []).map(mapStoreCountLayout);
+  }, { kind: 'read', label: 'fetchStoreCountLayouts' });
+}
+
+/**
+ * CREATE-OR-OVERWRITE (RPC save_store_count_layout; write). `layoutId` null →
+ * CREATE (the server assigns the lowest free slot and enforces the atomic 3-cap;
+ * a 4th create throws 'layout limit reached' → 400); non-null → OVERWRITE that
+ * layout's name + item_ids (keeps its slot; last-write-wins, AC-7). Returns the
+ * created/overwritten id. Throws the PostgREST error on refusal (403/400/404) so
+ * the section reverts its optimistic local list + notifyBackendError.
+ */
+export async function saveStoreCountLayout(
+  storeId: string,
+  name: string,
+  itemIds: string[],
+  layoutId?: string | null,
+): Promise<string> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('save_store_count_layout', {
+        p_store_id: storeId,
+        p_name: name,
+        p_item_ids: itemIds,
+        p_layout_id: layoutId ?? null,
+      })
+      .abortSignal(signal);
+    if (error) throw error;
+    return data as string;
+  }, { kind: 'write', label: 'saveStoreCountLayout' });
+}
+
+/**
+ * RENAME (RPC rename_store_count_layout; write). Updates the layout's `name`
+ * (item_ids unchanged, AC-6). Returns the id. Throws on refusal (403/400/404).
+ */
+export async function renameStoreCountLayout(
+  layoutId: string,
+  name: string,
+): Promise<string> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('rename_store_count_layout', {
+        p_layout_id: layoutId,
+        p_name: name,
+      })
+      .abortSignal(signal);
+    if (error) throw error;
+    return data as string;
+  }, { kind: 'write', label: 'renameStoreCountLayout' });
+}
+
+/**
+ * DELETE (RPC delete_store_count_layout; write). Removes the layout row. Returns
+ * the deleted id (so the section knows which pill to drop). Throws on refusal
+ * (403/404). A staff screen that had this layout selected falls back to Default
+ * on its next fetch — a client render concern, no server action.
+ */
+export async function deleteStoreCountLayout(
+  layoutId: string,
+): Promise<string> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('delete_store_count_layout', { p_layout_id: layoutId })
+      .abortSignal(signal);
+    if (error) throw error;
+    return data as string;
+  }, { kind: 'write', label: 'deleteStoreCountLayout' });
+}
+
 // ─── COUNT-SCREEN SAVE-DRAFT + RESUME (Spec 106) ───────────────────────
 /**
  * Spec 106 — per-user PRIVATE resumable DRAFT for the two count screens,

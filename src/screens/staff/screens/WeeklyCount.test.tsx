@@ -36,6 +36,11 @@ let mockRpcResult: QueryResult = { data: null, error: null };
 // returns this; default no-row so existing tests open in default view. The
 // upsert/delete (save/reset) just resolve OK.
 let mockCountOrderResult: QueryResult = { data: null, error: null };
+// Spec 110 — the store's shared named layouts (store_count_layouts). The
+// `.select().eq().order()` chain resolves this. Default empty so existing tests
+// see Default-only (no named pills). Rows are snake_case as PostgREST returns
+// them (item_ids / updated_at); the carve-out camelCases inline.
+let mockLayoutsResult: QueryResult = { data: [], error: null };
 // Spec 106 — the per-user resumable draft (user_count_drafts). `.maybeSingle()`
 // returns this; default no-row so existing tests see no draft. The upsert/delete
 // (save/discard/delete-on-submit) are captured so the tests can assert them.
@@ -49,6 +54,16 @@ const draftUpsert = jest.fn();
 const draftDelete = jest.fn();
 
 function mockQueryBuilder(table: string) {
+  if (table === 'store_count_layouts') {
+    // Spec 110 read-only carve-out: `.select().eq().order()` awaited directly.
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      eq: () => builder,
+      order: () => builder,
+      then: (resolve: (v: QueryResult) => unknown) => resolve(mockLayoutsResult),
+    };
+    return builder;
+  }
   if (table === 'user_count_orders') {
     const builder: Record<string, unknown> = {
       select: () => builder,
@@ -163,6 +178,8 @@ beforeEach(async () => {
   mockCategoriesResult = { data: [], error: null };
   mockRpcResult = { data: null, error: null };
   mockCountOrderResult = { data: null, error: null };
+  // Spec 110 — reset the shared-layouts server-mock (Default-only by default).
+  mockLayoutsResult = { data: [], error: null };
   // Spec 106 — reset the draft server-mock + the online signal + the local KV.
   mockDraftResult = { data: null, error: null };
   setMockOnline(true);
@@ -441,11 +458,18 @@ describe('WeeklyCount', () => {
   });
 });
 
-// ─── Spec 103 — per-user custom drag order ───────────────────────────
-describe('WeeklyCount — spec 103 custom order', () => {
+// ─── Spec 110 — PICK-ONLY shared named layouts ───────────────────────
+// The staff Weekly screen is pick-only (OQ-1): it READS the store's shared
+// named layouts and picks one to apply as a flat Custom view. The spec-103
+// per-user drag / auto-save / reset affordances are INTENTIONALLY GONE from
+// this screen (an accepted consequence of OQ-1 + OQ-2 — the staff drag-loss is
+// pinned as intended, not a regression). These tests assert the pick-only row
+// (no save/drag/reset), the apply path (AC-8), search composition (AC-10), the
+// gate-jump-follows-order (AC-11), and the submission-scope invariant (AC-11).
+describe('WeeklyCount — spec 110 pick-only layouts', () => {
   function twoItems() {
-    // Default fetch order is alpha-sorted by name (Apple, Banana). A saved
-    // order [item-2, item-1] reverses that in Custom view.
+    // Default fetch order is alpha-sorted by name (Apple, Banana). A layout
+    // with item_ids [item-2, item-1] reverses that in Custom view.
     mockItemsResult = {
       data: [
         { id: 'item-1', catalog: { name: 'Apple', unit: 'lb', category: 'Produce', case_qty: 1 } },
@@ -455,26 +479,81 @@ describe('WeeklyCount — spec 103 custom order', () => {
     };
   }
 
-  it('opens in Custom view (category headers suppressed) when a saved order exists (AC-7/AC-13)', async () => {
+  // One shared layout that reverses the alpha order (walk-order [item-2, item-1]).
+  function oneLayout() {
+    mockLayoutsResult = {
+      data: [
+        {
+          id: 'layout-1',
+          name: 'Walk order',
+          item_ids: ['item-2', 'item-1'],
+          position: 1,
+          updated_at: '2026-07-04T00:00:00Z',
+        },
+      ],
+      error: null,
+    };
+  }
+
+  it('renders a PICK-ONLY row: Default + named pills, and NO save/drag/reset affordances', async () => {
     twoItems();
-    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    oneLayout();
     const { getByTestId, queryByTestId } = render(<WeeklyCount />);
-    await waitFor(() =>
-      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
-    );
-    // Both rows render…
-    expect(getByTestId('weekly-item-row-item-1')).toBeTruthy();
-    expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
-    // …but the category header is suppressed in Custom view (flat list).
-    expect(queryByTestId('weekly-category-header-Produce')).toBeNull();
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    // The Default pill + the named layout pill both render.
+    expect(getByTestId('weekly-layout-default')).toBeTruthy();
+    expect(getByTestId('weekly-layout-pill-layout-1')).toBeTruthy();
+    // Default is selected on open (no layout picked yet).
+    expect(getByTestId('weekly-layout-default').props.accessibilityState?.selected).toBe(true);
+    // The removed spec-103 affordances are ABSENT — no Default/Custom toggle,
+    // no reset, no move-up/down drag controls, and NO layout Save button.
+    expect(queryByTestId('weekly-view-default')).toBeNull();
+    expect(queryByTestId('weekly-view-custom')).toBeNull();
+    expect(queryByTestId('weekly-reset-order')).toBeNull();
+    expect(queryByTestId('weekly-layout-save')).toBeNull();
+    // The spec-106 Save-DRAFT button is UNTOUCHED (present).
+    expect(getByTestId('weekly-save-draft')).toBeTruthy();
   });
 
-  it('AC-9: the submit payload is byte-identical with and without a custom order', async () => {
+  it('with NO layouts, shows Default only (no named pills) and does not crash', async () => {
+    twoItems();
+    mockLayoutsResult = { data: [], error: null };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    expect(getByTestId('weekly-layout-default')).toBeTruthy();
+    // No named pills exist.
+    expect(queryByTestId('weekly-layout-pill-layout-1')).toBeNull();
+    // Default category headers render (category-grouped default view).
+    expect(getByTestId('weekly-category-header-Produce')).toBeTruthy();
+  });
+
+  it('AC-8: picking a named layout applies its order as a flat Custom view (headers suppressed)', async () => {
+    twoItems();
+    oneLayout();
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-layout-pill-layout-1')).toBeTruthy());
+    // Pick the named layout.
+    fireEvent.press(getByTestId('weekly-layout-pill-layout-1'));
+    await waitFor(() =>
+      expect(getByTestId('weekly-layout-pill-layout-1').props.accessibilityState?.selected).toBe(true),
+    );
+    // Both rows still render…
+    expect(getByTestId('weekly-item-row-item-1')).toBeTruthy();
+    expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
+    // …but the category header is suppressed in the flat Custom view.
+    expect(queryByTestId('weekly-category-header-Produce')).toBeNull();
+    // Picking Default returns to the category-grouped view.
+    fireEvent.press(getByTestId('weekly-layout-default'));
+    await waitFor(() => expect(getByTestId('weekly-category-header-Produce')).toBeTruthy());
+  });
+
+  it('AC-11: the submit payload is byte-identical with Default and with a picked layout', async () => {
     const mockSubmit = jest.fn().mockResolvedValue({ count_id: 'c-1', conflict: false, entry_ids: ['e-1', 'e-2'] });
     useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
 
-    // Default view, no saved order.
+    // Default view, no layout picked.
     twoItems();
+    oneLayout();
     const first = render(<WeeklyCount />);
     await waitFor(() => expect(first.getByTestId('weekly-item-row-item-1')).toBeTruthy());
     fireEvent.changeText(first.getByTestId('weekly-item-units-item-1'), '3');
@@ -484,13 +563,15 @@ describe('WeeklyCount — spec 103 custom order', () => {
     const defaultEntries = mockSubmit.mock.calls[0][0].entries;
     first.unmount();
 
-    // Custom view, reversed saved order.
+    // Custom view — pick the reversed layout.
     mockSubmit.mockClear();
     twoItems();
-    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    oneLayout();
     const second = render(<WeeklyCount />);
+    await waitFor(() => expect(second.getByTestId('weekly-layout-pill-layout-1')).toBeTruthy());
+    fireEvent.press(second.getByTestId('weekly-layout-pill-layout-1'));
     await waitFor(() =>
-      expect(second.getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+      expect(second.getByTestId('weekly-layout-pill-layout-1').props.accessibilityState?.selected).toBe(true),
     );
     fireEvent.changeText(second.getByTestId('weekly-item-units-item-1'), '3');
     fireEvent.changeText(second.getByTestId('weekly-item-units-item-2'), '5');
@@ -498,36 +579,40 @@ describe('WeeklyCount — spec 103 custom order', () => {
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     const customEntries = mockSubmit.mock.calls[0][0].entries;
 
-    // Submission iterates the full `items` (fetch order), never the reordered
-    // view — the entry set is identical regardless of view.
+    // Submission iterates the full `items` (fetch order), never the picked
+    // layout order — the entry set is identical regardless of the picked pill.
     expect(customEntries).toEqual(defaultEntries);
   });
 
-  it('AC-10: search composes with the custom order (matching rows in custom relative order)', async () => {
+  it('AC-10: search composes with the picked layout (matching rows in layout relative order)', async () => {
     twoItems();
-    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    oneLayout();
     const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-layout-pill-layout-1')).toBeTruthy());
+    fireEvent.press(getByTestId('weekly-layout-pill-layout-1'));
     await waitFor(() =>
-      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+      expect(getByTestId('weekly-layout-pill-layout-1').props.accessibilityState?.selected).toBe(true),
     );
-    // Search "Banana" → only item-2 remains; item-1 filtered out. The custom
+    // Search "Banana" → only item-2 remains; item-1 filtered out. The layout
     // order is preserved among survivors (here a single match).
     fireEvent.changeText(getByTestId('weekly-search'), 'Banana');
     await waitFor(() => expect(queryByTestId('weekly-item-row-item-1')).toBeNull());
     expect(getByTestId('weekly-item-row-item-2')).toBeTruthy();
   });
 
-  it('AC-12: the gate jump targets the first uncounted in the CUSTOM order', async () => {
+  it('AC-11: the gate jump targets the first uncounted in the PICKED layout order', async () => {
     const mockSubmit = jest.fn();
     useStaffStore.setState({ submitWeeklyCount: mockSubmit as any });
     twoItems();
-    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
+    oneLayout();
     const { getByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-layout-pill-layout-1')).toBeTruthy());
+    fireEvent.press(getByTestId('weekly-layout-pill-layout-1'));
     await waitFor(() =>
-      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
+      expect(getByTestId('weekly-layout-pill-layout-1').props.accessibilityState?.selected).toBe(true),
     );
-    // Fill item-1; leave item-2 blank. In the custom order item-2 is the TOP
-    // row → the gate blocks and the toast names exactly 1 remaining.
+    // Fill item-1; leave item-2 blank. In the layout order [item-2, item-1]
+    // item-2 is the TOP row → the gate blocks and the toast names 1 remaining.
     fireEvent.changeText(getByTestId('weekly-item-units-item-1'), '4');
     fireEvent.press(getByTestId('weekly-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
@@ -536,21 +621,6 @@ describe('WeeklyCount — spec 103 custom order', () => {
       (c) => c[0]?.text1 === 'Count every item first',
     );
     expect(toastCall?.[0]).toMatchObject({ text2: '1 still need a count' });
-  });
-
-  it('Reset returns to the default category-grouped view (AC-4/AC-8)', async () => {
-    twoItems();
-    mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
-    const { getByTestId } = render(<WeeklyCount />);
-    await waitFor(() =>
-      expect(getByTestId('weekly-view-custom').props.accessibilityState?.selected).toBe(true),
-    );
-    fireEvent.press(getByTestId('weekly-reset-order'));
-    await waitFor(() =>
-      expect(getByTestId('weekly-view-default').props.accessibilityState?.selected).toBe(true),
-    );
-    // Category header returns in default view.
-    expect(getByTestId('weekly-category-header-Produce')).toBeTruthy();
   });
 });
 

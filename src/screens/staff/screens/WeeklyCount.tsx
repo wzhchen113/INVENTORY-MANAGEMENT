@@ -36,16 +36,19 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
-import { CountOrderDragList } from '../components/CountOrderDragList';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
+// Spec 110 — the staff Weekly screen is PICK-ONLY: it reads the store's shared
+// named layouts (read-only carve-out) and applies a picked one via the same pure
+// applyCountOrder/firstUncounted the spec-103 render used. No drag, no save, no
+// reset here (OQ-1: authoring is admin-only; OQ-2 removed the per-user order) —
+// so the spec-103 write helpers + the drag component are intentionally gone.
 import {
   applyCountOrder,
   firstUncounted,
-  fetchCountOrder,
-  saveCountOrder,
-  resetCountOrder,
-} from '../lib/countOrder';
+  fetchStoreCountLayouts,
+  type StoreCountLayout,
+} from '../lib/countLayouts';
 // Spec 106 — save-draft + resume (staff carve-out). Server I/O authored against
 // supabase.from('user_count_drafts') directly + an AsyncStorage device-local
 // trio; the pure reconcile/(de)serialize/stale-filter helpers are re-exported
@@ -204,12 +207,19 @@ export function WeeklyCount() {
   // Ingredient-name search — view-only; filters the grouped sections while the
   // full `items` array still drives submission.
   const [search, setSearch] = useState('');
-  // Spec 103 — per-user custom order (per-surface; no vendor → vendorId null).
-  // `viewMode` toggles the default category-grouped SectionList vs a flat
-  // Custom view in the user's saved drag order. Render-only: submission + the
-  // gate still iterate the full `items` (AC-9).
+  // Spec 110 — PICK-ONLY shared named layouts. `viewMode`/`savedIds` are the
+  // SAME spec-103 render levers (reused verbatim, design §9): Default →
+  // savedIds=null (category-grouped SectionList); a picked layout →
+  // savedIds=<its item_ids> + viewMode='custom' (flat list, headers
+  // suppressed). Render-only: submission + the count-everything gate still
+  // iterate the full `items` (AC-11). `layouts` is the store's shared set
+  // (0–3, READ-ONLY here); `selectedLayoutId` is which pill is active (null =
+  // Default) and persists per-device in component state (like viewMode did) —
+  // the selection itself is NOT server state. Staff have NO save/drag/reset.
   const [viewMode, setViewMode] = useState<'default' | 'custom'>('default');
   const [savedIds, setSavedIds] = useState<string[] | null>(null);
+  const [layouts, setLayouts] = useState<StoreCountLayout[]>([]);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(null);
   // name → per-locale category overrides (keyed by canonical English
   // category name; same string the catalog rows store in `category`).
   const [categoryI18n, setCategoryI18n] = useState<Map<string, LocalizedNames>>(
@@ -298,59 +308,57 @@ export function WeeklyCount() {
       });
   }, [activeStore]);
 
-  // ─── Spec 103: load the saved custom order on mount / store change ──────
-  // Per-surface (no vendor → null). On open, if a saved order exists, start in
-  // Custom view (AC-7); else default. A genuine error falls back to default.
+  // ─── Spec 110: load the store's shared named layouts on mount/store change ──
+  // Pick-only (OQ-1): staff READ the store's 0–3 layouts and pick one. On open,
+  // start on Default (no pill selected); the counter opts into a layout by
+  // picking a pill. A load error degrades to Default-only (best-effort, no
+  // blocking). Re-runs on active-store change.
   useEffect(() => {
-    if (!userId) {
+    if (!activeStore) {
+      setLayouts([]);
+      setSelectedLayoutId(null);
       setSavedIds(null);
       setViewMode('default');
       return;
     }
     let cancelled = false;
-    fetchCountOrder(userId, 'staff-weekly', null)
-      .then((ids) => {
+    fetchStoreCountLayouts(activeStore.id)
+      .then((rows) => {
         if (cancelled) return;
-        setSavedIds(ids);
-        setViewMode(ids && ids.length > 0 ? 'custom' : 'default');
+        setLayouts(rows);
+        // Reset selection on a (re)load — the picked layout may have been
+        // deleted by an admin; fall back to Default until the counter re-picks.
+        setSelectedLayoutId(null);
+        setSavedIds(null);
+        setViewMode('default');
       })
       .catch((err) => {
         if (cancelled) return;
-        notifyBackendError('fetchCountOrder', err);
+        notifyBackendError('fetchStoreCountLayouts', err);
+        setLayouts([]);
+        setSelectedLayoutId(null);
         setSavedIds(null);
         setViewMode('default');
       });
     return () => {
       cancelled = true;
     };
-  }, [userId, activeStore]);
+  }, [activeStore]);
 
-  // Persist-on-drop — optimistic, revert + notify on failure (AC-6).
-  const onReorder = useCallback(
-    (orderedIds: string[]) => {
-      if (!userId) return;
-      const prev = savedIds;
-      setSavedIds(orderedIds);
-      setViewMode('custom');
-      saveCountOrder(userId, 'staff-weekly', null, orderedIds).catch((err) => {
-        setSavedIds(prev);
-        notifyBackendError('saveCountOrder', err);
-      });
-    },
-    [userId, savedIds],
-  );
-
-  // Reset — clear the saved order, return to default view.
-  const onResetOrder = useCallback(() => {
-    if (!userId) return;
-    const prev = savedIds;
+  // Pick a pill. Default → category-grouped SectionList (savedIds=null). A named
+  // layout → flat Custom view in its saved order (design §9, the spec-103 apply
+  // path). Pure render switch — no write (staff are pick-only).
+  const onPickDefault = useCallback(() => {
+    setSelectedLayoutId(null);
     setSavedIds(null);
     setViewMode('default');
-    resetCountOrder(userId, 'staff-weekly', null).catch((err) => {
-      setSavedIds(prev);
-      notifyBackendError('resetCountOrder', err);
-    });
-  }, [userId, savedIds]);
+  }, []);
+
+  const onPickLayout = useCallback((layout: StoreCountLayout) => {
+    setSelectedLayoutId(layout.id);
+    setSavedIds(layout.itemIds);
+    setViewMode('custom');
+  }, []);
 
   // ─── Spec 106: save-draft + resume ─────────────────────────────────
   // The live item-id set for the active store — drives applyDraftStaleFilter on
@@ -1160,72 +1168,70 @@ export function WeeklyCount() {
         </View>
       ) : null}
 
-      {/* Spec 103 — Default ⇄ Custom view toggle + reset. Custom view flattens
-          the category-grouped list into the user's saved drag order. */}
+      {/* Spec 110 — PICK-ONLY layout pill row (Default + up to 3 named layouts).
+          Picking a named pill applies its saved order as a flat Custom view
+          (headers suppressed); Default renders the category-grouped list. NO
+          Save button, NO drag, NO reset — staff cannot author layouts (OQ-1);
+          the spec-103 customize/drag affordances are removed from THIS screen
+          only (the spec-106 Save-DRAFT button in the footer is untouched). */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }}>
           <Pressable
-            testID="weekly-view-default"
-            onPress={() => setViewMode('default')}
+            testID="weekly-layout-default"
+            onPress={onPickDefault}
             accessibilityRole="button"
-            accessibilityState={{ selected: viewMode === 'default' }}
+            accessibilityState={{ selected: selectedLayoutId === null }}
             style={{
               paddingHorizontal: spacing.md,
               paddingVertical: spacing.xs,
               borderRadius: radius.md,
               borderWidth: 1,
-              borderColor: viewMode === 'default' ? c.primary : c.border,
-              backgroundColor: viewMode === 'default' ? c.primary : 'transparent',
+              borderColor: selectedLayoutId === null ? c.primary : c.border,
+              backgroundColor: selectedLayoutId === null ? c.primary : 'transparent',
             }}
           >
             <Text
               style={{
                 fontSize: typography.caption,
                 fontWeight: typography.semibold,
-                color: viewMode === 'default' ? c.textOnPrimary : c.textSecondary,
+                color: selectedLayoutId === null ? c.textOnPrimary : c.textSecondary,
               }}
             >
-              {t('weekly.view.default')}
+              {t('weekly.layout.default')}
             </Text>
           </Pressable>
-          <Pressable
-            testID="weekly-view-custom"
-            onPress={() => setViewMode('custom')}
-            accessibilityRole="button"
-            accessibilityState={{ selected: viewMode === 'custom' }}
-            style={{
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.xs,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: viewMode === 'custom' ? c.primary : c.border,
-              backgroundColor: viewMode === 'custom' ? c.primary : 'transparent',
-            }}
-          >
-            <Text
-              style={{
-                fontSize: typography.caption,
-                fontWeight: typography.semibold,
-                color: viewMode === 'custom' ? c.textOnPrimary : c.textSecondary,
-              }}
-            >
-              {t('weekly.view.custom')}
-            </Text>
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          {savedIds && savedIds.length > 0 ? (
-            <Pressable
-              testID="weekly-reset-order"
-              onPress={onResetOrder}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t('weekly.view.reset')}
-            >
-              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.primary }}>
-                {t('weekly.view.reset')}
-              </Text>
-            </Pressable>
-          ) : null}
+          {layouts.map((layout) => {
+            const sel = layout.id === selectedLayoutId;
+            return (
+              <Pressable
+                key={layout.id}
+                testID={`weekly-layout-pill-${layout.id}`}
+                onPress={() => onPickLayout(layout)}
+                accessibilityRole="button"
+                accessibilityLabel={layout.name}
+                accessibilityState={{ selected: sel }}
+                style={{
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: sel ? c.primary : c.border,
+                  backgroundColor: sel ? c.primary : 'transparent',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: typography.caption,
+                    fontWeight: typography.semibold,
+                    color: sel ? c.textOnPrimary : c.textSecondary,
+                  }}
+                  numberOfLines={1}
+                >
+                  {layout.name}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
       {/* Items list */}
@@ -1240,12 +1246,13 @@ export function WeeklyCount() {
           </Text>
         </View>
       ) : viewMode === 'custom' ? (
-        // Spec 103 — flat Custom view in the user's saved drag order, category
-        // headers suppressed (OQ-2). The drag list keeps EVERY row mounted
-        // inside a ScrollView (UN-WINDOWED, spec 102) so the gate jump (DOM
-        // focus → scroll-into-view on web) reaches any row. Drag/▲▼ reorder is
-        // disabled while a search is active (the visible subset isn't the full
-        // order). Rows are byte-identical to default view (renderWeeklyRow).
+        // Spec 110 — flat Custom view in the PICKED layout's saved order,
+        // category headers suppressed (OQ-2). PICK-ONLY: no drag list here
+        // (staff cannot reorder — OQ-1). Every row stays mounted inside a
+        // ScrollView (UN-WINDOWED, spec 102) so the gate jump (DOM focus →
+        // scroll-into-view on web) reaches any row. Search composes with the
+        // layout order (AC-10). Rows are byte-identical to default view
+        // (renderWeeklyRow).
         <ScrollView
           testID="weekly-item-list"
           style={styles.itemListBody}
@@ -1257,20 +1264,12 @@ export function WeeklyCount() {
                 {t('weekly.list.noMatch')}
               </Text>
             </View>
-          ) : search.trim() ? (
+          ) : (
             customVisibleItems.map((item) => (
               <View key={item.id} style={{ marginBottom: spacing.sm }}>
                 {renderWeeklyRow(item)}
               </View>
             ))
-          ) : (
-            <CountOrderDragList
-              items={customVisibleItems}
-              onReorder={onReorder}
-              renderRow={renderWeeklyRow}
-              moveUpLabel={t('weekly.reorder.moveUp')}
-              moveDownLabel={t('weekly.reorder.moveDown')}
-            />
           )}
         </ScrollView>
       ) : (

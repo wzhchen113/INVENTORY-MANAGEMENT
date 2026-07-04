@@ -234,6 +234,9 @@
       "moveUp": "上移",
       "moveDown": "下移"
     },
+    "layout": {
+      "default": "默认"
+    },
     "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交每周盘点",
     "submitting": "正在提交...",

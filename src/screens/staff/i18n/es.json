@@ -234,6 +234,9 @@
       "moveUp": "Subir",
       "moveDown": "Bajar"
     },
+    "layout": {
+      "default": "Predeterminado"
+    },
     "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar conteo semanal",
     "submitting": "Enviando...",

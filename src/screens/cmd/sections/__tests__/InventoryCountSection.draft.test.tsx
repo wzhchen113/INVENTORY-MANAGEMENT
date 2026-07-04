@@ -59,6 +59,13 @@ jest.mock('../../../../lib/db', () => ({
   saveCountOrder: jest.fn(() => Promise.resolve()),
   resetCountOrder: jest.fn(() => Promise.resolve()),
   fetchReorderForCountedOnHand: jest.fn(() => Promise.resolve({})),
+  // Spec 110 — the section fetches the store's shared layouts on mount via the
+  // store action (→ db.fetchStoreCountLayouts). Stub inert so this draft-focused
+  // test sees an empty layout set (Default only) and no error toast fires.
+  fetchStoreCountLayouts: jest.fn(() => Promise.resolve([])),
+  saveStoreCountLayout: jest.fn(() => Promise.resolve('layout-1')),
+  renameStoreCountLayout: jest.fn(() => Promise.resolve('layout-1')),
+  deleteStoreCountLayout: jest.fn(() => Promise.resolve('layout-1')),
 }));
 
 // Admin device-local trio — an in-memory single-slot record keyed by the storage

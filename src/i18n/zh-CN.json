@@ -11,7 +11,7 @@
       "inventory": "库存",
       "dashboard": "仪表板",
       "eodCount": "日终盘点",
-      "inventoryCount": "库存盘点",
+      "inventoryCount": "每周盘点",
       "wasteLog": "损耗记录",
       "receiving": "收货",
       "purchaseOrders": "采购订单",
@@ -182,6 +182,25 @@
       "saveFailed": "无法保存顺序",
       "saveFailedDetail": "请检查网络连接后重试",
       "resetFailed": "无法重置顺序"
+    },
+    "countLayout": {
+      "default": "默认",
+      "saveLayout": "保存布局",
+      "saveAsNew": "另存为新布局",
+      "overwrite": "覆盖“{name}”",
+      "rename": "重命名",
+      "delete": "删除",
+      "nameNewTitle": "为此布局命名",
+      "nameNewPlaceholder": "例如：巡检顺序",
+      "renameTitle": "重命名布局",
+      "save": "保存",
+      "cancel": "取消",
+      "limitReached": "最多 3 个布局 — 请先覆盖或删除一个",
+      "deleteConfirmTitle": "删除布局？",
+      "deleteConfirmBody": "这将为在此门店盘点的所有人删除“{name}”。此操作无法撤销。",
+      "saved": "布局已保存",
+      "renamed": "布局已重命名",
+      "deleted": "布局已删除"
     },
     "countDraft": {
       "save": "保存草稿",
@@ -466,7 +485,7 @@
       "vTagCol": "标签"
     },
     "inventoryCount": {
-      "title": "库存盘点",
+      "title": "每周盘点",
       "searchPlaceholder": "原料名称…",
       "recentTitle": "最近盘点",
       "submit": "提交盘点",
@@ -1046,20 +1065,20 @@
       "noBrandsYetDetail": "暂无品牌",
       "selectBrand": "选择一个品牌",
       "brandCount": {
-        "one":   "{count} 品牌",
+        "one": "{count} 品牌",
         "other": "{count} 品牌"
       },
       "cardCounts": "{stores} {storesLabel} · {admins} {adminsLabel} · {ingredients} {ingredientsLabel}",
       "cardCountsStores": {
-        "one":   "门店",
+        "one": "门店",
         "other": "门店"
       },
       "cardCountsAdmins": {
-        "one":   "管理员",
+        "one": "管理员",
         "other": "管理员"
       },
       "cardCountsIngredients": {
-        "one":   "原料",
+        "one": "原料",
         "other": "原料"
       }
     },
@@ -1198,108 +1217,108 @@
   },
   "enum": {
     "itemStatus": {
-      "ok":   "正常",
-      "low":  "偏低",
-      "out":  "缺货",
+      "ok": "正常",
+      "low": "偏低",
+      "out": "缺货",
       "info": "提示"
     },
     "wasteReason": {
-      "expired":        "过期",
+      "expired": "过期",
       "droppedSpilled": "掉落/洒出",
-      "overPrepped":    "备菜过量",
-      "qualityIssue":   "品质问题",
-      "theft":          "失窃",
-      "other":          "其他",
+      "overPrepped": "备菜过量",
+      "qualityIssue": "品质问题",
+      "theft": "失窃",
+      "other": "其他",
       "short": {
-        "expired":        "过期",
+        "expired": "过期",
         "droppedSpilled": "掉洒",
-        "overPrepped":    "过量",
-        "qualityIssue":   "品质",
-        "theft":          "失窃",
-        "other":          "其他"
+        "overPrepped": "过量",
+        "qualityIssue": "品质",
+        "theft": "失窃",
+        "other": "其他"
       }
     },
     "auditAction": {
-      "eodEntry":          "提交日终盘点",
-      "itemEdit":          "编辑项目",
-      "itemAdded":         "新增项目",
-      "itemDeleted":       "删除项目",
-      "posImport":         "导入 POS",
-      "wasteLog":          "记录损耗",
-      "userInvite":        "邀请用户",
-      "userDeleted":       "删除用户",
-      "recipeSaved":       "保存配方",
-      "recipeDeleted":     "删除配方",
-      "prepRecipeSaved":   "保存备菜配方",
+      "eodEntry": "提交日终盘点",
+      "itemEdit": "编辑项目",
+      "itemAdded": "新增项目",
+      "itemDeleted": "删除项目",
+      "posImport": "导入 POS",
+      "wasteLog": "记录损耗",
+      "userInvite": "邀请用户",
+      "userDeleted": "删除用户",
+      "recipeSaved": "保存配方",
+      "recipeDeleted": "删除配方",
+      "prepRecipeSaved": "保存备菜配方",
       "prepRecipeDeleted": "删除备菜配方",
-      "stockAdjusted":     "调整库存",
-      "orderMissed":       "漏单"
+      "stockAdjusted": "调整库存",
+      "orderMissed": "漏单"
     },
     "inventoryCountKind": {
-      "spot":     "抽查",
-      "open":     "开市",
+      "spot": "抽查",
+      "open": "开市",
       "midShift": "班中",
-      "close":    "闭市",
-      "weekly":   "每周",
+      "close": "闭市",
+      "weekly": "每周",
       "sub": {
-        "spot":     "临时检查",
-        "open":     "早晨开市",
+        "spot": "临时检查",
+        "open": "早晨开市",
         "midShift": "班次之间",
-        "close":    "日终前",
-        "weekly":   "每周全店盘点"
+        "close": "日终前",
+        "weekly": "每周全店盘点"
       }
     },
     "role": {
-      "user":       "用户",
-      "admin":      "管理员",
-      "master":     "主控",
+      "user": "用户",
+      "admin": "管理员",
+      "master": "主控",
       "superAdmin": "超级管理员"
     },
     "userStatus": {
-      "active":  "活跃",
+      "active": "活跃",
       "pending": "待激活"
     },
     "dayOfWeek": {
       "short": {
-        "monday":    "周一",
-        "tuesday":   "周二",
+        "monday": "周一",
+        "tuesday": "周二",
         "wednesday": "周三",
-        "thursday":  "周四",
-        "friday":    "周五",
-        "saturday":  "周六",
-        "sunday":    "周日"
+        "thursday": "周四",
+        "friday": "周五",
+        "saturday": "周六",
+        "sunday": "周日"
       },
       "long": {
-        "monday":    "星期一",
-        "tuesday":   "星期二",
+        "monday": "星期一",
+        "tuesday": "星期二",
         "wednesday": "星期三",
-        "thursday":  "星期四",
-        "friday":    "星期五",
-        "saturday":  "星期六",
-        "sunday":    "星期日"
+        "thursday": "星期四",
+        "friday": "星期五",
+        "saturday": "星期六",
+        "sunday": "星期日"
       },
       "twoLetter": {
-        "monday":    "一",
-        "tuesday":   "二",
+        "monday": "一",
+        "tuesday": "二",
         "wednesday": "三",
-        "thursday":  "四",
-        "friday":    "五",
-        "saturday":  "六",
-        "sunday":    "日"
+        "thursday": "四",
+        "friday": "五",
+        "saturday": "六",
+        "sunday": "日"
       }
     },
     "unit": {
-      "g":     "克",
-      "kg":    "公斤",
-      "oz":    "盎司",
-      "lbs":   "磅",
-      "flOz":  "液量盎司",
-      "cups":  "杯",
-      "qt":    "夸脱",
-      "gal":   "加仑",
-      "each":  "个",
+      "g": "克",
+      "kg": "公斤",
+      "oz": "盎司",
+      "lbs": "磅",
+      "flOz": "液量盎司",
+      "cups": "杯",
+      "qt": "夸脱",
+      "gal": "加仑",
+      "each": "个",
       "cases": "箱",
-      "bags":  "袋"
+      "bags": "袋"
     }
   }
 }
