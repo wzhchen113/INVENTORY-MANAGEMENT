@@ -39,8 +39,20 @@ jest.mock('react-native-toast-message', () => ({
 // Spec 107 code-review fix — commit is confirm-gated like the other lifecycle
 // actions. Auto-confirm (run onConfirm immediately) and record calls so tests
 // can assert the gate fired (mirrors POsSection.test.tsx).
+//
+// Spec 109 — the commit can open a SECOND (nested) confirm for the >30% price
+// guard. `confirmResponses` lets a test decline a specific confirm call (by
+// order): `true`/absent = auto-confirm (run onConfirm), `false` = decline (run
+// onCancel, mirroring the real confirmAction's decline path so busy-release
+// behavior is exercised). Default is auto-confirm every call.
+let confirmResponses: boolean[] = [];
 const mockConfirmAction = jest.fn(
-  (_title: string, _msg: string, onConfirm: () => void) => onConfirm(),
+  (_title: string, _msg: string, onConfirm: () => void, _cta?: string, onCancel?: () => void) => {
+    const idx = mockConfirmAction.mock.calls.length - 1;
+    const decision = idx < confirmResponses.length ? confirmResponses[idx] : true;
+    if (decision) onConfirm();
+    else onCancel?.();
+  },
 );
 jest.mock('../../../../utils/confirmAction', () => ({
   confirmAction: (...args: any[]) => (mockConfirmAction as any)(...args),
@@ -82,7 +94,8 @@ jest.mock('../../../../store/useStore', () => {
     catalogIngredients: [],
     poLinesById: {},
     loadPurchaseOrderLines: jest.fn(async () => []),
-    receivePurchaseOrder: jest.fn(async () => 'partial'),
+    // Spec 109 — the action now resolves { status, priceChanges }.
+    receivePurchaseOrder: jest.fn(async () => ({ status: 'partial', priceChanges: [] })),
     adjustStock: jest.fn(),
     addAuditEvent: jest.fn(),
     updateItem: jest.fn(),
@@ -126,6 +139,7 @@ function line(over: Record<string, any> & { poItemId: string }) {
     receivedQty: over.receivedQty ?? 0,
     costPerUnit: over.costPerUnit ?? 1,
     subUnitSize: over.subUnitSize ?? 1,
+    caseQty: over.caseQty ?? 1, // spec 109 — for the case-price ghost + 30% bridge
   };
 }
 
@@ -133,10 +147,14 @@ beforeEach(() => {
   state.loadPurchaseOrderLines.mockClear();
   state.receivePurchaseOrder.mockClear();
   mockConfirmAction.mockClear();
+  // Spec 109 — clear the shared Toast mock so a prior test's toasts don't leak
+  // into the "no price toast" assertion.
+  (require('react-native-toast-message').default.show as jest.Mock).mockClear();
+  confirmResponses = [];
   state.orderSubmissions = [];
   state.poLinesById = {};
   state.loadPurchaseOrderLines.mockImplementation(async () => state.poLinesById[Object.keys(state.poLinesById)[0]] || []);
-  state.receivePurchaseOrder.mockImplementation(async () => 'partial');
+  state.receivePurchaseOrder.mockImplementation(async () => ({ status: 'partial', priceChanges: [] }));
 });
 
 describe('ReceivingSection PO-driven mode — list filters to open POs', () => {
@@ -221,6 +239,177 @@ describe('ReceivingSection PO-driven mode — outstanding prefill + commit delta
     fireEvent.press(screen.getByTestId('receiving-commit'));
     expect(state.receivePurchaseOrder).not.toHaveBeenCalled();
     expect(mockConfirmAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReceivingSection PO-driven mode — spec 109 case-price + 30% guard', () => {
+  // costPerUnit 4, caseQty 10 → ghosted expected case price = $40.
+  function pricedPo() {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    const lines = [line({ poItemId: 'l1', orderedQty: 10, receivedQty: 0, costPerUnit: 4, caseQty: 10, itemName: 'Flour' })];
+    state.poLinesById = { 'po-1': lines };
+    state.loadPurchaseOrderLines.mockImplementation(async () => lines);
+    return lines;
+  }
+
+  it('ghosts the case-price input with the expected price (costPerUnit × caseQty)', async () => {
+    pricedPo();
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-price-l1').props.value).toBe('40.00'));
+  });
+
+  it('threads newCasePrice when the entered case price DIFFERS from the ghost', async () => {
+    pricedPo();
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    // Change the case price to $45 (12.5% up — under the 30% guard, so no second confirm).
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '45');
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(state.receivePurchaseOrder).toHaveBeenCalledWith('po-1', [
+      { poItemId: 'l1', receivedQty: 10, newCasePrice: 45 },
+    ]);
+    // Under-30% change → only the stock-commit confirm fired, no price guard.
+    expect(mockConfirmAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends NO newCasePrice when the case price is left at the ghost (unchanged)', async () => {
+    pricedPo();
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-price-l1').props.value).toBe('40.00'));
+
+    // Do not touch the price — commit the stock only.
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(state.receivePurchaseOrder).toHaveBeenCalledWith('po-1', [
+      { poItemId: 'l1', receivedQty: 10 },
+    ]);
+  });
+
+  it('sends NO newCasePrice when the case price is cleared to empty', async () => {
+    pricedPo();
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-price-l1').props.value).toBe('40.00'));
+
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '');
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(state.receivePurchaseOrder).toHaveBeenCalledWith('po-1', [
+      { poItemId: 'l1', receivedQty: 10 },
+    ]);
+  });
+
+  it('fires the SECOND (30%) confirm ONLY when a changed price trips >30%, and proceeds on confirm', async () => {
+    pricedPo();
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    // $55 vs expected $40 = 37.5% up → trips the guard.
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '55');
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    // TWO confirms: the stock-commit gate, then the price guard. The second is
+    // the price-guard confirm (distinct title + cta keys). The old→new body copy
+    // is interpolated by the real t() — covered by i18n.test.ts; the section's
+    // useT mock returns the raw key, so we assert the guard identity + payload.
+    expect(mockConfirmAction).toHaveBeenCalledTimes(2);
+    const secondCall = mockConfirmAction.mock.calls[1];
+    expect(secondCall[0]).toBe('section.receiving.priceGuardTitle');
+    expect(secondCall[3]).toBe('section.receiving.priceGuardCta');
+    expect(state.receivePurchaseOrder).toHaveBeenCalledWith('po-1', [
+      { poItemId: 'l1', receivedQty: 10, newCasePrice: 55 },
+    ]);
+  });
+
+  it('DECLINING the 30% confirm aborts the whole commit — the RPC is NOT called', async () => {
+    pricedPo();
+    // First confirm (stock gate) proceeds; second confirm (price guard) declines.
+    confirmResponses = [true, false];
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '55'); // 37.5% up → trips guard
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    // Both confirms were opened, but declining the guard aborts — nothing received.
+    expect(mockConfirmAction).toHaveBeenCalledTimes(2);
+    expect(state.receivePurchaseOrder).not.toHaveBeenCalled();
+  });
+
+  // Spec 109 code-review fix — `busy` is held from the first tap through both
+  // confirms (so a double-tap on native can't stack dialog chains) and RELEASED
+  // on decline via confirmAction's onCancel. The jsdom-testable half is the
+  // release: after a decline, a second commit attempt must still go through —
+  // if busy were stuck true, onCommit would early-return forever.
+  it('releases the busy gate when the 30% guard is DECLINED — a retry commit succeeds', async () => {
+    pricedPo();
+    confirmResponses = [true, false]; // attempt 1: stock gate ok, price guard declined
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '55'); // trips guard
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+    expect(state.receivePurchaseOrder).not.toHaveBeenCalled();
+
+    // Attempt 2 — confirms beyond the scripted responses default to confirm.
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+  });
+
+  it('releases the busy gate when the FIRST (stock) confirm is declined — a retry commit succeeds', async () => {
+    pricedPo();
+    confirmResponses = [false]; // attempt 1: stock gate declined outright
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+    expect(state.receivePurchaseOrder).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+  });
+
+  it('toasts the count of price updates after a commit that changed prices', async () => {
+    pricedPo();
+    state.receivePurchaseOrder.mockImplementation(async () => ({
+      status: 'received',
+      priceChanges: [
+        { poItemId: 'l1', itemId: 'item-l1', oldCasePrice: 40, newCasePrice: 45, oldCostPerUnit: 4, newCostPerUnit: 4.5 },
+      ],
+    }));
+    const Toast = require('react-native-toast-message').default;
+
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-line-l1').props.value).toBe('10'));
+
+    fireEvent.changeText(screen.getByTestId('receiving-price-l1'), '45'); // under 30%, changed
+    fireEvent.press(screen.getByTestId('receiving-commit'));
+
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    // Two toasts: the received toast + the "N prices updated" toast (count 1).
+    const priceToast = Toast.show.mock.calls.find(
+      (c: any[]) => c[0]?.text1 === 'section.receiving.pricesUpdatedToast',
+    );
+    expect(priceToast).toBeTruthy();
+  });
+
+  it('does NOT toast a price count when no line changed price (priceChanges [])', async () => {
+    pricedPo();
+    const Toast = require('react-native-toast-message').default;
+    render(<ReceivingSection />);
+    await waitFor(() => expect(screen.getByTestId('receiving-price-l1').props.value).toBe('40.00'));
+
+    fireEvent.press(screen.getByTestId('receiving-commit')); // ghost unchanged → no price change
+    await waitFor(() => expect(state.receivePurchaseOrder).toHaveBeenCalledTimes(1));
+    const priceToast = Toast.show.mock.calls.find(
+      (c: any[]) => c[0]?.text1 === 'section.receiving.pricesUpdatedToast',
+    );
+    expect(priceToast).toBeUndefined();
   });
 });
 

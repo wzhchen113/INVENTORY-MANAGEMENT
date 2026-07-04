@@ -541,7 +541,14 @@
       "nothingToReceive": "Ingresa una cantidad recibida en al menos una línea.",
       "commitConfirmTitle": "¿Confirmar esta recepción?",
       "commitConfirmBody": "Agregar las cantidades ingresadas ({total} en {count} línea(s)) al stock. El inventario se actualiza de inmediato.",
-      "commitConfirmCta": "Recibir"
+      "commitConfirmCta": "Recibir",
+      "caseThisDeliveryCol": "$ caja esta entrega",
+      "caseThisDeliveryPlaceholder": "$ caja",
+      "pricesUpdatedToast": "{count} precio(s) actualizado(s)",
+      "priceGuardTitle": "¿Confirmar cambio grande de precio?",
+      "priceGuardBody": "Estos precios por caja difieren de la OC en más del 30%:\n\n{lines}\n\nAl recibir se actualizará el costo del artículo al nuevo precio. Confirma para continuar.",
+      "priceGuardLine": "{item}: ${old} → ${new}",
+      "priceGuardCta": "Actualizar precios"
     },
     "orderSchedule": {
       "title": "Programa de pedidos",

@@ -191,7 +191,7 @@ describe('mapPoItemRow (via fetchPurchaseOrderLines) — snake→camel + catalog
             ordered_qty: 6,
             received_qty: 2,
             cost_per_unit: 3.25,
-            inventory_items: { catalog_id: 'cat-A', catalog_ingredients: { name: 'Flour', unit: 'lbs', sub_unit_size: 4 } },
+            inventory_items: { catalog_id: 'cat-A', catalog_ingredients: { name: 'Flour', unit: 'lbs', sub_unit_size: 4, case_qty: 25 } },
           },
           {
             id: 'poi-2',
@@ -199,7 +199,7 @@ describe('mapPoItemRow (via fetchPurchaseOrderLines) — snake→camel + catalog
             ordered_qty: 1,
             received_qty: null, // → 0
             cost_per_unit: null, // → 0
-            inventory_items: null, // → name/unit '', subUnitSize 1
+            inventory_items: null, // → name/unit '', subUnitSize 1, caseQty 1
           },
         ],
         error: null,
@@ -208,8 +208,8 @@ describe('mapPoItemRow (via fetchPurchaseOrderLines) — snake→camel + catalog
 
     const lines = await fetchPurchaseOrderLines('po-1');
     expect(lines).toEqual([
-      { poItemId: 'poi-1', itemId: 'item-A', itemName: 'Flour', unit: 'lbs', orderedQty: 6, receivedQty: 2, costPerUnit: 3.25, subUnitSize: 4 },
-      { poItemId: 'poi-2', itemId: 'item-B', itemName: '', unit: '', orderedQty: 1, receivedQty: 0, costPerUnit: 0, subUnitSize: 1 },
+      { poItemId: 'poi-1', itemId: 'item-A', itemName: 'Flour', unit: 'lbs', orderedQty: 6, receivedQty: 2, costPerUnit: 3.25, subUnitSize: 4, caseQty: 25 },
+      { poItemId: 'poi-2', itemId: 'item-B', itemName: '', unit: '', orderedQty: 1, receivedQty: 0, costPerUnit: 0, subUnitSize: 1, caseQty: 1 },
     ]);
     expect(fromLog).toEqual(['po_items']);
   });
@@ -222,8 +222,8 @@ describe('mapPoItemRow (via fetchPurchaseOrderLines) — snake→camel + catalog
 });
 
 describe('receivePurchaseOrder — RPC payload + envelope', () => {
-  it('snake-cases the lines, passes p_client_uuid, and maps {status, conflict}', async () => {
-    terminalQueue = [{ data: { po_id: 'po-1', status: 'partial', conflict: false, lines: [] }, error: null }];
+  it('snake-cases the lines, passes p_client_uuid, and maps {status, conflict, priceChanges}', async () => {
+    terminalQueue = [{ data: { po_id: 'po-1', status: 'partial', conflict: false, lines: [], price_changes: [] }, error: null }];
 
     const res = await receivePurchaseOrder(
       'po-1',
@@ -234,7 +234,9 @@ describe('receivePurchaseOrder — RPC payload + envelope', () => {
       'uuid-123',
     );
 
-    expect(res).toEqual({ status: 'partial', conflict: false });
+    // Spec 109: no newCasePrice on any line → no new_case_price key emitted
+    // (a spec-107-shaped payload → server no-op) and priceChanges defaults to [].
+    expect(res).toEqual({ status: 'partial', conflict: false, priceChanges: [] });
     expect(mockRpc).toHaveBeenCalledWith('receive_purchase_order', {
       p_po_id: 'po-1',
       p_lines: [
@@ -245,10 +247,67 @@ describe('receivePurchaseOrder — RPC payload + envelope', () => {
     });
   });
 
-  it('surfaces conflict:true from an idempotent replay', async () => {
-    terminalQueue = [{ data: { po_id: 'po-1', status: 'received', conflict: true, lines: [] }, error: null }];
+  it('spec 109: emits new_case_price ONLY for lines carrying a finite price, and maps priceChanges snake→camel', async () => {
+    terminalQueue = [{
+      data: {
+        po_id: 'po-1', status: 'received', conflict: false, lines: [],
+        price_changes: [
+          {
+            po_item_id: 'poi-1', item_id: 'item-A',
+            old_case_price: 40, new_case_price: 55,
+            old_cost_per_unit: 1.6, new_cost_per_unit: 2.2,
+          },
+          {
+            // Link-missing shape: old_* come back JSON null → mapped to null.
+            po_item_id: 'poi-3', item_id: 'item-C',
+            old_case_price: null, new_case_price: 30,
+            old_cost_per_unit: null, new_cost_per_unit: 1.25,
+          },
+        ],
+      },
+      error: null,
+    }];
+
+    const res = await receivePurchaseOrder(
+      'po-1',
+      [
+        { poItemId: 'poi-1', receivedQty: 2, newCasePrice: 55 },   // priced → key emitted
+        { poItemId: 'poi-2', receivedQty: 1 },                      // no price → key omitted
+        { poItemId: 'poi-3', receivedQty: 3, newCasePrice: 30 },   // priced → key emitted
+      ],
+      'uuid-price',
+    );
+
+    expect(res).toEqual({
+      status: 'received',
+      conflict: false,
+      priceChanges: [
+        { poItemId: 'poi-1', itemId: 'item-A', oldCasePrice: 40, newCasePrice: 55, oldCostPerUnit: 1.6, newCostPerUnit: 2.2 },
+        { poItemId: 'poi-3', itemId: 'item-C', oldCasePrice: null, newCasePrice: 30, oldCostPerUnit: null, newCostPerUnit: 1.25 },
+      ],
+    });
+    // The unchanged line (poi-2) carries NO new_case_price key; the priced lines do.
+    expect(mockRpc).toHaveBeenCalledWith('receive_purchase_order', {
+      p_po_id: 'po-1',
+      p_lines: [
+        { po_item_id: 'poi-1', received_qty: 2, new_case_price: 55 },
+        { po_item_id: 'poi-2', received_qty: 1 },
+        { po_item_id: 'poi-3', received_qty: 3, new_case_price: 30 },
+      ],
+      p_client_uuid: 'uuid-price',
+    });
+  });
+
+  it('surfaces conflict:true from an idempotent replay (priceChanges [])', async () => {
+    terminalQueue = [{ data: { po_id: 'po-1', status: 'received', conflict: true, lines: [], price_changes: [] }, error: null }];
     const res = await receivePurchaseOrder('po-1', [{ poItemId: 'poi-1', receivedQty: 1 }], 'uuid-dupe');
-    expect(res).toEqual({ status: 'received', conflict: true });
+    expect(res).toEqual({ status: 'received', conflict: true, priceChanges: [] });
+  });
+
+  it('defaults priceChanges to [] when the server omits the key (older server)', async () => {
+    terminalQueue = [{ data: { po_id: 'po-1', status: 'partial', conflict: false, lines: [] }, error: null }];
+    const res = await receivePurchaseOrder('po-1', [{ poItemId: 'poi-1', receivedQty: 1 }], 'uuid-old');
+    expect(res).toEqual({ status: 'partial', conflict: false, priceChanges: [] });
   });
 
   it('throws when the RPC errors', async () => {

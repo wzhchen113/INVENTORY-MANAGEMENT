@@ -1410,6 +1410,7 @@ export interface PoLine {
   receivedQty: number;           // cumulative across partial receives (0 when null)
   costPerUnit: number;           // per-COUNTED-unit snapshot at PO-create time (OQ-6)
   subUnitSize: number;           // for any downstream per-each bridge; 1 when null
+  caseQty: number;               // catalog case_qty; 1 when null — for the case-price ghost + 30% bridge (spec 109 §10b)
 }
 
 function mapPoItemRow(r: any): PoLine {
@@ -1424,6 +1425,7 @@ function mapPoItemRow(r: any): PoLine {
     receivedQty: Number(r.received_qty) || 0,
     costPerUnit: Number(r.cost_per_unit) || 0,
     subUnitSize: Number(ci.sub_unit_size) || 1,
+    caseQty: Number(ci.case_qty) || 1,
   };
 }
 
@@ -1511,7 +1513,7 @@ export async function fetchPurchaseOrderLines(poId: string): Promise<PoLine[]> {
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase
       .from('po_items')
-      .select('id, item_id, ordered_qty, received_qty, cost_per_unit, inventory_items(catalog_id, catalog_ingredients(name, unit, sub_unit_size))')
+      .select('id, item_id, ordered_qty, received_qty, cost_per_unit, inventory_items(catalog_id, catalog_ingredients(name, unit, sub_unit_size, case_qty))')
       .eq('po_id', poId)
       .abortSignal(signal);
     if (error) { console.warn('[Supabase] fetchPurchaseOrderLines:', error.message); return []; }
@@ -1555,30 +1557,70 @@ export async function deletePoItem(poItemId: string): Promise<boolean> {
 }
 
 /**
- * Spec 107 §3 — receive against a PO. Wraps `receive_purchase_order`. `lines`
- * are the this-receive deltas (received_qty ADDITIVE — the caller submits how
- * much arrived THIS receive, prefilled with the OUTSTANDING remainder, NOT the
- * ordered total). `clientUuid` is minted once per receive event for
- * idempotency (mirrors submitInventoryCount). Returns the resulting status +
- * conflict flag, or null on error (caller wraps with notifyBackendError).
+ * Spec 107 §3 / spec 109 §10 — receive against a PO. Wraps
+ * `receive_purchase_order`. `lines` are the this-receive deltas (received_qty
+ * ADDITIVE — the caller submits how much arrived THIS receive, prefilled with
+ * the OUTSTANDING remainder, NOT the ordered total). `clientUuid` is minted once
+ * per receive event for idempotency (mirrors submitInventoryCount).
+ *
+ * Spec 109 (cost-on-receipt): each line may carry an OPTIONAL `newCasePrice` —
+ * the CASE price as invoiced. It maps to `new_case_price` ONLY when it is a
+ * finite number, so an unchanged line stays a spec-107-shaped object (no key →
+ * server NULL → no-op; older callers are unaffected). A price that DIFFERS from
+ * the (item, PO-vendor) link's current case price updates BOTH the item_vendors
+ * link AND the item scalar via the spec-104 ★ formula and returns a
+ * `priceChanges` entry. The array is `[]` when no line changed price (including
+ * on the idempotent-replay path). Returns the resulting status + conflict flag +
+ * the applied price changes, or null on error (caller wraps notifyBackendError).
  */
 export async function receivePurchaseOrder(
   poId: string,
-  lines: Array<{ poItemId: string; receivedQty: number }>,
+  lines: Array<{ poItemId: string; receivedQty: number; newCasePrice?: number }>,
   clientUuid: string,
-): Promise<{ status: string; conflict: boolean } | null> {
+): Promise<{
+  status: string;
+  conflict: boolean;
+  priceChanges: Array<{
+    poItemId: string;
+    itemId: string;
+    oldCasePrice: number | null;
+    newCasePrice: number;
+    oldCostPerUnit: number | null;
+    newCostPerUnit: number;
+  }>;
+} | null> {
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase.rpc('receive_purchase_order', {
       p_po_id: poId,
-      p_lines: lines.map((ln) => ({ po_item_id: ln.poItemId, received_qty: ln.receivedQty })),
+      p_lines: lines.map((ln) => ({
+        po_item_id: ln.poItemId,
+        received_qty: ln.receivedQty,
+        // Only send the price when it is a real number — an unchanged line omits
+        // the key so the server treats it as a pure stock receive (spec-107 path).
+        ...(typeof ln.newCasePrice === 'number' && Number.isFinite(ln.newCasePrice)
+          ? { new_case_price: ln.newCasePrice }
+          : {}),
+      })),
       p_client_uuid: clientUuid,
     }).abortSignal(signal);
     if (error) {
       console.warn('[Supabase] receivePurchaseOrder:', error.message, error);
       throw error;
     }
-    const result = (data || {}) as { status?: string; conflict?: boolean };
-    return { status: result.status || '', conflict: !!result.conflict };
+    const result = (data || {}) as {
+      status?: string;
+      conflict?: boolean;
+      price_changes?: Array<Record<string, unknown>>;
+    };
+    const priceChanges = (result.price_changes || []).map((pc) => ({
+      poItemId: String(pc.po_item_id),
+      itemId: String(pc.item_id),
+      oldCasePrice: pc.old_case_price == null ? null : Number(pc.old_case_price),
+      newCasePrice: Number(pc.new_case_price),
+      oldCostPerUnit: pc.old_cost_per_unit == null ? null : Number(pc.old_cost_per_unit),
+      newCostPerUnit: Number(pc.new_cost_per_unit),
+    }));
+    return { status: result.status || '', conflict: !!result.conflict, priceChanges };
   }, { kind: 'write', label: 'receivePurchaseOrder' });
 }
 

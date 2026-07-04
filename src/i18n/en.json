@@ -541,7 +541,14 @@
       "nothingToReceive": "Enter a received quantity on at least one line.",
       "commitConfirmTitle": "Commit this receive?",
       "commitConfirmBody": "Add the entered quantities ({total} across {count} line(s)) to stock. This updates on-hand immediately.",
-      "commitConfirmCta": "Receive"
+      "commitConfirmCta": "Receive",
+      "caseThisDeliveryCol": "case $ this delivery",
+      "caseThisDeliveryPlaceholder": "case $",
+      "pricesUpdatedToast": "{count} price(s) updated",
+      "priceGuardTitle": "Confirm large price change?",
+      "priceGuardBody": "These case prices differ from the PO by more than 30%:\n\n{lines}\n\nReceiving will update the item's cost to the new price. Confirm to proceed.",
+      "priceGuardLine": "{item}: ${old} → ${new}",
+      "priceGuardCta": "Update prices"
     },
     "orderSchedule": {
       "title": "Order schedule",

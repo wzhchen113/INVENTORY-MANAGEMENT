@@ -12,6 +12,7 @@ import { OrderSubmission } from '../../../types';
 import { computeExpiryFromShelfLife } from '../../../lib/db';
 import { confirmAction } from '../../../utils/confirmAction';
 import { useT } from '../../../hooks/useT';
+import { expectedCasePrice, isPriceGuardTripped } from '../lib/priceGuard';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -109,6 +110,11 @@ function PoReceivingMode() {
   // Per-line "received this time" inputs, keyed by poItemId. Seeded to the
   // outstanding remainder on load; the operator overrides as needed.
   const [entries, setEntries] = React.useState<Record<string, string>>({});
+  // Spec 109 — per-line "case price this delivery" inputs, keyed by poItemId.
+  // Seeded (ghosted) with the expected case price = costPerUnit × caseQty on
+  // load. A value EQUAL to the ghost (or empty) is a pure stock receive; a
+  // DIFFERENT value sends the new case price and updates cost server-side.
+  const [prices, setPrices] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
 
   // Only OPEN POs (sent | partial) can be received against.
@@ -139,11 +145,18 @@ function PoReceivingMode() {
     void loadPurchaseOrderLines(sel.id).then((loaded) => {
       if (cancelled) return;
       const seed: Record<string, string> = {};
+      const priceSeed: Record<string, string> = {};
       for (const ln of loaded) {
         const outstanding = Math.max(0, ln.orderedQty - ln.receivedQty);
         seed[ln.poItemId] = String(outstanding);
+        // Ghost the case-price input with the expected price the PO was created
+        // at (costPerUnit is per-COUNTED-unit; × caseQty reconstructs the case).
+        // 0 (no meaningful baseline) ghosts empty so the operator can enter one.
+        const expected = expectedCasePrice(ln.costPerUnit, ln.caseQty);
+        priceSeed[ln.poItemId] = expected > 0 ? expected.toFixed(2) : '';
       }
       setEntries(seed);
+      setPrices(priceSeed);
     });
     return () => { cancelled = true; };
   }, [sel?.id, loadPurchaseOrderLines]);
@@ -155,33 +168,108 @@ function PoReceivingMode() {
     if (!sel || busy) return;
     // Build the this-receive deltas (skip zero rows). ADDITIVE semantics — this
     // is how much arrived THIS receive, NOT the ordered total (§3).
+    //
+    // Spec 109 — attach `newCasePrice` ONLY when the operator entered a finite
+    // case price that DIFFERS numerically from the ghosted expected price. An
+    // empty or ghost-equal value stays a pure stock receive (no key → server
+    // no-op). The comparison rounds both sides to 2dp so the 2-decimal ghost
+    // string ("40.00") doesn't read as "changed" against a 40 expected.
     const deltas = lines
-      .map((ln) => ({ poItemId: ln.poItemId, receivedQty: Number(entries[ln.poItemId]) || 0 }))
+      .map((ln) => {
+        const receivedQty = Number(entries[ln.poItemId]) || 0;
+        const expected = expectedCasePrice(ln.costPerUnit, ln.caseQty);
+        const raw = (prices[ln.poItemId] ?? '').trim();
+        const entered = raw === '' ? NaN : Number(raw);
+        const changed =
+          Number.isFinite(entered) &&
+          entered > 0 &&
+          Number(entered.toFixed(2)) !== Number(expected.toFixed(2));
+        return changed
+          ? { poItemId: ln.poItemId, receivedQty, newCasePrice: entered }
+          : { poItemId: ln.poItemId, receivedQty };
+      })
       .filter((d) => d.receivedQty > 0);
     if (deltas.length === 0) {
       Toast.show({ type: 'error', text1: T('section.receiving.nothingToReceive') });
       return;
     }
+
+    // Spec 109 — collect the changed-price lines that trip the >30% fat-finger
+    // guard (OQ-4), bridged case-to-case (see lib/priceGuard). Used to build the
+    // SECOND confirm listing each flagged line as `item: $old → $new`.
+    const flagged = deltas
+      .filter((d) => typeof (d as { newCasePrice?: number }).newCasePrice === 'number')
+      .map((d) => {
+        const ln = lines.find((l) => l.poItemId === d.poItemId)!;
+        return { ln, entered: (d as { newCasePrice: number }).newCasePrice };
+      })
+      .filter(({ ln, entered }) => isPriceGuardTripped({ costPerUnit: ln.costPerUnit, caseQty: ln.caseQty, enteredCasePrice: entered }));
+
+    // Spec 109 code-review fix — `busy` goes true HERE, before the first
+    // confirm, not inside runReceive. On native, Alert.alert is async and
+    // non-blocking, so the commit button would otherwise stay live through the
+    // entire window both dialogs are open (double-tap → stacked dialog chains).
+    // Every decline path releases it via confirmAction's onCancel.
+    setBusy(true);
+    const releaseBusy = () => setBusy(false);
+
+    // The actual RPC call, shared by the guarded and unguarded paths.
+    const runReceive = () => {
+      void receivePurchaseOrder(sel.id, deltas)
+        .then((result) => {
+          if (result) {
+            Toast.show({
+              type: 'success',
+              text1: T('section.receiving.receivedToast'),
+              text2: T(`section.purchaseOrders.status.${result.status === 'received' ? 'received' : 'partial'}`),
+            });
+            // Spec 109 — a second toast naming the count of applied price updates.
+            if (result.priceChanges.length > 0) {
+              Toast.show({
+                type: 'success',
+                text1: T('section.receiving.pricesUpdatedToast', { count: result.priceChanges.length }),
+              });
+            }
+          }
+        })
+        .finally(() => setBusy(false));
+    };
+
     // Spec 107 code-review fix — commit mutates stock, so it is confirm-gated
     // like its four lifecycle siblings (send / mark-sent / cancel / close-short).
+    // This existing confirm STAYS; the 30% price guard is an ADDITIONAL, nested
+    // confirm that only appears when a large delta is present (spec 109 §12).
     confirmAction(
       T('section.receiving.commitConfirmTitle'),
       T('section.receiving.commitConfirmBody', { count: deltas.length, total: enteredTotal }),
       () => {
-        setBusy(true);
-        void receivePurchaseOrder(sel.id, deltas)
-          .then((status) => {
-            if (status) {
-              Toast.show({
-                type: 'success',
-                text1: T('section.receiving.receivedToast'),
-                text2: T(`section.purchaseOrders.status.${status === 'received' ? 'received' : 'partial'}`),
-              });
-            }
-          })
-          .finally(() => setBusy(false));
+        if (flagged.length === 0) {
+          runReceive();
+          return;
+        }
+        // Spec 109 (OQ-4) — a >30% price delta requires an explicit second
+        // confirm listing old→new per flagged line. Declining aborts the WHOLE
+        // commit (nothing is received — client-side gate is the pinned
+        // mechanism). Confirming proceeds to the RPC.
+        const list = flagged
+          .map(({ ln, entered }) =>
+            T('section.receiving.priceGuardLine', {
+              item: ln.itemName,
+              old: expectedCasePrice(ln.costPerUnit, ln.caseQty).toFixed(2),
+              new: entered.toFixed(2),
+            }),
+          )
+          .join('\n');
+        confirmAction(
+          T('section.receiving.priceGuardTitle'),
+          T('section.receiving.priceGuardBody', { lines: list }),
+          runReceive,
+          T('section.receiving.priceGuardCta'),
+          releaseBusy,
+        );
       },
       T('section.receiving.commitConfirmCta'),
+      releaseBusy,
     );
   };
 
@@ -275,6 +363,7 @@ function PoReceivingMode() {
                 <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.alreadyCol')}</Text>
                 <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>{T('section.receiving.outstandingCol')}</Text>
                 <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 96, textAlign: 'right' }]}>{T('section.receiving.receiveNowCol')}</Text>
+                <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 110, textAlign: 'right' }]}>{T('section.receiving.caseThisDeliveryCol')}</Text>
               </View>
               {lines.length === 0 ? (
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, padding: 22, textAlign: 'center' }}>
@@ -283,6 +372,15 @@ function PoReceivingMode() {
               ) : (
                 lines.map((ln, i) => {
                   const outstanding = Math.max(0, ln.orderedQty - ln.receivedQty);
+                  // Spec 109 — the ghosted expected case price + whether the
+                  // entered value differs (drives the visually-distinct border).
+                  const expected = expectedCasePrice(ln.costPerUnit, ln.caseQty);
+                  const rawPrice = (prices[ln.poItemId] ?? '').trim();
+                  const enteredPrice = rawPrice === '' ? NaN : Number(rawPrice);
+                  const priceChanged =
+                    Number.isFinite(enteredPrice) &&
+                    enteredPrice > 0 &&
+                    Number(enteredPrice.toFixed(2)) !== Number(expected.toFixed(2));
                   return (
                     <View
                       key={ln.poItemId}
@@ -309,6 +407,23 @@ function PoReceivingMode() {
                         style={{
                           fontFamily: mono(600), fontSize: 12, color: C.fg, width: 96, textAlign: 'right',
                           borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.xs,
+                          paddingVertical: 4, paddingHorizontal: 6,
+                        }}
+                      />
+                      {/* Spec 109 — "case price this delivery": ghosted with the
+                          expected case price; a changed value marks the line
+                          (accent border + tint) and sends the new case price. */}
+                      <TextInput
+                        testID={`receiving-price-${ln.poItemId}`}
+                        value={prices[ln.poItemId] ?? ''}
+                        keyboardType="numeric"
+                        placeholder={expected > 0 ? expected.toFixed(2) : T('section.receiving.caseThisDeliveryPlaceholder')}
+                        placeholderTextColor={C.fg3}
+                        onChangeText={(text) => setPrices((prev) => ({ ...prev, [ln.poItemId]: text.replace(/[^0-9.]/g, '') }))}
+                        style={{
+                          fontFamily: mono(600), fontSize: 12, color: priceChanged ? C.accent : C.fg, width: 110, textAlign: 'right',
+                          borderWidth: 1, borderColor: priceChanged ? C.accent : C.borderStrong, borderRadius: CmdRadius.xs,
+                          backgroundColor: priceChanged ? C.accentBg : 'transparent',
                           paddingVertical: 4, paddingHorizontal: 6,
                         }}
                       />

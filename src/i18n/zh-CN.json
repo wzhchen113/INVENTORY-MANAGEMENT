@@ -541,7 +541,14 @@
       "nothingToReceive": "请至少在一行输入收货数量。",
       "commitConfirmTitle": "确认本次收货？",
       "commitConfirmBody": "将本次输入的数量（{count} 行共 {total}）加入库存。库存将立即更新。",
-      "commitConfirmCta": "收货"
+      "commitConfirmCta": "收货",
+      "caseThisDeliveryCol": "本次到货箱价",
+      "caseThisDeliveryPlaceholder": "箱价",
+      "pricesUpdatedToast": "已更新 {count} 个价格",
+      "priceGuardTitle": "确认大幅价格变动？",
+      "priceGuardBody": "以下箱价与采购单相差超过 30%：\n\n{lines}\n\n收货将把该商品的成本更新为新价格。确认以继续。",
+      "priceGuardLine": "{item}：${old} → ${new}",
+      "priceGuardCta": "更新价格"
     },
     "orderSchedule": {
       "title": "订货排程",

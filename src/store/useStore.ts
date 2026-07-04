@@ -409,11 +409,30 @@ interface StoreActions {
    * (received_qty ADDITIVE). Mints the client_uuid internally for idempotency.
    * On success the PO list + inventory + reorder are refreshed. Returns the
    * resulting status ('partial' | 'received') or null on error.
+   *
+   * Spec 109 (cost-on-receipt): each line may carry an OPTIONAL `newCasePrice`
+   * (the CASE price as invoiced). When it differs from the (item, PO-vendor)
+   * link's current price the RPC updates the vendor link + item scalar cost via
+   * the spec-104 ★ formula. The action surfaces the applied `priceChanges` so the
+   * caller can toast the count; the existing refresh chain already re-reads
+   * inventory (new cost_per_unit/case_price) + reorder, so the item editor /
+   * per-vendor card / reorder estimated_cost reflect the new cost with no extra
+   * refresh. `priceChanges` is `[]` when no line changed price (incl. replay).
    */
   receivePurchaseOrder: (
     poId: string,
-    lines: Array<{ poItemId: string; receivedQty: number }>,
-  ) => Promise<string | null>;
+    lines: Array<{ poItemId: string; receivedQty: number; newCasePrice?: number }>,
+  ) => Promise<{
+    status: string;
+    priceChanges: Array<{
+      poItemId: string;
+      itemId: string;
+      oldCasePrice: number | null;
+      newCasePrice: number;
+      oldCostPerUnit: number | null;
+      newCostPerUnit: number;
+    }>;
+  } | null>;
   /** Close a `partial` PO short (spec 107 §3). Refreshes list + reorder. */
   closeShortPurchaseOrder: (poId: string) => Promise<string | null>;
   /** Cancel a draft/sent/partial PO (spec 107 §3). Refreshes list + reorder. */
@@ -2457,13 +2476,19 @@ export const useStore = create<FullStore>((set, get) => ({
       const result = await db.receivePurchaseOrder(poId, lines, clientUuid);
       if (!result) return null;
       // Refresh the lines cache (received_qty changed) + the PO list (status
-      // flipped partial/received). Inventory (current_stock) + reorder ride the
-      // full store reload so the received quantity lands in both surfaces.
+      // flipped partial/received). Inventory (current_stock AND — spec 109 —
+      // the new cost_per_unit/case_price on any changed-price line) + reorder
+      // (per-vendor cost) ride the full store reload so the received quantity
+      // AND the updated cost land in every surface (item editor read-only
+      // cost/each, per-vendor card, reorder estimated_cost). No extra refresh
+      // is needed for the cost change — it rides this existing chain.
       await get().loadPurchaseOrderLines(poId);
       await get().refreshPurchaseOrders();
       await get().loadFromSupabase();
       get().loadReorderSuggestions();
-      return result.status;
+      // Surface the applied price changes so the section can toast the count
+      // alongside the received toast (spec 109 §11/§12).
+      return { status: result.status, priceChanges: result.priceChanges };
     } catch (e: any) {
       notifyBackendError('Receive purchase order', e);
       return null;
