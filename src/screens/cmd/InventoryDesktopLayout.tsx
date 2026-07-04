@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, Platform, useWindowDimensions } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { sans, mono, Type } from '../../theme/typography';
@@ -23,11 +23,14 @@ import { ActivityRow } from '../../components/cmd/ActivityRow';
 import { SectionCaption } from '../../components/cmd/SectionCaption';
 import { StatusDot } from '../../components/cmd/StatusDot';
 import { InventoryRow } from '../../components/cmd/InventoryRow';
+import { InventoryTable } from '../../components/cmd/InventoryTable';
 import { FilterInput } from '../../components/cmd/FilterInput';
 import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import { ListSkeleton } from '../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../utils/confirmAction';
+import { useIsDesktop } from '../../theme/breakpoints';
+import { formatCostPerEach, costPerEachLabel, formatStockValue } from './lib/itemMoney';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
@@ -76,10 +79,27 @@ interface Props {
   setSection: (id: string) => void;
 }
 
+// Spec 112 — the on-demand detail pane's fixed width on desktop (≥1100). The
+// table gets the rest via flex:1; when the pane is open the table narrows and
+// its column-collapse tiers react to the reduced width (via the arithmetic
+// `tableWidth` derivation below, NOT an onLayout re-measure — see the AC-7
+// post-impl fix note).
+const PANE_WIDTH = 620;
+
+// Spec 112 (AC-7 fix) — approximate chrome overhead (sidebar + borders +
+// section padding) subtracted from the window width to estimate the table's
+// own width on the FIRST frame, before the outer-row onLayout has measured the
+// real overhead. ~260px matches the current ResponsiveCmdShell chrome. Only
+// used until `chromeW` is set on the first onLayout; after that the measured
+// value wins. A slightly-off fallback only affects the tier for one frame.
+const FALLBACK_CHROME = 260;
+
 export default function InventoryDesktopLayout({ onPaletteOpen, section, setSection }: Props) {
   const C = useCmdColors();
   const T = useT();
   const locale = useLocale();
+  const isDesktop = useIsDesktop();
+  const { width: windowWidth } = useWindowDimensions();
 
   const inventory = useStore((s) => s.inventory);
   const vendors   = useStore((s) => s.vendors);
@@ -100,6 +120,18 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   const [selectedName, setSelectedName] = React.useState<string | null>(null);
   const [tabId, setTabId]             = React.useState('detail.tsx');
   const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog' | 'categories'>('per-store');
+  // Spec 112 (AC-7 fix) — we DON'T measure the table's own width with onLayout,
+  // because in this react-native-web setup onLayout fires only at mount: it does
+  // NOT re-fire when the element reflows via CSS flex (pane sibling mounting) or
+  // on window resize, so a measured `listWidth` would be frozen at its mount
+  // value and the collapse tiers would never react. Instead we measure the
+  // OUTER row container's width ONCE (its width does NOT change when the pane
+  // toggles, so mount-time is a valid baseline) to derive the chrome overhead,
+  // then compute the table width arithmetically from the reactive `windowWidth`
+  // each render (see `tableWidth` in the render body). `windowWidth` from
+  // useWindowDimensions IS reliably reactive, so window resizes re-tier via the
+  // subtraction and pane open/close re-tiers via the `item` term.
+  const [chromeW, setChromeW]         = React.useState<number | null>(null);
 
   // Reset selection when the shell swaps us out of Inventory.
   React.useEffect(() => {
@@ -135,14 +167,42 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
     [storeInventory, parsed, getItemStatus, locale],
   );
 
-  // Auto-select on first render only. After that the user owns the selection
-  // — filter narrows and store switches no longer kick them off, which keeps
-  // the items.tsv ↔ catalog.tsv toggle non-destructive.
+  // Spec 112 (AC-3) — NO auto-select on entry. The detail pane is "on demand":
+  // it opens only when the operator clicks a row (or a ⌘K "focus item" fires
+  // the palette bridge below). `selectedName` initializes to null → the table
+  // occupies the full width until a click. The old first-render auto-select of
+  // items[0] was removed here.
+
+  // Spec 112 (AC-8b) — a store switch CLOSES the pane, so the table shows the
+  // new store's items full-width and the operator isn't left staring at a stale
+  // detail for an item that may not exist at the new store. This intentionally
+  // overrides the old name-keyed "selection survives store switch" behavior.
+  //
+  // Scoped to the per-store tab (code-review SF-1): catalog.tsv shares this
+  // `selectedName` state but its rows are BRAND-wide — clearing it on a store
+  // switch there would make InventoryCatalogMode's own auto-select-first effect
+  // silently jump the open detail to a different row (an AC-8 "unchanged"
+  // violation). Read via a ref so tab flips don't re-run the effect.
+  const viewModeRef = React.useRef(viewMode);
+  viewModeRef.current = viewMode;
   React.useEffect(() => {
-    if (viewMode !== 'per-store') return;
-    if (selectedName) return;
-    setSelectedName(items[0]?.name.toLowerCase() || null);
-  }, [items, selectedName, viewMode]);
+    if (viewModeRef.current !== 'per-store') return;
+    setSelectedName(null);
+  }, [currentStore.id]);
+
+  // Spec 112 (AC-5 / AC-14) — Esc closes the pane, web-only. Guarded by
+  // `Platform.OS === 'web'` (same shape as confirmAction's web branch): on
+  // native the listener is never installed and `window`/`KeyboardEvent` are
+  // never touched. Only active while the pane is open.
+  React.useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (!selectedName) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedName(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedName]);
 
   // ⌘K palette → body bridge. The shell already swapped `section` for us.
   // Here we apply the Inventory-specific bits (selectedName / viewMode)
@@ -170,6 +230,60 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   const recipesUsing = useRecipesUsingItem(item?.id || '');
 
   const inventoryTitle = 'Inventory';
+
+  // Spec 112 (AC-7 fix) — the width available to the desktop table, derived
+  // arithmetically (NOT via an onLayout re-measure, which never re-fires on
+  // flex reflow / window resize here). `windowWidth` is reactive, so this
+  // re-tiers on window resize; the `item ? PANE_WIDTH : 0` term re-tiers on
+  // pane open/close. `chromeW` (measured once on the outer row's onLayout) is
+  // the sidebar+border+padding overhead; `FALLBACK_CHROME` covers the first
+  // frame before it's set. Floor at 320 so the tier stays defined at extremes.
+  const tableWidth = Math.max(
+    320,
+    windowWidth - (chromeW ?? FALLBACK_CHROME) - (item ? PANE_WIDTH : 0),
+  );
+
+  // Spec 112 — the on-demand detail pane, shared by the desktop side-pane and
+  // the narrow-tier full-width swap. Only invoked when `item` is defined (both
+  // call sites are gated by `item ?`), so the non-null assertion is safe. The
+  // DetailPane contents (tabs + EDIT/DELETE/+COUNT header) are UNCHANGED — this
+  // spec only changes WHEN/WHERE the pane renders and its width.
+  const renderDetailPane = () => {
+    if (!item) return null;
+    return (
+      <DetailPane
+        item={item}
+        vendor={vendor}
+        status={status}
+        series={series}
+        recipesUsing={recipesUsing}
+        auditLog={auditLog}
+        currentUserId={currentUser?.id}
+        tabId={tabId}
+        onTabChange={setTabId}
+        onEditPress={() => setEditDrawerOpen(true)}
+        onDeletePress={() => {
+          confirmAction(
+            `Delete "${item.name}" from ${currentStore?.name || 'this store'}?`,
+            'This removes the per-store inventory row. The brand catalog entry stays — recreate by counting at this store again.',
+            () => {
+              deleteItem(item.id);
+              setSelectedName(null);
+              Toast.show({ type: 'success', text1: 'Deleted', text2: item.name });
+            },
+            'Delete',
+          );
+        }}
+        onCountPress={() => {
+          usePaletteAction.getState().request({
+            section: 'EODCount',
+            selectedName: null,
+            eodFocusItemId: item.id,
+          });
+        }}
+      />
+    );
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
@@ -256,113 +370,165 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           // with cached rows skip this branch.
           <ListSkeleton rows={10} />
         ) : (
-          <>
-            {/* List pane */}
+          // Spec 112 — the items.tsv branch. Full-width operational table on
+          // desktop (≥1100); the detail pane opens ON CLICK as a right-side
+          // pane (table stays visible, narrows). Below desktop it's a
+          // full-width list ↔ full-width detail swap.
+          <View style={{ flex: 1, flexDirection: 'column', minHeight: 0 }}>
+            <TabStrip
+              tabs={[
+                { id: 'per-store',  label: 'items.tsv' },
+                { id: 'catalog',    label: 'catalog.tsv' },
+                { id: 'categories', label: T('section.inventory.tabs.categories') },
+              ]}
+              activeId={viewMode}
+              onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
+            />
+            {/* Header + filter — full width above the table/list. */}
             <View
               style={{
-                width: 340,
-                backgroundColor: C.panel,
-                borderRightWidth: 1,
-                borderRightColor: C.border,
-                minHeight: 0,
+                paddingHorizontal: 16,
+                paddingTop: 14,
+                paddingBottom: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: C.border,
+                gap: 10,
               }}
             >
-              <TabStrip
-                tabs={[
-                  { id: 'per-store',  label: 'items.tsv' },
-                  { id: 'catalog',    label: 'catalog.tsv' },
-                  { id: 'categories', label: T('section.inventory.tabs.categories') },
-                ]}
-                activeId={viewMode}
-                onChange={(id) => setViewMode(id as 'per-store' | 'catalog' | 'categories')}
-              />
-              <View
-                style={{
-                  paddingHorizontal: 16,
-                  paddingTop: 14,
-                  paddingBottom: 10,
-                  borderBottomWidth: 1,
-                  borderBottomColor: C.border,
-                  gap: 10,
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                  <Text style={[Type.h2, { color: C.fg }]}>{inventoryTitle}</Text>
-                  <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-                    {storeInventory.length} items
-                  </Text>
-                </View>
-                <FilterInput value={filterText} onChangeText={setFilterText} />
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <Text style={[Type.h2, { color: C.fg }]}>{inventoryTitle}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
+                  {storeInventory.length} items
+                </Text>
               </View>
-              <FlatList
-                style={{ flex: 1, minHeight: 0 }}
-                data={items}
-                keyExtractor={(it) => it.id}
-                renderItem={({ item: it }) => (
-                  <InventoryRow
-                    item={{
-                      id: it.id,
-                      // Spec 040 P3 — display the localized label.
-                      // Selection key stays English-lowercase so survives
-                      // locale switch (the join key on inventory_items
-                      // is still the English canonical).
-                      name: getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale),
-                      stock: it.currentStock,
-                      par: it.parLevel,
-                      unit: it.unit,
-                      category: it.category,
-                    }}
-                    selected={selectedName === it.name.toLowerCase()}
-                    selectedBorderWidth={2}
-                    onPress={() => setSelectedName(it.name.toLowerCase())}
-                  />
-                )}
-              />
+              <FilterInput value={filterText} onChangeText={setFilterText} />
             </View>
 
-            {/* Detail pane */}
-            <View style={{ flex: 1, backgroundColor: C.bg }}>
-              {!item ? (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                    {selectedName ? `not at ${currentStore?.name || 'this store'}` : 'select an item'}
-                  </Text>
+            {isDesktop ? (
+              // Desktop (≥1100) — table (flex:1) + optional right-side pane.
+              // onLayout on the OUTER row (whose width does NOT change when the
+              // pane toggles) measures the chrome overhead ONCE, from the same
+              // frame's windowWidth. The table width itself is derived
+              // arithmetically (`tableWidth`) so it re-tiers reactively.
+              <View
+                style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}
+                onLayout={(e) => setChromeW(Math.max(0, windowWidth - e.nativeEvent.layout.width))}
+              >
+                <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                  <InventoryTable
+                    items={items}
+                    vendors={vendors}
+                    selectedName={selectedName}
+                    onSelect={(nameLower) =>
+                      setSelectedName((prev) => (prev === nameLower ? null : nameLower))
+                    }
+                    width={tableWidth}
+                    getItemStatus={getItemStatus}
+                    displayName={(it) => getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale)}
+                    labels={{
+                      name:        T('section.inventory.nameCol'),
+                      onHand:      T('section.inventory.onHandCol'),
+                      status:      T('section.inventory.statusCol'),
+                      costEach:    T('section.inventory.costPerUnitCol'),
+                      stockValue:  T('section.inventory.stockValueCol'),
+                      vendor:      T('section.inventory.vendorCol'),
+                      category:    T('section.inventory.categoryCol'),
+                      lastCounted: T('section.inventory.lastCountedCol'),
+                    }}
+                  />
                 </View>
-              ) : (
-                <DetailPane
-                  item={item}
-                  vendor={vendor}
-                  status={status}
-                  series={series}
-                  recipesUsing={recipesUsing}
-                  auditLog={auditLog}
-                  currentUserId={currentUser?.id}
-                  tabId={tabId}
-                  onTabChange={setTabId}
-                  onEditPress={() => setEditDrawerOpen(true)}
-                  onDeletePress={() => {
-                    confirmAction(
-                      `Delete "${item.name}" from ${currentStore?.name || 'this store'}?`,
-                      'This removes the per-store inventory row. The brand catalog entry stays — recreate by counting at this store again.',
-                      () => {
-                        deleteItem(item.id);
-                        setSelectedName(null);
-                        Toast.show({ type: 'success', text1: 'Deleted', text2: item.name });
-                      },
-                      'Delete',
-                    );
-                  }}
-                  onCountPress={() => {
-                    usePaletteAction.getState().request({
-                      section: 'EODCount',
-                      selectedName: null,
-                      eodFocusItemId: item.id,
-                    });
-                  }}
-                />
-              )}
-            </View>
-          </>
+
+                {item ? (
+                  <View
+                    style={{
+                      width: PANE_WIDTH,
+                      backgroundColor: C.bg,
+                      borderLeftWidth: 1,
+                      borderLeftColor: C.border,
+                      minHeight: 0,
+                    }}
+                  >
+                    {/* Close bar — the ✕ that returns the table to full width. */}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderBottomWidth: 1,
+                        borderBottomColor: C.border,
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => setSelectedName(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel={T('section.inventory.closeDetailAria')}
+                        style={{ paddingVertical: 2, paddingHorizontal: 8 }}
+                      >
+                        <Text style={{ fontFamily: mono(500), fontSize: 13, color: C.fg2 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {renderDetailPane()}
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              // Below desktop (<1100) — full-width list ↔ full-width detail.
+              <View style={{ flex: 1, minHeight: 0 }}>
+                {item ? (
+                  <View style={{ flex: 1, backgroundColor: C.bg, minHeight: 0 }}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderBottomWidth: 1,
+                        borderBottomColor: C.border,
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => setSelectedName(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel={T('section.inventory.closeDetailAria')}
+                        style={{ paddingVertical: 2, paddingHorizontal: 8 }}
+                      >
+                        <Text style={{ fontFamily: mono(500), fontSize: 13, color: C.fg2 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {renderDetailPane()}
+                  </View>
+                ) : (
+                  <FlatList
+                    style={{ flex: 1, minHeight: 0 }}
+                    data={items}
+                    keyExtractor={(it) => it.id}
+                    renderItem={({ item: it }) => (
+                      <InventoryRow
+                        item={{
+                          id: it.id,
+                          // Spec 040 P3 — display the localized label.
+                          // Selection key stays English-lowercase so survives
+                          // locale switch (the join key on inventory_items
+                          // is still the English canonical).
+                          name: getLocalizedName({ name: it.name, i18nNames: it.i18nNames }, locale),
+                          stock: it.currentStock,
+                          par: it.parLevel,
+                          unit: it.unit,
+                          category: it.category,
+                        }}
+                        selected={selectedName === it.name.toLowerCase()}
+                        selectedBorderWidth={3}
+                        onPress={() => setSelectedName(it.name.toLowerCase())}
+                      />
+                    )}
+                  />
+                )}
+              </View>
+            )}
+          </View>
         )}
       </View>
 
@@ -445,27 +611,27 @@ function DetailPane({
       .slice(-3);
   }, [auditLog, item]);
 
-  // Spec 104 (OQ-5) — per-each costPerUnit × counted currentStock → `× subUnitSize` bridge.
-  const inventoryValue = item.currentStock * (item.costPerUnit || 0) * (item.subUnitSize || 1);
   const daysOfCover = item.averageDailyUsage > 0
     ? `${(item.currentStock / item.averageDailyUsage).toFixed(1)}d`
     : '—';
 
-  // Spec 104 (OQ-3) — `costPerUnit` is the per-EACH (smallest-unit) cost; label
-  // it with the item's smallest unit (subUnitUnit, else "each").
-  const eachLabel = item.subUnitUnit || 'each';
+  // Spec 112 (★ COSTING RULE) — the two money values come from the ONE
+  // definition in `./lib/itemMoney` (spec 104 per-each basis). The full-width
+  // table cells consume the SAME helpers, so cost/each + stock value can never
+  // drift between the header and the table. Re-deriving here is FORBIDDEN.
+  const eachLabel = costPerEachLabel(item);
   const stats = [
-    { label: 'On hand',            value: `${item.currentStock} ${item.unit}`,                           sub: `par ${item.parLevel}` },
-    { label: `Cost / ${eachLabel}`, value: item.costPerUnit ? `$${item.costPerUnit.toFixed(2)}` : '—',   sub: 'per-each' },
-    { label: 'Stock value',        value: `$${inventoryValue.toFixed(0)}`,                                sub: 'at current cost' },
-    { label: 'Days of cover',      value: daysOfCover,                                                    sub: 'at avg usage' },
+    { label: 'On hand',            value: `${item.currentStock} ${item.unit}`,   sub: `par ${item.parLevel}` },
+    { label: `Cost / ${eachLabel}`, value: formatCostPerEach(item),              sub: 'per-each' },
+    { label: 'Stock value',        value: formatStockValue(item),               sub: 'at current cost' },
+    { label: 'Days of cover',      value: daysOfCover,                          sub: 'at avg usage' },
   ];
 
   const props = [
     { key: 'category',         value: `"${item.category}"` },
     { key: 'unit',             value: `"${item.unit}"` },
     { key: 'vendor',           value: `"${vendor?.name || 'unset'}"` },
-    { key: 'cost_per_unit',    value: item.costPerUnit ? `$${item.costPerUnit.toFixed(2)}` : '—' },
+    { key: 'cost_per_unit',    value: formatCostPerEach(item) },
     { key: 'par_level',        value: String(item.parLevel) },
     { key: 'avg_daily_usage',  value: String(item.averageDailyUsage) },
     { key: 'safety_stock',     value: String(item.safetyStock) },
