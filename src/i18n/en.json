@@ -657,7 +657,20 @@
       "closeShortConfirmTitle": "Close short?",
       "closeShortConfirmBody": "Close the remaining outstanding quantity on this {vendor} PO? The shortfall stops counting toward reorder and the PO is marked received.",
       "closeShortConfirmCta": "Close short",
-      "closedShortToast": "PO closed short"
+      "closedShortToast": "PO closed short",
+      "shareAction": "SHARE PO",
+      "shareDialogTitle": "Share purchase order",
+      "copiedToast": "Copied — paste into Messages or WeChat",
+      "didYouSendTitle": "Did you send it?",
+      "didYouSendBody": "Did you send this purchase order to {vendor}? If you sent it, mark it as sent. If you didn't, this stays a draft.",
+      "didYouSendCta": "Mark as sent",
+      "sharePreviewLabel": "Shared text — select to copy",
+      "noEmailShareHint": "No vendor email on file — use Share to text or WeChat this order to the vendor.",
+      "shareBodyHeader": "I.M.R — Purchase order",
+      "shareBodyStoreLabel": "Store",
+      "shareBodyDateLabel": "Date",
+      "shareBodyItemsCount": "{count} items",
+      "shareBodyNoItems": "(no items)"
     },
     "vendors": {
       "title": "Vendors",

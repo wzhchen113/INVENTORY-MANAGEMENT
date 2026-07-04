@@ -95,6 +95,11 @@ module.exports = {
         '<rootDir>/src/screens/staff/store/**/*.test.ts',
         '<rootDir>/src/screens/staff/hooks/**/*.test.ts',
         '<rootDir>/src/screens/staff/i18n/**/*.test.ts',
+        // Spec 108 — the admin Cmd "Share PO" I/O orchestrator
+        // (src/screens/cmd/lib/sharePo.ts) is pure-TS (mocks react-native +
+        // expo-sharing + navigator, imports no `.tsx`), the exact sibling of
+        // the staff/lib carve-out above. Runs in the node-env unit project.
+        '<rootDir>/src/screens/cmd/lib/**/*.test.ts',
       ],
     },
     {

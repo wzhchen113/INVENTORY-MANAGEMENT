@@ -10,7 +10,11 @@ import { StatusPill } from '../../../components/cmd/StatusPill';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { OrderSubmission } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { useLocale } from '../../../hooks/useLocale';
 import { confirmAction } from '../../../utils/confirmAction';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import { buildPoShareText, type NameResolver } from '../../../utils/poShareText';
+import { sharePurchaseOrder } from '../lib/sharePo';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -53,9 +57,11 @@ function pillTone(status: PoStatus): 'ok' | 'low' | 'out' | 'info' {
 export default function POsSection() {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
   const orderSubmissions = useStore((s) => s.orderSubmissions) as PoRow[];
   const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
+  const inventory = useStore((s) => s.inventory);
   const poLinesById = useStore((s) => s.poLinesById);
   const loadPurchaseOrderLines = useStore((s) => s.loadPurchaseOrderLines);
   const updatePoLineQty = useStore((s) => s.updatePoLineQty);
@@ -69,6 +75,10 @@ export default function POsSection() {
   const [tabId, setTabId] = React.useState('order.tsx');
   const [statusFilter, setStatusFilter] = React.useState<'all' | PoStatus>('all');
   const [busy, setBusy] = React.useState(false);
+  // Spec 108 (D-3) — desktop-web share preview. Cleared on PO switch (below) so
+  // a stale preview from PO A never lingers when switching to PO B.
+  const [sharePreview, setSharePreview] = React.useState<string | null>(null);
+  React.useEffect(() => setSharePreview(null), [selectedId]);
 
   const allOrders = React.useMemo<PoRow[]>(
     () =>
@@ -132,19 +142,23 @@ export default function POsSection() {
     );
   };
 
+  // Shared by onMarkSent + onShare's did-you-send prompt (code-review dedup):
+  // the busy-guarded mark-sent write + success toast.
+  const runMarkSent = (poId: string) => {
+    setBusy(true);
+    void markPurchaseOrderSentManually(poId)
+      .then((ok) => {
+        if (ok) Toast.show({ type: 'success', text1: T('section.purchaseOrders.markedSentToast') });
+      })
+      .finally(() => setBusy(false));
+  };
+
   const onMarkSent = () => {
     if (!sel || busy) return;
     confirmAction(
       T('section.purchaseOrders.markSentConfirmTitle'),
       T('section.purchaseOrders.markSentConfirmBody', { vendor: sel.vendorName }),
-      () => {
-        setBusy(true);
-        void markPurchaseOrderSentManually(sel.id)
-          .then((ok) => {
-            if (ok) Toast.show({ type: 'success', text1: T('section.purchaseOrders.markedSentToast') });
-          })
-          .finally(() => setBusy(false));
-      },
+      () => runMarkSent(sel.id),
       T('section.purchaseOrders.markSentConfirmCta'),
     );
   };
@@ -183,11 +197,57 @@ export default function POsSection() {
     );
   };
 
+  // ─── Spec 108 — Share PO (text message / WeChat) ──────────────────────
+  const onShare = async () => {
+    if (!sel || busy) return;
+    const poLines = poLinesById[sel.id] || [];
+    // Resolve each line's name in the CURRENT app locale against the inventory
+    // row's i18nNames (OQ-2). The PoLine only carries a plain-English itemName,
+    // so we re-resolve against `inventory`; the itemName is the last-resort
+    // fallback when no inventory row is found.
+    const resolveName: NameResolver = (itemId, fallbackName) => {
+      const row = inventory.find((i) => i.id === itemId);
+      return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
+    };
+    const text = buildPoShareText(
+      {
+        storeName: currentStore.name,
+        referenceDate: (sel.date || '').slice(0, 10),
+        lines: poLines.map((l) => ({ itemId: l.itemId, itemName: l.itemName, orderedQty: l.orderedQty, unit: l.unit })),
+      },
+      {
+        header: T('section.purchaseOrders.shareBodyHeader'),
+        storeLabel: T('section.purchaseOrders.shareBodyStoreLabel'),
+        dateLabel: T('section.purchaseOrders.shareBodyDateLabel'),
+        itemsCount: T('section.purchaseOrders.shareBodyItemsCount', { count: poLines.length }),
+        noItems: T('section.purchaseOrders.shareBodyNoItems'),
+      },
+      resolveName,
+    );
+    const { previewText, shared } = await sharePurchaseOrder(text, {
+      dialogTitle: T('section.purchaseOrders.shareDialogTitle'),
+      onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.copiedToast') }),
+    });
+    setSharePreview(previewText);
+    // Auto-prompt ONLY on a draft, ONLY after a completed share/copy. Sent/
+    // partial re-share is a reminder with no status change and no prompt.
+    if (shared && selStatus === 'draft') {
+      confirmAction(
+        T('section.purchaseOrders.didYouSendTitle'),
+        T('section.purchaseOrders.didYouSendBody', { vendor: sel.vendorName }),
+        () => runMarkSent(sel.id),
+        T('section.purchaseOrders.didYouSendCta'),
+      );
+    }
+  };
+
   // Which actions are available given the current status (spec 107 §3 guards).
   const canSend = selStatus === 'draft';           // draft → sent (email or manual)
   const canCancel = ['draft', 'sent', 'partial'].includes(selStatus);
   const canCloseShort = selStatus === 'partial';
   const isDraft = selStatus === 'draft';
+  // Spec 108 — Share on draft + sent + partial; received/cancelled show none.
+  const canShare = ['draft', 'sent', 'partial'].includes(selStatus);
 
   return (
     <>
@@ -249,6 +309,7 @@ export default function POsSection() {
             const status = normalizeStatus(o.status);
             return (
               <TouchableOpacity
+                testID={`po-list-${o.id}`}
                 onPress={() => setSelectedId(o.id)}
                 activeOpacity={0.85}
                 style={{
@@ -305,14 +366,26 @@ export default function POsSection() {
               onChange={setTabId}
               rightSlot={
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  {/* Spec 108 — Share is the PRIMARY (accent) action, first in the row. */}
+                  {canShare ? (
+                    <TouchableOpacity
+                      testID="po-action-share"
+                      onPress={onShare}
+                      disabled={busy}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm, opacity: busy ? 0.5 : 1 }}
+                    >
+                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accentFg }}>{T('section.purchaseOrders.shareAction')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Spec 108 — email SEND demoted from accent to outlined secondary. */}
                   {canSend && vendorEmail ? (
                     <TouchableOpacity
                       testID="po-action-send"
                       onPress={onSendEmail}
                       disabled={busy}
-                      style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm, opacity: busy ? 0.5 : 1 }}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm, opacity: busy ? 0.5 : 1 }}
                     >
-                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: '#000' }}>{T('section.purchaseOrders.sendAction')}</Text>
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.purchaseOrders.sendAction')}</Text>
                     </TouchableOpacity>
                   ) : null}
                   {canSend ? (
@@ -365,13 +438,26 @@ export default function POsSection() {
                 <Text style={[Type.h1, { color: C.fg }]}>
                   {T('section.purchaseOrders.vendorLines', { vendor: sel.vendorName, count: lines.length })}
                 </Text>
-                {/* No-email hint — only the manual mark-as-sent path is offered. */}
+                {/* Spec 108 — no vendor email: nudge toward Share (the primary path). */}
                 {canSend && !vendorEmail ? (
                   <Text testID="po-no-email-hint" style={{ fontFamily: sans(400), fontSize: 12.5, color: C.warn }}>
-                    {T('section.purchaseOrders.noEmailHint')}
+                    {T('section.purchaseOrders.noEmailShareHint')}
                   </Text>
                 ) : null}
               </View>
+
+              {/* Spec 108 (D-3) — desktop-web share preview (clipboard fallback). */}
+              {sharePreview != null ? (
+                <View
+                  testID="po-share-preview"
+                  style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 8 }}
+                >
+                  <SectionCaption tone="fg3" size={10.5}>{T('section.purchaseOrders.sharePreviewLabel')}</SectionCaption>
+                  <Text selectable style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, lineHeight: 17 }}>
+                    {sharePreview}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <StatCard label={T('section.purchaseOrders.linesCard')} value={String(lines.length)} sub={T('section.purchaseOrders.fromPoItems')} />

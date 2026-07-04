@@ -657,7 +657,20 @@
       "closeShortConfirmTitle": "¿Cerrar corta?",
       "closeShortConfirmBody": "¿Cerrar la cantidad pendiente restante de esta OC de {vendor}? El faltante deja de contar para el reorden y la OC se marca como recibida.",
       "closeShortConfirmCta": "Cerrar corta",
-      "closedShortToast": "OC cerrada corta"
+      "closedShortToast": "OC cerrada corta",
+      "shareAction": "COMPARTIR OC",
+      "shareDialogTitle": "Compartir orden de compra",
+      "copiedToast": "Copiado — pégalo en Mensajes o WeChat",
+      "didYouSendTitle": "¿La enviaste?",
+      "didYouSendBody": "¿Enviaste esta orden de compra a {vendor}? Si la enviaste, márcala como enviada. Si no, se queda como borrador.",
+      "didYouSendCta": "Marcar enviada",
+      "sharePreviewLabel": "Texto compartido — selecciona para copiar",
+      "noEmailShareHint": "No hay correo del proveedor — usa Compartir para enviar esta orden por mensaje o WeChat al proveedor.",
+      "shareBodyHeader": "I.M.R — Orden de compra",
+      "shareBodyStoreLabel": "Tienda",
+      "shareBodyDateLabel": "Fecha",
+      "shareBodyItemsCount": "{count} artículos",
+      "shareBodyNoItems": "(sin artículos)"
     },
     "vendors": {
       "title": "Proveedores",

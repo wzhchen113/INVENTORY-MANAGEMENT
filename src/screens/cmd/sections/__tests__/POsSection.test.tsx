@@ -31,6 +31,25 @@ jest.mock('../../../../hooks/useT', () => ({
   },
 }));
 
+// Spec 108 — locale + localized-name resolver are exercised in POsSection.onShare.
+jest.mock('../../../../hooks/useLocale', () => ({ useLocale: () => 'en' }));
+jest.mock('../../../../i18n/localizedName', () => ({
+  // Echo the canonical name (the resolver-uses-getLocalizedName path is unit
+  // tested in poShareText.test.ts; here we only need onShare to build text).
+  getLocalizedName: (row: { name?: string }) => row?.name ?? '',
+}));
+
+// Spec 108 — the impure share orchestrator. Configurable per test (default:
+// completed share, no preview → the mobile-web/native happy path). Typed to
+// the real result shape so `previewText` can be a string or null per test.
+type SharePoResult = { shared: boolean; previewText: string | null };
+const mockSharePurchaseOrder = jest.fn<Promise<SharePoResult>, [string, unknown]>(
+  async () => ({ shared: true, previewText: null }),
+);
+jest.mock('../../lib/sharePo', () => ({
+  sharePurchaseOrder: (...args: any[]) => (mockSharePurchaseOrder as any)(...args),
+}));
+
 const mockConfirmAction = jest.fn(
   (_t: string, _m: string, onConfirm: () => void) => { onConfirm(); },
 );
@@ -76,6 +95,7 @@ jest.mock('../../../../store/useStore', () => {
     currentStore: { id: 'store-1', name: 'Test Store' },
     orderSubmissions: [],
     vendors: [],
+    inventory: [],
     poLinesById: {},
     loadPurchaseOrderLines: jest.fn(async () => []),
     updatePoLineQty: jest.fn(),
@@ -93,6 +113,7 @@ jest.mock('../../../../store/useStore', () => {
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import Toast from 'react-native-toast-message';
 import POsSection from '../POsSection';
 import { useStore } from '../../../../store/useStore';
 
@@ -113,8 +134,8 @@ function po(over: Record<string, any> & { id: string; status: string }) {
     vendorName: over.vendorName ?? 'Acme',
     status: over.status,
     day: 'Monday',
-    date: '2026-07-03',
-    timestamp: '2026-07-03T10:00:00Z',
+    date: over.date ?? '2026-07-03',
+    timestamp: over.timestamp ?? '2026-07-03T10:00:00Z',
     submittedBy: 'tester',
     submittedAt: '10:00 AM',
     totalCost: 100,
@@ -123,15 +144,19 @@ function po(over: Record<string, any> & { id: string; status: string }) {
 
 beforeEach(() => {
   mockConfirmAction.mockClear();
+  mockSharePurchaseOrder.mockClear();
+  (Toast.show as jest.Mock).mockClear();
   Object.values(spies).forEach((s) => s.mockClear());
   state.orderSubmissions = [];
   state.vendors = [];
+  state.inventory = [];
   state.poLinesById = {};
   spies.loadPurchaseOrderLines.mockImplementation(async () => []);
   spies.sendPurchaseOrderEmail.mockImplementation(async () => true);
   spies.markPurchaseOrderSentManually.mockImplementation(async () => true);
   spies.cancelPurchaseOrder.mockImplementation(async () => 'cancelled');
   spies.closeShortPurchaseOrder.mockImplementation(async () => 'received');
+  mockSharePurchaseOrder.mockImplementation(async () => ({ shared: true, previewText: null }));
   mockConfirmAction.mockImplementation((_t: string, _m: string, onConfirm: () => void) => { onConfirm(); });
 });
 
@@ -245,5 +270,141 @@ describe('POsSection — loads real po_items lines on select', () => {
     state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
     render(<POsSection />);
     await waitFor(() => expect(spies.loadPurchaseOrderLines).toHaveBeenCalledWith('po-1'));
+  });
+});
+
+// ─── Spec 108 — Share PO ───────────────────────────────────────────────
+describe('POsSection — Share visibility by status', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+  });
+
+  it.each(['draft', 'sent', 'partial'])('Share IS shown on %s', (status) => {
+    state.orderSubmissions = [po({ id: 'po-1', status })];
+    render(<POsSection />);
+    expect(screen.getByTestId('po-action-share')).toBeTruthy();
+  });
+
+  it.each(['received', 'cancelled'])('Share is HIDDEN on %s', (status) => {
+    state.orderSubmissions = [po({ id: 'po-1', status })];
+    render(<POsSection />);
+    expect(screen.queryByTestId('po-action-share')).toBeNull();
+  });
+});
+
+describe('POsSection — Share is primary; email demoted to secondary', () => {
+  it('DRAFT + vendor email: Share renders BEFORE the email send button', () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+    render(<POsSection />);
+    const share = screen.getByTestId('po-action-share');
+    const send = screen.getByTestId('po-action-send');
+    expect(share).toBeTruthy();
+    expect(send).toBeTruthy();
+    // Share (accent, primary) uses the C.accentFg theme token ('#FFF' in the
+    // mocked palette — code-review fix: was a hardcoded '#000' contrast bug);
+    // email demotes to the outlined secondary treatment, not the accent fg.
+    const shareColor = share.findByType(require('react-native').Text).props.style.color;
+    const sendColor = send.findByType(require('react-native').Text).props.style.color;
+    expect(shareColor).toBe('#FFF');
+    expect(sendColor).not.toBe('#FFF');
+  });
+});
+
+describe('POsSection — draft share triggers the mark-as-sent prompt', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: '' }];
+    state.poLinesById = { 'po-1': [{ poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Chicken', unit: 'case', orderedQty: 3, receivedQty: 0, costPerUnit: 10, subUnitSize: 1 }] };
+    state.inventory = [{ id: 'inv-1', name: 'Chicken', i18nNames: {} }];
+  });
+
+  it('DRAFT: completed share → confirmAction prompt → markPurchaseOrderSentManually', async () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    // The honest question is a QUESTION title (didYouSendTitle key echoed).
+    await waitFor(() => expect(mockConfirmAction).toHaveBeenCalledTimes(1));
+    expect(mockConfirmAction.mock.calls[0][0]).toBe('section.purchaseOrders.didYouSendTitle');
+    await waitFor(() => expect(spies.markPurchaseOrderSentManually).toHaveBeenCalledWith('po-1'));
+  });
+
+  it('DRAFT: declining the prompt is a no-op (status stays draft)', async () => {
+    mockConfirmAction.mockImplementationOnce(() => { /* user declines — no onConfirm */ });
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(mockConfirmAction).toHaveBeenCalledTimes(1));
+    expect(spies.markPurchaseOrderSentManually).not.toHaveBeenCalled();
+  });
+
+  it('DRAFT: dismissed share (shared:false) → NO prompt', async () => {
+    mockSharePurchaseOrder.mockImplementationOnce(async () => ({ shared: false, previewText: null }));
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(mockConfirmAction).not.toHaveBeenCalled();
+    expect(spies.markPurchaseOrderSentManually).not.toHaveBeenCalled();
+  });
+});
+
+describe('POsSection — sent/partial re-share suppresses the prompt', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+    state.poLinesById = { 'po-1': [{ poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Chicken', unit: 'case', orderedQty: 3, receivedQty: 0, costPerUnit: 10, subUnitSize: 1 }] };
+    state.inventory = [{ id: 'inv-1', name: 'Chicken', i18nNames: {} }];
+  });
+
+  it.each(['sent', 'partial'])('%s: completed share does NOT prompt / mark sent', async (status) => {
+    state.orderSubmissions = [po({ id: 'po-1', status })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(mockConfirmAction).not.toHaveBeenCalled();
+    expect(spies.markPurchaseOrderSentManually).not.toHaveBeenCalled();
+  });
+});
+
+describe('POsSection — desktop-web clipboard fallback preview', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+    state.poLinesById = { 'po-1': [{ poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Chicken', unit: 'case', orderedQty: 3, receivedQty: 0, costPerUnit: 10, subUnitSize: 1 }] };
+    state.inventory = [{ id: 'inv-1', name: 'Chicken', i18nNames: {} }];
+  });
+
+  it('renders the preview pane when the orchestrator returns previewText', async () => {
+    mockSharePurchaseOrder.mockImplementationOnce(async () => ({ shared: true, previewText: 'PREVIEW BODY TEXT' }));
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    expect(screen.queryByTestId('po-share-preview')).toBeNull();
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(screen.getByTestId('po-share-preview')).toBeTruthy());
+    expect(screen.getByText('PREVIEW BODY TEXT')).toBeTruthy();
+  });
+
+  it('does NOT render the preview pane on the native/mobile-web path (previewText null)', async () => {
+    mockSharePurchaseOrder.mockImplementationOnce(async () => ({ shared: true, previewText: null }));
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('po-share-preview')).toBeNull();
+  });
+
+  it('clears the preview when switching to another PO', async () => {
+    mockSharePurchaseOrder.mockImplementationOnce(async () => ({ shared: true, previewText: 'PREVIEW BODY TEXT' }));
+    // Distinct timestamps so po-1 (later) deterministically sorts first and is
+    // the initial selection; pressing po-2 is a genuine PO switch.
+    state.orderSubmissions = [
+      po({ id: 'po-1', status: 'sent', timestamp: '2026-07-03T12:00:00Z' }),
+      po({ id: 'po-2', status: 'sent', vendorName: 'Beta', timestamp: '2026-07-02T09:00:00Z' }),
+    ];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-share'));
+    await waitFor(() => expect(screen.getByTestId('po-share-preview')).toBeTruthy());
+    // Switch PO via the list row → the selectedId-change effect clears preview.
+    fireEvent.press(screen.getByTestId('po-list-po-2'));
+    await waitFor(() => expect(screen.queryByTestId('po-share-preview')).toBeNull());
   });
 });

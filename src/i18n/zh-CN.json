@@ -657,7 +657,20 @@
       "closeShortConfirmTitle": "短缺关闭？",
       "closeShortConfirmBody": "关闭此{vendor}采购单剩余的未完成数量？短缺部分将不再计入再订购，采购单标记为已收货。",
       "closeShortConfirmCta": "短缺关闭",
-      "closedShortToast": "采购单已短缺关闭"
+      "closedShortToast": "采购单已短缺关闭",
+      "shareAction": "分享采购单",
+      "shareDialogTitle": "分享采购单",
+      "copiedToast": "已复制 — 可粘贴到信息或微信",
+      "didYouSendTitle": "你发送了吗？",
+      "didYouSendBody": "你把这张采购单发送给{vendor}了吗？如果已发送，请标记为已发送；如果还没发送，它会保留为草稿。",
+      "didYouSendCta": "标记为已发送",
+      "sharePreviewLabel": "分享文本 — 选中即可复制",
+      "noEmailShareHint": "未登记供应商邮箱 — 请使用“分享”，通过短信或微信把这张采购单发给供应商。",
+      "shareBodyHeader": "I.M.R — 采购单",
+      "shareBodyStoreLabel": "门店",
+      "shareBodyDateLabel": "日期",
+      "shareBodyItemsCount": "共 {count} 项",
+      "shareBodyNoItems": "（暂无项目）"
     },
     "vendors": {
       "title": "供应商",
