@@ -14,6 +14,7 @@ import { RailSidebar } from '../../components/cmd/RailSidebar';
 import { MobileTopAppBar } from '../../components/cmd/MobileTopAppBar';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { TitleBar } from '../../components/cmd/TitleBar';
+import { StoreSwitchOverlay } from '../../components/cmd/StoreSwitchOverlay';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
@@ -79,6 +80,11 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
   const currentStore = useStore((s) => s.currentStore);
+  // Spec 111 — full-screen switch takeover. Single-field gate: the overlay
+  // renders iff `switching !== null` (a background realtime reload toggles
+  // storeLoading but never switching, so it never paints here). Cleared in
+  // loadFromSupabase's finally on both success and error.
+  const switching = useStore((s) => s.switching);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const stores = useStore((s) => s.stores);
   // Spec 012b — super-admin gate for the header brand picker.
@@ -354,6 +360,13 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     />
   );
 
+  // Spec 111 — full-screen switch takeover. Mounted as the LAST child of
+  // each of the three cmd-shell-root Views below (RN has no shared parent
+  // across the three `return`s, so this element is inserted per branch).
+  // Covers TitleBar/MobileTopAppBar + sidebar + body via absolute fill.
+  // Gated on `switching !== null`; passes the narrowed value as `mode`.
+  const switchOverlay = switching !== null ? <StoreSwitchOverlay mode={switching} /> : null;
+
   if (isPhone) {
     // Phone: top app-bar + body. Sidebar is the hamburger-driven
     // MobileNavDrawer. TitleBar is replaced with MobileTopAppBar (per §2).
@@ -386,6 +399,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           footerLeft={sidebarFooterLeft}
           footerRight={sidebarFooterRight}
         />
+        {switchOverlay}
       </View>
     );
   }
@@ -448,6 +462,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           )}
           <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>{Body}</View>
         </View>
+        {switchOverlay}
       </View>
     );
   }
@@ -477,6 +492,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
       </View>
+      {switchOverlay}
     </View>
   );
 }

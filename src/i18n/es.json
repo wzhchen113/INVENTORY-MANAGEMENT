@@ -84,6 +84,8 @@
     "filter": "Filtrar",
     "loading": "Cargando…",
     "saving": "Guardando…",
+    "switchingStores": "Cambiando de tienda…",
+    "switchingBrands": "Cambiando de marca…",
     "submit": "Enviar",
     "submitted": "Enviado",
     "submittedToday": "Enviado hoy",

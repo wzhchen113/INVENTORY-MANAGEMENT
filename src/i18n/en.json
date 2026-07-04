@@ -84,6 +84,8 @@
     "filter": "Filter",
     "loading": "Loading…",
     "saving": "Saving…",
+    "switchingStores": "Switching stores…",
+    "switchingBrands": "Switching brands…",
     "submit": "Submit",
     "submitted": "Submitted",
     "submittedToday": "Submitted today",

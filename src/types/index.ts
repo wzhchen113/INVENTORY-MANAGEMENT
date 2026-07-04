@@ -649,6 +649,23 @@ export interface AppState {
    */
   storeLoading: boolean;
   /**
+   * Spec 111 — full-screen "Switching stores…/brands…" takeover flag.
+   * `null` = no switch in flight (overlay hidden). Set to `'store'` by
+   * `setCurrentStore` on a real store change (target id differs AND the
+   * previous id is non-empty — boot/login must NOT trigger it) and to
+   * `'brand'` by `setCurrentBrandId`'s brand-switch branch BEFORE it
+   * delegates to `setCurrentStore`. `setCurrentStore` only ESCALATES from
+   * `null` (never `'brand' → 'store'`), so a brand switch keeps the brand
+   * copy for its whole window. Reset to `null` at the single completion
+   * point of `loadFromSupabase` (the `finally`, alongside `storeLoading`)
+   * so success AND error both clear it — no standalone timeout. The
+   * literal union (not a boolean) drives the copy variant off one field.
+   * The overlay renders iff `switching !== null` (single-field gate);
+   * background realtime reloads toggle `storeLoading` but never `switching`,
+   * so they never paint the overlay.
+   */
+  switching: 'store' | 'brand' | null;
+  /**
    * Per-item unit-conversion rows used to bridge recipe units (oz, fl_oz,
    * ea, ...) to the inventory item's tracking unit (cases, bags, ...).
    * Always initialized to `[]` by `useStore`; never undefined at runtime.

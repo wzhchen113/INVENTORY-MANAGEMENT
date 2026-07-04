@@ -666,6 +666,10 @@ export const useStore = create<FullStore>((set, get) => ({
   sidebarLayoutOverride: null,
   notifications: [],
   storeLoading: false,
+  // Spec 111 — full-screen switch takeover. null = no switch in flight
+  // (overlay hidden). Set by setCurrentStore ('store') / setCurrentBrandId
+  // ('brand'); reset in loadFromSupabase's finally alongside storeLoading.
+  switching: null,
   ingredientConversions: [] as IngredientConversion[],
   savedReports: [],
   // Spec 016 — most-recent run per definitionId. Lazy-loaded; not
@@ -745,6 +749,12 @@ export const useStore = create<FullStore>((set, get) => ({
     import('../lib/webPush').then(({ unsubscribeFromPush }) => unsubscribeFromPush()).catch(() => {});
   },
   setCurrentStore: (store) => {
+    // Spec 111 — capture the prior store BEFORE any set() so both the
+    // normal path and the __all__ redirect can decide whether this is a
+    // real switch (target id differs AND prev id non-empty). Boot/login
+    // (prev id '') must NOT paint the overlay — the spec-055 skeletons own
+    // first load into an empty cache.
+    const prev = get().currentStore;
     // Legacy "All Stores" mode is gone — the dashboard now shows one focal
     // store with a fleet-wide EOD overview alongside it. If anything still
     // tries to set __all__, redirect to the first store the user can see so
@@ -756,9 +766,19 @@ export const useStore = create<FullStore>((set, get) => ({
         : get().stores.filter((s) => user?.stores.includes(s.id));
       const fallback = accessible[0] || get().stores[0];
       if (!fallback) return;
+      // Spec 111 — escalate to 'store' only on a real switch AND only from
+      // null (a 'brand' pre-set by setCurrentBrandId must survive). Set
+      // BEFORE the load so the overlay paints on the same tick as the fetch.
+      if (fallback.id !== prev.id && prev.id !== '' && get().switching === null) {
+        set({ switching: 'store' });
+      }
       set({ currentStore: fallback });
       get().loadFromSupabase(fallback.id);
       return;
+    }
+    // Spec 111 — same escalate-not-downgrade guard against the target id.
+    if (store.id !== prev.id && prev.id !== '' && get().switching === null) {
+      set({ switching: 'store' });
     }
     set({ currentStore: store });
     get().loadFromSupabase(store.id);
@@ -790,6 +810,12 @@ export const useStore = create<FullStore>((set, get) => ({
     // slice from fetchBrandForStore.
     const newStore = get().stores.find((s) => s.brandId === brandId);
     if (newStore) {
+      // Spec 111 — set 'brand' BEFORE delegating. setCurrentStore only
+      // escalates switching from null → 'store', so this 'brand' value
+      // survives the delegation and the overlay shows the brand copy for
+      // the whole window (the finally in loadFromSupabase resets it). The
+      // load that clears it always fires because newStore exists here.
+      set({ switching: 'brand' });
       get().setCurrentStore(newStore);
     } else {
       // Fresh brand with no stores yet — clear currentStore. Sections
@@ -1209,7 +1235,12 @@ export const useStore = create<FullStore>((set, get) => ({
       // empty) — a failed load just keeps the prior in-memory state.
       console.warn('[Supabase] loadFromSupabase failed:', e?.message || e);
     } finally {
-      set({ storeLoading: false });
+      // Spec 111 — single reset point for the switch overlay: it clears
+      // exactly when storeLoading does, on BOTH success and error, so a
+      // slow or failed switch load can never strand the overlay (no
+      // standalone timer). Every load path (store switch, brand switch,
+      // __all__ redirect) funnels through here.
+      set({ storeLoading: false, switching: null });
     }
   },
 

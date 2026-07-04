@@ -84,6 +84,8 @@
     "filter": "筛选",
     "loading": "加载中…",
     "saving": "保存中…",
+    "switchingStores": "正在切换门店…",
+    "switchingBrands": "正在切换品牌…",
     "submit": "提交",
     "submitted": "已提交",
     "submittedToday": "今日已提交",
