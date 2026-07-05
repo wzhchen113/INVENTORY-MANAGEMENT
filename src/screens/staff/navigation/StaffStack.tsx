@@ -39,6 +39,7 @@ import { StorePicker } from '../screens/StorePicker';
 import { EODCount } from '../screens/EODCount';
 import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
+import { Receiving } from '../screens/Receiving';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useStaffStore } from '../store/useStaffStore';
 import { useI18n } from '../i18n';
@@ -126,6 +127,21 @@ function StaffTabs() {
           tabBarTestID: 'staff-tab-weekly',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="calendar-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      {/* Spec 113 — the staff receiving tab (receive deliveries against open
+          POs). Visually distinct via the cube "receipt/delivery" icon (vs the
+          EOD clipboard / Reorder cart / Weekly calendar). */}
+      <Tab.Screen
+        name="Receiving"
+        component={Receiving}
+        options={{
+          tabBarLabel: t('receiving.tabLabel'),
+          tabBarAccessibilityLabel: t('receiving.tabLabel'),
+          tabBarTestID: 'staff-tab-receiving',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cube-outline" size={size} color={color} />
           ),
         }}
       />

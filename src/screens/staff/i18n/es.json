@@ -268,6 +268,55 @@
       "discardFailed": "No se pudo descartar el borrador — inténtalo de nuevo"
     }
   },
+  "receiving": {
+    "tabLabel": "Recepción",
+    "title": "Recepción",
+    "subtitle": "Recibe entregas contra órdenes de compra abiertas",
+    "back": "Atrás",
+    "refresh": "Actualizar",
+    "loading": "Cargando...",
+    "loadingBody": "Obteniendo órdenes de compra abiertas",
+    "list": {
+      "emptyTitle": "SIN ÓRDENES ABIERTAS",
+      "empty": "No hay órdenes de compra abiertas para recibir en esta tienda. Las nuevas entregas aparecen aquí una vez que se envía una orden.",
+      "statusSent": "ENVIADA",
+      "statusPartial": "PARCIAL",
+      "unnamedVendor": "Proveedor sin nombre",
+      "poMeta": "{id} · {date}"
+    },
+    "col": {
+      "receiveNow": "Recibir ahora",
+      "receiveNowAria": "Recibido ahora de {item}"
+    },
+    "line": {
+      "orderedReceived": "pedido {ordered} · recibido {received}",
+      "outstanding": "pendiente {qty}"
+    },
+    "commit": {
+      "label": "Confirmar recepción",
+      "committing": "Recibiendo...",
+      "confirmTitle": "¿Recibir entrega?",
+      "confirmMessage": "Recibir {count} línea(s), {total} unidades en total. Esto actualiza el inventario.",
+      "confirmCta": "Recibir"
+    },
+    "offline": {
+      "message": "Estás sin conexión — conéctate para recibir una entrega."
+    },
+    "success": {
+      "message": "Entrega recibida",
+      "received": "Orden recibida por completo",
+      "partial": "Orden recibida parcialmente"
+    },
+    "nothingToReceive": {
+      "message": "Nada que recibir — ingresa al menos una cantidad."
+    },
+    "noLineItems": "Sin artículos",
+    "noLineItemsBody": "Esta orden de compra no tiene artículos para recibir.",
+    "error": {
+      "title": "No se pudieron cargar las órdenes abiertas",
+      "retry": "Reintentar"
+    }
+  },
   "chrome": {
     "clear": "Borrar",
     "queue": {

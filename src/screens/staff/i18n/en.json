@@ -268,6 +268,55 @@
       "discardFailed": "Could not discard draft — try again"
     }
   },
+  "receiving": {
+    "tabLabel": "Receiving",
+    "title": "Receiving",
+    "subtitle": "Receive deliveries against open purchase orders",
+    "back": "Back",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "loadingBody": "Fetching open purchase orders",
+    "list": {
+      "emptyTitle": "NO OPEN ORDERS",
+      "empty": "No open purchase orders to receive for this store. New deliveries show up here once an order is sent.",
+      "statusSent": "SENT",
+      "statusPartial": "PARTIAL",
+      "unnamedVendor": "Unnamed vendor",
+      "poMeta": "{id} · {date}"
+    },
+    "col": {
+      "receiveNow": "Receive now",
+      "receiveNowAria": "Received now for {item}"
+    },
+    "line": {
+      "orderedReceived": "ordered {ordered} · received {received}",
+      "outstanding": "outstanding {qty}"
+    },
+    "commit": {
+      "label": "Commit receive",
+      "committing": "Receiving...",
+      "confirmTitle": "Receive delivery?",
+      "confirmMessage": "Receive {count} line(s), {total} units total. This updates stock.",
+      "confirmCta": "Receive"
+    },
+    "offline": {
+      "message": "You're offline — connect to receive a delivery."
+    },
+    "success": {
+      "message": "Delivery received",
+      "received": "Order fully received",
+      "partial": "Order partially received"
+    },
+    "nothingToReceive": {
+      "message": "Nothing to receive — enter at least one quantity."
+    },
+    "noLineItems": "No line items",
+    "noLineItemsBody": "This purchase order has no items to receive.",
+    "error": {
+      "title": "Could not load open orders",
+      "retry": "Retry"
+    }
+  },
   "chrome": {
     "clear": "Clear",
     "queue": {

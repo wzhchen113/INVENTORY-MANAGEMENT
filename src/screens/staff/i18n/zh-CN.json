@@ -268,6 +268,55 @@
       "discardFailed": "无法放弃草稿 — 请重试"
     }
   },
+  "receiving": {
+    "tabLabel": "收货",
+    "title": "收货",
+    "subtitle": "对已发出的采购订单进行收货",
+    "back": "返回",
+    "refresh": "刷新",
+    "loading": "加载中...",
+    "loadingBody": "正在获取未完成的采购订单",
+    "list": {
+      "emptyTitle": "无未完成订单",
+      "empty": "此门店没有可收货的未完成采购订单。订单发出后，新的送货会显示在这里。",
+      "statusSent": "已发出",
+      "statusPartial": "部分",
+      "unnamedVendor": "未命名供应商",
+      "poMeta": "{id} · {date}"
+    },
+    "col": {
+      "receiveNow": "本次收货",
+      "receiveNowAria": "{item} 的本次收货数"
+    },
+    "line": {
+      "orderedReceived": "已订 {ordered} · 已收 {received}",
+      "outstanding": "未收 {qty}"
+    },
+    "commit": {
+      "label": "确认收货",
+      "committing": "正在收货...",
+      "confirmTitle": "确认收货？",
+      "confirmMessage": "收货 {count} 行，共 {total} 个单位。这将更新库存。",
+      "confirmCta": "收货"
+    },
+    "offline": {
+      "message": "你已离线 — 请联网后再收货。"
+    },
+    "success": {
+      "message": "送货已收货",
+      "received": "订单已全部收货",
+      "partial": "订单已部分收货"
+    },
+    "nothingToReceive": {
+      "message": "无可收货内容 — 请至少输入一个数量。"
+    },
+    "noLineItems": "无明细项",
+    "noLineItemsBody": "此采购订单没有可收货的项目。",
+    "error": {
+      "title": "无法加载未完成订单",
+      "retry": "重试"
+    }
+  },
   "chrome": {
     "clear": "清除",
     "queue": {
