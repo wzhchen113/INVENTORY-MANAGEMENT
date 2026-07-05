@@ -9,7 +9,11 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { useLocale } from '../../../hooks/useLocale';
 import { confirmAction } from '../../../utils/confirmAction';
+import { getLocalizedName } from '../../../i18n/localizedName';
+import { buildPoQuickOrderText, type NameResolver } from '../../../utils/poQuickOrderText';
+import { sharePurchaseOrder } from '../lib/sharePo';
 import ReorderDatePicker from '../../../components/cmd/ReorderDatePicker';
 import { toISODate } from '../../../utils/reportDates';
 import {
@@ -237,9 +241,116 @@ function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
   );
 }
 
+// Spec 115 (W-3) — the Reorder-card "Quick-order list" export handler + button.
+// Pre-PO sibling to `CreatePoButton`: reuses the SAME (W-2-extended)
+// `buildPoQuickOrderText` builder + the spec-108 `sharePurchaseOrder`
+// orchestrator, sourced from the card's suggested order
+// (`ReorderItem.suggestedUnits` + `caseQty`). AC-17 posture: NO PO exists, so NO
+// mark-sent prompt / no status change — purely a copy/paste aid. Same `???`
+// unmapped + unmapped-count + rounded-count surfacing as the PO path. The
+// desktop-web preview is lifted to `VendorCard` (rendered as a normal in-card
+// block, not an overlay) via the `onPreview` callback.
+function ReorderQuickOrderButton({
+  vendor,
+  onPreview,
+}: {
+  vendor: ReorderVendor;
+  onPreview: (p: { text: string | null; unitNote: string | null }) => void;
+}) {
+  const C = useCmdColors();
+  const T = useT();
+  const locale = useLocale();
+  const inventory = useStore((s) => s.inventory);
+  const vendors = useStore((s) => s.vendors);
+  const [busy, setBusy] = React.useState(false);
+
+  const onShareQuickOrder = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // The card's vendor's counting unit ('case' by default) — the SAME
+      // conversion the PO path applies, via the shared builder.
+      const orderUnit = vendors.find((v) => v.id === vendor.vendorId)?.orderUnit ?? 'case';
+      // Order code for (item, THIS vendor card's vendorId) from the hydrated
+      // inventory rows (ReorderItem carries no code) — identical to the PO path.
+      const resolveCode = (itemId: string): string | null | undefined => {
+        const row = inventory.find((i) => i.id === itemId);
+        return row?.vendors?.find((v) => v.vendorId === vendor.vendorId)?.orderCode;
+      };
+      const resolveName: NameResolver = (itemId, fallbackName) => {
+        const row = inventory.find((i) => i.id === itemId);
+        return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
+      };
+      const { text, unmappedCount, roundedCount } = buildPoQuickOrderText(
+        vendor.items.map((it) => ({
+          itemId: it.itemId,
+          itemName: it.itemName,
+          orderedQty: it.suggestedUnits, // AC-16 — server-authoritative ordered base-unit total
+          caseQty: it.caseQty,           // AC-16 — same conversion as PO
+        })),
+        resolveCode,
+        resolveName,
+        orderUnit,
+      );
+      const { previewText } = await sharePurchaseOrder(text, {
+        dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
+        onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
+      });
+      onPreview({
+        text: previewText,
+        unitNote:
+          previewText != null
+            ? orderUnit === 'case'
+              ? T('section.purchaseOrders.quickOrderCountingInCases')
+              : T('section.purchaseOrders.quickOrderCountingInUnits')
+            : null,
+      });
+      // NO mark-sent (pre-PO). Same unmapped + rounded warnings as the PO path.
+      if (unmappedCount > 0) {
+        Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }), position: 'bottom' });
+      }
+      if (roundedCount > 0) {
+        Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderRoundedWarning', { count: roundedCount }), position: 'bottom' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      testID={`reorder-quick-order-${vendor.vendorId}`}
+      onPress={onShareQuickOrder}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={T('section.reorder.quickOrderAria', { vendor: vendor.vendorName || '' })}
+      style={{
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: CmdRadius.sm,
+        borderWidth: 1,
+        borderColor: C.borderStrong,
+        opacity: busy ? 0.55 : 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>
+        {T('section.purchaseOrders.quickOrderAction')}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 // Renders a single vendor's reorder card.
 function VendorCard({ vendor }: { vendor: ReorderVendor }) {
   const C = useCmdColors();
+  const T = useT();
+  // Spec 115 (W-3) — desktop-web quick-order preview, lifted here so it renders
+  // as a normal in-card block below the footer (the card has overflow:hidden, so
+  // an overlay wouldn't work). Cleared via the × in the preview header.
+  const [quickPreview, setQuickPreview] = React.useState<{ text: string | null; unitNote: string | null }>({ text: null, unitNote: null });
 
   // Source vs schedule badges are ORTHOGONAL — render both side-by-side.
   // Earlier the `SCHEDULE UNKNOWN` badge masked the EOD/STOCK source
@@ -452,8 +563,37 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           </>
         ) : null}
         <View style={{ flex: 1 }} />
+        {/* Spec 115 (W-3) — Quick-order list export, next to Create PO. */}
+        <ReorderQuickOrderButton vendor={vendor} onPreview={setQuickPreview} />
         <CreatePoButton vendor={vendor} />
       </View>
+
+      {/* Spec 115 (W-3) — desktop-web quick-order preview (clipboard fallback),
+          rendered as a normal in-card block below the footer. */}
+      {quickPreview.text != null ? (
+        <View
+          testID={`reorder-quick-order-preview-${vendor.vendorId}`}
+          style={{ borderTopWidth: 1, borderTopColor: C.borderStrong, backgroundColor: C.panel, padding: 14, gap: 8 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <SectionCaption tone="fg3" size={10.5}>{T('section.purchaseOrders.sharePreviewLabel')}</SectionCaption>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity
+              testID={`reorder-quick-order-preview-close-${vendor.vendorId}`}
+              onPress={() => setQuickPreview({ text: null, unitNote: null })}
+              hitSlop={6}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 12, color: C.fg3 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          {quickPreview.unitNote ? (
+            <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.3 }}>{quickPreview.unitNote}</Text>
+          ) : null}
+          <Text selectable style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, lineHeight: 17 }}>
+            {quickPreview.text}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

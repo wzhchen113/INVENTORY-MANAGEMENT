@@ -9,15 +9,18 @@ interface Props {
   sub?: string;
   /** Mobile uses a tighter type ramp (kpi*Mobile). Default desktop. */
   compact?: boolean;
+  /** Optional test hook (e.g. spec 115's per-vendor missing-codes stat). */
+  testID?: string;
 }
 
 // 4-up on desktop, 2x2 on mobile detail. panel bg, 1px border, radius 6,
 // padding 12/14. label = mono caps fg3, value = mono tabular weight 600,
 // sub = mono fg3. Spec lives in handoff README §"Stat grid".
-export const StatCard: React.FC<Props> = ({ label, value, sub, compact = false }) => {
+export const StatCard: React.FC<Props> = ({ label, value, sub, compact = false, testID }) => {
   const C = useCmdColors();
   return (
     <View
+      testID={testID}
       style={{
         backgroundColor: C.panel,
         borderRadius: CmdRadius.lg,

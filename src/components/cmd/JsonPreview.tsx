@@ -49,7 +49,6 @@ export const JsonPreview: React.FC<Props> = ({ values, valid }) => {
           {'\n  "par": '}<Num>{values.parLevel || 0}</Num>,
           {'\n  "vendor": {'}
           {'\n    "primary": '}<Str>{values.vendorName || '—'}</Str>,
-          {'\n    "sku": '}<Str>{values.vendorSku || '—'}</Str>,
           {'\n    "last_cost": '}<Num>{values.costPerUnit || 0}</Num>
           {'\n  },'}
           {'\n  "flags": {'}

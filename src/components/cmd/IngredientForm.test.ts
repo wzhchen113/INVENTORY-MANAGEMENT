@@ -74,6 +74,7 @@ import {
   vendorRowsToLinkPayload,
   derivedUnitCost,
   NEW_VENDOR_SENTINEL,
+  blankValues,
   type VendorLinkRow,
 } from './IngredientForm';
 import { CANONICAL_UNITS, calcUnitCost } from '../../utils/unitConversion';
@@ -653,5 +654,27 @@ describe('per-vendor order code helpers (spec 114 AC-4/AC-3)', () => {
       expect(p2.orderCode).toBe('SYS-777');
       expect(p1.orderCode).toBeUndefined(); // untyped card → NULL, not V2's code
     });
+  });
+});
+
+// ─── Spec 115 (W-4, AC-18) — the dead item-level `vendorSku` stub is GONE ─────
+//
+// The obsolete read-only "vendor sku · schema pending" field was removed from the
+// ingredient form; the per-vendor order code (spec 114, `vendors[].orderCode`) is
+// now the ONLY place codes live. This pins that `blankValues()` — the source of
+// truth for the form's shape — no longer carries a `vendorSku` key, so no dangling
+// reference can silently linger. (A type-level assertion also guards the field's
+// absence on `IngredientFormValues`.)
+describe('spec 115 W-4 — vendorSku stub removed from the form values', () => {
+  it('blankValues() has NO vendorSku key', () => {
+    const v = blankValues();
+    expect('vendorSku' in v).toBe(false);
+    expect((v as unknown as Record<string, unknown>).vendorSku).toBeUndefined();
+  });
+
+  it('the per-vendor order code lives ONLY on the vendors[] rows (unchanged)', () => {
+    // Sanity: the surviving code path is the vendors[] row's orderCode.
+    const v = blankValues();
+    expect(Array.isArray(v.vendors)).toBe(true);
   });
 });

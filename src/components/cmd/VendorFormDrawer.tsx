@@ -6,6 +6,7 @@ import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
+import { useT } from '../../hooks/useT';
 import { Vendor } from '../../types';
 
 type Mode = 'edit' | 'new';
@@ -28,6 +29,11 @@ interface FormValues {
   deliveryDays: string;      // space-separated days
   orderCutoffTime: string;   // HH:MM
   eodDeadlineTime: string;   // HH:MM
+  // Spec 115 (W-2) — the vendor's quick-order counting unit. 'case' (default) →
+  // the quick-order builder divides counted units by the item's case_qty and
+  // rounds UP to whole cases; 'unit' → counted units verbatim. Held as the total
+  // union directly (not a free-text string) since the control can only emit these.
+  orderUnit: 'case' | 'unit';
 }
 
 const blank = (): FormValues => ({
@@ -41,6 +47,7 @@ const blank = (): FormValues => ({
   deliveryDays: '',
   orderCutoffTime: '',
   eodDeadlineTime: '',
+  orderUnit: 'case', // R-2 — 'case' is the safe default on a new vendor.
 });
 
 const fromVendor = (v: Vendor): FormValues => ({
@@ -54,6 +61,7 @@ const fromVendor = (v: Vendor): FormValues => ({
   deliveryDays: (v.deliveryDays || []).join(' '),
   orderCutoffTime: v.orderCutoffTime || '',
   eodDeadlineTime: v.eodDeadlineTime || '',
+  orderUnit: v.orderUnit ?? 'case', // defensive default for a pre-migration row.
 });
 
 const toUpdates = (v: FormValues): Partial<Vendor> => ({
@@ -67,6 +75,7 @@ const toUpdates = (v: FormValues): Partial<Vendor> => ({
   deliveryDays: v.deliveryDays.split(/\s+/).map((s) => s.trim()).filter(Boolean),
   orderCutoffTime: v.orderCutoffTime.trim() || undefined,
   eodDeadlineTime: v.eodDeadlineTime.trim() || undefined,
+  orderUnit: v.orderUnit,
 });
 
 // ─── Form field row ────────────────────────────────────────────
@@ -110,6 +119,55 @@ function Field({
   );
 }
 
+// ─── Segmented control (two options) ───────────────────────────
+// Spec 115 (W-2) — the order-unit control. Same label idiom as `Field` (uppercase
+// mono caption + hint) with a two-button segment underneath; the selected option
+// gets the accent treatment. Generic over a two-value union.
+function SegmentField<T extends string>({
+  label, hint, value, options, onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+}) {
+  const C = useCmdColors();
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</Text>
+        {hint ? <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>· {hint}</Text> : null}
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <TouchableOpacity
+              key={o.value}
+              testID={`vendor-order-unit-${o.value}`}
+              onPress={() => onChange(o.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              style={{
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: CmdRadius.sm,
+                borderWidth: 1,
+                borderColor: on ? C.accent : C.border,
+                backgroundColor: on ? C.accentBg : C.panel2,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ fontFamily: mono(on ? 700 : 500), fontSize: 12, color: on ? C.accent : C.fg2 }}>{o.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 // ─── VendorFormDrawer ──────────────────────────────────────────
 // Spec 011 — drawer adapts via `ResponsiveSheet`:
 //   - desktop: right-anchored 540w drawer (pre-Spec-011 behavior)
@@ -119,6 +177,7 @@ function Field({
 // from selected vendor. Save → addVendor or updateVendor in the store.
 export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClose }) => {
   const C = useCmdColors();
+  const T = useT();
   const isPhone = useIsPhone();
   const addVendor = useStore((s) => s.addVendor);
   const updateVendor = useStore((s) => s.updateVendor);
@@ -265,6 +324,19 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
           </View>
         </View>
         <Field label="Delivery days" hint="space-separated" value={values.deliveryDays} onChange={set('deliveryDays')} placeholder="Mon Wed Fri" />
+        {/* Spec 115 (W-2) — per-vendor quick-order counting unit. 'case' default
+            (R-2). The quick-order builder divides counted units into whole cases
+            for a 'case' vendor; a 'unit' vendor pastes counted units verbatim. */}
+        <SegmentField<'case' | 'unit'>
+          label={T('section.vendors.orderUnitLabel')}
+          hint={T('section.vendors.orderUnitHint')}
+          value={values.orderUnit}
+          options={[
+            { value: 'case', label: T('section.vendors.orderUnitCase') },
+            { value: 'unit', label: T('section.vendors.orderUnitUnit') },
+          ]}
+          onChange={(v) => setValues((p) => ({ ...p, orderUnit: v }))}
+        />
       </ScrollView>
     </ResponsiveSheet>
   );

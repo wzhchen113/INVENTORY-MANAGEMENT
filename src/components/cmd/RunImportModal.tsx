@@ -4,7 +4,8 @@ import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
-import { DiffSummary, commitImport } from '../../lib/csvImport';
+import { useT } from '../../hooks/useT';
+import { DiffSummary, commitImport, resolveVendorForCode } from '../../lib/csvImport';
 
 interface Props {
   visible: boolean;
@@ -19,9 +20,15 @@ const CONFIRM_PHRASE = 'import';
 // "type 'import' to confirm" + RUN IMPORT button.
 export const RunImportModal: React.FC<Props> = ({ visible, onClose, filename, diff }) => {
   const C = useCmdColors();
+  const T = useT();
   const addItem = useStore((s) => s.addItem);
   const updateItem = useStore((s) => s.updateItem);
   const currentStore = useStore((s) => s.currentStore);
+  // Spec 115 (W-1) — brand vendors + hydrated inventory rows feed commitImport's
+  // reconcile-safe order-code merge (resolve vendor_name → vendorId; read each
+  // item's existing links so other links + costs survive).
+  const vendors = useStore((s) => s.vendors);
+  const inventory = useStore((s) => s.inventory);
 
   const [confirm, setConfirm] = React.useState('');
   const [createAudit, setCreateAudit] = React.useState(true);
@@ -54,10 +61,57 @@ export const RunImportModal: React.FC<Props> = ({ visible, onClose, filename, di
       ]
     : [];
 
+  // Spec 115 (W-1, AC-5/AC-6) — pre-commit order-code preview. Resolves each op's
+  // code the SAME way commitImport will (shared resolveVendorForCode) so the
+  // operator sees "N codes to write · M will skip (reason)" BEFORE typing "import",
+  // not just in the post-commit toast. Blank cells (no orderCode) are no-ops and
+  // don't count. Derived read-only from the diff + vendors/inventory slices.
+  const brandVendorsLite = React.useMemo(() => vendors.map((v) => ({ id: v.id, name: v.name })), [vendors]);
+  const codePreview = React.useMemo(() => {
+    if (!diff) return { toWrite: 0, skipReasons: [] as string[] };
+    let toWrite = 0;
+    const skipReasons: string[] = [];
+    for (const op of diff.ops) {
+      if (!op.orderCode) continue; // blank cell → no-op.
+      const item =
+        op.type === 'create'
+          ? undefined
+          : inventory.find((i) => i.id === op.itemId || i.id === op.existing?.id) ?? op.existing;
+      const primaryVendorId = op.type === 'create' ? undefined : (item?.vendorId ?? op.existing?.vendorId);
+      const res = resolveVendorForCode({ vendorNameRaw: op.vendorNameRaw, itemPrimaryVendorId: primaryVendorId, brandVendors: brandVendorsLite });
+      if ('vendorId' in res) {
+        // Spec-115 code-review Should-fix — count only codes that actually
+        // CHANGE, mirroring commitImport's promotion rule (csvImport.ts:333-336):
+        // an idempotent re-import of an already-coded CSV writes 0, so the
+        // pre-commit "N codes to write" must not claim a write for a code that
+        // already equals the existing link's code. New items + link-missing +
+        // differing codes still count.
+        const existingCode = ((item?.vendors ?? []).find((l) => l.vendorId === res.vendorId)?.orderCode ?? '').trim();
+        if (existingCode !== op.orderCode) toWrite += 1;
+      }
+      else if (res.skip === 'unmatched_vendor') skipReasons.push(T('section.posImports.codeSkipUnmatched', { name: res.name }));
+      else skipReasons.push(T('section.posImports.codeSkipNoVendor'));
+    }
+    return { toWrite, skipReasons };
+  }, [diff, inventory, brandVendorsLite, T]);
+
   const onRun = () => {
     if (!canRun || !diff) return;
-    const result = commitImport(diff, { addItem, updateItem, storeId: currentStore.id });
-    const summary = `created ${result.created} · updated ${result.updated}` + (result.archiveSkipped > 0 ? ` · ${result.archiveSkipped} archive deferred` : '');
+    const result = commitImport(diff, {
+      addItem,
+      updateItem,
+      storeId: currentStore.id,
+      brandVendors: vendors.map((v) => ({ id: v.id, name: v.name })),
+      inventory,
+    });
+    // Spec 115 (W-1, AC-5/AC-6) — append the order-code seed outcome to the
+    // existing create/update/archive summary. Localized (AC-20); the pasted block
+    // stays machine-facing but these operator-facing counts are translated.
+    let summary = `created ${result.created} · updated ${result.updated}`;
+    if (result.archiveSkipped > 0) summary += ` · ${result.archiveSkipped} archive deferred`;
+    if (result.codesWritten > 0) summary += ` · ${T('section.posImports.codesWritten', { count: result.codesWritten })}`;
+    if (result.linksCreated > 0) summary += ` · ${T('section.posImports.linksCreated', { count: result.linksCreated })}`;
+    if (result.codeRowsSkipped.length > 0) summary += ` · ${T('section.posImports.codesSkipped', { count: result.codeRowsSkipped.length })}`;
     Toast.show({ type: 'success', text1: 'Import complete', text2: summary });
     onClose();
   };
@@ -116,6 +170,22 @@ export const RunImportModal: React.FC<Props> = ({ visible, onClose, filename, di
               <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.warn, marginTop: 6 }}>
                 ● archive ops are surfaced in the diff but deferred — soft-delete column (is_archived) not yet in schema
               </Text>
+            ) : null}
+            {/* Spec 115 (W-1, AC-5/AC-6) — order-code seed preview. Shows how many
+                codes will write and lists any that will skip (unmatched vendor /
+                no primary), so the operator sees the outcome before confirming. */}
+            {codePreview.toWrite > 0 || codePreview.skipReasons.length > 0 ? (
+              <View testID="import-code-preview" style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 9, borderTopWidth: 1, borderTopColor: C.border, borderStyle: 'dashed' }}>
+                <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.accent, letterSpacing: 0.5, textTransform: 'uppercase', width: 80 }}>
+                  {T('section.posImports.codesLabel')}
+                </Text>
+                <Text style={{ fontFamily: mono(700), fontSize: 18, color: C.fg, width: 38, textAlign: 'right' }}>{codePreview.toWrite}</Text>
+                <Text style={{ fontFamily: mono(400), fontSize: 11, color: codePreview.skipReasons.length > 0 ? C.warn : C.fg3, flex: 1 }} numberOfLines={1}>
+                  {codePreview.skipReasons.length === 0
+                    ? T('section.posImports.codesToWrite', { count: codePreview.toWrite })
+                    : `${T('section.posImports.codesWillSkip', { count: codePreview.skipReasons.length })} · ${codePreview.skipReasons.slice(0, 2).join(' · ')}${codePreview.skipReasons.length > 2 ? ` · +${codePreview.skipReasons.length - 2} more` : ''}`}
+                </Text>
+              </View>
             ) : null}
           </View>
 

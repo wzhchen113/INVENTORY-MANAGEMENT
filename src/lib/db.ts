@@ -1799,6 +1799,10 @@ export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
       deliveryDays: v.delivery_days || [], categories: v.categories || [], lastOrderDate: v.last_order_date,
       orderCutoffTime: v.order_cutoff_time || undefined,
       eodDeadlineTime: v.eod_deadline_time || undefined,
+      // Spec 115 (W-2) — the vendor's quick-order counting unit. `?? 'case'`
+      // guards a null defensively (e.g. a row read in a mixed window before the
+      // migration applied) and matches the DB default.
+      orderUnit: v.order_unit ?? 'case',
     }));
   }, { kind: 'read', label: 'fetchVendors' });
 }
@@ -1813,6 +1817,10 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> 
       lead_time_days: vendor.leadTimeDays, delivery_days: vendor.deliveryDays, categories: vendor.categories,
       ...(vendor.orderCutoffTime ? { order_cutoff_time: vendor.orderCutoffTime } : {}),
       ...(vendor.eodDeadlineTime ? { eod_deadline_time: vendor.eodDeadlineTime } : {}),
+      // Spec 115 (W-2) — unconditional (NOT spread-guarded like the optional
+      // times): order_unit is NOT NULL with a value always in hand; default to
+      // 'case' when a caller omits it (R-2 safe default).
+      order_unit: vendor.orderUnit ?? 'case',
     }).select().abortSignal(signal).single();
     if (error) throw error;
     return { ...vendor, id: data.id };
@@ -2935,6 +2943,10 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     // Pass the empty string through too so an admin can clear a previously-set cutoff.
     if (updates.orderCutoffTime !== undefined) dbUpdates.order_cutoff_time = updates.orderCutoffTime || null;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime || null;
+    // Spec 115 (W-2) — omit-key-to-skip, consistent with the other fields.
+    // (Does NOT touch the pre-existing deliveryDays/categories drop noted in
+    // the design §0; that stays as-is for a future spec.)
+    if (updates.orderUnit !== undefined) dbUpdates.order_unit = updates.orderUnit;
     await supabase.from('vendors').update(dbUpdates).eq('id', id).abortSignal(signal);
   }, { kind: 'write', label: 'updateVendor' });
 }

@@ -87,6 +87,21 @@ export default function VendorsSection() {
     [inventory, sel, currentStore.id],
   );
 
+  // Spec 115 (W-5) — items LINKED to this vendor that lack an order code. NOTE:
+  // this keys on the `item.vendors[]` LINK set (a superset that includes items
+  // where this vendor is a NON-primary link), NOT the scalar `vendorId` the
+  // `catalog` memo above filters on — that scalar-only count would UNDER-count
+  // (miss secondary links). The two figures can legitimately differ; the
+  // missing-code stat is link-scoped by AC-19's definition.
+  const missingCodeCount = React.useMemo(() => {
+    if (!sel) return 0;
+    return inventory.filter(
+      (i) =>
+        i.storeId === currentStore.id &&
+        (i.vendors ?? []).some((v) => v.vendorId === sel.id && !(v.orderCode ?? '').trim()),
+    ).length;
+  }, [inventory, sel, currentStore.id]);
+
   // Spec 055 first-mount skeleton — only fires on the initial load with
   // an empty slice. After the first fetch resolves (success OR empty),
   // subsequent re-mounts skip this branch.
@@ -337,11 +352,14 @@ export default function VendorsSection() {
 
               {tabId === 'profile.tsx' ? (
                 <>
-                  {/* 4-up stats */}
+                  {/* 5-up stats. Spec 115 (W-5) — the "Missing codes" stat is
+                      link-scoped (item.vendors[]), distinct from the primary-only
+                      "Catalog" count beside it. */}
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <StatCard label={T('section.vendors.leadTime')}   value={`${sel.leadTimeDays ?? 0}d`}            sub={T('section.vendors.standard')} />
                     <StatCard label={T('section.vendors.cutoff')}      value={sel.orderCutoffTime || '—'}             sub={(sel.deliveryDays || []).join(' ').toLowerCase() || T('section.vendors.noSchedule')} />
                     <StatCard label={T('section.vendors.catalog')}     value={`${catalog.length}`}                    sub={T('section.vendors.itemsAtStore')} />
+                    <StatCard testID="vendor-missing-codes" label={T('section.vendors.missingCodes')} value={`${missingCodeCount}`} sub={T('section.vendors.missingCodesSub')} />
                     <StatCard label={T('section.vendors.lastOrder')}  value={sel.lastOrderDate ? sel.lastOrderDate.slice(0, 10) : '—'} sub={T('section.vendors.trailing90d')} />
                   </View>
 

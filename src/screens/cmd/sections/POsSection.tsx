@@ -79,7 +79,10 @@ export default function POsSection() {
   // Spec 108 (D-3) — desktop-web share preview. Cleared on PO switch (below) so
   // a stale preview from PO A never lingers when switching to PO B.
   const [sharePreview, setSharePreview] = React.useState<string | null>(null);
-  React.useEffect(() => setSharePreview(null), [selectedId]);
+  // Spec 115 (AC-13) — the "counting in cases/units" caption for the quick-order
+  // preview only (null on the human-readable Share). Cleared on PO switch below.
+  const [sharePreviewUnitNote, setSharePreviewUnitNote] = React.useState<string | null>(null);
+  React.useEffect(() => { setSharePreview(null); setSharePreviewUnitNote(null); }, [selectedId]);
 
   const allOrders = React.useMemo<PoRow[]>(
     () =>
@@ -230,6 +233,7 @@ export default function POsSection() {
       onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.copiedToast') }),
     });
     setSharePreview(previewText);
+    setSharePreviewUnitNote(null); // human-readable share carries no unit note.
     // Auto-prompt ONLY on a draft, ONLY after a completed share/copy. Sent/
     // partial re-share is a reminder with no status change and no prompt.
     if (shared && selStatus === 'draft') {
@@ -267,22 +271,47 @@ export default function POsSection() {
       const row = inventory.find((i) => i.id === itemId);
       return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
     };
-    const { text, unmappedCount } = buildPoQuickOrderText(
-      poLines.map((l) => ({ itemId: l.itemId, itemName: l.itemName, orderedQty: l.orderedQty })),
+    // Spec 115 (W-2) — the PO vendor's counting unit; 'case' by default. Drives
+    // the counted-unit → whole-case conversion inside the shared builder.
+    const orderUnit = selVendor?.orderUnit ?? 'case';
+    const { text, unmappedCount, roundedCount } = buildPoQuickOrderText(
+      // caseQty rides each line (PoLine.caseQty; 1 when no case) — the builder
+      // only consults it for a 'case' vendor.
+      poLines.map((l) => ({ itemId: l.itemId, itemName: l.itemName, orderedQty: l.orderedQty, caseQty: l.caseQty })),
       resolveCode,
       resolveName,
+      orderUnit,
     );
     const { previewText } = await sharePurchaseOrder(text, {
       dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
       onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
     });
     setSharePreview(previewText);
+    // Spec 115 (AC-13) — record which unit the block is counted in, rendered as a
+    // SEPARATE caption above the preview (kept OUT of the pasteable `previewText`
+    // so the machine block stays clean if the operator selects it).
+    setSharePreviewUnitNote(
+      previewText != null
+        ? orderUnit === 'case'
+          ? T('section.purchaseOrders.quickOrderCountingInCases')
+          : T('section.purchaseOrders.quickOrderCountingInUnits')
+        : null,
+    );
     // Surface the gap count (toast) in addition to the inline `???` lines in
     // the preview. No mark-sent prompt on this path (see the divergence note).
     if (unmappedCount > 0) {
       Toast.show({
         type: 'error',
         text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }),
+        position: 'bottom',
+      });
+    }
+    // Spec 115 (AC-12) — fail-loud rounded-count warning, sibling to the unmapped
+    // one. Fires when a fractional case count was rounded UP to whole cases.
+    if (roundedCount > 0) {
+      Toast.show({
+        type: 'error',
+        text1: T('section.purchaseOrders.quickOrderRoundedWarning', { count: roundedCount }),
         position: 'bottom',
       });
     }
@@ -514,6 +543,14 @@ export default function POsSection() {
                   style={{ backgroundColor: C.panel, borderRadius: CmdRadius.lg, borderWidth: 1, borderColor: C.border, padding: 14, gap: 8 }}
                 >
                   <SectionCaption tone="fg3" size={10.5}>{T('section.purchaseOrders.sharePreviewLabel')}</SectionCaption>
+                  {/* Spec 115 (AC-13) — unit-in-play note for the quick-order block
+                      (null for the human-readable share). Kept out of the
+                      selectable machine text below so a copy stays clean. */}
+                  {sharePreviewUnitNote ? (
+                    <Text testID="po-share-unit-note" style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.3 }}>
+                      {sharePreviewUnitNote}
+                    </Text>
+                  ) : null}
                   <Text selectable style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, lineHeight: 17 }}>
                     {sharePreview}
                   </Text>

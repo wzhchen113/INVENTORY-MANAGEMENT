@@ -40,7 +40,6 @@ export interface IngredientFormValues {
   sku: string;
   reorderPoint: string;
   max: string;
-  vendorSku: string;
   countNightly: boolean;
   trackWaste: boolean;
   allowSubstitute: boolean;
@@ -73,8 +72,9 @@ export interface IngredientFormValues {
   // code for THIS (item, vendor) link (→ `item_vendors.order_code`), free-form
   // text held as a string like the cost fields, trimmed on save; an empty code
   // saves as SQL NULL. This is the per-vendor code the operator pastes into the
-  // vendor's quick-order box — NOT the obsolete item-level `vendorSku` stub
-  // above (OQ-4), which stays unwired.
+  // vendor's quick-order box. Spec 115 (W-4) removed the obsolete item-level
+  // `vendorSku` stub that formerly sat below — this is now the ONLY place codes
+  // live.
   vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string; orderCode: string }>;
 }
 
@@ -83,7 +83,7 @@ export const blankValues = (): IngredientFormValues => ({
   costPerUnit: '', parLevel: '', vendorName: '', vendorId: '',
   caseQty: '1', casePrice: '0', subUnitSize: '1', subUnitUnit: '',
   sku: 'auto',
-  reorderPoint: '', max: '', vendorSku: '',
+  reorderPoint: '', max: '',
   countNightly: true, trackWaste: true, allowSubstitute: false,
   createAtAllStores: false,
   defaultShelfLifeDays: '', expiryDate: '',
@@ -861,7 +861,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
   // derived sibling to recompute), so this is a plain single-link patch keyed on
   // vendorId. Mirrors handleVendorCasePriceChange minus the cost recompute;
   // updateVendorLinkField guarantees per-card isolation (only that vendorId's
-  // row changes). Do NOT touch the obsolete item-level vendorSku stub (OQ-4).
+  // row changes). (Spec 115 (W-4) removed the obsolete item-level vendorSku stub.)
   const handleVendorOrderCodeChange = (vendorId: string, value: string) => {
     onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, 'orderCode', value) });
   };
@@ -1256,8 +1256,9 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
                 {/* Spec 114 — per-vendor order/SKU code, keyed on row.vendorId,
                     isolated per card. Free-form text (NOT numericOnly, NOT
                     readOnly) — the code the operator pastes into THIS vendor's
-                    quick-order box. Distinct from the obsolete item-level
-                    vendorSku stub below (OQ-4). */}
+                    quick-order box. Spec 115 (W-4) removed the obsolete item-level
+                    vendorSku stub that formerly sat below this vendor block; this
+                    is now the only place codes live. */}
                 <InputLine
                   label={T('section.inventory.orderCodeLabel')}
                   value={row.orderCode}
@@ -1280,7 +1281,6 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
           help={values.vendors.length > 0 ? 'first vendor attached is the primary · tap "make primary" to change' : undefined}
         />
       </View>
-      <InputLine label="vendor sku" value={values.vendorSku} monoFont readOnly help="schema pending" />
 
       <View style={{ height: 14 }} />
       <SectionCaption tone="fg3" size={9.5}>FLAGS</SectionCaption>
@@ -1303,7 +1303,7 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
 
       <Text style={{ marginTop: 18, fontFamily: mono(400), fontSize: 9.5, color: C.fg3, lineHeight: 14 }}>
         Fields shaded grey are read-only stubs awaiting a schema migration —
-        sku, reorder pt, max, vendor sku, avg cost. Editable fields save
+        sku, reorder pt, max, avg cost. Editable fields save
         end-to-end via inventory_items.
       </Text>
     </ScrollView>

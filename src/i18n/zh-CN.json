@@ -709,7 +709,10 @@
       "quickOrderAction": "快速订货清单",
       "quickOrderDialogTitle": "快速订货清单",
       "quickOrderCopiedToast": "已复制 — 粘贴到供应商的快速订货框",
-      "quickOrderUnmappedWarning": "有 {count} 项没有该供应商的订货编码 — 请在各商品的供应商卡片中补全"
+      "quickOrderUnmappedWarning": "有 {count} 项没有该供应商的订货编码 — 请在各商品的供应商卡片中补全",
+      "quickOrderRoundedWarning": "有 {count} 项已向上取整为整箱",
+      "quickOrderCountingInCases": "按箱计数",
+      "quickOrderCountingInUnits": "按单位计数"
     },
     "vendors": {
       "title": "供应商",
@@ -762,7 +765,13 @@
       "phone": "电话",
       "unset": "未设置",
       "threadsNotWired": "线程 — 尚未连接",
-      "threadsNotWiredBody": "多收件人线程(订单/信用/代表)需要 `vendor_contacts` + `vendor_threads` 表 — 即将在后续迁移中提供。"
+      "threadsNotWiredBody": "多收件人线程(订单/信用/代表)需要 `vendor_contacts` + `vendor_threads` 表 — 即将在后续迁移中提供。",
+      "orderUnitLabel": "订货单位",
+      "orderUnitHint": "该供应商的快速订货框如何计数",
+      "orderUnitCase": "按箱",
+      "orderUnitUnit": "按计数单位",
+      "missingCodes": "缺失编码",
+      "missingCodesSub": "已关联但无订货编码的商品"
     },
     "recipes": {
       "title": "菜品 / BOM",
@@ -945,7 +954,8 @@
       "createPoConfirmBody": "为{vendor}创建包含{count}行的可编辑采购单草稿？你可以在采购单中编辑并发送。",
       "createPoConfirmCta": "创建草稿",
       "createPoToastTitle": "采购单草稿已创建",
-      "createPoToastBody": "已为{vendor}创建草稿 — 请在采购单中编辑并发送。"
+      "createPoToastBody": "已为{vendor}创建草稿 — 请在采购单中编辑并发送。",
+      "quickOrderAria": "{vendor}的快速订货清单"
     },
     "reconciliation": {
       "title": "对账",
@@ -1007,7 +1017,15 @@
     "posImports": {
       "title": "POS 导入",
       "addImport": "导入销售",
-      "noImports": "暂无 POS 导入"
+      "noImports": "暂无 POS 导入",
+      "codesLabel": "编码",
+      "codesToWrite": "将写入 {count} 个订货编码",
+      "codesWillSkip": "将跳过 {count} 个编码",
+      "codesWritten": "已写入 {count} 个编码",
+      "linksCreated": "已创建 {count} 个关联",
+      "codesSkipped": "已跳过 {count} 个编码",
+      "codeSkipUnmatched": "未匹配供应商“{name}”",
+      "codeSkipNoVendor": "无供应商"
     },
     "auditLog": {
       "title": "审计日志",

@@ -453,6 +453,13 @@ export interface Vendor {
   // eodDeadlineTime when not set. Distinct from orderCutoffTime, which gates
   // when the order itself must be placed with the vendor.
   eodDeadlineTime?: string;
+  // Spec 115 (W-2) — the vendor's quick-order counting unit. 'case' (default)
+  // → the quick-order builder divides counted units by the item's case_qty and
+  // rounds UP to whole cases; 'unit' → counted units verbatim (spec 114
+  // behavior). Brand-level. NOT optional: the DB column is NOT NULL DEFAULT
+  // 'case', so every fetched vendor carries it and the segmented control's
+  // value type stays total.
+  orderUnit: 'case' | 'unit';
 }
 
 export interface POSSaleItem {

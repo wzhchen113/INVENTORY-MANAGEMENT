@@ -709,7 +709,10 @@
       "quickOrderAction": "QUICK-ORDER LIST",
       "quickOrderDialogTitle": "Quick-order list",
       "quickOrderCopiedToast": "Copied — paste into the vendor's quick-order box",
-      "quickOrderUnmappedWarning": "{count} items have no order code for this vendor — fill them in on each item's vendor card"
+      "quickOrderUnmappedWarning": "{count} items have no order code for this vendor — fill them in on each item's vendor card",
+      "quickOrderRoundedWarning": "{count} items rounded up to whole cases",
+      "quickOrderCountingInCases": "counting in cases",
+      "quickOrderCountingInUnits": "counting in units"
     },
     "vendors": {
       "title": "Vendors",
@@ -762,7 +765,13 @@
       "phone": "phone",
       "unset": "unset",
       "threadsNotWired": "THREADS — NOT YET WIRED",
-      "threadsNotWiredBody": "Multi-recipient threads (orders / credits / rep) need a `vendor_contacts` + `vendor_threads` table — coming in a follow-up migration."
+      "threadsNotWiredBody": "Multi-recipient threads (orders / credits / rep) need a `vendor_contacts` + `vendor_threads` table — coming in a follow-up migration.",
+      "orderUnitLabel": "order unit",
+      "orderUnitHint": "how this vendor's quick-order box counts",
+      "orderUnitCase": "Cases",
+      "orderUnitUnit": "Counted units",
+      "missingCodes": "Missing codes",
+      "missingCodesSub": "linked items with no order code"
     },
     "recipes": {
       "title": "Menu items / BOM",
@@ -945,7 +954,8 @@
       "createPoConfirmBody": "Create an editable draft purchase order for {vendor} with {count} line(s)? You can edit and send it in Purchase orders.",
       "createPoConfirmCta": "Create draft",
       "createPoToastTitle": "Draft PO created",
-      "createPoToastBody": "Draft for {vendor} created — edit and send it in Purchase orders."
+      "createPoToastBody": "Draft for {vendor} created — edit and send it in Purchase orders.",
+      "quickOrderAria": "Quick-order list for {vendor}"
     },
     "reconciliation": {
       "title": "Reconciliation",
@@ -1007,7 +1017,15 @@
     "posImports": {
       "title": "POS imports",
       "addImport": "Import sales",
-      "noImports": "No POS imports yet"
+      "noImports": "No POS imports yet",
+      "codesLabel": "codes",
+      "codesToWrite": "{count} order codes will write",
+      "codesWillSkip": "{count} codes will skip",
+      "codesWritten": "{count} codes written",
+      "linksCreated": "{count} links created",
+      "codesSkipped": "{count} codes skipped",
+      "codeSkipUnmatched": "unmatched vendor \"{name}\"",
+      "codeSkipNoVendor": "no vendor"
     },
     "auditLog": {
       "title": "Audit log",

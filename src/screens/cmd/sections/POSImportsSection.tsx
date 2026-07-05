@@ -42,6 +42,9 @@ export default function POSImportsSection() {
   const T = useT();
   const posImports = useStore((s) => s.posImports);
   const inventory = useStore((s) => s.inventory);
+  // Spec 115 (W-1) — the brand vendors feed computeDiff's vendor_name → vendorId
+  // resolution for the CSV order-code write path.
+  const vendors = useStore((s) => s.vendors);
   const currentStore = useStore((s) => s.currentStore);
   const recipes = useStore((s) => s.recipes);
   // Spec 055 — first-mount skeleton flag.
@@ -348,7 +351,16 @@ export default function POSImportsSection() {
         visible={uploadOpen}
         onClose={() => setUploadOpen(false)}
         onContinue={(file, rows, mapping: ColumnMapping[]) => {
-          const diff = computeDiff(rows, mapping, inventory, currentStore.id);
+          // Spec 115 (W-1) — pass the brand vendors so a row's `vendor_name`
+          // resolves to a vendorId for the order-code write (AC-2). `inventory`
+          // supplies each item's existing links for the reconcile-safe merge.
+          const diff = computeDiff(
+            rows,
+            mapping,
+            inventory,
+            currentStore.id,
+            vendors.map((v) => ({ id: v.id, name: v.name })),
+          );
           setPendingFilename(file.name);
           setPendingDiff(diff);
           setUploadOpen(false);

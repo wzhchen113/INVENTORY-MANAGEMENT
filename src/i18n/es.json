@@ -709,7 +709,10 @@
       "quickOrderAction": "LISTA DE PEDIDO RÁPIDO",
       "quickOrderDialogTitle": "Lista de pedido rápido",
       "quickOrderCopiedToast": "Copiado — pégalo en el formulario de pedido rápido del proveedor",
-      "quickOrderUnmappedWarning": "{count} artículos no tienen código de pedido para este proveedor — complétalos en la tarjeta de proveedor de cada artículo"
+      "quickOrderUnmappedWarning": "{count} artículos no tienen código de pedido para este proveedor — complétalos en la tarjeta de proveedor de cada artículo",
+      "quickOrderRoundedWarning": "{count} artículos redondeados hacia arriba a cajas completas",
+      "quickOrderCountingInCases": "contando en cajas",
+      "quickOrderCountingInUnits": "contando en unidades"
     },
     "vendors": {
       "title": "Proveedores",
@@ -762,7 +765,13 @@
       "phone": "teléfono",
       "unset": "no establecido",
       "threadsNotWired": "HILOS — AÚN NO CONECTADO",
-      "threadsNotWiredBody": "Los hilos multi-destinatario (órdenes / créditos / rep) necesitan tablas `vendor_contacts` + `vendor_threads` — próximamente en una migración futura."
+      "threadsNotWiredBody": "Los hilos multi-destinatario (órdenes / créditos / rep) necesitan tablas `vendor_contacts` + `vendor_threads` — próximamente en una migración futura.",
+      "orderUnitLabel": "unidad de pedido",
+      "orderUnitHint": "cómo cuenta el formulario de pedido rápido de este proveedor",
+      "orderUnitCase": "Cajas",
+      "orderUnitUnit": "Unidades contadas",
+      "missingCodes": "Códigos faltantes",
+      "missingCodesSub": "artículos vinculados sin código de pedido"
     },
     "recipes": {
       "title": "Menú / BOM",
@@ -945,7 +954,8 @@
       "createPoConfirmBody": "¿Crear un borrador editable de orden de compra para {vendor} con {count} línea(s)? Podrás editarlo y enviarlo en Órdenes de compra.",
       "createPoConfirmCta": "Crear borrador",
       "createPoToastTitle": "Borrador de OC creado",
-      "createPoToastBody": "Borrador para {vendor} creado — edítalo y envíalo en Órdenes de compra."
+      "createPoToastBody": "Borrador para {vendor} creado — edítalo y envíalo en Órdenes de compra.",
+      "quickOrderAria": "Lista de pedido rápido para {vendor}"
     },
     "reconciliation": {
       "title": "Conciliación",
@@ -1007,7 +1017,15 @@
     "posImports": {
       "title": "Importes POS",
       "addImport": "Importar ventas",
-      "noImports": "Aún no hay importes POS"
+      "noImports": "Aún no hay importes POS",
+      "codesLabel": "códigos",
+      "codesToWrite": "se escribirán {count} códigos de pedido",
+      "codesWillSkip": "se omitirán {count} códigos",
+      "codesWritten": "{count} códigos escritos",
+      "linksCreated": "{count} enlaces creados",
+      "codesSkipped": "{count} códigos omitidos",
+      "codeSkipUnmatched": "proveedor sin coincidencia \"{name}\"",
+      "codeSkipNoVendor": "sin proveedor"
     },
     "auditLog": {
       "title": "Bitácora de auditoría",
