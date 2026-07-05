@@ -188,13 +188,16 @@ interface StoreActions {
   // payload`).
   addItem: (
     item: Omit<InventoryItem, 'id' | 'vendors'> & {
-      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+      // Spec 114 — `orderCode` rides the same link-set payload straight through
+      // to db.createInventoryItem (which coalesces empty→SQL NULL).
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
     },
   ) => void;
   updateItem: (
     id: string,
     updates: Omit<Partial<InventoryItem>, 'vendors'> & {
-      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+      // Spec 114 — see addItem.
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
     },
   ) => void;
   deleteItem: (id: string) => void;
@@ -1260,6 +1263,10 @@ export const useStore = create<FullStore>((set, get) => ({
           costPerUnit: l.costPerUnit ?? 0,
           casePrice: l.casePrice ?? 0,
           isPrimary: l.vendorId === item.vendorId,
+          // Spec 114 — carry the editor's typed order code optimistically
+          // (default '' — mirrors mapItem's hydrated default; the real value
+          // lands on the next fetch/realtime).
+          orderCode: l.orderCode || '',
         }))
       : (item.vendorId
           ? [{
@@ -1268,6 +1275,8 @@ export const useStore = create<FullStore>((set, get) => ({
               costPerUnit: item.costPerUnit ?? 0,
               casePrice: item.casePrice ?? 0,
               isPrimary: true,
+              // Spec 114 — the scalar-fallback link has no per-vendor code.
+              orderCode: '',
             }]
           : []);
     const newItem: InventoryItem = {
@@ -1321,6 +1330,9 @@ export const useStore = create<FullStore>((set, get) => ({
         costPerUnit: l.costPerUnit ?? 0,
         casePrice: l.casePrice ?? 0,
         isPrimary: l.vendorId === primaryId,
+        // Spec 114 — carry the editor's typed order code optimistically
+        // (default '' — mirrors mapItem; real value lands on next fetch).
+        orderCode: l.orderCode || '',
       }));
       optimisticPatch.vendors = links;
       optimisticPatch.vendorIds = links.map((l) => l.vendorId);

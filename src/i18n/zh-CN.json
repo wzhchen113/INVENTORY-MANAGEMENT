@@ -291,6 +291,8 @@
       "currentStock": "当前库存",
       "parLevel": "标准量",
       "costPerUnit": "单位成本",
+      "orderCodeLabel": "订货编码",
+      "orderCodeHelp": "该供应商的商品/SKU 编码 — 粘贴到其快速订货框",
       "uniqueCount": "{count} 种",
       "filterPlaceholder": "cat:蛋白 vendor:sysco",
       "filterAll": "全部",
@@ -703,7 +705,11 @@
       "shareBodyStoreLabel": "门店",
       "shareBodyDateLabel": "日期",
       "shareBodyItemsCount": "共 {count} 项",
-      "shareBodyNoItems": "（暂无项目）"
+      "shareBodyNoItems": "（暂无项目）",
+      "quickOrderAction": "快速订货清单",
+      "quickOrderDialogTitle": "快速订货清单",
+      "quickOrderCopiedToast": "已复制 — 粘贴到供应商的快速订货框",
+      "quickOrderUnmappedWarning": "有 {count} 项没有该供应商的订货编码 — 请在各商品的供应商卡片中补全"
     },
     "vendors": {
       "title": "供应商",

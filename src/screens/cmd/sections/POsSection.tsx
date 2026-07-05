@@ -14,6 +14,7 @@ import { useLocale } from '../../../hooks/useLocale';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { buildPoShareText, type NameResolver } from '../../../utils/poShareText';
+import { buildPoQuickOrderText } from '../../../utils/poQuickOrderText';
 import { sharePurchaseOrder } from '../lib/sharePo';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -241,6 +242,52 @@ export default function POsSection() {
     }
   };
 
+  // ─── Spec 114 — Quick-order list (paste-ready <code>\t<qty> block) ─────
+  // A SECOND, distinct Share artifact next to spec 108's human-readable Share.
+  // Resolves each PO line's order code for the PO's vendor (sel.vendorId) from
+  // the hydrated `inventory` rows — the SAME source onShare reads for names —
+  // then hands the bare code+qty block to the EXISTING sharePurchaseOrder
+  // orchestrator (verbatim: native sheet / navigator.share / desktop clipboard
+  // + preview). DELIBERATE DIVERGENCE from onShare (D-8): this path does NOT
+  // fire the draft "did you send it?" mark-sent prompt — it is a copy-the-codes
+  // aid, not a send, so flipping status off a paste-to-clipboard would be a
+  // surprise. Unmapped lines are surfaced (warning toast + the `???` lines in
+  // the preview), never silently dropped (AC-9).
+  const onShareQuickOrder = async () => {
+    if (!sel || busy) return;
+    const poLines = poLinesById[sel.id] || [];
+    // Order code for (this line's item, the PO's vendor). null/'' → unmapped.
+    const resolveCode = (itemId: string): string | null | undefined => {
+      const row = inventory.find((i) => i.id === itemId);
+      return row?.vendors?.find((v) => v.vendorId === sel.vendorId)?.orderCode;
+    };
+    // Same current-locale name resolver onShare uses — only reached on the
+    // `??? <name>` placeholder path (OQ-8).
+    const resolveName: NameResolver = (itemId, fallbackName) => {
+      const row = inventory.find((i) => i.id === itemId);
+      return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
+    };
+    const { text, unmappedCount } = buildPoQuickOrderText(
+      poLines.map((l) => ({ itemId: l.itemId, itemName: l.itemName, orderedQty: l.orderedQty })),
+      resolveCode,
+      resolveName,
+    );
+    const { previewText } = await sharePurchaseOrder(text, {
+      dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
+      onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
+    });
+    setSharePreview(previewText);
+    // Surface the gap count (toast) in addition to the inline `???` lines in
+    // the preview. No mark-sent prompt on this path (see the divergence note).
+    if (unmappedCount > 0) {
+      Toast.show({
+        type: 'error',
+        text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }),
+        position: 'bottom',
+      });
+    }
+  };
+
   // Which actions are available given the current status (spec 107 §3 guards).
   const canSend = selStatus === 'draft';           // draft → sent (email or manual)
   const canCancel = ['draft', 'sent', 'partial'].includes(selStatus);
@@ -375,6 +422,20 @@ export default function POsSection() {
                       style={{ paddingVertical: 4, paddingHorizontal: 10, backgroundColor: C.accent, borderRadius: CmdRadius.sm, opacity: busy ? 0.5 : 1 }}
                     >
                       <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accentFg }}>{T('section.purchaseOrders.shareAction')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Spec 114 — Quick-order list: a SECOND, distinct artifact
+                      (bare code+qty paste block). Outlined secondary treatment
+                      so it's visually + textually distinct from the accent
+                      human-readable Share it sits beside. Same status gate. */}
+                  {canShare ? (
+                    <TouchableOpacity
+                      testID="po-action-quick-order"
+                      onPress={onShareQuickOrder}
+                      disabled={busy}
+                      style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm, opacity: busy ? 0.5 : 1 }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.purchaseOrders.quickOrderAction')}</Text>
                     </TouchableOpacity>
                   ) : null}
                   {/* Spec 108 — email SEND demoted from accent to outlined secondary. */}

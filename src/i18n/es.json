@@ -291,6 +291,8 @@
       "currentStock": "Stock actual",
       "parLevel": "Nivel par",
       "costPerUnit": "Costo por unidad",
+      "orderCodeLabel": "código de pedido",
+      "orderCodeHelp": "el código de artículo/SKU de este proveedor — se pega en su formulario de pedido rápido",
       "uniqueCount": "{count} únicos",
       "filterPlaceholder": "cat:proteína vendor:sysco",
       "filterAll": "todos",
@@ -703,7 +705,11 @@
       "shareBodyStoreLabel": "Tienda",
       "shareBodyDateLabel": "Fecha",
       "shareBodyItemsCount": "{count} artículos",
-      "shareBodyNoItems": "(sin artículos)"
+      "shareBodyNoItems": "(sin artículos)",
+      "quickOrderAction": "LISTA DE PEDIDO RÁPIDO",
+      "quickOrderDialogTitle": "Lista de pedido rápido",
+      "quickOrderCopiedToast": "Copiado — pégalo en el formulario de pedido rápido del proveedor",
+      "quickOrderUnmappedWarning": "{count} artículos no tienen código de pedido para este proveedor — complétalos en la tarjeta de proveedor de cada artículo"
     },
     "vendors": {
       "title": "Proveedores",

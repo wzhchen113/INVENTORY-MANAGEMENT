@@ -190,6 +190,11 @@ export interface ItemVendorLink {
   costPerUnit: number;
   casePrice: number;
   isPrimary: boolean;
+  // Spec 114 — the vendor's own order/SKU code for this (item, vendor) link,
+  // pasted into the vendor's quick-order box. Required string on the hydrated
+  // shape (mapItem defaults null/absent → ''), mirroring vendorName. Free-form,
+  // no uniqueness. Distinct from the obsolete item-level vendorSku stub (OQ-4).
+  orderCode: string;
 }
 
 export type ItemStatus = 'ok' | 'low' | 'out';

@@ -1,0 +1,39 @@
+# Release proposal — spec 114 (per-vendor order codes + universal quick-order list export)
+
+## Verdict
+verdict: SHIP_READY
+rationale: All four reviewers returned zero Critical and zero blocking findings, all 11 acceptance criteria PASS, both gates green pre-push, and the one substantive design question (required `ItemVendorLink.orderCode: string`) was ruled WITHIN DESIGN by both the code-reviewer and the backend-architect.
+
+## Findings summary
+- **code-reviewer:** 0 Critical / 0 Should-fix / 3 Nits (all inert). (1) the required-`''` `orderCode: string` type shape — assessed as "defensible, not a drift... the right call given the surrounding idiom" (consistent with sibling required `vendorName`/`costPerUnit`/`casePrice`), **No finding**; (2) `IngredientFormValues.vendors[]` vs `VendorLinkRow` are structurally-duplicated interfaces — **pre-existing from spec 102, not introduced here**, explicitly flagged out-of-scope; (3) the unmapped-count warning toast uses `type: 'error'` where `info` might read more accurately — pure severity-of-styling preference, "deferred to product/design judgment, not a code-quality finding."
+- **security-auditor:** 0 Critical / 0 High / 0 Medium / 0 Low. Verdict "CLEAN — no findings at any severity." All five checks pass, independently re-verified on the live local stack: RLS inheritance (non-member `UPDATE ... order_code` on a Charles link → 0 rows, stays NULL; member write persists), no grant leak (column inherits table grants exactly, no wider/narrower), no injection/data-exposure sink (bound `.upsert()`, pure TAB block, no HTML/mail/log sink, no `$`), migration is additive-only DDL (two statements, reversible-by-design), package.json unchanged.
+- **test-engineer:** 11/11 acceptance criteria PASS, 0 FAIL, 0 NOT TESTED. jest 1062/1062 across 93 suites; test:db 64/64 files (`item_vendors_rls.test.sql` 8→14 assertions, `plan(14)` exact); both typechecks exit 0. No shape-only tests found in the spec-114 surface — every test asserts a byte-level output, a real mock-call argument, or a live-DB read/write. Two minor coverage-depth notes (AC-5 drawer-reopen covered by structural equivalence to the already-tested `costPerUnit`/`casePrice` hydration path + browser evidence, not a fresh test; no automated i18n key-parity lint — pre-existing across the whole catalog) — both explicitly NOT blockers, offered as sub-10-line nice-to-have follow-ups.
+- **backend-architect (post-impl drift):** 0 Critical / 0 Should-fix / 2 Minor (both behaviorally inert, both ruled WITHIN DESIGN). Contract matched end-to-end: all four `db.ts` threading edits, the export-reads-the-existing-embed prediction (no `PoLine` change, no new fetch fan-out), the TAB/`???`/no-`$` builder, the no-mark-sent second Share button, and the pgTAP inherited-policy regression pin all match §§ D-1–D-12. Migration sorts last; inheritance claim (4 policies + spec-097 grants + realtime publication membership, all unchanged) holds. No undeclared deltas; spec-113/109 pgTAP suites untouched.
+
+**The substantive design question — resolved by two reviewers.** The required `ItemVendorLink.orderCode: string` shape (vs optional) and its forced `src/store/useStore.ts` optimistic-body + param-signature touches were ruled WITHIN DESIGN by BOTH:
+- code-reviewer: "consistent with the existing siblings on the same interface... Making `orderCode` the odd one out as `orderCode?: string | null` would have been the actual inconsistency... No finding; this is the right call."
+- backend-architect (Finding 2): "WITHIN DESIGN... it IS the design as committed... an optional `?` would be a lie about the hydrated shape and would force every reader to `?? ''` at the call site... the useStore.ts touches are WITHIN DESIGN (type-forced, behaviorally inert)."
+
+No Resolution pass was required (no reviewer raised a blocking finding); no `## Resolution` sections exist in any of the four review files, and nothing was left dangling.
+
+## Recommended next steps (ordered)
+This spec has a backend surface (an additive DDL column), so the ship has **two user-gated steps**. Both are the user's to run — surfaced here, not executed.
+
+1. **Commit + push, then confirm both gates on `main`.** After the push, `test.yml` should be green (jest + typechecks + pgTAP all pass locally). **`db-migrations-applied.yml` will go RED** because the additive `order_code` column is committed to the repo but not yet in prod's `schema_migrations` — this is the documented, expected additive-DDL state (spec 064 gate), NOT drift; both the security-auditor and test-engineer independently flagged it as benign-pending-apply. It closes on step 2. Surface the red run URL per the CLAUDE.md CI rule and proceed to the apply rather than treating it as a regression.
+2. **Prod-apply `20260708000000_item_vendor_order_code.sql` via the Supabase MCP** (project memory "Prod migration via Supabase MCP" — `db push` lacks the prod password): `execute_sql` the `alter table public.item_vendors add column if not exists order_code text;` + the `comment on column`, then INSERT version `20260708000000` into `supabase_migrations.schema_migrations`, then **VERIFY by column presence** in `information_schema.columns` for `item_vendors.order_code` (this is DDL — verify the column exists, NOT a body-only normalized-md5, which is a function-body technique). Then re-run `db-migrations-applied.yml` on `main` and confirm it goes green.
+
+Do not auto-commit — the user confirms the commit.
+
+## Out of scope for this review
+Reviewers surfaced these as non-blocking; none belongs in this spec:
+- **`IngredientFormValues.vendors[]` / `VendorLinkRow` interface de-duplication** — pre-existing from spec 102 (spec 114 correctly added `orderCode` to both in parallel, no new drift). A future cleanup pass could collapse them into one declaration. (code-reviewer nit #2.)
+- **Unmapped-count toast severity (`error` vs `info`)** — product/design preference, not a code-quality defect; the toast fires correctly with the right count only when `unmappedCount > 0`. (code-reviewer nit #3 / backend-architect Minor 1, both ruled WITHIN DESIGN.)
+- **AC-5 dedicated drawer-reopen jest test** — currently covered by structural equivalence to the already-tested sibling hydration path plus browser evidence; a sub-10-line follow-up test on `IngredientFormDrawer.tsx`'s `fromItem` hydration would close it to zero structural inference. (test-engineer, explicitly a nice-to-have.)
+- **Automated i18n key-parity lint** across `en.json`/`es.json`/`zh-CN.json` — pre-existing gap across the entire catalog, not spec-114-specific; all six new keys were confirmed present ×3 with real translations by direct read. (test-engineer, process gap.)
+- **Any vendor-specific file format / EDI / browser automation / inbound order-code pull / Reorder-card export button / item-level `vendorSku` stub wiring** — all explicitly deferred by the spec's own Out-of-scope; a future spec can build the US Foods file export on top of this per-vendor mapping (with two live-account prerequisites to verify first).
+
+## Handoff
+next_agent: NONE
+prompt: SHIP_READY — 0 Critical / 0 Should-fix across all four reviewers, 11/11 ACs PASS, jest 1062/1062 + test:db 64/64 + both typechecks green, and the required `ItemVendorLink.orderCode: string` shape ruled WITHIN DESIGN by both code-reviewer and backend-architect. Two user-gated ship steps: (1) commit + push, then confirm gates — expect `db-migrations-applied.yml` RED until prod apply (documented additive-DDL state, not drift); (2) prod-apply `20260708000000_item_vendor_order_code.sql` via Supabase MCP (execute_sql ALTER + comment, INSERT version into schema_migrations, VERIFY column present — DDL, not body-md5), then re-green the drift gate.
+payload_paths:
+  - specs/114-vendor-quick-order-list/reviews/release-proposal.md

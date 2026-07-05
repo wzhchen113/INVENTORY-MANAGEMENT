@@ -66,12 +66,19 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
           vendorId: v.vendorId,
           costPerUnit: derivedUnitCost(String(v.casePrice || 0), String(it.caseQty || 1), String(it.subUnitSize || 1)),
           casePrice: v.casePrice ? String(v.casePrice) : '',
+          // Spec 114 — hydrate the per-vendor order code from the item_vendors
+          // embed (mapItem defaults NULL/absent → ''). Reopening the drawer
+          // shows each card's saved code (AC-5).
+          orderCode: v.orderCode || '',
         }))
       : it.vendorId
         ? [{
             vendorId: it.vendorId,
             costPerUnit: derivedUnitCost(String(it.casePrice || 0), String(it.caseQty || 1), String(it.subUnitSize || 1)),
             casePrice: it.casePrice ? String(it.casePrice) : '',
+            // Spec 114 — a legacy single-vendor item (no embed) has no code
+            // until the admin types one.
+            orderCode: '',
           }]
         : [],
 });
@@ -98,7 +105,11 @@ function buildI18nNames(v: IngredientFormValues): LocalizedNames {
 // the db reconcile / next fetch). Without the Omit the intersection would be
 // `ItemVendorLink[] & {payload}` (uninhabitable).
 type ItemUpdatesWithVendors = Omit<Partial<InventoryItem>, 'vendors'> & {
-  vendors: Array<{ vendorId: string; costPerUnit: number; casePrice: number }>;
+  // Spec 114 — the link-set payload gains the optional per-vendor `orderCode`
+  // (trimmed; empty→undefined→SQL NULL in db.ts). Matches
+  // vendorRowsToLinkPayload's return shape and the db create/update `vendors?`
+  // payload types.
+  vendors: Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string }>;
 };
 
 const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({

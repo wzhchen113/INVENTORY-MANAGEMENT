@@ -236,7 +236,7 @@ export async function fetchInventory(
       .select(`*,
         vendor:vendors(name),
         item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
-                                  vendor:vendors(id, name)),
+                                  order_code, vendor:vendors(id, name)),
         updater:profiles!last_updated_by(name),
         catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names)`)
       .order('id', { ascending: true });
@@ -299,7 +299,8 @@ export async function createInventoryItem(
     // vendorId matches the scalar `vendorId` is marked is_primary (SD-1).
     // When omitted, a single primary link is synthesized from the scalar
     // vendorId (back-compat with the single-vendor form).
-    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+    // Spec 114 — optional per-(item,vendor) order code; empty/absent → NULL.
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
   },
 ): Promise<InventoryItem & { i18nNames: Record<string, string> }> {
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
@@ -366,6 +367,10 @@ export async function createInventoryItem(
           cost_per_unit: l.costPerUnit ?? 0,
           case_price: l.casePrice ?? 0,
           is_primary: l.vendorId === vendorId,
+          // Spec 114 — empty/blank/absent code serializes to SQL NULL, never
+          // '' and never the string "undefined" (AC-3 "empty round-trips as
+          // NULL"). Matches the null-coalesce idiom for the link's fields.
+          order_code: l.orderCode || null,
         })),
         { onConflict: 'item_id,vendor_id' },
       ).abortSignal(signal);
@@ -394,7 +399,8 @@ export async function updateInventoryItem(
     // editing a cost updates only that link" — AC-C). Omitting the key
     // leaves the link set untouched (a form that only touched the primary
     // picker / a non-vendor field). An empty array removes ALL links.
-    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number }>;
+    // Spec 114 — optional per-(item,vendor) order code; empty/absent → NULL.
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
   },
 ): Promise<void> {
   if (!id || id.length < 10) return;
@@ -493,6 +499,9 @@ export async function updateInventoryItem(
             cost_per_unit: v.costPerUnit ?? 0,
             case_price: v.casePrice ?? 0,
             is_primary: v.vendorId === primaryVendorId,
+            // Spec 114 — empty/blank/absent code → SQL NULL, never '' and
+            // never "undefined" (AC-3). Same null-coalesce as the create path.
+            order_code: v.orderCode || null,
           })),
           { onConflict: 'item_id,vendor_id' },
         ).abortSignal(signal);
@@ -4788,6 +4797,7 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
     costPerUnit: number;
     casePrice: number;
     isPrimary: boolean;
+    orderCode: string;
   }> = Array.isArray(row.item_vendors)
     ? row.item_vendors.map((lv: any) => ({
         vendorId: lv.vendor_id || lv.vendor?.id || '',
@@ -4795,6 +4805,10 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
         costPerUnit: parseFloat(lv.cost_per_unit) || 0,
         casePrice: parseFloat(lv.case_price) || 0,
         isPrimary: Boolean(lv.is_primary),
+        // Spec 114 — per-(item,vendor) order code, snake→camel. Null/absent
+        // hydrates as '' (never the string "undefined"), mirroring how
+        // vendorName is a required string on ItemVendorLink.
+        orderCode: lv.order_code || '',
       }))
     : [];
   return {

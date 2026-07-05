@@ -291,6 +291,8 @@
       "currentStock": "Current stock",
       "parLevel": "Par level",
       "costPerUnit": "Cost per unit",
+      "orderCodeLabel": "order code",
+      "orderCodeHelp": "this vendor's item/SKU code — pasted into their quick-order box",
       "uniqueCount": "{count} unique",
       "filterPlaceholder": "cat:protein vendor:sysco",
       "filterAll": "all",
@@ -703,7 +705,11 @@
       "shareBodyStoreLabel": "Store",
       "shareBodyDateLabel": "Date",
       "shareBodyItemsCount": "{count} items",
-      "shareBodyNoItems": "(no items)"
+      "shareBodyNoItems": "(no items)",
+      "quickOrderAction": "QUICK-ORDER LIST",
+      "quickOrderDialogTitle": "Quick-order list",
+      "quickOrderCopiedToast": "Copied — paste into the vendor's quick-order box",
+      "quickOrderUnmappedWarning": "{count} items have no order code for this vendor — fill them in on each item's vendor card"
     },
     "vendors": {
       "title": "Vendors",

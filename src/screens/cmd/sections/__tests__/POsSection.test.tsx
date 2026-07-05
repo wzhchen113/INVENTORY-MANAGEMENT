@@ -408,3 +408,114 @@ describe('POsSection — desktop-web clipboard fallback preview', () => {
     await waitFor(() => expect(screen.queryByTestId('po-share-preview')).toBeNull());
   });
 });
+
+// ─── Spec 114 — Quick-order list (second Share artifact) ───────────────────
+describe('POsSection — Quick-order list visibility by status', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+  });
+
+  it.each(['draft', 'sent', 'partial'])('Quick-order IS shown on %s (same gate as Share)', (status) => {
+    state.orderSubmissions = [po({ id: 'po-1', status })];
+    render(<POsSection />);
+    expect(screen.getByTestId('po-action-quick-order')).toBeTruthy();
+  });
+
+  it.each(['received', 'cancelled'])('Quick-order is HIDDEN on %s', (status) => {
+    state.orderSubmissions = [po({ id: 'po-1', status })];
+    render(<POsSection />);
+    expect(screen.queryByTestId('po-action-quick-order')).toBeNull();
+  });
+
+  it('Quick-order is a SECOND, distinct button next to the human-readable Share', () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    expect(screen.getByTestId('po-action-share')).toBeTruthy();
+    expect(screen.getByTestId('po-action-quick-order')).toBeTruthy();
+    // Distinct testIDs → distinct affordances (the accent Share vs the outlined
+    // quick-order block). Textually distinct via separate i18n keys.
+    expect(screen.getByTestId('po-action-quick-order')).not.toBe(screen.getByTestId('po-action-share'));
+  });
+});
+
+describe('POsSection — Quick-order builds the code+qty artifact + surfaces unmapped, no mark-sent', () => {
+  beforeEach(() => {
+    state.vendors = [{ id: 'vendor-1', name: 'Acme', email: 'orders@acme.test' }];
+    state.poLinesById = {
+      'po-1': [
+        { poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Chicken', unit: 'case', orderedQty: 3, receivedQty: 0, costPerUnit: 10, subUnitSize: 1 },
+        { poItemId: 'pi-2', itemId: 'inv-2', itemName: 'Onion', unit: 'lb', orderedQty: 12, receivedQty: 0, costPerUnit: 2, subUnitSize: 1 },
+      ],
+    };
+    // inv-1 has an order code for vendor-1; inv-2 has NO code (unmapped).
+    state.inventory = [
+      { id: 'inv-1', name: 'Chicken', i18nNames: {}, vendors: [{ vendorId: 'vendor-1', orderCode: 'US-1001' }] },
+      { id: 'inv-2', name: 'Onion', i18nNames: {}, vendors: [{ vendorId: 'vendor-1', orderCode: '' }] },
+    ];
+  });
+
+  it('hands sharePurchaseOrder a bare `<code>\\t<qty>` block with `???` for unmapped lines', async () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-quick-order'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    const passedText = mockSharePurchaseOrder.mock.calls[0][0] as string;
+    // Mapped line: code + TAB + qty. Unmapped: `??? <name>` + TAB + qty.
+    expect(passedText).toBe(['US-1001\t3', '??? Onion\t12'].join('\n'));
+    // No money in the machine-facing block.
+    expect(passedText).not.toContain('$');
+  });
+
+  it('fires the unmapped-count warning toast when a line has no code (surfaced, not dropped)', async () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-quick-order'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    // The warning is an error-toast with the interpolated count (1 unmapped).
+    await waitFor(() =>
+      expect(Toast.show).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          text1: 'section.purchaseOrders.quickOrderUnmappedWarning',
+        }),
+      ),
+    );
+  });
+
+  it('does NOT fire the mark-sent prompt on a DRAFT (deliberate divergence from Share)', async () => {
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-quick-order'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    // Unlike onShare, the quick-order path is a copy-the-codes aid — no
+    // "did you send it?" confirm, no status flip.
+    expect(mockConfirmAction).not.toHaveBeenCalled();
+    expect(spies.markPurchaseOrderSentManually).not.toHaveBeenCalled();
+  });
+
+  it('does NOT warn when every line is mapped (unmappedCount 0)', async () => {
+    state.poLinesById = {
+      'po-1': [
+        { poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Chicken', unit: 'case', orderedQty: 3, receivedQty: 0, costPerUnit: 10, subUnitSize: 1 },
+      ],
+    };
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    fireEvent.press(screen.getByTestId('po-action-quick-order'));
+    await waitFor(() => expect(mockSharePurchaseOrder).toHaveBeenCalledTimes(1));
+    // No error toast fired (all lines had a code).
+    const warned = (Toast.show as jest.Mock).mock.calls.some(
+      (c) => c[0]?.text1 === 'section.purchaseOrders.quickOrderUnmappedWarning',
+    );
+    expect(warned).toBe(false);
+  });
+
+  it('renders the desktop-web preview pane when the orchestrator returns previewText', async () => {
+    mockSharePurchaseOrder.mockImplementationOnce(async () => ({ shared: true, previewText: 'US-1001\t3\n??? Onion\t12' }));
+    state.orderSubmissions = [po({ id: 'po-1', status: 'sent' })];
+    render(<POsSection />);
+    expect(screen.queryByTestId('po-share-preview')).toBeNull();
+    fireEvent.press(screen.getByTestId('po-action-quick-order'));
+    await waitFor(() => expect(screen.getByTestId('po-share-preview')).toBeTruthy());
+  });
+});

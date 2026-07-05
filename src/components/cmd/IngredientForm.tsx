@@ -68,7 +68,14 @@ export interface IngredientFormValues {
   // string until save" convention. An item with zero links saves with an
   // empty array (removes all `item_vendors` rows); a single-vendor item has
   // exactly one row that mirrors the primary picker.
-  vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string }>;
+  //
+  // Spec 114 — each row also carries `orderCode`: the vendor's own order/SKU
+  // code for THIS (item, vendor) link (→ `item_vendors.order_code`), free-form
+  // text held as a string like the cost fields, trimmed on save; an empty code
+  // saves as SQL NULL. This is the per-vendor code the operator pastes into the
+  // vendor's quick-order box — NOT the obsolete item-level `vendorSku` stub
+  // above (OQ-4), which stays unwired.
+  vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string; orderCode: string }>;
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -173,6 +180,9 @@ export interface VendorLinkRow {
   vendorId: string;
   costPerUnit: string;
   casePrice: string;
+  // Spec 114 — the vendor's order/SKU code for this link (→ item_vendors.order_code).
+  // Free-form string, trimmed on save; empty → SQL NULL via vendorRowsToLinkPayload.
+  orderCode: string;
 }
 
 /**
@@ -198,9 +208,12 @@ export function addVendorLink(
   seed?: { costPerUnit?: string; casePrice?: string },
 ): VendorLinkRow[] {
   if (!vendorId || vendorAlreadyLinked(rows, vendorId)) return rows as VendorLinkRow[];
+  // Spec 114 — a freshly-attached vendor has NO order code yet (the admin types
+  // it into the new per-vendor input); seed it empty. The `seed` bag stays
+  // cost-only — attach never carries a code.
   return [
     ...rows,
-    { vendorId, costPerUnit: seed?.costPerUnit ?? '', casePrice: seed?.casePrice ?? '' },
+    { vendorId, costPerUnit: seed?.costPerUnit ?? '', casePrice: seed?.casePrice ?? '', orderCode: '' },
   ];
 }
 
@@ -219,7 +232,7 @@ export function removeVendorLink(rows: readonly VendorLinkRow[], vendorId: strin
 export function updateVendorLinkField(
   rows: readonly VendorLinkRow[],
   vendorId: string,
-  field: 'costPerUnit' | 'casePrice',
+  field: 'costPerUnit' | 'casePrice' | 'orderCode',
   value: string,
 ): VendorLinkRow[] {
   return rows.map((r) => (r.vendorId === vendorId ? { ...r, [field]: value } : r));
@@ -227,22 +240,29 @@ export function updateVendorLinkField(
 
 /**
  * Map the form's vendor rows to the db link-set payload shape
- * (`{ vendorId, costPerUnit, casePrice }` with numeric costs). Drops rows
- * with an empty / sentinel vendorId. Costs that don't parse coerce to 0
- * (matches the rest of the form's `parseFloat(...) || 0` convention). This is
- * the array threaded to `db.createInventoryItem` / `db.updateInventoryItem`,
+ * (`{ vendorId, costPerUnit, casePrice, orderCode? }` with numeric costs).
+ * Drops rows with an empty / sentinel vendorId. Costs that don't parse coerce
+ * to 0 (matches the rest of the form's `parseFloat(...) || 0` convention). This
+ * is the array threaded to `db.createInventoryItem` / `db.updateInventoryItem`,
  * which reconciles `item_vendors` (upsert present, delete de-selected). An
  * empty result removes ALL links for the item.
+ *
+ * Spec 114 — `orderCode` is trimmed on save; an empty / all-whitespace code
+ * becomes `undefined`, which `db.ts` coalesces to SQL NULL (`order_code:
+ * l.orderCode || null`) — so a blank input clears the code rather than saving
+ * `''` or the string `"undefined"` (AC-4's empty→null contract). A present code
+ * is passed through trimmed.
  */
 export function vendorRowsToLinkPayload(
   rows: readonly VendorLinkRow[],
-): Array<{ vendorId: string; costPerUnit: number; casePrice: number }> {
+): Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string }> {
   return rows
     .filter((r) => r.vendorId && r.vendorId !== NEW_VENDOR_SENTINEL)
     .map((r) => ({
       vendorId: r.vendorId,
       costPerUnit: parseFloat(r.costPerUnit) || 0,
       casePrice: parseFloat(r.casePrice) || 0,
+      orderCode: (r.orderCode || '').trim() || undefined,
     }));
 }
 
@@ -837,6 +857,15 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     onChange({ ...values, vendors: withCost });
   };
 
+  // Spec 114 — the per-vendor order code is FREE TEXT (no numeric guard, no
+  // derived sibling to recompute), so this is a plain single-link patch keyed on
+  // vendorId. Mirrors handleVendorCasePriceChange minus the cost recompute;
+  // updateVendorLinkField guarantees per-card isolation (only that vendorId's
+  // row changes). Do NOT touch the obsolete item-level vendorSku stub (OQ-4).
+  const handleVendorOrderCodeChange = (vendorId: string, value: string) => {
+    onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, 'orderCode', value) });
+  };
+
   // Spec 104 — the top-level case price drives the headline per-each cost/unit
   // (same formula). cost/unit is read-only; case price is the only input.
   const handleCasePriceChange = (value: string) => {
@@ -1224,6 +1253,19 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
                     placeholder="0"
                   />
                 </View>
+                {/* Spec 114 — per-vendor order/SKU code, keyed on row.vendorId,
+                    isolated per card. Free-form text (NOT numericOnly, NOT
+                    readOnly) — the code the operator pastes into THIS vendor's
+                    quick-order box. Distinct from the obsolete item-level
+                    vendorSku stub below (OQ-4). */}
+                <InputLine
+                  label={T('section.inventory.orderCodeLabel')}
+                  value={row.orderCode}
+                  onChangeText={(v) => handleVendorOrderCodeChange(row.vendorId, v)}
+                  monoFont
+                  placeholder="—"
+                  help={T('section.inventory.orderCodeHelp')}
+                />
               </View>
             );
           })

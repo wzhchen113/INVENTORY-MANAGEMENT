@@ -1,0 +1,82 @@
+-- ============================================================
+-- Spec 114 (D-1) — Per-vendor order code on `public.item_vendors`.
+--
+-- The owner wants to record each vendor's OWN order/SKU code per
+-- (item, vendor) so an operator can generate a paste-ready
+-- `<order code><TAB><qty>` block for a vendor's web quick-order box (the
+-- universal, ToS-safe, no-live-account artifact — see the spec Background).
+-- The same US Foods item and Sysco item can carry DIFFERENT codes, so the
+-- code belongs on the per-(item, vendor) link, not the item.
+--
+-- This migration is PURELY ADDITIVE and NON-DESTRUCTIVE: one nullable text
+-- column, NO default, NO backfill, NO change to any existing column, NO
+-- drop. Existing rows get NULL (no code until an admin types one).
+--
+-- `add column` with no default and no `not null` is a metadata-only,
+-- instant, non-rewriting operation on Postgres 17 — safe on the 564-link
+-- seed and on prod. Reversible-by-design (repo has no down-migration
+-- convention): a single
+--   alter table public.item_vendors drop column order_code;
+-- returns the system to exactly its prior state (the column carried no
+-- constraint, no index, and no dependent object).
+--
+-- INHERITED WITH ZERO CHANGE (this migration touches NONE of the below):
+--   • RLS — the four store_member_{read,insert,update,delete}_item_vendors
+--     policies (20260630000000_item_vendors.sql:121-142) gate the WHOLE ROW
+--     via `exists(… inventory_items ii where ii.id = item_vendors.item_id
+--     and auth_can_see_store(ii.store_id))`. Row-level policies are
+--     column-agnostic, so `order_code` is covered by SELECT / INSERT /
+--     UPDATE / DELETE the instant it exists. No new policy, no policy edit.
+--     (The spec-053 permissive-policy lint arm therefore stays green
+--     untouched — no policy is added, so no allowlist edit is expected.)
+--   • Grants — `grant select, insert, update, delete, references, trigger …
+--     to anon, authenticated` (20260630000000_item_vendors.sql:98) and
+--     `grant all … to service_role` (:100) are TABLE-level grants; they
+--     extend to every column automatically, including one added later.
+--     Combined with the spec-097 default-privileges migration
+--     (20260618000000_public_grants_explicit.sql) there is NO grant hunk
+--     here and no grant leak. (Only a future column-level `revoke` would
+--     need re-stating; nothing here does.)
+--   • Realtime publication membership — public.item_vendors is ALREADY in
+--     the supabase_realtime publication (20260630000000_item_vendors.sql:172)
+--     and ALREADY subscribed in useRealtimeSync.ts (spec 102). An
+--     order_code edit therefore replays to other admin clients on the
+--     existing store-{id} channel with no wiring change.
+--
+-- REALTIME PUBLICATION GOTCHA — DELIBERATE ABSENCE (OQ-5). The documented
+-- `docker restart supabase_realtime_imr-inventory` step (CLAUDE.md /
+-- MEMORY.md "Realtime publication gotcha") applies ONLY when a migration
+-- changes supabase_realtime publication MEMBERSHIP. This migration ADDS A
+-- COLUMN to an already-published table — it does NOT touch the publication.
+-- So the restart step does NOT apply here. Flagged explicitly so the deploy
+-- checklist is not padded with a no-op restart.
+--
+-- PROD-APPLY (DDL, verify by COLUMN PRESENCE — spec 064 gate). This is an
+-- additive DDL apply via the Supabase MCP (project memory "Prod migration
+-- via Supabase MCP" — `db push` lacks the prod password):
+--   1. execute_sql the `alter table … add column` (+ the comment) below.
+--   2. INSERT the exact version '20260708000000' into
+--      supabase_migrations.schema_migrations so db-migrations-applied.yml
+--      (spec 064) stays green.
+--   3. VERIFY the column landed:
+--        select 1 from information_schema.columns
+--         where table_schema='public' and table_name='item_vendors'
+--           and column_name='order_code';
+-- Verify by COLUMN PRESENCE, NOT a body-only normalized-md5 — that md5
+-- check is for CREATE-OR-REPLACE FUNCTION bodies; there is no function
+-- here. The developer FLAGS this prod-apply in the handoff and does NOT
+-- push it themselves; db-migrations-applied.yml goes red until the
+-- schema_migrations row lands (expected, resolves on apply).
+-- ============================================================
+
+-- The lone non-default hunk: the additive nullable column. `if not exists`
+-- keeps a manual re-apply idempotent (mirrors the create-table guard in the
+-- spec-102 migration). Free-form text, no uniqueness (OQ-2) — the existing
+-- (item_id, vendor_id) composite unique already gives one code per
+-- (item, vendor); cross-item uniqueness is not required and would reject
+-- legitimate data with an opaque 23505.
+alter table public.item_vendors
+  add column if not exists order_code text;
+
+comment on column public.item_vendors.order_code is
+  'spec 114: the vendor''s own order/SKU code for this (item, vendor) link — pasted into the vendor''s web quick-order box as `<order_code><TAB><qty>` (no prices). Free-form, nullable, NO uniqueness constraint (the (item_id, vendor_id) composite unique already gives one code per (item, vendor)). Distinct from the obsolete item-level vendorSku stub in IngredientForm (OQ-4, not wired). Inherits the four store_member_*_item_vendors RLS policies + spec-097 grants + realtime publication membership unchanged.';
