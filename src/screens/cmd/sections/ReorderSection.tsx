@@ -47,11 +47,11 @@ import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
 // `buildReorderCsv` from THIS module) stays green after the extraction.
 export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 
-// Spec 021 — vendor-grouped reorder list. Sibling to RestockSection
-// (which is store-wide-by-category). This screen groups by vendor with
+// Spec 021 — vendor-grouped reorder list. This screen groups by vendor with
 // a per-vendor "next delivery" header and an inline `on hand | inbound
 // | par → order` breakdown per item, sourced from a server-side RPC
-// (`report_reorder_list`).
+// (`report_reorder_list`). (It superseded the former store-wide-by-category
+// Restock prototype, retired in cleanup.)
 //
 // v2 contract notes (spec 107 landed the loop):
 //   - `pending_po_qty` is now a REAL open-PO aggregate server-side (both

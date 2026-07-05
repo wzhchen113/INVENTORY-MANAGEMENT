@@ -39,7 +39,6 @@ import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
 import InventoryCountSection from './sections/InventoryCountSection';
 import ReceivingSection from './sections/ReceivingSection';
-import RestockSection from './sections/RestockSection';
 import ReorderSection from './sections/ReorderSection';
 import POsSection from './sections/POsSection';
 import RecipesSection from './sections/RecipesSection';
@@ -301,8 +300,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <InventoryCountSection />
         ) : section === 'Receiving' ? (
           <ReceivingSection />
-        ) : section === 'Restock' ? (
-          <RestockSection />
         ) : section === 'Reorder' ? (
           <ReorderSection />
         ) : section === 'PurchaseOrders' ? (

@@ -18,7 +18,6 @@
       "vendors": "Vendors",
       "menuItemsBom": "Menu items / BOM",
       "prepRecipes": "Prep recipes",
-      "restock": "Restock",
       "reorder": "Reorder",
       "reconciliation": "Reconciliation",
       "posImports": "POS imports",
@@ -933,10 +932,6 @@
       "raw": "RAW",
       "subKind": "PREP",
       "missingMarker": "(missing {id})"
-    },
-    "restock": {
-      "title": "Restock",
-      "noSuggestions": "No restock needed"
     },
     "reorder": {
       "title": "Reorder",

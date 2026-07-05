@@ -193,7 +193,6 @@ jest.mock('../sections/DashboardSection', () => ({ __esModule: true, default: ()
 jest.mock('../sections/EODCountSection', () => ({ __esModule: true, default: () => null }));
 jest.mock('../sections/InventoryCountSection', () => ({ __esModule: true, default: () => null }));
 jest.mock('../sections/ReceivingSection', () => ({ __esModule: true, default: () => null }));
-jest.mock('../sections/RestockSection', () => ({ __esModule: true, default: () => null }));
 jest.mock('../sections/ReorderSection', () => ({ __esModule: true, default: () => null }));
 jest.mock('../sections/POsSection', () => ({ __esModule: true, default: () => null }));
 jest.mock('../sections/RecipesSection', () => ({ __esModule: true, default: () => null }));

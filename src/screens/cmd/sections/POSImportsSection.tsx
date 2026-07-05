@@ -85,8 +85,16 @@ export default function POSImportsSection() {
   // recipe loads, etc).
   React.useEffect(() => {
     if (!breadbotPreview) {
-      setPreviewMatches([]);
-      setPreviewOverrides({});  // reset overrides when preview clears
+      // Reset when the preview clears — but as NO-OP-when-already-empty
+      // functional updates. `previewOverrides` is a dependency of this effect,
+      // so unconditionally calling `setPreviewOverrides({})` here minted a fresh
+      // `{}` every run → the dep reference changed → the effect re-ran → an
+      // infinite render loop (React "maximum update depth exceeded") on every
+      // mount where no breadbot preview is open (the normal state). Returning
+      // the SAME reference when already empty lets React bail out of the
+      // re-render, breaking the cycle.
+      setPreviewMatches((prev) => (prev.length === 0 ? prev : []));
+      setPreviewOverrides((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     setPreviewMatches(

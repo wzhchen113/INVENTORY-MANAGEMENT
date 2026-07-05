@@ -18,7 +18,6 @@
       "vendors": "供应商",
       "menuItemsBom": "菜品 / BOM",
       "prepRecipes": "备菜配方",
-      "restock": "补货",
       "reorder": "再订购",
       "reconciliation": "对账",
       "posImports": "POS 导入",
@@ -933,10 +932,6 @@
       "raw": "原料",
       "subKind": "备菜",
       "missingMarker": "(缺失 {id})"
-    },
-    "restock": {
-      "title": "补货",
-      "noSuggestions": "无需补货"
     },
     "reorder": {
       "title": "再订购",

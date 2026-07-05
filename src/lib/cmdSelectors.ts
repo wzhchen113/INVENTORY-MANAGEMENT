@@ -174,7 +174,6 @@ const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string }> = [
   // Note: deliberately reuses the menuItemsBom key so the palette entry
   // labels match the sidebar item label across all locales.
   { name: 'Recipes',         labelKey: 'sidebar.items.menuItemsBom' },
-  { name: 'Restock',         labelKey: 'sidebar.items.restock' },
   { name: 'Reorder',         labelKey: 'sidebar.items.reorder' },
   // Spec 060 — Menu impact section. First entry in the INSIGHTS sidebar
   // group; the palette entry keeps it discoverable via ⌘K.
@@ -1101,10 +1100,8 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'Vendors',         label: T('sidebar.items.vendors') },
           { id: 'Recipes',         label: T('sidebar.items.menuItemsBom') },
           { id: 'PrepRecipes',     label: T('sidebar.items.prepRecipes') },
-          { id: 'Restock',         label: T('sidebar.items.restock') },
-          // Spec 021 — vendor-grouped reorder list sibling to Restock.
-          // Restock is store-wide-by-category; Reorder is
-          // vendor-grouped-for-delivery-day. Different mental models.
+          // Spec 021 — vendor-grouped reorder list. (The former store-wide
+          // Restock prototype it superseded was retired in spec 112-era cleanup.)
           { id: 'Reorder',         label: T('sidebar.items.reorder') },
         ],
       },

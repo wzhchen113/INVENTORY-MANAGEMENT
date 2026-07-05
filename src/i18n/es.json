@@ -18,7 +18,6 @@
       "vendors": "Proveedores",
       "menuItemsBom": "Menú / BOM",
       "prepRecipes": "Recetas de prep",
-      "restock": "Reabastecer",
       "reorder": "Reordenar",
       "reconciliation": "Conciliación",
       "posImports": "Importes POS",
@@ -933,10 +932,6 @@
       "raw": "BRUTO",
       "subKind": "PREP",
       "missingMarker": "(falta {id})"
-    },
-    "restock": {
-      "title": "Reabastecer",
-      "noSuggestions": "Sin necesidad de reabastecer"
     },
     "reorder": {
       "title": "Reordenar",
