@@ -38,10 +38,22 @@
 begin;
 create extension if not exists pgtap;
 
--- 11 assertions: (1)-(4) INSERT policy (4); (5a/5b/5c) order_unit column shape
+-- 13 assertions: (1a/1b) INSERT policy shape post-cleanup — the redundant
+-- brand-less "Vendors admin only" is DROPPED (20260710000000) and
+-- privileged_insert_vendors is the sole INSERT policy (2); (2)-(4) same-brand
+-- INSERT by master/admin/user (3); (4b) CROSS-BRAND INSERT by an admin is now
+-- REJECTED — the fix's whole point (1); (5a/5b/5c) order_unit column shape
 -- + default-at-row (3); (6) CHECK rejects off-vocabulary (1); (7a/7b) privileged
 -- UPDATE allowed + persisted (2); (8) non-privileged UPDATE denied / unchanged (1).
-select plan(11);
+select plan(13);
+
+-- A throwaway SECOND brand (superuser insert, bypasses RLS) so the cross-brand
+-- negative below has a foreign brand to be rejected against. The seed ships a
+-- single brand (2a000000-…-0001), so without this the cross-brand write is
+-- untestable — exactly why the hole went unnoticed.
+insert into public.brands (id, name)
+values ('2b000000-0000-0000-0000-0000000000b2', '__test_brand_b__')
+on conflict (id) do nothing;
 
 -- Seed the dedicated UPDATE-target vendor as the default (superuser) role so
 -- it exists regardless of RLS. order_unit is left to its DEFAULT ('case') to
@@ -49,15 +61,26 @@ select plan(11);
 insert into vendors (id, name, brand_id)
 values ('99999999-9999-9999-9999-999999999944', '__test_vendor_order_unit__', '2a000000-0000-0000-0000-000000000001');
 
--- ─── (1) policy exists ─────────────────────────────────────────────────────────
+-- ─── (1a) the redundant brand-less policy is DROPPED (20260710000000) ──────────
 select cmp_ok(
   (select count(*)::int
      from pg_policies
     where schemaname = 'public'
       and tablename  = 'vendors'
       and policyname = 'Vendors admin only'),
+  '=', 0,
+  '(1a) redundant brand-less "Vendors admin only" INSERT policy is dropped'
+);
+
+-- ─── (1b) privileged_insert_vendors is the SOLE remaining INSERT policy ────────
+select cmp_ok(
+  (select count(*)::int
+     from pg_policies
+    where schemaname = 'public'
+      and tablename  = 'vendors'
+      and cmd        = 'INSERT'),
   '=', 1,
-  '(1) Vendors admin only policy exists exactly once'
+  '(1b) privileged_insert_vendors is the only vendors INSERT policy (brand-scoped)'
 );
 
 -- ─── (2) master role (seed id 33333333-...) can INSERT a vendor ───────────────
@@ -91,6 +114,26 @@ select throws_ok(
   '42501',
   null,
   '(4) user role is rejected by RLS on vendors INSERT'
+);
+
+reset role;
+
+-- ─── (4b) CROSS-BRAND — an admin scoped to brand 2AM is REJECTED inserting a
+-- vendor into the foreign Brand B. This is the whole point of 20260710000000:
+-- before the drop, the brand-less "Vendors admin only" arm OR'd past
+-- auth_can_see_brand and this INSERT SUCCEEDED (a plain INSERT with no
+-- RETURNING — the SELECT read-back mask only hides the row, it does not block
+-- the write). After the drop, privileged_insert_vendors' WITH CHECK
+-- (auth_is_privileged() AND auth_can_see_brand(brand_id)) is the sole gate and
+-- auth_can_see_brand(BrandB) is false for a 2AM admin → 42501.
+set local role authenticated;
+set local request.jwt.claims to '{"sub": "11111111-1111-1111-1111-111111111111", "role": "authenticated", "app_metadata": {"role": "admin"}}';
+
+select throws_ok(
+  $$insert into vendors (id, name, brand_id) values ('99999999-9999-9999-9999-9999999944b2', '__test_vendor_crossbrand__', '2b000000-0000-0000-0000-0000000000b2')$$,
+  '42501',
+  null,
+  '(4b) admin of brand 2AM is REJECTED inserting a vendor into a foreign brand (cross-brand hole closed)'
 );
 
 reset role;

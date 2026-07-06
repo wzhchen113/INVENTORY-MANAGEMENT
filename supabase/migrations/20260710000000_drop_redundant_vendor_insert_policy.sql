@@ -1,0 +1,59 @@
+-- ============================================================
+-- Cleanup (2026-07-05) — Close a cross-brand vendor-INSERT hole reopened by a
+-- migration-ordering collision.
+--
+-- public.vendors carried TWO permissive INSERT policies:
+--   • privileged_insert_vendors — WITH CHECK (auth_is_privileged()
+--       AND auth_can_see_brand(brand_id))   [20260509000000:579, brand-scoped]
+--   • "Vendors admin only"       — WITH CHECK (auth_is_privileged())
+--       [20260517010000:19-21, NO brand check]
+--
+-- Permissive policies OR (CLAUDE.md permissive-policy discipline), so the
+-- brand-less "Vendors admin only" arm NEUTRALIZES the brand scoping of
+-- privileged_insert_vendors: a privileged principal (admin/master/super_admin)
+-- of brand A can INSERT a vendor into brand B — a brand they cannot
+-- auth_can_see_brand(). Proven live: a plain `INSERT INTO vendors(...)` (no
+-- RETURNING — the SELECT read-back mask only hides the row from the client, it
+-- does NOT block the write) into a foreign brand SUCCEEDS and commits. Latent
+-- today only because the DB has exactly one brand; a REAL cross-brand write the
+-- instant a second brand exists.
+--
+-- HOW IT HAPPENED (spec-051/053 permissive-policy footgun):
+--   20260509000000_multi_brand_schema_rls.sql DROPPED the original brand-less
+--   "Vendors admin only" (an init_schema profiles.role='admin' string form) and
+--   installed the brand-scoped privileged_insert_vendors. Eight days later
+--   20260517010000_vendors_master_role_fix.sql — trying to unblock master/
+--   super_admin, and unaware 20260509 had already superseded the policy with the
+--   privilege helper — RE-CREATED "Vendors admin only" WITH CHECK
+--   (auth_is_privileged()), reopening the brand hole. The spec-053 lint did not
+--   catch it (auth_is_privileged() is not a trivially-wide token), and
+--   vendors_role_access.test.sql asserted same-brand INSERT only.
+--
+-- FIX (per CLAUDE.md: CONSOLIDATE, do not add a parallel arm): DROP the
+-- redundant brand-less "Vendors admin only". privileged_insert_vendors remains
+-- as the SOLE INSERT policy — it is a STRICT SUPERSET in role coverage (same
+-- auth_is_privileged() = admin OR master OR super_admin, so the master-role-fix's
+-- original intent is preserved) AND a STRICT TIGHTENING in brand scope
+-- (auth_can_see_brand(brand_id) now actually gates). No principal loses a
+-- legitimate (own-brand) insert; the cross-brand write is closed. No new policy
+-- is added, so no spec-053 permissive-policy-lint allowlist edit is needed.
+--
+-- Non-destructive to data (policy DDL only, no table/row change). SELECT
+-- (brand_member_read_vendors), UPDATE (privileged_update_vendors), DELETE
+-- (privileged_delete_vendors) are untouched. No grant/publication change.
+-- Reversible-by-design: re-create the dropped policy to restore prior (buggy)
+-- state.
+--
+-- PROD-APPLY (policy DDL, verify by POLICY ABSENCE — spec 064 gate). Apply via
+-- Supabase MCP (db push lacks the prod password):
+--   1. execute_sql the DROP POLICY below.
+--   2. INSERT version '20260710000000' into supabase_migrations.schema_migrations.
+--   3. VERIFY: the "Vendors admin only" policy is gone and privileged_insert_vendors
+--      is the sole vendors INSERT policy —
+--        select count(*) from pg_policies
+--         where schemaname='public' and tablename='vendors' and cmd='INSERT';
+--      → expect 1 (privileged_insert_vendors only).
+-- NOT a body-md5 check (no function). No publication/grant apply.
+-- ============================================================
+
+drop policy if exists "Vendors admin only" on public.vendors;

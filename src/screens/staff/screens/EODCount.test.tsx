@@ -8,6 +8,13 @@ import { FlatList } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import Toast from 'react-native-toast-message';
 
+// CI hardening: this full-render suite is timing-marginal on the 2-core CI
+// runner under full parallel load — the first render + waitFor occasionally
+// blew jest's default 5000ms budget and reddened `main` (a flake, ~149ms
+// locally). Raise the per-suite budget so contention can't fail it; does not
+// slow the pass locally (tests still resolve in ~150ms each).
+jest.setTimeout(15000);
+
 // ─── mock the hook surface ───────────────────────────────────────
 const mockSubmit = jest.fn();
 jest.mock('../hooks/useEodSubmit', () => ({

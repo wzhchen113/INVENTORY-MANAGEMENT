@@ -2943,10 +2943,14 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     // Pass the empty string through too so an admin can clear a previously-set cutoff.
     if (updates.orderCutoffTime !== undefined) dbUpdates.order_cutoff_time = updates.orderCutoffTime || null;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime || null;
-    // Spec 115 (W-2) — omit-key-to-skip, consistent with the other fields.
-    // (Does NOT touch the pre-existing deliveryDays/categories drop noted in
-    // the design §0; that stays as-is for a future spec.)
     if (updates.orderUnit !== undefined) dbUpdates.order_unit = updates.orderUnit;
+    // Delivery days + categories ARE editable in VendorFormDrawer but were
+    // previously dropped here — a silent data-loss bug on vendor edit (the
+    // save appeared to succeed but neither field persisted). Thread them
+    // through as the direct string[] the columns expect (mirrors createVendor),
+    // omit-key-to-skip like the rest.
+    if (updates.deliveryDays !== undefined) dbUpdates.delivery_days = updates.deliveryDays;
+    if (updates.categories !== undefined) dbUpdates.categories = updates.categories;
     await supabase.from('vendors').update(dbUpdates).eq('id', id).abortSignal(signal);
   }, { kind: 'write', label: 'updateVendor' });
 }
