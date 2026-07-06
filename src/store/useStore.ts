@@ -19,6 +19,7 @@ import {
 } from '../data/seed';
 import * as db from '../lib/db';
 import { supabase } from '../lib/supabase';
+import { getConversionFactor, smartToBase } from '../utils/unitConversion';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
@@ -1973,7 +1974,6 @@ export const useStore = create<FullStore>((set, get) => ({
     const verb = existing ? 'edited' : 'submitted';
     const vendorSuffix = subVendorName ? ` (${subVendorName})` : '';
     const msg = `${submitterName} ${verb} today's EOD count${vendorSuffix} for ${submission.storeName}`;
-    const { supabase } = require('../lib/supabase');
     // supabase-js v2 builders (rpc, from().update(), etc.) are thenable but
     // DON'T expose `.catch` — chaining it throws TypeError synchronously and
     // aborts submitEOD before handleSubmit's persistToCloud call runs.
@@ -2117,7 +2117,6 @@ export const useStore = create<FullStore>((set, get) => ({
               get().inventory.find((i) => i.catalogId === ing.itemId && i.storeId === storeId) ||
               get().inventory.find((i) => i.id === ing.itemId); // legacy fallback
             if (item) {
-              const { getConversionFactor } = require('../utils/unitConversion');
               const factor = getConversionFactor(ing.unit, item.unit);
               const convertedQty = factor !== null ? ing.quantity * factor : ing.quantity;
               get().adjustStock(
@@ -2444,7 +2443,6 @@ export const useStore = create<FullStore>((set, get) => ({
     const submitterName = get().currentUser?.name || 'someone';
     const storeName = submission.storeName || get().stores.find((st) => st.id === submission.storeId)?.name || 'store';
     const msg = `${submission.vendorName} order for ${storeName} submitted by ${submitterName}`;
-    const { supabase } = require('../lib/supabase');
     // Same fix as submitEOD: promote the rpc builder to a real Promise before
     // .catch so it doesn't throw TypeError and abort submitOrder.
     Promise.resolve(
@@ -2992,7 +2990,6 @@ export const useStore = create<FullStore>((set, get) => ({
       visited.add(id);
       const prep = get().getPrepRecipe(id);
       if (!prep) return 0;
-      const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
       const allConversions = get().ingredientConversions || [];
       return prep.ingredients.reduce((sum, ing) => {
         const isSubRecipe = (ing.type || 'raw') === 'prep';
@@ -3029,7 +3026,6 @@ export const useStore = create<FullStore>((set, get) => ({
     }
     // Legacy fallback — yieldQuantity was never set. Sum ingredient base
     // quantities and convert to a friendly display unit.
-    const { smartToBase } = require('../utils/unitConversion');
     let yG = 0, yF = 0;
     for (const ing of prep.ingredients) {
       const b = smartToBase(ing.quantity, ing.unit);
@@ -3064,7 +3060,6 @@ export const useStore = create<FullStore>((set, get) => ({
   // subUnitSize defaults to 1, so for an item whose tracking unit IS the
   // smallest unit every bridge is a self-evident no-op.
   getIngredientLineCost: (ing) => {
-    const { getConversionFactor, smartToBase } = require('../utils/unitConversion');
     // After the catalog refactor `ing.itemId` is a catalog id. Resolve to
     // the CURRENT STORE's per-store inventory_items row to get
     // cost_per_unit / vendor / case packing.
@@ -3110,7 +3105,6 @@ export const useStore = create<FullStore>((set, get) => ({
   getRecipeCost: (recipeId) => {
     const recipe = get().recipes.find((r) => r.id === recipeId);
     if (!recipe) return 0;
-    const { getConversionFactor } = require('../utils/unitConversion');
 
     const rawCost = recipe.ingredients.reduce((sum, ing) => sum + get().getIngredientLineCost(ing), 0);
 
