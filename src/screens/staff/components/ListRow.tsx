@@ -93,11 +93,11 @@ export function ListRow({
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: touchTarget.min + 16, // 60pt — comfortable phone row
+    minHeight: touchTarget.min, // 24pt — dense phone row
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: radius.lg,
   },
   leading: {

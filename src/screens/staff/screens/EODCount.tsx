@@ -1247,15 +1247,18 @@ const styles = StyleSheet.create({
     fontWeight: typography.semibold,
   },
   // Two compact inputs side-by-side in the trailing slot. Each column
-  // stacks a caption (Cases / Units) over the input. ~76pt each + gap
+  // stacks a caption (Cases / Units) over the input. ~44pt each + gap
   // keeps the pair inside the row's trailing cell on a phone viewport
   // (the leading column is flex:1, minWidth:0 so it yields).
   countInputs: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    // Tight gap so the columns can be wide enough for "Loose Units"
+    // to fit on one line.
+    gap: spacing.xs,
+    alignItems: 'flex-end',
   },
   countCol: {
-    width: 76,
+    width: 52,
   },
   countColLabel: {
     fontSize: typography.caption,
@@ -1264,7 +1267,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.medium,
   },
   countInput: {
-    width: 76,
+    width: 52,
     textAlign: 'center',
   },
   footer: {

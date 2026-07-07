@@ -943,23 +943,6 @@ export function WeeklyCount() {
                   {hasPack ? ` · ${t('weekly.row.caseOf', { qty: item.caseQty as number })}` : ''}
                 </Text>
               ) : null}
-              {isLow && low ? (
-                <Text
-                  style={[styles.itemLowDetail, { color: c.warning }]}
-                  testID={`weekly-low-detail-${item.id}`}
-                >
-                  {low.unit
-                    ? t('weekly.lowStock.detail', {
-                        onHand: low.onHand,
-                        unit: low.unit,
-                        date: low.nextDeliveryDate,
-                      })
-                    : t('weekly.lowStock.detailNoUnit', {
-                        onHand: low.onHand,
-                        date: low.nextDeliveryDate,
-                      })}
-                </Text>
-              ) : null}
               {hasPack && entered ? (
                 <Text
                   style={[styles.itemTotal, { color: c.textSecondary }]}
@@ -1472,11 +1455,6 @@ const styles = StyleSheet.create({
     fontWeight: typography.bold,
     letterSpacing: 0.5,
   },
-  itemLowDetail: {
-    fontSize: typography.caption,
-    marginTop: 2,
-    fontWeight: typography.medium,
-  },
   itemUnit: {
     fontSize: typography.caption,
     marginTop: 2,
@@ -1488,10 +1466,13 @@ const styles = StyleSheet.create({
   },
   countInputs: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    // Tight gap so the columns can be wide enough for "Loose Units"
+    // to fit on one line.
+    gap: spacing.xs,
+    alignItems: 'flex-end',
   },
   countCol: {
-    width: 76,
+    width: 52,
   },
   countColLabel: {
     fontSize: typography.caption,
@@ -1500,7 +1481,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.medium,
   },
   countInput: {
-    width: 76,
+    width: 52,
     textAlign: 'center',
   },
   footer: {

@@ -66,8 +66,8 @@ const styles = StyleSheet.create({
     minHeight: touchTarget.min,
     borderWidth: 1,
     borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     fontSize: typography.body,
     // Web-only — focus ring control. Native ignores this.
     ...(Platform.OS === 'web' ? { outlineWidth: 0 } : {}),

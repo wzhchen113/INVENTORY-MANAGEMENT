@@ -141,37 +141,40 @@ export function useStaffColors(): StaffColors {
   return resolveStaffColors('dark');
 }
 
+// 2026-07 density pass: owner asked for half the original visual bulk
+// ("everything divided by 2"), so the spacing/radius/type scales below
+// are ~50% of the original phone scale.
 export const spacing = {
-  xxs: 2,
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
-  xxxl: 48,
+  xxs: 1,
+  xs: 2,
+  sm: 4,
+  md: 6,
+  lg: 8,
+  xl: 12,
+  xxl: 16,
+  xxxl: 24,
 } as const;
 
 export const radius = {
-  sm: 8, // inputs, small pills (was 4)
-  md: 12, // buttons, chips (was 8)
-  lg: 16, // cards / rows / banners — the "soft card" radius (was 12)
-  xl: 20, // large hero cards if needed (additive)
+  sm: 4, // inputs, small pills
+  md: 6, // buttons, chips
+  lg: 8, // cards / rows / banners
+  xl: 10, // large hero cards if needed
   pill: 999,
 } as const;
 
 export const typography = {
-  // Sizes
-  caption: 12,
-  body: 16,
-  bodyLarge: 18,
-  title: 20,
-  headline: 24,
-  display: 28,
+  // Sizes — ~half the original 16/18/20 phone scale.
+  caption: 8,
+  body: 9,
+  bodyLarge: 10,
+  title: 12,
+  headline: 14,
+  display: 16,
 
   // Line-height helpers (additive) so multi-line copy breathes.
-  lineHeightBody: 22, // for body (16) text blocks
-  lineHeightTitle: 30, // for title/headline blocks
+  lineHeightBody: 12, // for body (9) text blocks
+  lineHeightTitle: 18, // for title/headline blocks
 
   // Weights
   regular: '400' as const,
@@ -180,9 +183,11 @@ export const typography = {
   bold: '700' as const,
 } as const;
 
-// Per spec 062 §B5 + B10 — tap targets ≥ 44pt.
+// Spec 062 §B5 + B10 set tap targets ≥ 44pt; lowered to 24pt in the
+// 2026-07 density pass with explicit owner approval ("everything
+// divided by 2").
 export const touchTarget = {
-  min: 44,
+  min: 24,
 } as const;
 
 // ── Elevation / shadow scale ──────────────────────────────────────
