@@ -90,8 +90,6 @@
       "vendorsSub": "ordering today",
       "items": "Items",
       "itemsSub": "below par",
-      "estTotal": "Est. total",
-      "estTotalSub": "at current cost",
       "source": "On-hand source",
       "sourceValue": "{count} EOD",
       "sourceSub": "{count} stock fallback"
@@ -112,7 +110,7 @@
     "vendor": {
       "unnamed": "Unnamed vendor",
       "nextDelivery": "Next delivery: {date} ({days})",
-      "subtotal": "{count} items · {cost}"
+      "subtotal": "{count} items"
     },
     "item": {
       "breakdown": "on hand {onHand} · par {par}",

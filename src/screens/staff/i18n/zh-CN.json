@@ -90,8 +90,6 @@
       "vendorsSub": "今天下单",
       "items": "项目",
       "itemsSub": "低于安全库存",
-      "estTotal": "预计总额",
-      "estTotalSub": "按当前成本",
       "source": "在库数据来源",
       "sourceValue": "{count} 条 EOD",
       "sourceSub": "{count} 条库存回退"
@@ -112,7 +110,7 @@
     "vendor": {
       "unnamed": "未命名供应商",
       "nextDelivery": "下次配送：{date}（{days}）",
-      "subtotal": "{count} 个项目 · {cost}"
+      "subtotal": "{count} 个项目"
     },
     "item": {
       "breakdown": "在库 {onHand} · 安全库存 {par}",

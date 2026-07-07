@@ -165,17 +165,18 @@ describe('Reorder — happy path (by-the-case display + KPIs)', () => {
     mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
     mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
 
-    const { getByText, getAllByText, getByTestId } = renderScreen();
+    const { getByText, queryAllByText, getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
     expect(getByText('Acme')).toBeTruthy();
     // Composed from the screen-local suggestedMainLabel + suggestedSubLabel
     // helpers (spec 100); in EN the output matches the admin formatSuggested
     // string byte-for-byte.
     expect(getByText('Order: 3 cases · 72 each')).toBeTruthy();
-    // Server-rounded est cost rides through (no FE cost math). $144.00 shows
-    // in the per-item cost, the KPI Est. total, AND the vendor subtotal (the
-    // KPI total equals the single item's cost) — so assert ≥1 occurrence.
-    expect(getAllByText('$144.00').length).toBeGreaterThanOrEqual(1);
+    // Owner decision (2026-07): staff see order quantities ONLY — no cost. The
+    // server-rounded est cost ($144.00) that previously showed in the per-item
+    // cost / KPI Est. total / vendor subtotal must not render anywhere.
+    expect(queryAllByText('$144.00')).toHaveLength(0);
+    expect(queryAllByText(/\$/)).toHaveLength(0);
   });
 
   it('shows the export buttons (CSV/text/PDF) when the filtered set is non-empty', async () => {

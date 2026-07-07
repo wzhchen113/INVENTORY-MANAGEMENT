@@ -27,13 +27,14 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import type { ReorderPayload } from '../../../types';
+import { slugifyStore, todayLocalIso } from '../../../utils/reorderExport';
+// Staff exports are cost-free (owner decision 2026-07) — the price-stripped
+// mirrors of the shared builders. The shared util stays intact for admin.
 import {
-  buildReorderCsv,
-  buildReorderPdfHtml,
-  buildReorderText,
-  slugifyStore,
-  todayLocalIso,
-} from '../../../utils/reorderExport';
+  buildStaffReorderCsv,
+  buildStaffReorderPdfHtml,
+  buildStaffReorderText,
+} from './reorderExportStaff';
 
 type Format = 'csv' | 'text' | 'pdf';
 
@@ -113,7 +114,7 @@ async function nativeShare(content: string, filename: string, mimeType: string):
 /** Export/share the reorder list as CSV. */
 export async function shareReorderCsv(payload: ReorderPayload, storeName: string): Promise<void> {
   try {
-    const content = buildReorderCsv(payload);
+    const content = buildStaffReorderCsv(payload);
     const filename = `${filenameBase(payload, storeName)}.csv`;
     const mimeType = 'text/csv';
     if (Platform.OS === 'web') {
@@ -130,7 +131,7 @@ export async function shareReorderCsv(payload: ReorderPayload, storeName: string
 /** Export/share the reorder list as plain text. */
 export async function shareReorderText(payload: ReorderPayload, storeName: string): Promise<void> {
   try {
-    const content = buildReorderText(payload, storeName);
+    const content = buildStaffReorderText(payload, storeName);
     const filename = `${filenameBase(payload, storeName)}.txt`;
     const mimeType = 'text/plain';
     if (Platform.OS === 'web') {
@@ -153,7 +154,7 @@ export async function shareReorderText(payload: ReorderPayload, storeName: strin
  */
 export async function shareReorderPdf(payload: ReorderPayload, storeName: string): Promise<void> {
   try {
-    const html = buildReorderPdfHtml(payload, storeName);
+    const html = buildStaffReorderPdfHtml(payload, storeName);
     const filename = `${filenameBase(payload, storeName)}.pdf`;
     if (Platform.OS === 'web') {
       // expo-print on web drives window.print via an iframe; there is no

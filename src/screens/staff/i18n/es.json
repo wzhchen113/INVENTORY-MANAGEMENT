@@ -90,8 +90,6 @@
       "vendorsSub": "pedidos para hoy",
       "items": "Artículos",
       "itemsSub": "por debajo del par",
-      "estTotal": "Total est.",
-      "estTotalSub": "al costo actual",
       "source": "Fuente de existencias",
       "sourceValue": "{count} EOD",
       "sourceSub": "{count} de respaldo de stock"
@@ -112,7 +110,7 @@
     "vendor": {
       "unnamed": "Proveedor sin nombre",
       "nextDelivery": "Próxima entrega: {date} ({days})",
-      "subtotal": "{count} artículos · {cost}"
+      "subtotal": "{count} artículos"
     },
     "item": {
       "breakdown": "en mano {onHand} · par {par}",

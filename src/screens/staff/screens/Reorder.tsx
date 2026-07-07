@@ -48,7 +48,7 @@ import {
   useStaffTokens,
   type StaffTokens,
 } from '../theme';
-import { formatMoney, formatQty } from '../../../utils/reorderExport';
+import { formatQty } from '../../../utils/reorderExport';
 import {
   activeWeekdaysFromSchedule,
   computeReorderKpis,
@@ -188,13 +188,14 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
             ]}
           >
             <View style={styles.itemTop}>
+              {/* Owner decision (2026-07): staff see order quantities only — no
+                  per-item cost. Spec 100 — resolve the display name in the
+                  active locale (silent English fallback). Adapter:
+                  ReorderItem.itemName ≠ the helper's `name` field, so shape it
+                  the way EOD/Weekly do. */}
               <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
-                {/* Spec 100 — resolve the display name in the active locale
-                    (silent English fallback). Adapter: ReorderItem.itemName ≠
-                    the helper's `name` field, so shape it the way EOD/Weekly do. */}
                 {getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale)}
               </Text>
-              <Text style={[styles.itemCost, { color: c.text }]}>{formatMoney(item.estimatedCost)}</Text>
             </View>
             <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
               {t('reorder.item.breakdown', {
@@ -236,13 +237,10 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
         );
       })}
 
-      {/* Footer subtotal */}
+      {/* Footer — item count only (no cost, per the staff quantities-only rule). */}
       <View style={[styles.vendorFooter, { borderTopColor: c.border }]}>
         <Text style={[styles.vendorFooterText, { color: c.textSecondary }]}>
-          {t('reorder.vendor.subtotal', {
-            count: vendor.items.length,
-            cost: formatMoney(vendor.vendorTotalCost),
-          })}
+          {t('reorder.vendor.subtotal', { count: vendor.items.length })}
         </Text>
       </View>
     </View>
@@ -570,11 +568,7 @@ export function Reorder() {
             value={String(kpis.itemCount)}
             sub={t('reorder.kpi.itemsSub')}
           />
-          <KpiCard
-            label={t('reorder.kpi.estTotal')}
-            value={formatMoney(kpis.totalEstimatedCost)}
-            sub={t('reorder.kpi.estTotalSub')}
-          />
+          {/* Est. total KPI removed — staff see quantities only, no cost. */}
           <KpiCard
             label={t('reorder.kpi.source')}
             value={t('reorder.kpi.sourceValue', { count: kpis.eodSourcedVendorCount })}
@@ -977,10 +971,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   },
   itemName: {
     flex: 1,
-    fontSize: T.typography.body,
-    fontWeight: T.typography.semibold,
-  },
-  itemCost: {
     fontSize: T.typography.body,
     fontWeight: T.typography.semibold,
   },
