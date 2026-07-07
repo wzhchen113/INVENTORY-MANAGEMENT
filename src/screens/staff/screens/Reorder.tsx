@@ -27,6 +27,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
@@ -42,12 +43,10 @@ import { todayIso } from '../lib/date';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { t, useI18n } from '../i18n';
 import {
-  radius,
-  spacing,
-  touchTarget,
-  typography,
   useStaffColors,
   useStaffElevation,
+  useStaffTokens,
+  type StaffTokens,
 } from '../theme';
 import { formatMoney, formatQty } from '../../../utils/reorderExport';
 import {
@@ -106,6 +105,8 @@ function suggestedSubLabel(item: ReorderItem): string | null {
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={[styles.kpiCard, { backgroundColor: c.surface, borderColor: c.border }, e.card]}>
       <Text style={[styles.kpiLabel, { color: c.textSecondary }]} numberOfLines={1}>
@@ -125,6 +126,8 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
 function VendorCard({ vendor }: { vendor: ReorderVendor }) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   // Reactive locale slice — item names resolve via getLocalizedName(item,
   // locale), so reading it directly re-renders the list labels on a locale
@@ -250,6 +253,8 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
 function StateCard({ title, body, testID }: { title: string; body: string; testID?: string }) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View
       testID={testID}
@@ -274,6 +279,8 @@ function VendorChip({
   testID?: string;
 }) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <Pressable
       onPress={onPress}
@@ -301,6 +308,8 @@ function VendorChip({
 
 export function Reorder() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
   const { t } = useI18n();
   const activeStore = useStaffStore((s) => s.activeStore);
@@ -518,6 +527,7 @@ export function Reorder() {
 
         <View style={styles.headerSwitcherRow}>
           <LocaleSwitcher />
+          <ScaleSwitcher />
         </View>
 
         {/* Controls — date picker + refresh */}
@@ -766,7 +776,7 @@ export function Reorder() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -774,24 +784,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.xxl,
+    gap: T.spacing.md,
+    paddingVertical: T.spacing.xxl,
   },
   loadingText: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
   },
   header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.md,
+    paddingBottom: T.spacing.md,
     borderBottomWidth: 1,
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   // Mirrors EODCount.headerSwitcherRow — the LocaleSwitcher sits left-aligned
   // on its own row under the store/sign-out row. No marginTop here: the
@@ -799,277 +809,279 @@ const styles = StyleSheet.create({
   // it adds the marginTop there instead).
   headerSwitcherRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   storePressable: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.sm,
+    borderRadius: T.radius.sm,
   },
   storeName: {
-    fontSize: typography.title,
-    fontWeight: typography.bold,
+    fontSize: T.typography.title,
+    fontWeight: T.typography.bold,
   },
   headerSub: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   signOutBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    minHeight: touchTarget.min,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
+    borderRadius: T.radius.sm,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
   },
   signOutText: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   refreshBtn: {
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: T.spacing.md,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   refreshText: {
-    fontSize: typography.body,
-    fontWeight: typography.medium,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.medium,
   },
   scrollBody: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    padding: T.spacing.lg,
+    paddingBottom: T.spacing.xxxl,
+    gap: T.spacing.md,
   },
   // Vendor filter — horizontal row of pills.
   vendorChips: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: spacing.xxs,
+    gap: T.spacing.sm,
+    paddingVertical: T.spacing.xxs,
   },
   vendorChip: {
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: T.spacing.lg,
     borderWidth: 1,
-    borderRadius: radius.pill,
+    borderRadius: T.radius.pill,
   },
   vendorChipText: {
-    fontSize: typography.caption,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.semibold,
     maxWidth: 180,
   },
   // KPI 2×2 grid: cards flex to ~half-width with the row gap.
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   kpiCard: {
     flexGrow: 1,
     flexBasis: '47%',
     minWidth: 140,
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
+    borderRadius: T.radius.lg,
+    paddingVertical: T.spacing.md,
+    paddingHorizontal: T.spacing.md,
     gap: 2,
   },
   kpiLabel: {
-    fontSize: typography.caption,
-    fontWeight: typography.medium,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.medium,
   },
   kpiValue: {
-    fontSize: typography.headline,
-    fontWeight: typography.bold,
+    fontSize: T.typography.headline,
+    fontWeight: T.typography.bold,
   },
   kpiSub: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   exportRow: {
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   exportLabel: {
-    fontSize: typography.caption,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.semibold,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   exportButtons: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   exportBtn: {
     flexGrow: 1,
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: T.spacing.md,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   exportBtnText: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   // Vendor card
   vendorCard: {
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: T.radius.lg,
     overflow: 'hidden',
   },
   vendorHeader: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.xs,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
+    gap: T.spacing.xs,
   },
   vendorTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   vendorName: {
     flex: 1,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.bold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.bold,
   },
   badge: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: T.spacing.sm,
     paddingVertical: 3,
-    borderRadius: radius.sm,
+    borderRadius: T.radius.sm,
   },
   badgeText: {
-    fontSize: typography.caption,
-    fontWeight: typography.bold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.bold,
     letterSpacing: 0.3,
   },
   vendorMeta: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   itemRow: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.xs,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
+    gap: T.spacing.xs,
   },
   itemTop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   itemName: {
     flex: 1,
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   itemCost: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   itemBreakdown: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   itemOrder: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   itemOrderSub: {
-    fontSize: typography.caption,
-    fontWeight: typography.regular,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.regular,
   },
   // Spec 102 (OQ-1) — the "also available from N" coincident-schedule hint.
   itemAlsoFrom: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     fontStyle: 'italic',
     marginTop: 2,
   },
   vendorFooter: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.sm,
     borderTopWidth: 1,
   },
   vendorFooterText: {
-    fontSize: typography.caption,
-    fontWeight: typography.medium,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.medium,
   },
   // State cards
   stateCard: {
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    borderRadius: T.radius.lg,
+    paddingVertical: T.spacing.xl,
+    paddingHorizontal: T.spacing.lg,
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   stateTitle: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
     letterSpacing: 0.3,
     textAlign: 'center',
   },
   stateBody: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     textAlign: 'center',
-    lineHeight: typography.lineHeightBody,
+    lineHeight: T.typography.lineHeightBody,
   },
   // Error pane
   errorPane: {
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.xs,
+    borderRadius: T.radius.lg,
+    paddingVertical: T.spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    gap: T.spacing.xs,
   },
   errorText: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   errorDetail: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   retryBtn: {
-    marginTop: spacing.sm,
+    marginTop: T.spacing.sm,
     alignSelf: 'flex-start',
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: T.spacing.lg,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   retryText: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   // No-schedule group
   noScheduleGroup: {
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   noScheduleToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: touchTarget.min,
-    paddingHorizontal: spacing.lg,
+    gap: T.spacing.sm,
+    minHeight: T.touchTarget.min,
+    paddingHorizontal: T.spacing.lg,
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: T.radius.lg,
   },
   noScheduleGlyph: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   noScheduleTitle: {
     flex: 1,
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   noScheduleHint: {
-    fontSize: typography.caption,
-    paddingHorizontal: spacing.xs,
+    fontSize: T.typography.caption,
+    paddingHorizontal: T.spacing.xs,
   },
 });

@@ -7,7 +7,7 @@
 //     matches the OS-light/dark staff theme. The Cmd picker is hard-wired to
 //     the Cmd palette + mono font on every cell, so a focused staff copy is
 //     cleaner than threading a theme prop through it (architect (D)).
-//   - sized for touch (≥44pt trigger + cells per `touchTarget.min`).
+//   - sized for touch (≥44pt trigger + cells per `T.touchTarget.min`).
 //   - imports the SHARED `weekdayName` from `reorderDayFilter.ts` (the
 //     locale-invariant parser — do NOT re-implement; its two traps are
 //     load-bearing) and takes the same props as the Cmd one.
@@ -16,12 +16,17 @@
 // cells > `maxDate`; active-day highlight (the store's order-out weekdays)
 // as a dot kept distinct from the today ring + selected fill.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { weekdayName } from '../../../utils/reorderDayFilter';
 import type { DayName } from '../../../utils/enumLabels';
 import { useI18n } from '../i18n';
-import { radius, spacing, touchTarget, typography, useStaffColors, useStaffElevation } from '../theme';
+import {
+  useStaffColors,
+  useStaffElevation,
+  useStaffTokens,
+  type StaffTokens,
+} from '../theme';
 
 interface ReorderDatePickerProps {
   /** Selected date, 'YYYY-MM-DD'. Never ''. */
@@ -55,6 +60,8 @@ export function ReorderDatePicker({
 }: ReorderDatePickerProps) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
@@ -220,8 +227,8 @@ export function ReorderDatePicker({
                           styles.cellText,
                           { color: isFuture ? c.textTertiary : c.text },
                           isFuture ? { opacity: 0.5 } : null,
-                          isToday && !isSelected ? { color: c.info, fontWeight: typography.bold } : null,
-                          isSelected ? { color: c.textOnPrimary, fontWeight: typography.bold } : null,
+                          isToday && !isSelected ? { color: c.info, fontWeight: T.typography.bold } : null,
+                          isSelected ? { color: c.textOnPrimary, fontWeight: T.typography.bold } : null,
                         ]}
                       >
                         {day}
@@ -259,58 +266,58 @@ export function ReorderDatePicker({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   trigger: {
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   triggerText: {
-    fontSize: typography.body,
-    fontWeight: typography.medium,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.medium,
   },
   overlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.xl,
+    padding: T.spacing.xl,
   },
   calendar: {
     width: '100%',
     maxWidth: 360,
     borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    borderRadius: T.radius.lg,
+    padding: T.spacing.lg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: T.spacing.md,
   },
   navBtn: {
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
+    minWidth: T.touchTarget.min,
+    minHeight: T.touchTarget.min,
     alignItems: 'center',
     justifyContent: 'center',
   },
   navGlyph: {
     fontSize: 24,
-    fontWeight: typography.bold,
+    fontWeight: T.typography.bold,
   },
   monthLabel: {
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.semibold,
   },
-  dayRow: { flexDirection: 'row', marginBottom: spacing.xs },
+  dayRow: { flexDirection: 'row', marginBottom: T.spacing.xs },
   dayLabel: {
     flex: 1,
     textAlign: 'center',
-    fontSize: typography.caption,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.semibold,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: {
@@ -327,8 +334,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cellText: {
-    fontSize: typography.body,
-    fontWeight: typography.regular,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.regular,
   },
   activeDot: {
     position: 'absolute',
@@ -340,18 +347,18 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: spacing.md,
-    paddingTop: spacing.sm,
+    marginTop: T.spacing.md,
+    paddingTop: T.spacing.sm,
     borderTopWidth: 1,
   },
   todayBtn: {
-    minHeight: touchTarget.min,
-    paddingHorizontal: spacing.md,
+    minHeight: T.touchTarget.min,
+    paddingHorizontal: T.spacing.md,
     justifyContent: 'center',
   },
   todayText: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
     ...(Platform.OS === 'web' ? { letterSpacing: 0.3 } : {}),
   },
 });

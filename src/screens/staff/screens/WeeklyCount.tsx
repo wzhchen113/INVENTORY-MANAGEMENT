@@ -35,6 +35,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
@@ -74,7 +75,7 @@ import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames, WeeklyLowStockItem } from '../../../types';
-import { radius, spacing, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import type { WeeklyEntry, WeeklyItem } from '../lib/types';
 
 // Takes a `t` so the caller can pass the reactive `useI18n()` t (spec
@@ -192,6 +193,8 @@ async function fetchCategoryI18n(): Promise<Map<string, LocalizedNames>> {
 // ── screen ────────────────────────────────────────────────────────
 export function WeeklyCount() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
   const { t } = useI18n();
   // Reactive locale slice — item names + category headers are resolved via
@@ -1059,6 +1062,7 @@ export function WeeklyCount() {
         </Text>
         <View style={styles.headerSwitcherRow}>
           <LocaleSwitcher />
+          <ScaleSwitcher />
         </View>
       </View>
 
@@ -1090,7 +1094,7 @@ export function WeeklyCount() {
             text={t('weekly.draft.restored', { time: relativeTime(draftSavedAt) })}
             testID="weekly-draft-banner"
           />
-          <View style={{ paddingHorizontal: spacing.lg, marginTop: -spacing.xs, marginBottom: spacing.sm, flexDirection: 'row' }}>
+          <View style={{ paddingHorizontal: T.spacing.lg, marginTop: -T.spacing.xs, marginBottom: T.spacing.sm, flexDirection: 'row' }}>
             <Pressable
               testID="weekly-draft-discard"
               onPress={onDiscardDraft}
@@ -1098,7 +1102,7 @@ export function WeeklyCount() {
               accessibilityRole="button"
               accessibilityLabel={t('weekly.draft.discard')}
             >
-              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.error }}>
+              <Text style={{ fontSize: T.typography.caption, fontWeight: T.typography.semibold, color: c.error }}>
                 {t('weekly.draft.discard')}
               </Text>
             </Pressable>
@@ -1109,12 +1113,12 @@ export function WeeklyCount() {
       {/* Live "X of N counted" progress for the full store — turns green once
           every item is counted (ties into the count-everything gate). */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm }}>
           <Text
             testID="weekly-counted-label"
             style={{
-              fontSize: typography.caption,
-              fontWeight: typography.semibold,
+              fontSize: T.typography.caption,
+              fontWeight: T.typography.semibold,
               color: countedNum === items.length ? c.primary : c.textSecondary,
             }}
           >
@@ -1126,7 +1130,7 @@ export function WeeklyCount() {
       {/* Ingredient-name search — view-only; shown once the store's items
           have loaded. */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm, flexDirection: 'row', alignItems: 'center', gap: T.spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Input
               testID="weekly-search"
@@ -1145,7 +1149,7 @@ export function WeeklyCount() {
               accessibilityRole="button"
               accessibilityLabel={t('chrome.clear')}
             >
-              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: spacing.xs }}>✕</Text>
+              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: T.spacing.xs }}>✕</Text>
             </Pressable>
           ) : null}
         </View>
@@ -1158,16 +1162,16 @@ export function WeeklyCount() {
           the spec-103 customize/drag affordances are removed from THIS screen
           only (the spec-106 Save-DRAFT button in the footer is untouched). */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: T.spacing.sm }}>
           <Pressable
             testID="weekly-layout-default"
             onPress={onPickDefault}
             accessibilityRole="button"
             accessibilityState={{ selected: selectedLayoutId === null }}
             style={{
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.xs,
-              borderRadius: radius.md,
+              paddingHorizontal: T.spacing.md,
+              paddingVertical: T.spacing.xs,
+              borderRadius: T.radius.md,
               borderWidth: 1,
               borderColor: selectedLayoutId === null ? c.primary : c.border,
               backgroundColor: selectedLayoutId === null ? c.primary : 'transparent',
@@ -1175,8 +1179,8 @@ export function WeeklyCount() {
           >
             <Text
               style={{
-                fontSize: typography.caption,
-                fontWeight: typography.semibold,
+                fontSize: T.typography.caption,
+                fontWeight: T.typography.semibold,
                 color: selectedLayoutId === null ? c.textOnPrimary : c.textSecondary,
               }}
             >
@@ -1194,9 +1198,9 @@ export function WeeklyCount() {
                 accessibilityLabel={layout.name}
                 accessibilityState={{ selected: sel }}
                 style={{
-                  paddingHorizontal: spacing.md,
-                  paddingVertical: spacing.xs,
-                  borderRadius: radius.md,
+                  paddingHorizontal: T.spacing.md,
+                  paddingVertical: T.spacing.xs,
+                  borderRadius: T.radius.md,
                   borderWidth: 1,
                   borderColor: sel ? c.primary : c.border,
                   backgroundColor: sel ? c.primary : 'transparent',
@@ -1204,8 +1208,8 @@ export function WeeklyCount() {
               >
                 <Text
                   style={{
-                    fontSize: typography.caption,
-                    fontWeight: typography.semibold,
+                    fontSize: T.typography.caption,
+                    fontWeight: T.typography.semibold,
                     color: sel ? c.textOnPrimary : c.textSecondary,
                   }}
                   numberOfLines={1}
@@ -1249,7 +1253,7 @@ export function WeeklyCount() {
             </View>
           ) : (
             customVisibleItems.map((item) => (
-              <View key={item.id} style={{ marginBottom: spacing.sm }}>
+              <View key={item.id} style={{ marginBottom: T.spacing.sm }}>
                 {renderWeeklyRow(item)}
               </View>
             ))
@@ -1355,7 +1359,7 @@ export function WeeklyCount() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -1365,24 +1369,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
     borderBottomWidth: 1,
     gap: 2,
   },
   title: {
-    fontSize: typography.title,
-    fontWeight: typography.bold,
+    fontSize: T.typography.title,
+    fontWeight: T.typography.bold,
   },
   subtitle: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   // Mirrors EODCount.headerSwitcherRow — left-aligned LocaleSwitcher under the
   // title/subtitle stack. marginTop here because the header's `gap` is a tight
   // 2px (tuned for the title/subtitle lines), too tight to space the switcher.
   headerSwitcherRow: {
     flexDirection: 'row',
-    marginTop: spacing.sm,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: T.spacing.sm,
   },
   loadingPane: {
     flex: 1,
@@ -1393,33 +1399,33 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xl,
+    padding: T.spacing.xl,
   },
   emptyText: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
     textAlign: 'center',
   },
   itemListBody: {
     flex: 1,
   },
   itemList: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.sm,
+    paddingBottom: T.spacing.lg,
   },
   itemSeparator: {
-    height: spacing.sm,
+    height: T.spacing.sm,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xs,
+    gap: T.spacing.sm,
+    paddingTop: T.spacing.lg,
+    paddingBottom: T.spacing.xs,
   },
   sectionHeaderTitle: {
-    fontSize: typography.caption,
-    fontWeight: typography.bold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -1428,8 +1434,8 @@ const styles = StyleSheet.create({
     height: 1,
   },
   sectionHeaderCount: {
-    fontSize: typography.caption,
-    fontWeight: typography.medium,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.medium,
   },
   // Spec 102 — name + low-stock badge share a row so the badge sits inline
   // with the (possibly 2-line) ingredient name. `flex: 1` on the name lets it
@@ -1437,12 +1443,12 @@ const styles = StyleSheet.create({
   itemNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   itemName: {
     flexShrink: 1,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.semibold,
   },
   lowBadge: {
     paddingHorizontal: 6,
@@ -1451,51 +1457,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   lowBadgeText: {
-    fontSize: typography.caption,
-    fontWeight: typography.bold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.bold,
     letterSpacing: 0.5,
   },
   itemUnit: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   itemTotal: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
-    fontWeight: typography.semibold,
+    fontWeight: T.typography.semibold,
   },
   countInputs: {
     flexDirection: 'row',
     // Tight gap so the columns can be wide enough for "Loose Units"
     // to fit on one line.
-    gap: spacing.xs,
+    gap: T.spacing.xs,
     alignItems: 'flex-end',
   },
   countCol: {
     width: 52,
   },
   countColLabel: {
-    fontSize: typography.caption,
-    marginBottom: spacing.xs,
+    fontSize: T.typography.caption,
+    marginBottom: T.spacing.xs,
     textAlign: 'center',
-    fontWeight: typography.medium,
+    fontWeight: T.typography.medium,
   },
   countInput: {
     width: 52,
     textAlign: 'center',
   },
   footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.md,
+    paddingBottom: T.spacing.md,
     borderTopWidth: 1,
-    gap: spacing.sm,
+    // Save draft + Submit sit side-by-side (owner request, 2026-07 density
+    // pass — was stacked full-width rows).
+    flexDirection: 'row',
+    gap: T.spacing.sm,
   },
-  // Spec 106 — the Save-draft row sits above the Submit; both full-width.
   saveWrap: {
-    width: '100%',
+    flex: 1,
   },
   submitWrap: {
-    width: '100%',
+    flex: 1,
   },
 });

@@ -32,9 +32,16 @@ import type {
 } from '../lib/types';
 import {
   persistQueue,
+  readCachedUiScale,
   writeActiveStoreId,
   writeCachedLocale,
+  writeCachedUiScale,
 } from '../lib/eodQueue';
+// `_setUiScaleHook` injection mirrors the i18n `_setActiveLocaleHook`
+// wiring below — theme.ts must NOT import this store (it would drag the
+// supabase client into store-free theme/component tests), so the store
+// registers the scale hook into the theme instead.
+import { _setUiScaleHook, type UiScale } from '../theme';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { supabase } from '../../../lib/supabase';
 import { uuidv4 } from '../lib/uuid';
@@ -59,6 +66,17 @@ export type StaffState = {
    *  store from the DB/cache value without round-tripping it back to the
    *  column (mirrors admin `hydrateLocale`). */
   hydrateLocale: (next: Locale) => void;
+
+  // ─── UI SCALE (x1 / x1.5 / x2 density) ────────────────
+  /** Active UI scale multiplier. Drives `useStaffTokens()` so every
+   *  scaled StyleSheet recomputes. Device-local pref (AsyncStorage
+   *  cache, no profiles column) seeded at module init. */
+  uiScale: UiScale;
+
+  /** Set the active UI scale and write through to the AsyncStorage
+   *  cache (fire-and-forget, best-effort — matches setLocale's local
+   *  cache write). */
+  setUiScale: (next: UiScale) => void;
 
   // ─── AUTH ─────────────────────────────────────────────
   authState: AuthState;
@@ -153,6 +171,15 @@ export const useStaffStore = create<StaffState>((set, get) => ({
   },
 
   hydrateLocale: (next) => set({ locale: next }),
+
+  // ─── UI SCALE ─────────────────────────────────────────
+  uiScale: 1,
+
+  setUiScale: (next) => {
+    if (get().uiScale === next) return;
+    set({ uiScale: next });
+    void writeCachedUiScale(next);
+  },
 
   // ─── AUTH ─────────────────────────────────────────────
   authState: { kind: 'idle' },
@@ -310,6 +337,18 @@ export const useStaffStore = create<StaffState>((set, get) => ({
 //     render-time consumers re-render when the locale changes (spec 099).
 _setActiveLocaleGetter(() => useStaffStore.getState().locale);
 _setActiveLocaleHook(() => useStaffStore((s) => s.locale));
+
+// Same injection shape for the UI scale — `useStaffTokens()` (theme.ts)
+// subscribes through this hook once the store module has loaded.
+_setUiScaleHook(() => useStaffStore((s) => s.uiScale));
+
+// Seed the UI scale from the device cache once at module init. Async and
+// best-effort: the first frame renders at the x1 default and re-renders
+// when the cached value (if any) arrives — same boot shape as the queue
+// hydration. No revert path needed (a failed read just keeps x1).
+void readCachedUiScale().then((cached) => {
+  if (cached != null) useStaffStore.setState({ uiScale: cached });
+});
 
 // ─── HELPER: derive current signed-in user id ─────────────────────
 // Many callers need the userId from authState; the kind-guard

@@ -344,6 +344,9 @@
         "es": "ES",
         "zh-CN": "中文"
       }
+    },
+    "scaleSwitcher": {
+      "aria": "调整字体大小"
     }
   }
 }

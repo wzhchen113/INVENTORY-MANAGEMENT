@@ -6,8 +6,9 @@
 // Spec 070: success-tinted pill, colors from `useStaffColors()`. Sits
 // inside the footer card so it carries no elevation of its own.
 
+import { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { radius, spacing, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import { useI18n } from '../i18n';
 
 type Props = {
@@ -18,6 +19,8 @@ type Props = {
 
 export function QueueIndicator({ pending, draining, testID }: Props) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   if (pending === 0 && !draining) return null;
   const label = draining
@@ -35,14 +38,14 @@ export function QueueIndicator({ pending, draining, testID }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
+    gap: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
+    paddingVertical: T.spacing.xs,
+    borderRadius: T.radius.pill,
     alignSelf: 'flex-start',
   },
   dot: {
@@ -51,7 +54,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   label: {
-    fontSize: typography.caption,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.semibold,
   },
 });

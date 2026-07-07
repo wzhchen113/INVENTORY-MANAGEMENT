@@ -8,8 +8,9 @@
 // inline over a static structural StyleSheet. The primary fill is
 // lifted with `useStaffElevation().card`.
 
+import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { radius, spacing, touchTarget, typography, useStaffColors, useStaffElevation } from '../theme';
+import { useStaffColors, useStaffElevation, useStaffTokens, type StaffTokens } from '../theme';
 
 type Props = {
   label: string;
@@ -32,6 +33,8 @@ export function Button({
 }: Props) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const isDisabled = disabled || loading;
   const isPrimary = variant === 'primary';
 
@@ -92,11 +95,11 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   base: {
-    minHeight: touchTarget.min,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
+    minHeight: T.touchTarget.min,
+    borderRadius: T.radius.md,
+    paddingHorizontal: T.spacing.lg,
     justifyContent: 'center',
   },
   secondary: {
@@ -106,11 +109,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   label: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
     textAlign: 'center',
   },
   labelDisabled: {

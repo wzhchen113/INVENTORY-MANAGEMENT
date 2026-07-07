@@ -35,6 +35,7 @@ export const ACTIVE_STORE_KEY = 'imr-staff:active-store:v1';
  *  (profiles.locale) is the cross-device source of truth; this cache
  *  gives an instant boot-time restore before the session resolves. */
 export const LOCALE_KEY = 'imr-staff:locale:v1';
+export const UI_SCALE_KEY = 'imr-staff:ui-scale:v1';
 
 // 30-day GC threshold per spec 062 §3 — stale items belonging to no-
 // longer-signed-in users are purged on mount, regardless of
@@ -349,6 +350,31 @@ export async function writeCachedLocale(locale: StaffLocale): Promise<void> {
   await AsyncStorage.setItem(LOCALE_KEY, locale).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn('[eodQueue] writeCachedLocale:', err);
+  });
+}
+
+// ─── UI SCALE PERSISTENCE ─────────────────────────────────────────
+// Device-local pref (no profiles column — a phone-size choice doesn't
+// belong cross-device). Same read/write shape as the locale cache.
+
+type StaffUiScale = 1 | 1.2 | 1.5;
+
+/** Read the cached UI scale. Returns null when unset or corrupt — the
+ *  caller falls through to the x1 default. A previously-cached value
+ *  from a retired scale set (e.g. the short-lived x2) fails this
+ *  validation and degrades to x1, which is the right migration. */
+export async function readCachedUiScale(): Promise<StaffUiScale | null> {
+  const v = await safeRead(UI_SCALE_KEY);
+  const n = v == null ? NaN : Number(v);
+  return n === 1 || n === 1.2 || n === 1.5 ? (n as StaffUiScale) : null;
+}
+
+/** Fire-and-forget local cache write. Best-effort — failure is logged
+ *  but never rolls back the in-memory scale. */
+export async function writeCachedUiScale(scale: StaffUiScale): Promise<void> {
+  await AsyncStorage.setItem(UI_SCALE_KEY, String(scale)).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('[eodQueue] writeCachedUiScale:', err);
   });
 }
 

@@ -9,8 +9,14 @@
 // component from the active palette (it previously closed over the
 // static `colors` at module load and would not react to dark mode).
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { radius, spacing, typography, useStaffColors, type StaffColors } from '../theme';
+import {
+  useStaffColors,
+  useStaffTokens,
+  type StaffColors,
+  type StaffTokens,
+} from '../theme';
 
 type Tone = 'info' | 'warning' | 'error' | 'success';
 
@@ -33,6 +39,8 @@ function makeToneStyles(
 
 export function Banner({ tone = 'info', text, testID }: Props) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const t = makeToneStyles(c)[tone];
   return (
     <View
@@ -45,22 +53,22 @@ export function Banner({ tone = 'info', text, testID }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   banner: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: T.spacing.md,
+    paddingHorizontal: T.spacing.lg,
     borderLeftWidth: 4,
-    borderRadius: radius.lg,
+    borderRadius: T.radius.lg,
     // Inset to match the item-card gutter (FlatList itemList uses
-    // spacing.lg) so the soft-card corners read instead of bleeding to
+    // T.spacing.lg) so the soft-card corners read instead of bleeding to
     // the screen edges. Banner is only ever a full-width screen sibling
     // in EODCount, so the margin lives on the component.
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    marginHorizontal: T.spacing.lg,
+    marginBottom: T.spacing.sm,
   },
   text: {
-    fontSize: typography.body,
-    fontWeight: typography.medium,
-    lineHeight: typography.lineHeightBody,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.medium,
+    lineHeight: T.typography.lineHeightBody,
   },
 });

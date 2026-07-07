@@ -190,6 +190,84 @@ export const touchTarget = {
   min: 24,
 } as const;
 
+// ── UI scale (x1 / x1.5 / x2) ────────────────────────────────────
+// The density pass above made x1 the compact baseline; staff can bump
+// the whole surface back up via the header ScaleSwitcher. `makeTokens`
+// multiplies every numeric token by the scale (weights and the pill
+// radius stay put). Consumers use `useStaffTokens()` — a Zustand
+// subscription on `uiScale` — instead of the static exports, and build
+// their StyleSheet inside the component (`makeStyles(T)` + useMemo) so
+// styles recompute when the scale changes. The static exports above
+// remain the x1 base (and serve non-hook call sites like the class
+// ErrorBoundary).
+
+export type UiScale = 1 | 1.2 | 1.5;
+
+export const UI_SCALES: UiScale[] = [1, 1.2, 1.5];
+
+function scaleValue(v: number, s: UiScale): number {
+  return Math.round(v * s);
+}
+
+export function makeTokens(scale: UiScale) {
+  const mapNums = <T extends Record<string, number>>(obj: T): T => {
+    const out = {} as Record<string, number>;
+    for (const [k, v] of Object.entries(obj)) out[k] = scaleValue(v, scale);
+    return out as T;
+  };
+  return {
+    spacing: mapNums(spacing),
+    radius: { ...mapNums(radius), pill: radius.pill }, // pill stays "fully round"
+    typography: {
+      caption: scaleValue(typography.caption, scale),
+      body: scaleValue(typography.body, scale),
+      bodyLarge: scaleValue(typography.bodyLarge, scale),
+      title: scaleValue(typography.title, scale),
+      headline: scaleValue(typography.headline, scale),
+      display: scaleValue(typography.display, scale),
+      lineHeightBody: scaleValue(typography.lineHeightBody, scale),
+      lineHeightTitle: scaleValue(typography.lineHeightTitle, scale),
+      regular: typography.regular,
+      medium: typography.medium,
+      semibold: typography.semibold,
+      bold: typography.bold,
+    },
+    touchTarget: { min: scaleValue(touchTarget.min, scale) },
+  };
+}
+
+export type StaffTokens = ReturnType<typeof makeTokens>;
+
+// Precomputed per scale so `useStaffTokens()` returns a stable reference
+// for a given scale (lets consumers useMemo their StyleSheet on it).
+const TOKENS: Record<UiScale, StaffTokens> = {
+  1: makeTokens(1),
+  1.2: makeTokens(1.2),
+  1.5: makeTokens(1.5),
+};
+
+// Scale access is INJECTED by useStaffStore at its module init (the same
+// direction-inversion the staff i18n uses via `_setActiveLocaleHook`):
+// importing the store here would drag `src/lib/supabase.ts` (and its
+// required env vars) into every test that imports the theme standalone
+// (theme.test.ts, ListRow.test.tsx, ...). The default returns x1 without
+// touching any store — in the app the store module always loads before
+// the first render, so the real hook is registered by then.
+type UiScaleHook = () => UiScale;
+let activeUiScaleHook: UiScaleHook = () => 1;
+
+export function _setUiScaleHook(hook: UiScaleHook): void {
+  activeUiScaleHook = hook;
+}
+
+/** Scaled token set for the active UI scale. Subscribes (via the
+ *  injected store hook) so consumers re-render — and rebuild their
+ *  useMemo'd StyleSheet — when the user flips the header ScaleSwitcher. */
+export function useStaffTokens(): StaffTokens {
+  const scale = activeUiScaleHook();
+  return TOKENS[scale] ?? TOKENS[1];
+}
+
 // ── Elevation / shadow scale ──────────────────────────────────────
 // Same platform-branch shape as the admin `Shadow` token
 // (src/theme/colors.ts): on web emit CSS `boxShadow`; on native emit

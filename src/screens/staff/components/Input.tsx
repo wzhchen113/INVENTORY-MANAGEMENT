@@ -5,10 +5,10 @@
 // `useStaffColors()`, applied inline over a static structural
 // StyleSheet.
 
-import { forwardRef } from 'react';
+import { forwardRef, useMemo } from 'react';
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { TextInputProps } from 'react-native';
-import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 
 type Props = TextInputProps & {
   label?: string;
@@ -21,6 +21,8 @@ export const Input = forwardRef<TextInput, Props>(function Input(
   ref,
 ) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={styles.wrap}>
       {label ? (
@@ -53,27 +55,27 @@ export const Input = forwardRef<TextInput, Props>(function Input(
   );
 });
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   wrap: {
     width: '100%',
   },
   label: {
-    fontSize: typography.caption,
-    marginBottom: spacing.xs,
-    fontWeight: typography.medium,
+    fontSize: T.typography.caption,
+    marginBottom: T.spacing.xs,
+    fontWeight: T.typography.medium,
   },
   input: {
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    fontSize: typography.body,
+    borderRadius: T.radius.sm,
+    paddingHorizontal: T.spacing.sm,
+    paddingVertical: T.spacing.xs,
+    fontSize: T.typography.body,
     // Web-only — focus ring control. Native ignores this.
     ...(Platform.OS === 'web' ? { outlineWidth: 0 } : {}),
   },
   error: {
-    fontSize: typography.caption,
-    marginTop: spacing.xs,
+    fontSize: T.typography.caption,
+    marginTop: T.spacing.xs,
   },
 });

@@ -13,7 +13,9 @@
 
 import React from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { radius, spacing, useStaffColors } from '../theme';
+// Token variable is `tok` (not the usual `T`) — this component's generic
+// type parameter already claims `T`.
+import { useStaffColors, useStaffTokens } from '../theme';
 import { t } from '../i18n';
 import { nudge } from '../../../lib/countOrder';
 // `CountOrderRow` is a type-only import (erased at compile time), so it does NOT
@@ -48,6 +50,7 @@ export function CountOrderDragList<T extends CountOrderRow>({
   moveDownLabel,
 }: Props<T>) {
   const c = useStaffColors();
+  const tok = useStaffTokens();
 
   if (Platform.OS === 'web' && CountOrderDragListWebLazy) {
     // Retype the lazy import (typed against `Props<CountOrderRow>`) to this
@@ -59,7 +62,7 @@ export function CountOrderDragList<T extends CountOrderRow>({
         fallback={
           <View>
             {items.map((it) => (
-              <View key={it.id} style={{ marginBottom: spacing.sm }}>
+              <View key={it.id} style={{ marginBottom: tok.spacing.sm }}>
                 {renderRow(it)}
               </View>
             ))}
@@ -77,9 +80,9 @@ export function CountOrderDragList<T extends CountOrderRow>({
       {items.map((item, index) => (
         <View
           key={item.id}
-          style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}
+          style={{ flexDirection: 'row', alignItems: 'center', marginBottom: tok.spacing.sm }}
         >
-          <View style={{ paddingRight: spacing.sm, gap: 4 }}>
+          <View style={{ paddingRight: tok.spacing.sm, gap: 4 }}>
             <Pressable
               onPress={() => {
                 const next = nudge(items.map((i) => i.id), index, -1);
@@ -91,7 +94,7 @@ export function CountOrderDragList<T extends CountOrderRow>({
               style={{
                 paddingHorizontal: 10,
                 paddingVertical: 4,
-                borderRadius: radius.sm,
+                borderRadius: tok.radius.sm,
                 borderWidth: 1,
                 borderColor: c.border,
                 opacity: index === 0 ? 0.3 : 1,
@@ -110,7 +113,7 @@ export function CountOrderDragList<T extends CountOrderRow>({
               style={{
                 paddingHorizontal: 10,
                 paddingVertical: 4,
-                borderRadius: radius.sm,
+                borderRadius: tok.radius.sm,
                 borderWidth: 1,
                 borderColor: c.border,
                 opacity: index === items.length - 1 ? 0.3 : 1,

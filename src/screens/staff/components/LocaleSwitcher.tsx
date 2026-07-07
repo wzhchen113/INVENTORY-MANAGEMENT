@@ -12,8 +12,9 @@
 // labels are locale-invariant (each catalog ships the same EN/ES/中文
 // triplet) so a Chinese user already sees 中文 highlighted.
 
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import { useStaffStore } from '../store/useStaffStore';
 import { useI18n, type Locale } from '../i18n';
 
@@ -25,6 +26,8 @@ type Props = {
 
 export function LocaleSwitcher({ testID }: Props) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   const locale = useStaffStore((s) => s.locale);
   const setLocale = useStaffStore((s) => s.setLocale);
@@ -63,7 +66,7 @@ export function LocaleSwitcher({ testID }: Props) {
                 styles.label,
                 {
                   color: active ? c.textOnPrimary : c.textSecondary,
-                  fontWeight: active ? typography.semibold : typography.medium,
+                  fontWeight: active ? T.typography.semibold : T.typography.medium,
                 },
               ]}
             >
@@ -76,20 +79,20 @@ export function LocaleSwitcher({ testID }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   row: {
     flexDirection: 'row',
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
     overflow: 'hidden',
   },
   segment: {
-    minHeight: touchTarget.min,
-    paddingHorizontal: spacing.md,
+    minHeight: T.touchTarget.min,
+    paddingHorizontal: T.spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   label: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
 });

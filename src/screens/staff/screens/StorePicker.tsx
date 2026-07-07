@@ -16,17 +16,21 @@
 // SafeAreaProvider in App.tsx:336 supplies the insets; do NOT nest another
 // provider here — it would shadow the outer one and zero the insets.
 
+import { useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { selectStaffStores, useStaffStore } from '../store/useStaffStore';
 import { useI18n } from '../i18n';
-import { spacing, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import type { UserStore } from '../lib/types';
 
 export function StorePicker() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   const stores = useStaffStore(selectStaffStores);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
@@ -50,6 +54,7 @@ export function StorePicker() {
         </Text>
         <View style={styles.switcherRow}>
           <LocaleSwitcher />
+          <ScaleSwitcher />
         </View>
       </View>
       <FlatList
@@ -82,7 +87,7 @@ export function StorePicker() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   container: {
     // Absolute-fill the React Navigation card (the nearest positioned
     // ancestor) instead of `flex: 1`. See EODCount.tsx#container for
@@ -92,39 +97,41 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   header: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: T.spacing.xl,
+    paddingTop: T.spacing.xl,
+    paddingBottom: T.spacing.lg,
   },
   title: {
-    fontSize: typography.headline,
-    fontWeight: typography.bold,
-    marginBottom: spacing.xs,
+    fontSize: T.typography.headline,
+    fontWeight: T.typography.bold,
+    marginBottom: T.spacing.xs,
   },
   subtitle: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
   },
   switcherRow: {
     flexDirection: 'row',
-    marginTop: spacing.lg,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: T.spacing.lg,
   },
   listBody: {
     flex: 1,
   },
   list: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xxl,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.sm,
+    paddingBottom: T.spacing.xxl,
   },
   separator: {
-    height: spacing.md,
+    height: T.spacing.md,
   },
   rowText: {
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.semibold,
   },
   chevron: {
-    fontSize: typography.headline,
-    fontWeight: typography.regular,
+    fontSize: T.typography.headline,
+    fontWeight: T.typography.regular,
   },
 });

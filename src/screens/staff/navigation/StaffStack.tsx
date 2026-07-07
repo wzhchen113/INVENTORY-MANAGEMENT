@@ -31,6 +31,7 @@
 // retained for the transient `restoring` / `signing-in` / `gating`
 // states.
 
+import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -41,9 +42,10 @@ import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
 import { Receiving } from '../screens/Receiving';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { lockStaffViewport } from '../lib/lockViewport';
 import { useStaffStore } from '../store/useStaffStore';
 import { useI18n } from '../i18n';
-import { spacing, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 
 // Re-export the cold-start helper so callers (App.tsx + StaffStack.test.tsx)
 // can target one canonical implementation. Spec 063 §11.2.
@@ -54,6 +56,8 @@ const Tab = createBottomTabNavigator();
 
 function Splash() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View style={[styles.splash, { backgroundColor: c.bg }]}>
       <Text style={[styles.splashTitle, { color: c.text }]}>I.M.R Staff</Text>
@@ -154,6 +158,14 @@ export function StaffStack() {
   const authState = useStaffStore((s) => s.authState);
   const activeStore = useStaffStore((s) => s.activeStore);
 
+  // Lock the browser viewport for the staff web surface so tapping a count
+  // input doesn't trigger iOS Safari's sub-16px focus auto-zoom (and pinch
+  // zoom is off). Web-only + idempotent; scoped here so the admin Cmd UI
+  // keeps normal zoom. See lockViewport.ts.
+  useEffect(() => {
+    lockStaffViewport();
+  }, []);
+
   // Scene background scoped to the staff navigator ONLY (spec 070 §7) —
   // NOT a NavigationContainer `theme` prop. The container lives in
   // RoleRouter and is shared with the admin stack; theming it there
@@ -206,15 +218,15 @@ export function StaffStack() {
   return <ErrorBoundary>{content}</ErrorBoundary>;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   splash: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.lg,
+    gap: T.spacing.lg,
   },
   splashTitle: {
-    fontSize: typography.headline,
-    fontWeight: typography.bold,
+    fontSize: T.typography.headline,
+    fontWeight: T.typography.bold,
   },
 });

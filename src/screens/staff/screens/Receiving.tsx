@@ -45,6 +45,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
@@ -62,7 +63,12 @@ import {
 import { useStaffStore } from '../store/useStaffStore';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { t, useI18n } from '../i18n';
-import { radius, spacing, touchTarget, typography, useStaffColors, useStaffElevation } from '../theme';
+import {
+  useStaffColors,
+  useStaffElevation,
+  useStaffTokens,
+  type StaffTokens,
+} from '../theme';
 
 // A short, human-scannable id for the PO list + detail header. UUIDs are long;
 // the last 6 chars (uppercased) are enough to disambiguate a store's open POs
@@ -75,6 +81,8 @@ function shortPoId(id: string): string {
 // ── status pill ─────────────────────────────────────────────────────
 function StatusPill({ status }: { status: 'sent' | 'partial' }) {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
   // sent → info (teal); partial → warning (amber). Both read on the dark theme.
   const tone = status === 'partial' ? c.warning : c.info;
@@ -91,6 +99,8 @@ function StatusPill({ status }: { status: 'sent' | 'partial' }) {
 function StateCard({ title, body, testID }: { title: string; body: string; testID?: string }) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   return (
     <View
       testID={testID}
@@ -104,6 +114,8 @@ function StateCard({ title, body, testID }: { title: string; body: string; testI
 
 export function Receiving() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   // Reactive `t` (spec 099) — render-path strings re-translate on locale change.
   const { t } = useI18n();
   // Reactive locale slice — item names resolve via getLocalizedName(line, locale),
@@ -371,6 +383,7 @@ export function Receiving() {
 
         <View style={styles.headerSwitcherRow}>
           <LocaleSwitcher />
+          <ScaleSwitcher />
         </View>
 
         {/* Controls — refresh (list view) or back (detail view) */}
@@ -585,7 +598,7 @@ export function Receiving() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -593,133 +606,135 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.xxl,
+    gap: T.spacing.md,
+    paddingVertical: T.spacing.xxl,
   },
   loadingText: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
   },
   header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.md,
+    paddingBottom: T.spacing.md,
     borderBottomWidth: 1,
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   headerSwitcherRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   storePressable: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.sm,
+    borderRadius: T.radius.sm,
   },
   storeName: {
-    fontSize: typography.title,
-    fontWeight: typography.bold,
+    fontSize: T.typography.title,
+    fontWeight: T.typography.bold,
   },
   headerSub: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   signOutBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    minHeight: touchTarget.min,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
+    borderRadius: T.radius.sm,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
   },
   signOutText: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   controlBtn: {
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: T.spacing.md,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   controlText: {
-    fontSize: typography.body,
-    fontWeight: typography.medium,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.medium,
   },
   scrollBody: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    padding: T.spacing.lg,
+    paddingBottom: T.spacing.xxxl,
+    gap: T.spacing.md,
   },
   // PO list / detail header
   poTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   poVendor: {
     flex: 1,
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.bold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.bold,
   },
   poMeta: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   chevron: {
-    fontSize: typography.headline,
-    fontWeight: typography.regular,
+    fontSize: T.typography.headline,
+    fontWeight: T.typography.regular,
   },
   pill: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: T.spacing.sm,
     paddingVertical: 3,
-    borderRadius: radius.sm,
+    borderRadius: T.radius.sm,
   },
   pillText: {
-    fontSize: typography.caption,
-    fontWeight: typography.bold,
+    fontSize: T.typography.caption,
+    fontWeight: T.typography.bold,
     letterSpacing: 0.3,
   },
   detailHeader: {
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.xs,
+    borderRadius: T.radius.lg,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
+    gap: T.spacing.xs,
   },
   // PO line rows
   lineName: {
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.semibold,
   },
   lineMeta: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   lineOutstanding: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
-    fontWeight: typography.semibold,
+    fontWeight: T.typography.semibold,
   },
   receiveCol: {
     width: 96,
   },
   receiveColLabel: {
-    fontSize: typography.caption,
-    marginBottom: spacing.xs,
+    fontSize: T.typography.caption,
+    marginBottom: T.spacing.xs,
     textAlign: 'center',
-    fontWeight: typography.medium,
+    fontWeight: T.typography.medium,
   },
   receiveInput: {
     width: 96,
@@ -728,57 +743,57 @@ const styles = StyleSheet.create({
   // State cards
   stateCard: {
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    borderRadius: T.radius.lg,
+    paddingVertical: T.spacing.xl,
+    paddingHorizontal: T.spacing.lg,
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   stateTitle: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
     letterSpacing: 0.3,
     textAlign: 'center',
   },
   stateBody: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     textAlign: 'center',
-    lineHeight: typography.lineHeightBody,
+    lineHeight: T.typography.lineHeightBody,
   },
   // Error pane
   errorPane: {
     borderWidth: 1,
-    borderRadius: radius.lg,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.xs,
+    borderRadius: T.radius.lg,
+    marginHorizontal: T.spacing.lg,
+    marginBottom: T.spacing.sm,
+    paddingVertical: T.spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    gap: T.spacing.xs,
   },
   errorText: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   errorDetail: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
   },
   retryBtn: {
-    marginTop: spacing.sm,
+    marginTop: T.spacing.sm,
     alignSelf: 'flex-start',
-    minHeight: touchTarget.min,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: T.spacing.lg,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: T.radius.md,
   },
   retryText: {
-    fontSize: typography.body,
-    fontWeight: typography.bold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.bold,
   },
   footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.md,
+    paddingBottom: T.spacing.md,
     borderTopWidth: 1,
   },
 });

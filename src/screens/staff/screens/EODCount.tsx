@@ -33,6 +33,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
 import { confirmAction } from '../../../utils/confirmAction';
@@ -52,7 +53,7 @@ import { t, useI18n } from '../i18n';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames } from '../../../types';
-import { radius, spacing, touchTarget, typography, useStaffColors } from '../theme';
+import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
 
 const WEEKDAYS = [
@@ -240,6 +241,8 @@ async function fetchExistingSubmission(
 
 export function EODCount() {
   const c = useStaffColors();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   // Reactive `t` (spec 099) — every render-path string below uses this so
   // the screen re-renders and re-translates on a locale change.
   const { t } = useI18n();
@@ -803,6 +806,7 @@ export function EODCount() {
         </View>
         <View style={styles.headerSwitcherRow}>
           <LocaleSwitcher />
+          <ScaleSwitcher />
         </View>
       </View>
 
@@ -857,7 +861,7 @@ export function EODCount() {
                       styles.vendorChipText,
                       {
                         color: active ? c.textOnPrimary : c.text,
-                        fontWeight: active ? typography.semibold : typography.medium,
+                        fontWeight: active ? T.typography.semibold : T.typography.medium,
                       },
                     ]}
                     numberOfLines={1}
@@ -889,12 +893,12 @@ export function EODCount() {
       {/* Live "X of N counted" progress for the selected vendor — turns green
           once every item is counted (ties into the count-everything gate). */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm }}>
           <Text
             testID="eod-counted-label"
             style={{
-              fontSize: typography.caption,
-              fontWeight: typography.semibold,
+              fontSize: T.typography.caption,
+              fontWeight: T.typography.semibold,
               color: countedNum === items.length ? c.primary : c.textSecondary,
             }}
           >
@@ -906,7 +910,7 @@ export function EODCount() {
       {/* Ingredient-name search — view-only; shown once this vendor's items
           have loaded. */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm, flexDirection: 'row', alignItems: 'center', gap: T.spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Input
               testID="eod-search"
@@ -925,7 +929,7 @@ export function EODCount() {
               accessibilityRole="button"
               accessibilityLabel={t('chrome.clear')}
             >
-              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: spacing.xs }}>✕</Text>
+              <Text style={{ color: c.textSecondary, fontSize: 22, paddingHorizontal: T.spacing.xs }}>✕</Text>
             </Pressable>
           ) : null}
         </View>
@@ -935,16 +939,16 @@ export function EODCount() {
           view flattens the list into the user's saved drag order; default is
           the current vendor-scoped flat list. The order is per-vendor. */}
       {!loading && items.length > 0 ? (
-        <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ paddingHorizontal: T.spacing.lg, paddingTop: T.spacing.sm, flexDirection: 'row', alignItems: 'center', gap: T.spacing.sm }}>
           <Pressable
             testID="eod-view-default"
             onPress={() => setViewMode('default')}
             accessibilityRole="button"
             accessibilityState={{ selected: viewMode === 'default' }}
             style={{
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.xs,
-              borderRadius: radius.md,
+              paddingHorizontal: T.spacing.md,
+              paddingVertical: T.spacing.xs,
+              borderRadius: T.radius.md,
               borderWidth: 1,
               borderColor: viewMode === 'default' ? c.primary : c.border,
               backgroundColor: viewMode === 'default' ? c.primary : 'transparent',
@@ -952,8 +956,8 @@ export function EODCount() {
           >
             <Text
               style={{
-                fontSize: typography.caption,
-                fontWeight: typography.semibold,
+                fontSize: T.typography.caption,
+                fontWeight: T.typography.semibold,
                 color: viewMode === 'default' ? c.textOnPrimary : c.textSecondary,
               }}
             >
@@ -966,9 +970,9 @@ export function EODCount() {
             accessibilityRole="button"
             accessibilityState={{ selected: viewMode === 'custom' }}
             style={{
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.xs,
-              borderRadius: radius.md,
+              paddingHorizontal: T.spacing.md,
+              paddingVertical: T.spacing.xs,
+              borderRadius: T.radius.md,
               borderWidth: 1,
               borderColor: viewMode === 'custom' ? c.primary : c.border,
               backgroundColor: viewMode === 'custom' ? c.primary : 'transparent',
@@ -976,8 +980,8 @@ export function EODCount() {
           >
             <Text
               style={{
-                fontSize: typography.caption,
-                fontWeight: typography.semibold,
+                fontSize: T.typography.caption,
+                fontWeight: T.typography.semibold,
                 color: viewMode === 'custom' ? c.textOnPrimary : c.textSecondary,
               }}
             >
@@ -993,7 +997,7 @@ export function EODCount() {
               accessibilityRole="button"
               accessibilityLabel={t('eod.view.reset')}
             >
-              <Text style={{ fontSize: typography.caption, fontWeight: typography.semibold, color: c.primary }}>
+              <Text style={{ fontSize: T.typography.caption, fontWeight: T.typography.semibold, color: c.primary }}>
                 {t('eod.view.reset')}
               </Text>
             </Pressable>
@@ -1041,7 +1045,7 @@ export function EODCount() {
             // order, but WITHOUT the reorder affordance (reorder needs the
             // full set). Clearing the search restores drag.
             visibleItems.map((item) => (
-              <View key={item.id} style={{ marginBottom: spacing.sm }}>
+              <View key={item.id} style={{ marginBottom: T.spacing.sm }}>
                 {renderEodRow(item)}
               </View>
             ))
@@ -1122,7 +1126,7 @@ export function EODCount() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   container: {
     // Absolute-fill the React Navigation card (the nearest positioned
     // ancestor) instead of relying on `flex: 1` in the flow. On
@@ -1142,70 +1146,72 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
     borderBottomWidth: 1,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: T.spacing.md,
   },
   headerSwitcherRow: {
     flexDirection: 'row',
-    marginTop: spacing.sm,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: T.spacing.sm,
   },
   storePressable: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.sm,
+    borderRadius: T.radius.sm,
   },
   storeName: {
-    fontSize: typography.title,
-    fontWeight: typography.bold,
+    fontSize: T.typography.title,
+    fontWeight: T.typography.bold,
   },
   todayLabel: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   signOutBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    minHeight: touchTarget.min,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
+    borderRadius: T.radius.sm,
+    minHeight: T.touchTarget.min,
     justifyContent: 'center',
   },
   signOutText: {
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   vendorSwitcher: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
+    paddingTop: T.spacing.sm,
+    paddingBottom: T.spacing.sm,
     borderBottomWidth: 1,
   },
   vendorChipRow: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
+    paddingHorizontal: T.spacing.lg,
+    gap: T.spacing.sm,
   },
   vendorChip: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
+    paddingVertical: T.spacing.sm,
+    paddingHorizontal: T.spacing.md,
+    borderRadius: T.radius.pill,
     borderWidth: 1,
     minHeight: 36,
     justifyContent: 'center',
   },
   vendorChipText: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
   },
   vendorLabel: {
-    paddingHorizontal: spacing.lg,
-    fontSize: typography.body,
-    fontWeight: typography.semibold,
+    paddingHorizontal: T.spacing.lg,
+    fontSize: T.typography.body,
+    fontWeight: T.typography.semibold,
   },
   loadingPane: {
     flex: 1,
@@ -1216,35 +1222,35 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xl,
+    padding: T.spacing.xl,
   },
   emptyText: {
-    fontSize: typography.body,
+    fontSize: T.typography.body,
     textAlign: 'center',
   },
   itemListBody: {
     flex: 1,
   },
   itemList: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.sm,
+    paddingBottom: T.spacing.lg,
   },
   itemSeparator: {
-    height: spacing.sm,
+    height: T.spacing.sm,
   },
   itemName: {
-    fontSize: typography.bodyLarge,
-    fontWeight: typography.semibold,
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.semibold,
   },
   itemUnit: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
   },
   itemTotal: {
-    fontSize: typography.caption,
+    fontSize: T.typography.caption,
     marginTop: 2,
-    fontWeight: typography.semibold,
+    fontWeight: T.typography.semibold,
   },
   // Two compact inputs side-by-side in the trailing slot. Each column
   // stacks a caption (Cases / Units) over the input. ~44pt each + gap
@@ -1254,28 +1260,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     // Tight gap so the columns can be wide enough for "Loose Units"
     // to fit on one line.
-    gap: spacing.xs,
+    gap: T.spacing.xs,
     alignItems: 'flex-end',
   },
   countCol: {
     width: 52,
   },
   countColLabel: {
-    fontSize: typography.caption,
-    marginBottom: spacing.xs,
+    fontSize: T.typography.caption,
+    marginBottom: T.spacing.xs,
     textAlign: 'center',
-    fontWeight: typography.medium,
+    fontWeight: T.typography.medium,
   },
   countInput: {
     width: 52,
     textAlign: 'center',
   },
   footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingTop: T.spacing.md,
+    paddingBottom: T.spacing.md,
     borderTopWidth: 1,
-    gap: spacing.sm,
+    gap: T.spacing.sm,
   },
   submitWrap: {
     width: '100%',

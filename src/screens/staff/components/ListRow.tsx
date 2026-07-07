@@ -4,14 +4,14 @@
 // Always ≥ 44pt tall per spec 062 §B10.
 //
 // Spec 070 — the biggest visual shift: flat hairline-divided rows become
-// soft cards (radius.lg, surface fill, subtle elevation, no bottom
-// divider). The screen supplies inter-card spacing. In dark mode a
+// soft cards (T.radius.lg, surface fill, subtle elevation, no bottom
+// divider). The screen supplies inter-card T.spacing. In dark mode a
 // `borderStrong` hairline is added so the card edge survives where the
 // shadow is near-invisible (light mode: shadow alone, no border).
 
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { radius, spacing, touchTarget, useStaffColors, useStaffElevation } from '../theme';
+import { useStaffColors, useStaffElevation, useStaffTokens, type StaffTokens } from '../theme';
 
 type Props = {
   onPress?: () => void;
@@ -34,6 +34,8 @@ export function ListRow({
 }: Props) {
   const c = useStaffColors();
   const e = useStaffElevation();
+  const T = useStaffTokens();
+  const styles = useMemo(() => makeStyles(T), [T]);
   // The staff portal is always dark, so the dark-only card border (a
   // `borderStrong` hairline that keeps the card edge visible where the
   // dark shadow is near-invisible) is always on.
@@ -91,21 +93,21 @@ export function ListRow({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (T: StaffTokens) => StyleSheet.create({
   row: {
-    minHeight: touchTarget.min, // 24pt — dense phone row
+    minHeight: T.touchTarget.min, // 24pt — dense phone row
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.lg,
+    paddingHorizontal: T.spacing.sm,
+    paddingVertical: T.spacing.xs,
+    borderRadius: T.radius.lg,
   },
   leading: {
     flex: 1,
     minWidth: 0,
   },
   trailing: {
-    marginLeft: spacing.md,
+    marginLeft: T.spacing.md,
     flexShrink: 0,
   },
 });
