@@ -184,10 +184,18 @@ beforeEach(async () => {
   mockDraftResult = { data: null, error: null };
   setMockOnline(true);
   await AsyncStorage.clear();
-  // Reset to English between tests — locale is global store state.
-  useStaffStore.setState({ locale: 'en' });
+  // Reset to English + x1 between tests — both are global store state.
+  useStaffStore.setState({ locale: 'en', uiScale: 1 });
   seedSignedIn();
 });
+
+// This suite mounts the heaviest staff screen (full-store SectionList + the
+// full header). The FIRST mount pays a cold-start cost — StyleSheet factories
+// + the scaled-token subtree build on first render — that can exceed Jest's
+// 5s default on slower CI runners (subsequent mounts are warm and fast). The
+// whole file runs in ~2s locally; the headroom only covers that cold first
+// render on CI.
+jest.setTimeout(20000);
 
 describe('WeeklyCount', () => {
   it('renders EVERY item for the store (not vendor-scoped)', async () => {
