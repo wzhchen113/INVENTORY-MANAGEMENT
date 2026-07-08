@@ -187,7 +187,10 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
               i === 0 ? null : { borderTopWidth: 1, borderTopColor: c.border },
             ]}
           >
-            <View style={styles.itemTop}>
+            {/* Left column: name + on-hand/par + coincident-schedule hint.
+                Right column: the suggested-order figure, aligned to the screen
+                edge so order-placers can scan quantities down the right side. */}
+            <View style={styles.itemMain}>
               {/* Owner decision (2026-07): staff see order quantities only — no
                   per-item cost. Spec 100 — resolve the display name in the
                   active locale (silent English fallback). Adapter:
@@ -196,13 +199,34 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
               <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
                 {getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale)}
               </Text>
+              <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
+                {t('reorder.item.breakdown', {
+                  onHand: `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim(),
+                  par: `${formatQty(item.parLevel)} ${normalizeUnit(item.unit)}`.trim(),
+                })}
+              </Text>
+              {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared
+                  item is also scheduled under other vendors today it appears
+                  under each of their cards; surface "also available from N" so
+                  the manager orders it from ONE vendor, not several. Advisory
+                  only — does not change which card the item is on. Renders
+                  nothing for a single-vendor item (otherVendorCount 0). */}
+              {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
+                <Text
+                  style={[styles.itemAlsoFrom, { color: c.textTertiary }]}
+                  testID={`reorder-also-from-${item.itemId}`}
+                >
+                  {item.otherVendorCount === 1
+                    ? t('reorder.item.alsoFromOne', {
+                        vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                      })
+                    : t('reorder.item.alsoFromMany', {
+                        count: item.otherVendorCount ?? 0,
+                        vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                      })}
+                </Text>
+              ) : null}
             </View>
-            <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
-              {t('reorder.item.breakdown', {
-                onHand: `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim(),
-                par: `${formatQty(item.parLevel)} ${normalizeUnit(item.unit)}`.trim(),
-              })}
-            </Text>
             <Text style={[styles.itemOrder, { color: c.primary }]}>
               {t('reorder.item.order', { suggested: suggestedMain })}
               {suggestedSub ? (
@@ -212,27 +236,6 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
                 </Text>
               ) : null}
             </Text>
-            {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared
-                item is also scheduled under other vendors today it appears
-                under each of their cards; surface "also available from N" so
-                the manager orders it from ONE vendor, not several. Advisory
-                only — does not change which card the item is on. Renders
-                nothing for a single-vendor item (otherVendorCount 0). */}
-            {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
-              <Text
-                style={[styles.itemAlsoFrom, { color: c.textTertiary }]}
-                testID={`reorder-also-from-${item.itemId}`}
-              >
-                {item.otherVendorCount === 1
-                  ? t('reorder.item.alsoFromOne', {
-                      vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
-                    })
-                  : t('reorder.item.alsoFromMany', {
-                      count: item.otherVendorCount ?? 0,
-                      vendors: (item.alsoFromVendors ?? []).map((v) => v.vendorName).join(', '),
-                    })}
-              </Text>
-            ) : null}
           </View>
         );
       })}
@@ -959,18 +962,18 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     fontSize: T.typography.caption,
   },
   itemRow: {
-    paddingHorizontal: T.spacing.lg,
-    paddingVertical: T.spacing.md,
-    gap: T.spacing.xs,
-  },
-  itemTop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: T.spacing.sm,
+    gap: T.spacing.md,
+    paddingHorizontal: T.spacing.lg,
+    paddingVertical: T.spacing.md,
+  },
+  itemMain: {
+    flex: 1,
+    gap: T.spacing.xs,
   },
   itemName: {
-    flex: 1,
     fontSize: T.typography.body,
     fontWeight: T.typography.semibold,
   },
@@ -978,8 +981,10 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     fontSize: T.typography.caption,
   },
   itemOrder: {
+    flexShrink: 0,
     fontSize: T.typography.body,
     fontWeight: T.typography.bold,
+    textAlign: 'right',
   },
   itemOrderSub: {
     fontSize: T.typography.caption,
