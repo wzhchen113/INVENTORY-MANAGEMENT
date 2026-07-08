@@ -23,12 +23,25 @@
   },
   "eod": {
     "header": {
-      "today": "Today · {weekday}, {monthDay}"
+      "today": "Today · {weekday}, {monthDay}",
+      "yesterday": "Yesterday · {weekday}, {monthDay}"
     },
     "vendor": {
       "label": "Vendor",
       "single": "Vendor: {name}",
-      "noneToday": "No vendor scheduled for today"
+      "noneToday": "No vendor scheduled for today",
+      "noneYesterday": "No vendor scheduled for yesterday"
+    },
+    "date": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "aria": "Count date"
+    },
+    "late": {
+      "banner": "Late submission — counting for {weekday}, {monthDay}"
+    },
+    "yesterday": {
+      "reminder": "Finish yesterday's counts — tap Yesterday above."
     },
     "list": {
       "empty": "No items configured for this vendor",

@@ -23,12 +23,25 @@
   },
   "eod": {
     "header": {
-      "today": "Hoy · {weekday}, {monthDay}"
+      "today": "Hoy · {weekday}, {monthDay}",
+      "yesterday": "Ayer · {weekday}, {monthDay}"
     },
     "vendor": {
       "label": "Proveedor",
       "single": "Proveedor: {name}",
-      "noneToday": "No hay proveedor programado para hoy"
+      "noneToday": "No hay proveedor programado para hoy",
+      "noneYesterday": "Ningún proveedor programado para ayer"
+    },
+    "date": {
+      "today": "Hoy",
+      "yesterday": "Ayer",
+      "aria": "Fecha de conteo"
+    },
+    "late": {
+      "banner": "Envío tardío — contando para {weekday}, {monthDay}"
+    },
+    "yesterday": {
+      "reminder": "Termina los conteos de ayer — toca Ayer arriba."
     },
     "list": {
       "empty": "No hay artículos configurados para este proveedor",

@@ -47,6 +47,7 @@ import {
   resetCountOrder,
 } from '../lib/countOrder';
 import { todayIso } from '../lib/date';
+import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
@@ -71,14 +72,17 @@ function todayWeekday(d = new Date()): string {
 }
 
 // Takes a `t` so the caller can pass the reactive `useI18n()` t (spec
-// 099) — the header label must re-translate when the locale changes.
+// 099) — the header label must re-translate when the locale changes. The
+// `key` selects the Today vs Yesterday prefix (a late/back-dated count
+// shows "Yesterday · …" rather than "Today · …").
 function todayHeaderLabel(
   tt: typeof t,
   d = new Date(),
+  key: string = 'eod.header.today',
 ): string {
   const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
   const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return tt('eod.header.today', { weekday, monthDay });
+  return tt(key, { weekday, monthDay });
 }
 
 function submittedAtHHMM(iso: string): string {
@@ -323,17 +327,67 @@ export function EODCount() {
     [items, caseCounts, unitCounts],
   );
 
-  // Recompute when `t` changes (i.e. locale changes) so the header date
-  // label re-translates (spec 099).
-  const todayLabel = useMemo(() => todayHeaderLabel(t), [t]);
+  // ─── count date: today (default) or yesterday for a missed/late count ──
+  // Owner request (2026-07): if staff missed a vendor's count date they can
+  // step back ONE day and count it, flagged as a late submission. "Late" is
+  // purely derived (dayOffset > 0) — it needs no storage because the DB
+  // already records it implicitly: eod_submissions.date (the count date) is
+  // earlier than submitted_at::date (the wall-clock write). Overloading
+  // `status` was rejected — admin's fetchRecentEodDates filters
+  // status = 'submitted', so a 'late' status would hide the count.
+  const [dayOffset, setDayOffset] = useState(0); // 0 = today, 1 = yesterday
+  const countDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - dayOffset);
+    return d;
+  }, [dayOffset]);
+  // Local YYYY-MM-DD for the selected count date — the submission date key.
+  const countIso = useMemo(() => todayIso(countDate), [countDate]);
+  const isLate = dayOffset > 0;
+
+  // Recompute when `t` or the selected count date changes so the header date
+  // label re-translates (spec 099) and reflects Today vs Yesterday.
+  const todayLabel = useMemo(
+    () =>
+      todayHeaderLabel(t, countDate, isLate ? 'eod.header.yesterday' : 'eod.header.today'),
+    [t, countDate, isLate],
+  );
   const canSwitchStore = stores.length > 1;
+
+  // ─── yesterday-incomplete nudge ──────────────────────────────────
+  // True when ≥1 vendor scheduled YESTERDAY has no submission for
+  // yesterday's date yet — drives the red "Yesterday" toggle label + the
+  // Today reminder banner. Best-effort: any fetch error leaves it false (no
+  // false alarms). `submitTick` bumps on a successful submit so completing
+  // yesterday's count clears the nudge without a manual refresh.
+  const [yesterdayIncomplete, setYesterdayIncomplete] = useState(false);
+  const [submitTick, setSubmitTick] = useState(0);
+  useEffect(() => {
+    if (!activeStore) {
+      setYesterdayIncomplete(false);
+      return;
+    }
+    let cancelled = false;
+    fetchYesterdayIncomplete(activeStore.id)
+      .then((inc) => {
+        if (!cancelled) setYesterdayIncomplete(inc);
+      })
+      .catch(() => {
+        if (!cancelled) setYesterdayIncomplete(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStore, submitTick]);
 
   // ─── load vendors for today on mount / when active store changes ──
   useEffect(() => {
     if (!activeStore) return;
     setLoading(true);
     setForbidden(false);
-    fetchVendorsForToday(activeStore.id, todayWeekday())
+    // Vendors are scheduled per weekday, so a yesterday count loads
+    // YESTERDAY's scheduled vendors (the ones that may have been missed).
+    fetchVendorsForToday(activeStore.id, todayWeekday(countDate))
       .then((vs) => {
         setVendors(vs);
         setSelectedVendorId(vs[0]?.id ?? null);
@@ -344,7 +398,7 @@ export function EODCount() {
         setSelectedVendorId(null);
       })
       .finally(() => setLoading(false));
-  }, [activeStore]);
+  }, [activeStore, countDate]);
 
   // ─── load items + existing submission when vendor changes ─────────
   useEffect(() => {
@@ -358,7 +412,7 @@ export function EODCount() {
     setLoading(true);
     Promise.all([
       fetchItemsForVendor(activeStore.id, selectedVendorId),
-      fetchExistingSubmission(activeStore.id, todayIso(), selectedVendorId),
+      fetchExistingSubmission(activeStore.id, countIso, selectedVendorId),
     ])
       .then(([nextItems, nextExisting]) => {
         setItems(nextItems);
@@ -395,7 +449,7 @@ export function EODCount() {
         setUnitCounts({});
       })
       .finally(() => setLoading(false));
-  }, [activeStore, selectedVendorId]);
+  }, [activeStore, selectedVendorId, countIso]);
 
   // ─── Spec 103: load the saved custom order for (this vendor) on change ──
   // The order is per-(staff-eod, vendor). On open, if a saved order exists for
@@ -586,8 +640,16 @@ export function EODCount() {
       });
       return;
     }
-    // Date captured at SUBMIT time (§11 risk (c)).
-    const dateIso = todayIso();
+    // Count date captured at SUBMIT time (spec §11 risk c) — wall-clock now
+    // minus the selected day offset, so a session left open across midnight
+    // still keys to the correct day (the `countIso` memo used for the
+    // existing-submission FETCH is mount-time, matching the pre-change
+    // fetch behaviour; only the write must be submit-time-fresh).
+    // submitted_at stays now(), so a yesterday count is durably
+    // distinguishable as late (date < submitted_at::date).
+    const submitDate = new Date();
+    submitDate.setDate(submitDate.getDate() - dayOffset);
+    const dateIso = todayIso(submitDate);
 
     setSubmitting(true);
     try {
@@ -614,12 +676,15 @@ export function EODCount() {
         } catch {
           // ignore — primary action succeeded
         }
+        // Re-check the yesterday-incomplete nudge (a yesterday submit clears it).
+        setSubmitTick((n) => n + 1);
       } else if (outcome.kind === 'success-replay') {
         Toast.show({
           type: 'success',
           text1: t('eod.toast.alreadySubmitted'),
           position: 'bottom',
         });
+        setSubmitTick((n) => n + 1);
       } else if (outcome.kind === 'forbidden') {
         setForbidden(true);
       } else if (outcome.kind === 'queued') {
@@ -808,7 +873,68 @@ export function EODCount() {
           <LocaleSwitcher />
           <ScaleSwitcher />
         </View>
+        {/* Today / Yesterday count-date toggle. Yesterday lets staff catch a
+            vendor whose count date was missed; the submission is flagged late
+            (see the banner below + the derived-lateness note above). */}
+        <View
+          style={styles.dateToggle}
+          accessibilityRole="radiogroup"
+          accessibilityLabel={t('eod.date.aria')}
+        >
+          {[1, 0].map((off) => {
+            const active = dayOffset === off;
+            // Alert styling: yesterday's label goes red+bold when its counts
+            // aren't finished and it isn't the active (selected) segment.
+            const alert = off === 1 && yesterdayIncomplete && !active;
+            return (
+              <Pressable
+                key={off}
+                onPress={() => setDayOffset(off)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                testID={`eod-date-${off === 0 ? 'today' : 'yesterday'}`}
+                style={[
+                  styles.dateSegment,
+                  { borderColor: c.border, backgroundColor: active ? c.primary : 'transparent' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.dateSegmentText,
+                    {
+                      color: active ? c.textOnPrimary : alert ? c.error : c.textSecondary,
+                      fontWeight:
+                        active || alert ? T.typography.semibold : T.typography.medium,
+                    },
+                  ]}
+                >
+                  {t(off === 0 ? 'eod.date.today' : 'eod.date.yesterday')}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+
+      {/* Late-submission banner — shown whenever a past (yesterday) date is
+          selected so staff know this count is recorded as late. */}
+      {isLate ? (
+        <Banner
+          tone="warning"
+          text={todayHeaderLabel(t, countDate, 'eod.late.banner')}
+          testID="eod-late-banner"
+        />
+      ) : null}
+
+      {/* Today-view reminder — nudge to finish yesterday's outstanding counts.
+          Red (error tone) to match the red "Yesterday" toggle label. */}
+      {!isLate && yesterdayIncomplete ? (
+        <Banner
+          tone="error"
+          text={t('eod.yesterday.reminder')}
+          testID="eod-yesterday-reminder"
+        />
+      ) : null}
 
       {/* Forbidden banner */}
       {forbidden ? <Banner tone="error" text={t('eod.error.forbidden')} /> : null}
@@ -1012,7 +1138,7 @@ export function EODCount() {
       ) : vendors.length === 0 ? (
         <View style={styles.emptyPane}>
           <Text style={[styles.emptyText, { color: c.textSecondary }]}>
-            {t('eod.vendor.noneToday')}
+            {t(isLate ? 'eod.vendor.noneYesterday' : 'eod.vendor.noneToday')}
           </Text>
         </View>
       ) : items.length === 0 ? (
@@ -1161,6 +1287,24 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: T.spacing.sm,
+  },
+  // Today / Yesterday segmented toggle — mirrors the LocaleSwitcher pill shape.
+  dateToggle: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    marginTop: T.spacing.sm,
+    borderRadius: T.radius.md,
+    overflow: 'hidden',
+  },
+  dateSegment: {
+    minHeight: T.touchTarget.min,
+    paddingHorizontal: T.spacing.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateSegmentText: {
+    fontSize: T.typography.caption,
   },
   storePressable: {
     flex: 1,

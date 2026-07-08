@@ -23,12 +23,25 @@
   },
   "eod": {
     "header": {
-      "today": "今天 · {weekday}，{monthDay}"
+      "today": "今天 · {weekday}，{monthDay}",
+      "yesterday": "昨天 · {weekday}, {monthDay}"
     },
     "vendor": {
       "label": "供应商",
       "single": "供应商：{name}",
-      "noneToday": "今天没有安排供应商"
+      "noneToday": "今天没有安排供应商",
+      "noneYesterday": "昨天没有安排供应商"
+    },
+    "date": {
+      "today": "今天",
+      "yesterday": "昨天",
+      "aria": "盘点日期"
+    },
+    "late": {
+      "banner": "迟交 — 正在盘点 {weekday}, {monthDay}"
+    },
+    "yesterday": {
+      "reminder": "完成昨天的盘点 — 点击上方的“昨天”。"
     },
     "list": {
       "empty": "此供应商未配置任何项目",

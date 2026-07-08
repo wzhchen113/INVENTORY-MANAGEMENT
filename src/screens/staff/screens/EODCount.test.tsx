@@ -70,6 +70,14 @@ jest.mock('../../../lib/supabase', () => ({
   },
 }));
 
+// The yesterday-incomplete nudge is its own data path; mock it so it doesn't
+// consume the shared query stack. Default false (no nudge) for existing tests;
+// individual tests override via mockYesterdayIncomplete.mockResolvedValue(true).
+const mockYesterdayIncomplete = jest.fn().mockResolvedValue(false);
+jest.mock('../lib/yesterdayStatus', () => ({
+  fetchYesterdayIncomplete: (...args: unknown[]) => mockYesterdayIncomplete(...args),
+}));
+
 import { EODCount } from './EODCount';
 import { useStaffStore } from '../store/useStaffStore';
 
@@ -100,6 +108,8 @@ beforeEach(() => {
   mockFromCalls.length = 0;
   mockNextResultStack = [];
   mockCountOrderResult = { data: null, error: null };
+  mockYesterdayIncomplete.mockReset();
+  mockYesterdayIncomplete.mockResolvedValue(false);
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
   useStaffStore.setState({
@@ -588,6 +598,93 @@ describe('EODCount', () => {
     } finally {
       global.Date = RealDate;
     }
+  });
+});
+
+// Owner request (2026-07): step back ONE day to count a missed vendor,
+// flagged as a late submission.
+describe('EODCount — late (yesterday) count', () => {
+  it('switching to Yesterday shows the late banner and submits with yesterday’s date', async () => {
+    const RealDate = Date;
+    // Pin "now" to 2026-05-25 so yesterday is deterministically 2026-05-24.
+    const fixed = new RealDate(2026, 4, 25, 12, 0, 0);
+    class MockDate extends RealDate {
+      constructor(arg?: number | string | Date) {
+        if (arguments.length === 0) super(fixed.getTime());
+        else super(arg as number | string | Date);
+      }
+      static now() {
+        return fixed.getTime();
+      }
+    }
+    global.Date = MockDate as DateConstructor;
+
+    try {
+      mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+      const vendorRow = {
+        data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }],
+        error: null,
+      };
+      const itemsRow = {
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })],
+        error: null,
+      };
+      const noExisting = { data: null, error: null };
+      mockNextResultStack = [
+        // mount (today) load
+        vendorRow,
+        itemsRow,
+        noExisting,
+        // yesterday reload after the toggle
+        vendorRow,
+        itemsRow,
+        noExisting,
+        // post-submit existing re-fetch
+        noExisting,
+      ];
+
+      const { findByTestId, queryByTestId } = render(<EODCount />);
+      // No late banner on the default (today) view.
+      await findByTestId('eod-item-units-item-1');
+      expect(queryByTestId('eod-late-banner')).toBeNull();
+
+      // Step back to yesterday → late banner appears.
+      fireEvent.press(await findByTestId('eod-date-yesterday'));
+      expect(await findByTestId('eod-late-banner')).toBeTruthy();
+
+      fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '5');
+      fireEvent.press(await findByTestId('eod-submit'));
+      await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+
+      // Submits with YESTERDAY's date (the missed count date).
+      expect(mockSubmit.mock.calls[0][0].date).toBe('2026-05-24');
+    } finally {
+      global.Date = RealDate;
+    }
+  });
+
+  it('shows the Today reminder banner when yesterday is incomplete', async () => {
+    mockYesterdayIncomplete.mockResolvedValue(true);
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    // On the default Today view, the reminder banner appears.
+    expect(await findByTestId('eod-yesterday-reminder')).toBeTruthy();
+  });
+
+  it('hides the Today reminder banner when yesterday is complete', async () => {
+    mockYesterdayIncomplete.mockResolvedValue(false);
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId, queryByTestId } = render(<EODCount />);
+    await findByTestId('eod-item-units-item-1');
+    expect(queryByTestId('eod-yesterday-reminder')).toBeNull();
   });
 });
 
