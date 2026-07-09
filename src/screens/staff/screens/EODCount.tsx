@@ -28,6 +28,7 @@ import {
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -247,6 +248,9 @@ export function EODCount() {
   const c = useStaffColors();
   const T = useStaffTokens();
   const styles = useMemo(() => makeStyles(T), [T]);
+  // 2026-07 — jump to the Reorder tab after a successful submit so staff both
+  // see the count landed AND land on the list it feeds.
+  const navigation = useNavigation<any>();
   // Reactive `t` (spec 099) — every render-path string below uses this so
   // the screen re-renders and re-translates on a locale change.
   const { t } = useI18n();
@@ -687,6 +691,7 @@ export function EODCount() {
         }
         // Re-check the yesterday-incomplete nudge (a yesterday submit clears it).
         setSubmitTick((n) => n + 1);
+        navigation.navigate('Reorder');
       } else if (outcome.kind === 'success-replay') {
         Toast.show({
           type: 'success',
@@ -694,6 +699,7 @@ export function EODCount() {
           position: 'bottom',
         });
         setSubmitTick((n) => n + 1);
+        navigation.navigate('Reorder');
       } else if (outcome.kind === 'forbidden') {
         setForbidden(true);
       } else if (outcome.kind === 'queued') {

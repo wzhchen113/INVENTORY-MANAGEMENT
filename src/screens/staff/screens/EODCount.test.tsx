@@ -25,6 +25,13 @@ jest.mock('../hooks/useEodSubmit', () => ({
   }),
 }));
 
+// EODCount navigates to the Reorder tab on a successful submit — mock the
+// navigation object (no NavigationContainer in these unit renders).
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 // ─── mock supabase.from() so vendor/item/existing reads work ─────
 type QueryResult = { data: unknown; error: unknown };
 const mockFromCalls: string[] = [];
@@ -110,6 +117,7 @@ beforeEach(() => {
   mockCountOrderResult = { data: null, error: null };
   mockYesterdayIncomplete.mockReset();
   mockYesterdayIncomplete.mockResolvedValue(false);
+  mockNavigate.mockReset();
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
   useStaffStore.setState({
@@ -341,6 +349,20 @@ describe('EODCount', () => {
         ],
       }),
     );
+  });
+
+  it('navigates to the Reorder tab after a successful submit', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
+      { data: null, error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
+    fireEvent.press(await findByTestId('eod-submit'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Reorder'));
   });
 
   it('round-trips a spec-093 fixed row (case_qty=20): total = cases × 20 + units', async () => {

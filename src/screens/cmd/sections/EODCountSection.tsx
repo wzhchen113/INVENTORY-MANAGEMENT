@@ -744,6 +744,9 @@ export default function EODCountSection() {
           date: selectedIso,
         }),
       });
+      // 2026-07 — on a successful submit, jump to the Reorder section so the
+      // manager both sees the count landed AND lands on the list it feeds.
+      usePaletteAction.getState().request({ section: 'Reorder', selectedName: null });
     } catch (e: any) {
       console.warn('[EOD] cloud save failed:', e?.message || e);
       Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
