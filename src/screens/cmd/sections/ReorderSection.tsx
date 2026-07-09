@@ -21,6 +21,7 @@ import {
   activeWeekdaysFromSchedule,
   partitionReorderVendors,
   computeReorderKpis,
+  splitReorderVendorsByNeed,
 } from '../../../utils/reorderDayFilter';
 // Spec 089 (A) — the pure export formatters (formatQty / formatMoney /
 // formatSuggested / formatSuggestedPdf / slugifyStore / todayLocalIso /
@@ -67,10 +68,11 @@ export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
-// Inline breakdown line per the spec's A3 format:
-// `on hand: 4 | inbound: 0 | par: 12 → order: 8`. Mono, fg2 with the
-// `order:` segment bolded in fg so the math is glanceable.
-function BreakdownLine({ item }: { item: ReorderItem }) {
+// Inline per-item breakdown: `on hand: 0 each | inbound: 0 each | par: 40 each
+// → order: 40 each`. This is the primary per-item display (2026-07 — the
+// aligned numeric columns were removed as redundant). `tone` colors the
+// `order:` figure red (needs) / green (enough) to match the section.
+function BreakdownLine({ item, tone }: { item: ReorderItem; tone: string }) {
   const C = useCmdColors();
   const suggested = formatSuggestedParts(item);
   const seg = (label: string, value: string) => (
@@ -86,7 +88,7 @@ function BreakdownLine({ item }: { item: ReorderItem }) {
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>|</Text>
       {seg('par', `${formatQty(item.parLevel)} ${item.unit}`.trim())}
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>→</Text>
-      <Text style={{ fontFamily: mono(700), fontSize: 11.5, color: C.fg, fontVariant: ['tabular-nums'] }}>
+      <Text style={{ fontFamily: mono(700), fontSize: 11.5, color: tone, fontVariant: ['tabular-nums'] }}>
         order: {suggested.main}
         {suggested.sub ? (
           <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
@@ -344,9 +346,13 @@ function ReorderQuickOrderButton({
 }
 
 // Renders a single vendor's reorder card.
-function VendorCard({ vendor }: { vendor: ReorderVendor }) {
+// `needsOrder` selects the section tone: true → below-par items (red name +
+// suggested), false → at/above-par items (green — the "have enough stock"
+// section). Mirrors the staff Reorder card.
+function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder: boolean }) {
   const C = useCmdColors();
   const T = useT();
+  const itemTone = needsOrder ? C.danger : C.ok;
   // Spec 115 (W-3) — desktop-web quick-order preview, lifted here so it renders
   // as a normal in-card block below the footer (the card has overflow:hidden, so
   // an overlay wouldn't work). Cleared via the × in the preview header.
@@ -460,11 +466,9 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
           backgroundColor: C.bg,
         }}
       >
+        {/* on-hand / inbound / par / suggested now live inline in the per-item
+            breakdown line below (2026-07); only item + est $ stay as columns. */}
         <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: 1 }]}>item</Text>
-        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>on hand</Text>
-        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 70, textAlign: 'right' }]}>inbound</Text>
-        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 60, textAlign: 'right' }]}>par</Text>
-        <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>suggested</Text>
         <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: 80, textAlign: 'right' }]}>est $</Text>
       </View>
 
@@ -480,41 +484,25 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
             gap: 6,
           }}
         >
-          {/* Top row: name + numeric columns */}
+          {/* Top row: name (+ flags) and the est-$ column. */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }} numberOfLines={1}>
+              {/* Red name for needs-order rows, green for enough-stock rows. */}
+              <Text style={{ fontFamily: sans(600), fontSize: 13, color: itemTone }} numberOfLines={1}>
                 {item.itemName}
               </Text>
               {item.flags.map((f) => (
                 <FlagChip key={f} token={f} />
               ))}
             </View>
-            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatQty(item.onHand)} {item.unit}
-            </Text>
-            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatQty(item.pendingPoQty)} {item.unit}
-            </Text>
-            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 60, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatQty(item.parLevel)}
-            </Text>
-            <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-              {formatSuggestedParts(item).main}
-              {formatSuggestedParts(item).sub ? (
-                <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-                  {' · '}
-                  {formatSuggestedParts(item).sub}
-                </Text>
-              ) : null}
-            </Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
               {formatMoney(item.estimatedCost)}
             </Text>
           </View>
-          {/* Inline breakdown line — same data, glanceable shape */}
+          {/* Inline breakdown: on hand | inbound | par → order (2026-07 — the
+              single per-item numeric display; order figure in the section tone). */}
           <View style={{ paddingLeft: 2 }}>
-            <BreakdownLine item={item} />
+            <BreakdownLine item={item} tone={itemTone} />
           </View>
           {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared item
               is also scheduled under other vendors today it appears under each
@@ -812,23 +800,35 @@ export default function ReorderSection() {
   const { primary, noSchedule } = React.useMemo(
     () =>
       selectedWeekday
-        ? partitionReorderVendors(reorderPayload?.vendors, orderSchedule, selectedWeekday)
+        ? // restrictToDay=false (2026-07) — show ALL scheduled vendors (the
+          // full week), not just those ordering out on the selected day.
+          partitionReorderVendors(reorderPayload?.vendors, orderSchedule, selectedWeekday, false)
         : { primary: [], noSchedule: [] },
     [reorderPayload?.vendors, orderSchedule, selectedWeekday],
   );
-  const kpis = React.useMemo(() => computeReorderKpis(primary), [primary]);
+  // Spec (2026-07) — split the primary vendors into the two sections. Needs-
+  // order (below par) items drive the KPIs + export EXACTLY as before; enough-
+  // stock items (surfaced by include_stocked) render in the green section only.
+  const needsOrderVendors = React.useMemo(
+    () => splitReorderVendorsByNeed(primary, true),
+    [primary],
+  );
+  const enoughStockVendors = React.useMemo(
+    () => splitReorderVendorsByNeed(primary, false),
+    [primary],
+  );
+  const kpis = React.useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
 
   // Spec 087 — secondary "no schedule" group is collapsed by default.
   const [noScheduleOpen, setNoScheduleOpen] = React.useState(false);
 
-  // Spec 087 (D) — export must reflect the on-screen filtered + as-of view.
-  // Build a derived payload whose `vendors` is the primary order-today set
-  // and whose `kpis` are the client-recomputed numbers, so the CSV rows,
-  // the PDF tables, and the PDF footer all match the cards. Filename
-  // date-stamp uses `payload.asOfDate` (the selected date) — unchanged.
+  // Export must reflect the on-screen filtered + as-of view, and only what
+  // needs ordering — derived payload = needs-order vendors + recomputed KPIs
+  // so the CSV rows / PDF tables / footer match the cards (enough-stock items
+  // are never exported).
   const exportPayload = React.useMemo<ReorderPayload | null>(
-    () => (reorderPayload ? { ...reorderPayload, vendors: primary, kpis } : null),
-    [reorderPayload, primary, kpis],
+    () => (reorderPayload ? { ...reorderPayload, vendors: needsOrderVendors, kpis } : null),
+    [reorderPayload, needsOrderVendors, kpis],
   );
 
   // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when
@@ -838,7 +838,7 @@ export default function ReorderSection() {
   const showExport =
     Platform.OS === 'web' &&
     !!exportPayload &&
-    primary.length > 0 &&
+    needsOrderVendors.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
 
@@ -1108,11 +1108,35 @@ export default function ReorderSection() {
           </View>
         ) : null}
 
-        {/* Per-vendor cards — the PRIMARY "order today" set (vendors whose
-            order-out day matches the selected weekday). */}
-        {primary.map((v) => (
-          <VendorCard key={v.vendorId} vendor={v} />
-        ))}
+        {/* "Needs to Order" section — below-par items, red. */}
+        {needsOrderVendors.length > 0 ? (
+          <>
+            <Text
+              testID="reorder-section-needs"
+              style={{ fontFamily: mono(700), fontSize: 11, color: C.danger, letterSpacing: 0.5, textTransform: 'uppercase' }}
+            >
+              {T('section.reorder.needsToOrder')}
+            </Text>
+            {needsOrderVendors.map((v) => (
+              <VendorCard key={`need-${v.vendorId}`} vendor={v} needsOrder />
+            ))}
+          </>
+        ) : null}
+
+        {/* "Have enough stock" section — at/above-par items, green. */}
+        {enoughStockVendors.length > 0 ? (
+          <>
+            <Text
+              testID="reorder-section-enough"
+              style={{ fontFamily: mono(700), fontSize: 11, color: C.ok, letterSpacing: 0.5, textTransform: 'uppercase' }}
+            >
+              {T('section.reorder.haveEnough')}
+            </Text>
+            {enoughStockVendors.map((v) => (
+              <VendorCard key={`ok-${v.vendorId}`} vendor={v} needsOrder={false} />
+            ))}
+          </>
+        ) : null}
 
         {/* Spec 087 (A) — secondary "no schedule" group. Vendors with no
             `order_schedule` row (the report's 7-day fallback) have no
@@ -1150,7 +1174,9 @@ export default function ReorderSection() {
               </Text>
             </TouchableOpacity>
             {noScheduleOpen
-              ? noSchedule.map((v) => <VendorCard key={v.vendorId} vendor={v} />)
+              ? splitReorderVendorsByNeed(noSchedule, true).map((v) => (
+                  <VendorCard key={v.vendorId} vendor={v} needsOrder />
+                ))
               : null}
           </View>
         ) : null}

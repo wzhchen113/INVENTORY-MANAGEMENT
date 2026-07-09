@@ -940,6 +940,8 @@
       "errorTitle": "无法加载再订购列表",
       "selectStore": "请选择门店以查看再订购列表。",
       "noVendorsForDay": "{day}没有需要下单的供应商。",
+      "needsToOrder": "需要订购",
+      "haveEnough": "库存充足",
       "noScheduleGroupTitle": "无订货排程",
       "noScheduleGroupHint": "未绑定到星期几 — 仅供参考显示。",
       "createPoLabel": "+ 创建采购单",

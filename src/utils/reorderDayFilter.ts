@@ -137,12 +137,20 @@ function vendorIdsForWeekday(schedule: OrderSchedule | null | undefined, weekday
  * off the authoritative server-computed `scheduleKnown` flag (not
  * re-derived from the slice) so the two views can't subtly disagree.
  *
+ * `restrictToDay` (2026-07, default true = the spec-087 single-day view):
+ * when FALSE, the single-day filter is dropped — EVERY scheduled vendor
+ * lands in `primary` regardless of its order-out weekday, i.e. the full
+ * weekly reorder. `noSchedule` is unchanged. Both the admin and staff
+ * screens pass false to show the whole week; the default preserves the
+ * documented single-day contract (and the existing tests).
+ *
  * Order within each group is preserved from the input array.
  */
 export function partitionReorderVendors(
   vendors: ReorderVendor[] | null | undefined,
   schedule: OrderSchedule | null | undefined,
   selectedWeekday: DayName,
+  restrictToDay: boolean = true,
 ): { primary: ReorderVendor[]; noSchedule: ReorderVendor[] } {
   const primary: ReorderVendor[] = [];
   const noSchedule: ReorderVendor[] = [];
@@ -155,7 +163,7 @@ export function partitionReorderVendors(
       noSchedule.push(v);
       continue;
     }
-    if (scheduledIds.has(v.vendorId)) {
+    if (!restrictToDay || scheduledIds.has(v.vendorId)) {
       primary.push(v);
     }
     // else: scheduled, but not on the selected weekday → hidden for the day.
@@ -173,6 +181,25 @@ export function partitionReorderVendors(
  * shape matches `ReorderPayload['kpis']` so it can feed the existing
  * StatCards and the export footer directly.
  */
+/**
+ * Split a vendor list into the two Reorder sections by each item's
+ * `needsOrder` flag (2026-07). `needs === true` keeps each vendor's below-par
+ * items (needsOrder !== false — undefined defaults to needs-order for a
+ * below-par-only payload); `needs === false` keeps the at/above-par items
+ * (needsOrder === false, surfaced only when the RPC was called with
+ * include_stocked). Vendors left with no items in the requested section are
+ * dropped so a card only appears where it has rows. Shared by the admin +
+ * staff Reorder screens.
+ */
+export function splitReorderVendorsByNeed(
+  vendors: ReorderVendor[],
+  needs: boolean,
+): ReorderVendor[] {
+  return vendors
+    .map((v) => ({ ...v, items: v.items.filter((it) => (it.needsOrder !== false) === needs) }))
+    .filter((v) => v.items.length > 0);
+}
+
 export function computeReorderKpis(vendors: ReorderVendor[]): ReorderPayload['kpis'] {
   let itemCount = 0;
   let totalEstimatedCost = 0;

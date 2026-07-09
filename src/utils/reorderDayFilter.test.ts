@@ -14,6 +14,7 @@ import {
   activeWeekdaysFromSchedule,
   partitionReorderVendors,
   computeReorderKpis,
+  splitReorderVendorsByNeed,
 } from './reorderDayFilter';
 import type { OrderSchedule, ReorderVendor } from '../types';
 
@@ -174,6 +175,19 @@ describe('partitionReorderVendors', () => {
     expect(noSchedule).toEqual([]);
   });
 
+  it('restrictToDay=false puts EVERY scheduleKnown vendor in primary (week view)', () => {
+    const vendors = [
+      vendor({ vendorId: 'v-mon' }), // scheduled Tuesday-only day mismatch
+      vendor({ vendorId: 'v-tue' }),
+      vendor({ vendorId: 'v-none', scheduleKnown: false }),
+    ];
+    const { primary, noSchedule } = partitionReorderVendors(vendors, schedule, 'Monday', false);
+    // Both scheduled vendors surface regardless of order-out day; the
+    // no-schedule vendor still goes to its own group.
+    expect(primary.map((v) => v.vendorId).sort()).toEqual(['v-mon', 'v-tue']);
+    expect(noSchedule.map((v) => v.vendorId)).toEqual(['v-none']);
+  });
+
   it('puts a scheduleKnown=false vendor in noSchedule regardless of weekday', () => {
     const vendors = [vendor({ vendorId: 'v-none', scheduleKnown: false })];
     const onMon = partitionReorderVendors(vendors, schedule, 'Monday');
@@ -256,5 +270,32 @@ describe('computeReorderKpis', () => {
       eodSourcedVendorCount: 0,
       stockFallbackVendorCount: 0,
     });
+  });
+});
+
+describe('splitReorderVendorsByNeed', () => {
+  const need = { ...item(10, 10), itemId: 'need', needsOrder: true };
+  const enough = { ...item(0, 0), itemId: 'ok', needsOrder: false };
+  const legacy = { ...item(10, 10), itemId: 'legacy' }; // needsOrder undefined
+
+  it('needs=true keeps below-par + legacy (undefined) items; drops empty vendors', () => {
+    const vendors = [
+      vendor({ vendorId: 'v-1', items: [need, enough] }),
+      vendor({ vendorId: 'v-2', items: [enough] }), // enough-only → dropped
+    ];
+    const out = splitReorderVendorsByNeed(vendors, true);
+    expect(out.map((v) => v.vendorId)).toEqual(['v-1']);
+    expect(out[0].items.map((i) => i.itemId).sort()).toEqual(['need']);
+  });
+
+  it('legacy items (needsOrder undefined) default to the needs section', () => {
+    const out = splitReorderVendorsByNeed([vendor({ vendorId: 'v-1', items: [legacy] })], true);
+    expect(out[0].items.map((i) => i.itemId)).toEqual(['legacy']);
+    expect(splitReorderVendorsByNeed([vendor({ vendorId: 'v-1', items: [legacy] })], false)).toEqual([]);
+  });
+
+  it('needs=false keeps only needsOrder===false items', () => {
+    const out = splitReorderVendorsByNeed([vendor({ vendorId: 'v-1', items: [need, enough] })], false);
+    expect(out[0].items.map((i) => i.itemId)).toEqual(['ok']);
   });
 });

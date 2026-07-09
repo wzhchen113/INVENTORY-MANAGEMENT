@@ -142,6 +142,12 @@ describe('formatSuggested (cases·units, spec 088 byte-for-byte)', () => {
   it('non-case item unchanged', () => {
     expect(formatSuggested(plainItem({ suggestedQty: 8, unit: 'gal' }))).toBe('8 gal');
   });
+  it('suppresses the redundant sub when the base unit is itself "cases"', () => {
+    // "3 cases · 12 cases" would repeat the noun → just the case figure (2026-07).
+    expect(formatSuggested(caseItem({ suggestedQty: 12, caseQty: 4, unit: 'cases' }))).toBe('3 cases');
+    expect(formatSuggested(caseItem({ suggestedQty: 4, caseQty: 4, unit: 'case' }))).toBe('1 case');
+    expect(formatSuggestedPdf(caseItem({ suggestedQty: 12, caseQty: 4, unit: 'cases' }))).toBe('3 cs');
+  });
   it('PDF variant uses the cs abbreviation', () => {
     expect(formatSuggestedPdf(caseItem({ suggestedQty: 49, caseQty: 24, unit: 'each' }))).toBe(
       '3 cs · 72 each',

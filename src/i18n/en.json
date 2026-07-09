@@ -940,6 +940,8 @@
       "errorTitle": "Could not load reorder list",
       "selectStore": "Select a store to view the reorder list.",
       "noVendorsForDay": "No vendors are ordered on {day}.",
+      "needsToOrder": "Needs to Order",
+      "haveEnough": "Have enough stock",
       "noScheduleGroupTitle": "No order schedule",
       "noScheduleGroupHint": "Not tied to a weekday — shown for reference.",
       "createPoLabel": "+ CREATE PO",

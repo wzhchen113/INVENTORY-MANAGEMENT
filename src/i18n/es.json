@@ -940,6 +940,8 @@
       "errorTitle": "No se pudo cargar la lista de reorden",
       "selectStore": "Selecciona una tienda para ver la lista de reorden.",
       "noVendorsForDay": "No hay proveedores para pedir el {day}.",
+      "needsToOrder": "Hay que pedir",
+      "haveEnough": "Hay suficiente stock",
       "noScheduleGroupTitle": "Sin programa de pedidos",
       "noScheduleGroupHint": "Sin día de la semana asignado — se muestra como referencia.",
       "createPoLabel": "+ CREAR OC",

@@ -53,6 +53,7 @@ import {
   activeWeekdaysFromSchedule,
   computeReorderKpis,
   partitionReorderVendors,
+  splitReorderVendorsByNeed,
   weekdayName,
 } from '../../../utils/reorderDayFilter';
 import type { DayName } from '../../../utils/enumLabels';
@@ -96,9 +97,13 @@ function suggestedMainLabel(item: ReorderItem, tt: typeof t): string {
 
 // The secondary base-unit total shown beside the case figure (`null` for
 // non-case items — nothing to subordinate). Casing-normalized unit token.
+// Suppressed when the base unit is itself "case"/"cases" (2026-07): the figure
+// would read "N cases · M cases", repeating the noun — show just "N cases".
 function suggestedSubLabel(item: ReorderItem): string | null {
   if (item.suggestedCases == null) return null;
-  return `${formatQty(item.suggestedUnits)} ${normalizeUnit(item.unit)}`.trim();
+  const unit = normalizeUnit(item.unit);
+  if (unit === 'case' || unit === 'cases') return null;
+  return `${formatQty(item.suggestedUnits)} ${unit}`.trim();
 }
 
 // "Have enough stock" section — the on-hand figure shown in CASES for case-size
@@ -111,17 +116,6 @@ function inStockLabel(item: ReorderItem, tt: typeof t): string {
     return tt(key, { count: formatQty(cases) });
   }
   return `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim();
-}
-
-// Split a vendor list into the two Reorder sections. `needs === true` keeps
-// each vendor's below-par items (needsOrder !== false — undefined defaults to
-// needs-order for the admin/pre-migration payload); `needs === false` keeps the
-// at/above-par items (needsOrder === false). Vendors left with no items in the
-// requested section are dropped so a card only appears where it has rows.
-function splitVendorsByNeed(vendors: ReorderVendor[], needs: boolean): ReorderVendor[] {
-  return vendors
-    .map((v) => ({ ...v, items: v.items.filter((it) => (it.needsOrder !== false) === needs) }))
-    .filter((v) => v.items.length > 0);
 }
 
 // ── KPI card ──────────────────────────────────────────────────────
@@ -424,7 +418,9 @@ export function Reorder() {
   const { primary, noSchedule } = useMemo(
     () =>
       selectedWeekday
-        ? partitionReorderVendors(payload?.vendors, orderSchedule, selectedWeekday)
+        ? // restrictToDay=false (2026-07) — show ALL scheduled vendors (the
+          // full week), not just those ordering out on the selected day.
+          partitionReorderVendors(payload?.vendors, orderSchedule, selectedWeekday, false)
         : { primary: [], noSchedule: [] },
     [payload?.vendors, orderSchedule, selectedWeekday],
   );
@@ -458,11 +454,11 @@ export function Reorder() {
   // items drive the KPIs + export EXACTLY as before; enough-stock items
   // (surfaced by include_stocked) render only in the green section.
   const needsOrderVendors = useMemo(
-    () => splitVendorsByNeed(displayVendors, true),
+    () => splitReorderVendorsByNeed(displayVendors, true),
     [displayVendors],
   );
   const enoughStockVendors = useMemo(
-    () => splitVendorsByNeed(displayVendors, false),
+    () => splitReorderVendorsByNeed(displayVendors, false),
     [displayVendors],
   );
   const kpis = useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
@@ -824,7 +820,7 @@ export function Reorder() {
                 <Text style={[styles.noScheduleHint, { color: c.textTertiary }]}>
                   {t('reorder.noSchedule.hint')}
                 </Text>
-                {splitVendorsByNeed(noSchedule, true).map((v) => (
+                {splitReorderVendorsByNeed(noSchedule, true).map((v) => (
                   <VendorCard key={v.vendorId} vendor={v} needsOrder />
                 ))}
               </>

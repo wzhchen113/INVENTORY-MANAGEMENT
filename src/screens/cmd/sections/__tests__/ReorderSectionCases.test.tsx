@@ -302,8 +302,8 @@ describe('buildReorderCsv (Cases / Units Per Case columns)', () => {
   });
 });
 
-describe('Section render — SUGGESTED column and order: sub-line agree', () => {
-  it('shows the cases·units string in BOTH the suggested column and the breakdown order: line', () => {
+describe('Section render — per-item breakdown line', () => {
+  it('shows the cases·units string once, in the "order: …" breakdown line', () => {
     mockState.reorderPayload = {
       asOfDate: toISODate(new Date()),
       vendors: [vendor({ vendorId: 'v-1', items: [caseItem({ suggestedQty: 49, caseQty: 24, unit: 'each', itemName: 'Buns' })] })],
@@ -311,11 +311,10 @@ describe('Section render — SUGGESTED column and order: sub-line agree', () => 
       warnings: [],
     };
     render(<ReorderSection />);
-    // The SUGGESTED column renders the bare string; the order: line renders
-    // it prefixed with `order: `. Both must contain `3 cases · 72 each`.
-    const matches = screen.getAllByText(/3 cases · 72 each/);
-    // One in the column cell, one inside the `order: …` breakdown line.
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+    // 2026-07 — the numeric columns were removed in favor of the single inline
+    // "on hand | inbound | par → order" breakdown line, so the cases·units
+    // string shows exactly once, inside the `order: …` figure.
+    expect(screen.getAllByText(/3 cases · 72 each/)).toHaveLength(1);
     expect(screen.getByText(/order: /)).toBeTruthy();
   });
 

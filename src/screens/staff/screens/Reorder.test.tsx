@@ -326,9 +326,10 @@ describe('Reorder — localization (spec 100)', () => {
 
     const { getByText, getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
-    // Spanish plural case noun ("2 cajas") + the sub-unit total with the raw
-    // "CASE" token display-normalized to lowercase "case".
-    expect(getByText('Pedir: 2 cajas · 48 case')).toBeTruthy();
+    // Spanish plural case noun ("2 cajas"). The sub-unit total is SUPPRESSED
+    // (2026-07) because the base unit is itself "CASE" — "2 cajas · 48 case"
+    // would repeat the noun; just the case figure shows.
+    expect(getByText('Pedir: 2 cajas')).toBeTruthy();
   });
 
   it('uses the singular case key when exactly one case is suggested', async () => {
@@ -354,8 +355,9 @@ describe('Reorder — localization (spec 100)', () => {
 
     const { getByText, getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
-    // Singular "1 caja" (not "1 cajas") + normalized sub-unit.
-    expect(getByText('Pedir: 1 caja · 24 case')).toBeTruthy();
+    // Singular "1 caja" (not "1 cajas"); the "· 24 case" sub is suppressed
+    // (base unit is "CASE" → no repeated noun).
+    expect(getByText('Pedir: 1 caja')).toBeTruthy();
   });
 
   it('normalizes the raw unit token on the on-hand/par breakdown line', async () => {
@@ -427,15 +429,16 @@ describe('Reorder — states', () => {
     expect(queryByTestId('staff-reorder-export-csv')).toBeNull();
   });
 
-  it('nothing-to-order state when vendors exist but none order out today', async () => {
+  it('shows scheduled vendors regardless of order-out day (2026-07 week view)', async () => {
     mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
-    // Empty schedule → the vendor (scheduleKnown=true) is hidden for every
-    // day → primary is empty → distinct "nothing to order" state.
+    // Empty schedule, but the vendor has scheduleKnown=true. restrictToDay=false
+    // (week view) → it renders regardless of which day it orders out, rather
+    // than being hidden by the old single-day filter.
     mockFetchStaffOrderSchedule.mockResolvedValue({});
 
     const { getByTestId, queryByTestId } = renderScreen();
-    await waitFor(() => expect(getByTestId('staff-reorder-nothing-today')).toBeTruthy());
-    expect(queryByTestId('staff-reorder-export-csv')).toBeNull();
+    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
+    expect(queryByTestId('staff-reorder-nothing-today')).toBeNull();
   });
 
   it('error pane (retry-able) when the fetch rejects', async () => {

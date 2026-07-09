@@ -48,13 +48,22 @@ export interface SuggestedParts {
   sub: string | null;
 }
 
+// True when the item's base unit is itself "case"/"cases" — then the
+// cases-aware "N cases · M cases" figure repeats the noun redundantly, so the
+// sub is suppressed (2026-07: "N cases · M cases" → just "N cases"). For any
+// other unit the sub stays informative ("N cases · M each").
+function isCaseUnit(unit: string): boolean {
+  const u = (unit || '').trim().toLowerCase();
+  return u === 'case' || u === 'cases';
+}
+
 export function formatSuggestedParts(item: ReorderItem): SuggestedParts {
   if (item.suggestedCases != null) {
     const cases = item.suggestedCases;
     const caseWord = cases === 1 ? 'case' : 'cases';
     return {
       main: `${formatQty(cases)} ${caseWord}`,
-      sub: `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+      sub: isCaseUnit(item.unit) ? null : `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
     };
   }
   return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };
@@ -66,7 +75,7 @@ export function formatSuggestedPdfParts(item: ReorderItem): SuggestedParts {
   if (item.suggestedCases != null) {
     return {
       main: `${formatQty(item.suggestedCases)} cs`,
-      sub: `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+      sub: isCaseUnit(item.unit) ? null : `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
     };
   }
   return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };

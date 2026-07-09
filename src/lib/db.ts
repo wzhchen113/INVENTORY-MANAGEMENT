@@ -3689,6 +3689,10 @@ export async function fetchReorderSuggestions(
 ): Promise<ReorderPayload> {
   const params: Record<string, unknown> = {};
   if (asOfDate) params.as_of_date = asOfDate;
+  // Spec (2026-07) — the admin Reorder mirrors staff: a "Needs to Order"
+  // (below par) + "Have enough stock" (at/above par) split. include_stocked
+  // surfaces the at/above-par items too (each carries a `needs_order` flag).
+  params.include_stocked = true;
 
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase.rpc('report_reorder_list', {
@@ -3741,6 +3745,9 @@ function mapReorderVendor(v: any): ReorderVendor {
         suggestedQty: Number(it?.suggested_qty ?? 0),
         costPerUnit: Number(it?.cost_per_unit ?? 0),
         estimatedCost: Number(it?.estimated_cost ?? 0),
+        // Spec (2026-07) — below-par flag from the RPC (include_stocked). Absent
+        // → true so a below-par-only payload defaults every row to needs-order.
+        needsOrder: it?.needs_order == null ? true : Boolean(it.needs_order),
         // Spec 088 — case-based ordering fields (additive on the report's
         // per-item JSON). `case_qty` is always present (1 = no case size);
         // `suggested_cases` is null when caseQty <= 1; `suggested_units` is
