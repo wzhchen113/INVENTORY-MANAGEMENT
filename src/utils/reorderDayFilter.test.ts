@@ -175,19 +175,6 @@ describe('partitionReorderVendors', () => {
     expect(noSchedule).toEqual([]);
   });
 
-  it('restrictToDay=false puts EVERY scheduleKnown vendor in primary (week view)', () => {
-    const vendors = [
-      vendor({ vendorId: 'v-mon' }), // scheduled Tuesday-only day mismatch
-      vendor({ vendorId: 'v-tue' }),
-      vendor({ vendorId: 'v-none', scheduleKnown: false }),
-    ];
-    const { primary, noSchedule } = partitionReorderVendors(vendors, schedule, 'Monday', false);
-    // Both scheduled vendors surface regardless of order-out day; the
-    // no-schedule vendor still goes to its own group.
-    expect(primary.map((v) => v.vendorId).sort()).toEqual(['v-mon', 'v-tue']);
-    expect(noSchedule.map((v) => v.vendorId)).toEqual(['v-none']);
-  });
-
   it('puts a scheduleKnown=false vendor in noSchedule regardless of weekday', () => {
     const vendors = [vendor({ vendorId: 'v-none', scheduleKnown: false })];
     const onMon = partitionReorderVendors(vendors, schedule, 'Monday');

@@ -140,38 +140,29 @@ describe('ReorderSection wiring', () => {
 });
 
 describe('ReorderSection empty-state branches', () => {
-  it('shows scheduled vendors regardless of order-out day (2026-07 week view)', () => {
-    // The schedule is empty on EVERY weekday, but the payload vendor is
-    // scheduleKnown=true. restrictToDay=false (week view) → it now renders in
-    // the "Needs to Order" section regardless of its order-out day, rather
-    // than being hidden by the old single-day filter.
+  it('shows the day-filter empty state when the payload has vendors but none order out on the selected day', () => {
+    // Deterministic regardless of "today": the schedule is empty on EVERY
+    // weekday, so the lone payload vendor (scheduleKnown=true) is never in
+    // the primary set for any selected date → the day-filter empty state
+    // ("NOTHING TO ORDER" / noVendorsForDay) renders, distinct from the
+    // "NO REORDER SUGGESTIONS" (payload-empty) state.
     mockState.orderSchedule = {
       Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
     };
     mockState.reorderPayload = {
       asOfDate: toISODate(new Date()),
-      vendors: [
-        vendor({
-          vendorId: 'v-mon',
-          items: [
-            {
-              itemId: 'i-1', itemName: 'Flour', unit: 'lb', onHand: 0, pendingPoQty: 0,
-              parLevel: 10, usageForecasted: 0, parReplacement: 10, suggestedQty: 10,
-              costPerUnit: 1, estimatedCost: 10, caseQty: 1, suggestedCases: null,
-              suggestedUnits: 10, flags: [], needsOrder: true, otherVendorCount: 0,
-              alsoFromVendors: [],
-            },
-          ],
-        }),
-      ],
-      kpis: { vendorCount: 1, itemCount: 1, totalEstimatedCost: 10, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
+      vendors: [vendor({ vendorId: 'v-mon' })], // scheduled nowhere → hidden for the day
+      kpis: { vendorCount: 1, itemCount: 0, totalEstimatedCost: 0, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
       warnings: [],
     };
 
     render(<ReorderSection />);
 
-    expect(screen.getByTestId('reorder-section-needs')).toBeTruthy();
-    expect(screen.queryByTestId('reorder-empty-day')).toBeNull();
+    expect(screen.getByTestId('reorder-empty-day')).toBeTruthy();
+    // The day-filter copy interpolates the weekday name; assert the i18n
+    // key fired (key-echoing mock) rather than the raw "NO REORDER
+    // SUGGESTIONS" payload-empty copy.
+    expect(screen.queryByText('NO REORDER SUGGESTIONS')).toBeNull();
   });
 
   it('renders the secondary no-schedule group (collapsed) when scheduleKnown=false vendors exist', () => {

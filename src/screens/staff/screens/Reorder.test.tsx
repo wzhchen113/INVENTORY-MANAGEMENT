@@ -429,16 +429,15 @@ describe('Reorder — states', () => {
     expect(queryByTestId('staff-reorder-export-csv')).toBeNull();
   });
 
-  it('shows scheduled vendors regardless of order-out day (2026-07 week view)', async () => {
+  it('nothing-to-order state when vendors exist but none order out today', async () => {
     mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
-    // Empty schedule, but the vendor has scheduleKnown=true. restrictToDay=false
-    // (week view) → it renders regardless of which day it orders out, rather
-    // than being hidden by the old single-day filter.
+    // Empty schedule → the vendor (scheduleKnown=true) is hidden for every
+    // day → primary is empty → distinct "nothing to order" state.
     mockFetchStaffOrderSchedule.mockResolvedValue({});
 
     const { getByTestId, queryByTestId } = renderScreen();
-    await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
-    expect(queryByTestId('staff-reorder-nothing-today')).toBeNull();
+    await waitFor(() => expect(getByTestId('staff-reorder-nothing-today')).toBeTruthy());
+    expect(queryByTestId('staff-reorder-export-csv')).toBeNull();
   });
 
   it('error pane (retry-able) when the fetch rejects', async () => {

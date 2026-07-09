@@ -137,20 +137,12 @@ function vendorIdsForWeekday(schedule: OrderSchedule | null | undefined, weekday
  * off the authoritative server-computed `scheduleKnown` flag (not
  * re-derived from the slice) so the two views can't subtly disagree.
  *
- * `restrictToDay` (2026-07, default true = the spec-087 single-day view):
- * when FALSE, the single-day filter is dropped — EVERY scheduled vendor
- * lands in `primary` regardless of its order-out weekday, i.e. the full
- * weekly reorder. `noSchedule` is unchanged. Both the admin and staff
- * screens pass false to show the whole week; the default preserves the
- * documented single-day contract (and the existing tests).
- *
  * Order within each group is preserved from the input array.
  */
 export function partitionReorderVendors(
   vendors: ReorderVendor[] | null | undefined,
   schedule: OrderSchedule | null | undefined,
   selectedWeekday: DayName,
-  restrictToDay: boolean = true,
 ): { primary: ReorderVendor[]; noSchedule: ReorderVendor[] } {
   const primary: ReorderVendor[] = [];
   const noSchedule: ReorderVendor[] = [];
@@ -163,7 +155,7 @@ export function partitionReorderVendors(
       noSchedule.push(v);
       continue;
     }
-    if (!restrictToDay || scheduledIds.has(v.vendorId)) {
+    if (scheduledIds.has(v.vendorId)) {
       primary.push(v);
     }
     // else: scheduled, but not on the selected weekday → hidden for the day.

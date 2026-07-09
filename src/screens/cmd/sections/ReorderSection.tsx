@@ -800,9 +800,7 @@ export default function ReorderSection() {
   const { primary, noSchedule } = React.useMemo(
     () =>
       selectedWeekday
-        ? // restrictToDay=false (2026-07) — show ALL scheduled vendors (the
-          // full week), not just those ordering out on the selected day.
-          partitionReorderVendors(reorderPayload?.vendors, orderSchedule, selectedWeekday, false)
+        ? partitionReorderVendors(reorderPayload?.vendors, orderSchedule, selectedWeekday)
         : { primary: [], noSchedule: [] },
     [reorderPayload?.vendors, orderSchedule, selectedWeekday],
   );
