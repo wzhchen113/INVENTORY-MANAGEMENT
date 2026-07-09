@@ -417,11 +417,18 @@ export function EODCount() {
       .then(([nextItems, nextExisting]) => {
         setItems(nextItems);
         setExisting(nextExisting);
-        // Pre-fill BOTH boxes from any existing submission. Cases seeds
-        // from actual_remaining_cases (blank when null); Units seeds from
-        // actual_remaining_each ?? actual_remaining — the admin legacy-row
-        // fallback (EODCountSection.tsx:340-344, spec 086 OQ-4). A legacy
-        // row (splits NULL) → Cases blank, Units = the existing total.
+        // Pre-fill BOTH boxes from any existing submission. Cases seeds from
+        // actual_remaining_cases (blank when null).
+        //
+        // Units seed: prefer the explicit `each` split. The legacy-row
+        // fallback to the stored TOTAL (`actual_remaining`) applies ONLY to a
+        // TRUE legacy row — one with NO split columns at all (cases AND each
+        // both null), per spec 086 OQ-4. It must NOT fire for a new
+        // cases-only submission (cases set, each null): the total there is
+        // cases×caseQty, so seeding units from it re-adds the case amount and
+        // DOUBLES the count on reload (a manager entering 14 cases of a
+        // case-of-6 item saw loose auto-fill to 84 → total 168). Discriminator
+        // is `actual_remaining_cases == null` — a new split row always has it.
         const caseSeed: Record<string, string> = {};
         const unitSeed: Record<string, string> = {};
         if (nextExisting) {
@@ -432,7 +439,9 @@ export function EODCount() {
             const units =
               e.actual_remaining_each != null
                 ? e.actual_remaining_each
-                : e.actual_remaining;
+                : e.actual_remaining_cases == null
+                  ? e.actual_remaining
+                  : null;
             if (units != null) {
               unitSeed[e.item_id] = String(units);
             }

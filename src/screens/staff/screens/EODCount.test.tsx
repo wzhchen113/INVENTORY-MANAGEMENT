@@ -274,6 +274,40 @@ describe('EODCount', () => {
     expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('18');
   });
 
+  it('pre-fills a CASES-ONLY row without doubling: Units stays blank (not the total)', async () => {
+    // Regression: a manager enters 14 cases (case of 6), leaves Loose blank.
+    // Stored: cases=14, each=null, total=84 (14×6). On reload the Units box
+    // must NOT seed from the total (84) — that re-adds the case amount and
+    // doubles the row to 168. Cases=14, Units blank is the correct seed.
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          itemVendorRow({ id: 'item-1', catalog: { name: 'French Fries', unit: 'bag', case_qty: 6 } }),
+        ],
+        error: null,
+      },
+      {
+        data: {
+          id: 'sub-1',
+          submitted_at: '2026-05-24T18:30:00Z',
+          eod_entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 84, // 14 × 6, cases-only
+              actual_remaining_cases: 14,
+              actual_remaining_each: null,
+            },
+          ],
+        },
+        error: null,
+      },
+    ];
+    const { findByTestId } = render(<EODCount />);
+    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('14');
+    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('');
+  });
+
   it('converts Cases × caseQty + Units into the total in the submit payload', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
