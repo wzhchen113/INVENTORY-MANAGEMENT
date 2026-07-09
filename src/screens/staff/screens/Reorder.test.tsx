@@ -179,6 +179,47 @@ describe('Reorder — happy path (by-the-case display + KPIs)', () => {
     expect(queryAllByText(/\$/)).toHaveLength(0);
   });
 
+  it('splits items into "Needs to Order" and "Have enough stock" sections', async () => {
+    const mixed = vendor({
+      vendorId: 'v-1',
+      vendorName: 'Acme',
+      items: [
+        item({
+          itemId: 'i-need',
+          itemName: 'Buns',
+          parLevel: 49,
+          suggestedQty: 49,
+          caseQty: 24,
+          suggestedCases: 3,
+          suggestedUnits: 72,
+          needsOrder: true,
+        }),
+        item({
+          itemId: 'i-ok',
+          itemName: 'Napkins',
+          unit: 'each',
+          onHand: 20,
+          caseQty: 4,
+          parLevel: 10,
+          suggestedQty: 0,
+          suggestedUnits: 0,
+          needsOrder: false,
+        }),
+      ],
+    });
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([mixed]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));
+
+    const { getByText, getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('reorder-section-needs')).toBeTruthy());
+    // Both sections render; needs-order item shows its order line, enough-stock
+    // item shows the "Enough stock" label instead.
+    expect(getByTestId('reorder-section-enough')).toBeTruthy();
+    expect(getByText('Order: 3 cases · 72 each')).toBeTruthy();
+    // Enough-stock item shows the case-aware on-hand: 20 each / case of 4 = 5.
+    expect(getByText('In stock: 5 cases')).toBeTruthy();
+  });
+
   it('shows the export buttons (CSV/text/PDF) when the filtered set is non-empty', async () => {
     mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor]));
     mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-1'));

@@ -129,7 +129,8 @@
       "breakdown": "en mano {onHand} · par {par}",
       "order": "Pedir: {suggested}",
       "alsoFromOne": "también disponible de {vendors} — pida a uno",
-      "alsoFromMany": "también disponible de {count} otros proveedores ({vendors}) — pida a uno"
+      "alsoFromMany": "también disponible de {count} otros proveedores ({vendors}) — pida a uno",
+      "inStock": "En stock: {qty}"
     },
     "export": {
       "label": "Exportar / compartir",
@@ -200,6 +201,10 @@
         "5": "V",
         "6": "S"
       }
+    },
+    "section": {
+      "needsToOrder": "Hay que pedir",
+      "enough": "Hay suficiente stock"
     }
   },
   "eodTab": {

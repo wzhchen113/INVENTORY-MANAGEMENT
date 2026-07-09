@@ -812,6 +812,13 @@ export interface ReorderItem {
   suggestedQty: number;
   costPerUnit: number;
   estimatedCost: number;
+  /** Spec (2026-07) — true when below par and should be ordered; false for
+   *  at/above-par items surfaced only when the caller passes
+   *  `include_stocked`. Optional: the admin db.ts mapper does NOT set it (its
+   *  payload is below-par only), so `undefined` is treated as `true`. The
+   *  staff Reorder screen uses it to split "Needs to Order" vs "Have enough
+   *  stock" and colour the rows. */
+  needsOrder?: boolean;
   // Spec 088 — case-based ordering. `caseQty` is units-per-case from the
   // catalog (always present; `1` when no case size). `suggestedCases` is
   // the whole-case order (ceil of suggestedQty / caseQty) and is `null`

@@ -62,6 +62,9 @@ function mapReorderVendor(v: any): ReorderVendor {
         suggestedQty: Number(it?.suggested_qty ?? 0),
         costPerUnit: Number(it?.cost_per_unit ?? 0),
         estimatedCost: Number(it?.estimated_cost ?? 0),
+        // Spec (2026-07) — below-par flag from the RPC (include_stocked). Absent
+        // (pre-migration / admin path) → true so the row defaults to needs-order.
+        needsOrder: it?.needs_order == null ? true : Boolean(it.needs_order),
         // Spec 088 — case-based ordering fields. `case_qty` is always present
         // (1 = no case size); `suggested_cases` is null when caseQty <= 1;
         // `suggested_units` is the server's ordered base-unit total (falls
@@ -114,7 +117,10 @@ export async function fetchStaffReorder(
 ): Promise<ReorderPayload> {
   const { data, error } = await supabase.rpc('report_reorder_list', {
     p_store_id: storeId,
-    p_params: { as_of_date: asOfDate },
+    // Spec (2026-07) — the staff screen shows a "Have enough stock" section, so
+    // it asks for at/above-par items too (each item carries a `needs_order`
+    // flag). Admin omits this and keeps its below-par-only payload.
+    p_params: { as_of_date: asOfDate, include_stocked: true },
   });
   if (error) throw error;
 

@@ -101,6 +101,29 @@ function suggestedSubLabel(item: ReorderItem): string | null {
   return `${formatQty(item.suggestedUnits)} ${normalizeUnit(item.unit)}`.trim();
 }
 
+// "Have enough stock" section — the on-hand figure shown in CASES for case-size
+// items (owner request 2026-07: show how many cases are in stock), else the
+// base-unit on-hand. Mirrors suggestedMainLabel's case-noun localization.
+function inStockLabel(item: ReorderItem, tt: typeof t): string {
+  if (item.caseQty > 1) {
+    const cases = item.onHand / item.caseQty;
+    const key = cases === 1 ? 'reorder.unit.case' : 'reorder.unit.cases';
+    return tt(key, { count: formatQty(cases) });
+  }
+  return `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim();
+}
+
+// Split a vendor list into the two Reorder sections. `needs === true` keeps
+// each vendor's below-par items (needsOrder !== false — undefined defaults to
+// needs-order for the admin/pre-migration payload); `needs === false` keeps the
+// at/above-par items (needsOrder === false). Vendors left with no items in the
+// requested section are dropped so a card only appears where it has rows.
+function splitVendorsByNeed(vendors: ReorderVendor[], needs: boolean): ReorderVendor[] {
+  return vendors
+    .map((v) => ({ ...v, items: v.items.filter((it) => (it.needsOrder !== false) === needs) }))
+    .filter((v) => v.items.length > 0);
+}
+
 // ── KPI card ──────────────────────────────────────────────────────
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   const c = useStaffColors();
@@ -123,12 +146,15 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
 }
 
 // ── per-vendor card (mobile reflow of the admin VendorCard) ─────────
-function VendorCard({ vendor }: { vendor: ReorderVendor }) {
+// `needsOrder` selects the section tone: true → below-par items (red name +
+// "Order: N" line); false → at/above-par items (green name + "Enough stock").
+function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder: boolean }) {
   const c = useStaffColors();
   const e = useStaffElevation();
   const T = useStaffTokens();
   const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
+  const itemTone = needsOrder ? c.error : c.success;
   // Reactive locale slice — item names resolve via getLocalizedName(item,
   // locale), so reading it directly re-renders the list labels on a locale
   // switch (the spec-099 pattern, identical to EODCount).
@@ -196,7 +222,8 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
                   active locale (silent English fallback). Adapter:
                   ReorderItem.itemName ≠ the helper's `name` field, so shape it
                   the way EOD/Weekly do. */}
-              <Text style={[styles.itemName, { color: c.text }]} numberOfLines={2}>
+              {/* Red name for needs-order rows, green for enough-stock rows. */}
+              <Text style={[styles.itemName, { color: itemTone }]} numberOfLines={2}>
                 {getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale)}
               </Text>
               <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
@@ -227,15 +254,21 @@ function VendorCard({ vendor }: { vendor: ReorderVendor }) {
                 </Text>
               ) : null}
             </View>
-            <Text style={[styles.itemOrder, { color: c.primary }]}>
-              {t('reorder.item.order', { suggested: suggestedMain })}
-              {suggestedSub ? (
-                <Text style={[styles.itemOrderSub, { color: c.textSecondary }]}>
-                  {' · '}
-                  {suggestedSub}
-                </Text>
-              ) : null}
-            </Text>
+            {needsOrder ? (
+              <Text style={[styles.itemOrder, { color: itemTone }]}>
+                {t('reorder.item.order', { suggested: suggestedMain })}
+                {suggestedSub ? (
+                  <Text style={[styles.itemOrderSub, { color: c.textSecondary }]}>
+                    {' · '}
+                    {suggestedSub}
+                  </Text>
+                ) : null}
+              </Text>
+            ) : (
+              <Text style={[styles.itemOrder, { color: itemTone }]}>
+                {t('reorder.item.inStock', { qty: inStockLabel(item, t) })}
+              </Text>
+            )}
           </View>
         );
       })}
@@ -421,20 +454,32 @@ export function Reorder() {
     () => (selectedVendor ? [selectedVendor] : primary),
     [selectedVendor, primary],
   );
-  const kpis = useMemo(() => computeReorderKpis(displayVendors), [displayVendors]);
+  // Split the displayed vendors into the two sections. Needs-order (below par)
+  // items drive the KPIs + export EXACTLY as before; enough-stock items
+  // (surfaced by include_stocked) render only in the green section.
+  const needsOrderVendors = useMemo(
+    () => splitVendorsByNeed(displayVendors, true),
+    [displayVendors],
+  );
+  const enoughStockVendors = useMemo(
+    () => splitVendorsByNeed(displayVendors, false),
+    [displayVendors],
+  );
+  const kpis = useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
 
-  // Export must reflect the on-screen FILTERED + as-of view — derived payload
-  // = displayed vendors + client-recomputed KPIs (same invariant as admin).
+  // Export must reflect the on-screen FILTERED + as-of view, and only what
+  // needs ordering — derived payload = needs-order vendors + recomputed KPIs
+  // (same invariant as admin; enough-stock items are never exported).
   const exportPayload = useMemo<ReorderPayload | null>(
-    () => (payload ? { ...payload, vendors: displayVendors, kpis } : null),
-    [payload, displayVendors, kpis],
+    () => (payload ? { ...payload, vendors: needsOrderVendors, kpis } : null),
+    [payload, needsOrderVendors, kpis],
   );
 
   // showExport gate mirrors the admin (minus the web-only clause — staff
   // export is cross-platform): enabled iff there's a non-empty filtered set,
   // no error, and not the initial load.
   const showExport =
-    !!exportPayload && displayVendors.length > 0 && !error && !(loading && !payload);
+    !!exportPayload && needsOrderVendors.length > 0 && !error && !(loading && !payload);
 
   // ─── header actions (mirror EODCount) ──────────────────────────────
   const onSignOut = useCallback(() => {
@@ -729,11 +774,29 @@ export function Reorder() {
           />
         ) : null}
 
-        {/* Vendor cards — the order-today `primary` set under "All", or the
-            single selected vendor when a chip is active. */}
-        {displayVendors.map((v) => (
-          <VendorCard key={v.vendorId} vendor={v} />
-        ))}
+        {/* "Needs to Order" section — below-par items, red. */}
+        {needsOrderVendors.length > 0 ? (
+          <>
+            <Text style={[styles.sectionHeader, { color: c.error }]} testID="reorder-section-needs">
+              {t('reorder.section.needsToOrder')}
+            </Text>
+            {needsOrderVendors.map((v) => (
+              <VendorCard key={`need-${v.vendorId}`} vendor={v} needsOrder />
+            ))}
+          </>
+        ) : null}
+
+        {/* "Have enough stock" section — at/above-par items, green. */}
+        {enoughStockVendors.length > 0 ? (
+          <>
+            <Text style={[styles.sectionHeader, { color: c.success }]} testID="reorder-section-enough">
+              {t('reorder.section.enough')}
+            </Text>
+            {enoughStockVendors.map((v) => (
+              <VendorCard key={`ok-${v.vendorId}`} vendor={v} needsOrder={false} />
+            ))}
+          </>
+        ) : null}
 
         {/* Secondary "no schedule" collapsible group — only under "All"; a
             single-vendor selection shows that vendor directly above instead. */}
@@ -761,8 +824,8 @@ export function Reorder() {
                 <Text style={[styles.noScheduleHint, { color: c.textTertiary }]}>
                   {t('reorder.noSchedule.hint')}
                 </Text>
-                {noSchedule.map((v) => (
-                  <VendorCard key={v.vendorId} vendor={v} />
+                {splitVendorsByNeed(noSchedule, true).map((v) => (
+                  <VendorCard key={v.vendorId} vendor={v} needsOrder />
                 ))}
               </>
             ) : null}
@@ -855,6 +918,15 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     padding: T.spacing.lg,
     paddingBottom: T.spacing.xxxl,
     gap: T.spacing.md,
+  },
+  // Section header ("Needs to Order" / "Have enough stock") — coloured to
+  // match the section's row tone (red / green).
+  sectionHeader: {
+    fontSize: T.typography.bodyLarge,
+    fontWeight: T.typography.bold,
+    marginTop: T.spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   // Vendor filter — horizontal row of pills.
   vendorChips: {

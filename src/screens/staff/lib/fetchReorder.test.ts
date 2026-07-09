@@ -23,12 +23,14 @@ beforeEach(() => {
 });
 
 describe('fetchStaffReorder', () => {
-  it('calls report_reorder_list with p_store_id + p_params.as_of_date', async () => {
+  it('calls report_reorder_list with p_store_id + p_params (as_of_date + include_stocked)', async () => {
     mockRpc.mockResolvedValueOnce({ data: { vendors: [], kpis: {}, _warnings: [] }, error: null });
     await fetchStaffReorder('store-1', '2026-06-02');
+    // include_stocked: true asks for at/above-par items so the screen can show
+    // the "Have enough stock" section (each item carries a needs_order flag).
     expect(mockRpc).toHaveBeenCalledWith('report_reorder_list', {
       p_store_id: 'store-1',
-      p_params: { as_of_date: '2026-06-02' },
+      p_params: { as_of_date: '2026-06-02', include_stocked: true },
     });
   });
 

@@ -129,7 +129,8 @@
       "breakdown": "在库 {onHand} · 安全库存 {par}",
       "order": "订购：{suggested}",
       "alsoFromOne": "也可从 {vendors} 订购 — 仅选其一",
-      "alsoFromMany": "也可从其他 {count} 家供应商订购（{vendors}）— 仅选其一"
+      "alsoFromMany": "也可从其他 {count} 家供应商订购（{vendors}）— 仅选其一",
+      "inStock": "库存：{qty}"
     },
     "export": {
       "label": "导出 / 分享",
@@ -200,6 +201,10 @@
         "5": "五",
         "6": "六"
       }
+    },
+    "section": {
+      "needsToOrder": "需要订购",
+      "enough": "库存充足"
     }
   },
   "eodTab": {
