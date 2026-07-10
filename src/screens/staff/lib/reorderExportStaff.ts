@@ -18,49 +18,80 @@
 
 import Papa from 'papaparse';
 import type { ReorderPayload } from '../../../types';
+import { t, type Locale } from '../../../i18n';
+import { getLocalizedName } from '../../../i18n/localizedName';
 import {
   formatQty,
   formatSuggested,
   formatSuggestedPdfParts,
+  localizeUnit,
   todayLocalIso,
 } from '../../../utils/reorderExport';
+
+// 2026-07 — localized downloads. Same posture as the shared admin builders:
+// `locale === 'en'` yields byte-identical output; es / zh-CN translate the
+// chrome, the case noun, the unit token, and item names (via each item's
+// i18n_names, which the staff fetchReorder mapper already surfaces). The
+// export-label keys live in the shared `reorderExport.*` namespace of the
+// admin catalog (src/i18n) — units are shared vocabulary and these export
+// files already import from the shared util, so there is one dictionary.
+type ItemT = ReorderPayload['vendors'][number]['items'][number];
+const nameOf = (item: ItemT, locale: Locale): string =>
+  getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
+const unitOf = (unit: string, locale: Locale): string =>
+  locale === 'en' ? unit : localizeUnit(unit, locale);
 
 // CSV — same column set as buildReorderCsv MINUS the 'Est. Cost' column, PLUS
 // a 'Needs Order' column (2026-07) so both the needs-to-order and the have-
 // enough-stock rows are present and distinguishable, matching the two on-screen
 // sections. Rows come from ALL displayed items.
-export function buildStaffReorderCsv(payload: ReorderPayload): string {
+export function buildStaffReorderCsv(payload: ReorderPayload, locale: Locale = 'en'): string {
+  const H = (k: string, en: string) => (locale === 'en' ? en : t(locale, k));
+  const cVendor = H('reorderExport.colVendor', 'Vendor');
+  const cNeeds = H('reorderExport.colNeedsOrder', 'Needs Order');
+  const cItemName = H('reorderExport.colItemName', 'Item Name');
+  const cOnHand = H('reorderExport.colOnHand', 'On Hand');
+  const cPendingPo = H('reorderExport.colPendingPo', 'Pending PO');
+  const cParLevel = H('reorderExport.colParLevel', 'Par Level');
+  const cSuggestedQty = H('reorderExport.colSuggestedQty', 'Suggested Qty');
+  const cCases = H('reorderExport.colCases', 'Cases');
+  const cUnitsPerCase = H('reorderExport.colUnitsPerCase', 'Units Per Case');
+  const cUnit = H('reorderExport.colUnit', 'Unit');
+  const cFlags = H('reorderExport.colFlags', 'Flags');
+  const cEodAt = H('reorderExport.colEodCountedAt', 'EOD Counted At');
+  const yes = locale === 'en' ? 'yes' : t(locale, 'reorderExport.yes');
+  const no = locale === 'en' ? 'no' : t(locale, 'reorderExport.no');
   const columns = [
-    'Vendor',
-    'Needs Order',
-    'Item Name',
-    'On Hand',
-    'Pending PO',
-    'Par Level',
-    'Suggested Qty',
-    'Cases',
-    'Units Per Case',
-    'Unit',
-    'Flags',
-    'EOD Counted At',
+    cVendor,
+    cNeeds,
+    cItemName,
+    cOnHand,
+    cPendingPo,
+    cParLevel,
+    cSuggestedQty,
+    cCases,
+    cUnitsPerCase,
+    cUnit,
+    cFlags,
+    cEodAt,
   ];
   const rows: Record<string, string | number>[] = [];
   for (const vendor of payload.vendors) {
     for (const item of vendor.items) {
       const isCase = item.suggestedCases != null;
       rows.push({
-        'Vendor': vendor.vendorName,
-        'Needs Order': item.needsOrder === false ? 'no' : 'yes',
-        'Item Name': item.itemName,
-        'On Hand': item.onHand,
-        'Pending PO': item.pendingPoQty,
-        'Par Level': item.parLevel,
-        'Suggested Qty': isCase ? item.suggestedUnits : item.suggestedQty,
-        'Cases': item.suggestedCases != null ? item.suggestedCases : '',
-        'Units Per Case': item.caseQty > 1 ? item.caseQty : '',
-        'Unit': item.unit,
-        'Flags': (item.flags || []).join(', '),
-        'EOD Counted At': vendor.eodSubmittedAt || '',
+        [cVendor]: vendor.vendorName,
+        [cNeeds]: item.needsOrder === false ? no : yes,
+        [cItemName]: nameOf(item, locale),
+        [cOnHand]: item.onHand,
+        [cPendingPo]: item.pendingPoQty,
+        [cParLevel]: item.parLevel,
+        [cSuggestedQty]: isCase ? item.suggestedUnits : item.suggestedQty,
+        [cCases]: item.suggestedCases != null ? item.suggestedCases : '',
+        [cUnitsPerCase]: item.caseQty > 1 ? item.caseQty : '',
+        [cUnit]: unitOf(item.unit, locale),
+        [cFlags]: (item.flags || []).join(', '),
+        [cEodAt]: vendor.eodSubmittedAt || '',
       });
     }
   }
@@ -70,49 +101,65 @@ export function buildStaffReorderCsv(payload: ReorderPayload): string {
 // Plain text — TWO sections mirroring the screen (2026-07): NEEDS TO ORDER
 // (below par, cases-aware Suggested figure) then HAVE ENOUGH STOCK (at/above
 // par, on-hand). NO cost. Footer carries the count of items to order.
-export function buildStaffReorderText(payload: ReorderPayload, storeName: string): string {
+export function buildStaffReorderText(
+  payload: ReorderPayload,
+  storeName: string,
+  locale: Locale = 'en',
+): string {
+  const L = (k: string, en: string, vars?: Record<string, string | number>) =>
+    locale === 'en' ? en : t(locale, k, vars);
   const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
   const lines: string[] = [];
-  lines.push('I.M.R — Reorder list');
-  lines.push(`Store: ${storeName}`);
-  lines.push(`As of: ${date}`);
+  lines.push(L('reorderExport.listTitle', 'I.M.R — Reorder list'));
+  lines.push(`${L('reorderExport.store', 'Store')}: ${storeName}`);
+  lines.push(`${L('reorderExport.asOf', 'As of')}: ${date}`);
   lines.push('');
 
   const section = (
     title: string,
-    keep: (it: ReorderPayload['vendors'][number]['items'][number]) => boolean,
-    itemLine: (it: ReorderPayload['vendors'][number]['items'][number]) => string,
+    keep: (it: ItemT) => boolean,
+    itemLine: (it: ItemT) => string,
   ) => {
     const groups = payload.vendors
       .map((v) => ({ v, items: v.items.filter(keep) }))
       .filter((g) => g.items.length > 0);
     lines.push(`=== ${title} ===`);
     if (groups.length === 0) {
-      lines.push('  (none)');
+      lines.push(`  ${L('reorderExport.none', '(none)')}`);
       lines.push('');
       return;
     }
     for (const { v, items } of groups) {
-      const sourceLabel = v.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
-      lines.push(`${v.vendorName || 'unnamed vendor'} — ${sourceLabel}`);
-      if (v.nextDeliveryDate) lines.push(`  next delivery: ${v.nextDeliveryDate}`);
+      const sourceLabel =
+        v.onHandSource === 'eod'
+          ? L('reorderExport.sourceEod', 'EOD')
+          : L('reorderExport.sourceStock', 'STOCK FALLBACK');
+      lines.push(`${v.vendorName || L('reorderExport.unnamedVendor', 'unnamed vendor')} — ${sourceLabel}`);
+      if (v.nextDeliveryDate) lines.push(`  ${L('reorderExport.nextDelivery', 'next delivery')}: ${v.nextDeliveryDate}`);
       for (const item of items) lines.push(itemLine(item));
       lines.push('');
     }
   };
 
+  // Section titles keep the English uppercase in en; localized otherwise.
   section(
-    'NEEDS TO ORDER',
+    locale === 'en' ? 'NEEDS TO ORDER' : t(locale, 'reorderExport.needsToOrder').toUpperCase(),
     (it) => it.needsOrder !== false,
-    (item) => `  - ${item.itemName}: ${formatSuggested(item)}`,
+    (item) => `  - ${nameOf(item, locale)}: ${formatSuggested(item, locale)}`,
   );
   section(
-    'HAVE ENOUGH STOCK',
+    locale === 'en' ? 'HAVE ENOUGH STOCK' : t(locale, 'reorderExport.haveEnough').toUpperCase(),
     (it) => it.needsOrder === false,
-    (item) => `  - ${item.itemName}: on hand ${formatQty(item.onHand)} ${item.unit}`.trimEnd(),
+    (item) =>
+      locale === 'en'
+        ? `  - ${item.itemName}: on hand ${formatQty(item.onHand)} ${item.unit}`.trimEnd()
+        : `  - ${nameOf(item, locale)}: ${t(locale, 'reorderExport.onHandLine', {
+            qty: formatQty(item.onHand),
+            unit: unitOf(item.unit, locale),
+          })}`.trimEnd(),
   );
 
-  lines.push(`Total items to order: ${payload.kpis.itemCount}`);
+  lines.push(`${L('reorderExport.itemsToOrder', 'Total items to order')}: ${payload.kpis.itemCount}`);
   return lines.join('\n');
 }
 
@@ -131,42 +178,67 @@ function escapeHtml(s: string): string {
 // TO ORDER (red) then HAVE ENOUGH STOCK (green), each with per-vendor tables of
 // that section's items. NO cost. The section boxes replace the per-row status
 // column.
-export function buildStaffReorderPdfHtml(payload: ReorderPayload, storeName: string): string {
+export function buildStaffReorderPdfHtml(
+  payload: ReorderPayload,
+  storeName: string,
+  locale: Locale = 'en',
+): string {
+  const L = (k: string, en: string, vars?: Record<string, string | number>) =>
+    locale === 'en' ? en : t(locale, k, vars);
   const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
 
-  const vendorBlock = (vendor: ReorderPayload['vendors'][number], items: typeof vendor.items, cls: string) => {
-    const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
+  // `isNeeds` drops the redundant Unit column (the unit already rides inside the
+  // Suggested string) and paints ONLY the "N cs" case count red. The enough box
+  // keeps the Unit column (it labels the On-Hand figure).
+  const vendorBlock = (
+    vendor: ReorderPayload['vendors'][number],
+    items: typeof vendor.items,
+    cls: string,
+    isNeeds: boolean,
+  ) => {
+    const sourceLabel =
+      vendor.onHandSource === 'eod'
+        ? L('reorderExport.sourceEod', 'EOD')
+        : L('reorderExport.sourceStock', 'STOCK FALLBACK');
     const daysLabel =
       vendor.daysUntilNextDelivery === 0
-        ? 'today'
+        ? L('reorderExport.deliveryToday', 'today')
         : vendor.daysUntilNextDelivery === 1
-          ? 'tomorrow'
-          : `in ${vendor.daysUntilNextDelivery} days`;
-    const subHeader = `${escapeHtml(vendor.vendorName || 'unnamed vendor')} &middot; Source: ${sourceLabel} &middot; Next delivery: ${escapeHtml(vendor.nextDeliveryDate || '—')} (${daysLabel})`;
+          ? L('reorderExport.deliveryTomorrow', 'tomorrow')
+          : L('reorderExport.deliveryInDays', `in ${vendor.daysUntilNextDelivery} days`, {
+              days: vendor.daysUntilNextDelivery,
+            });
+    const vendorName = vendor.vendorName || L('reorderExport.unnamedVendor', 'unnamed vendor');
+    const subHeader = `${escapeHtml(vendorName)} &middot; ${L('reorderExport.source', 'Source')}: ${sourceLabel} &middot; ${L('reorderExport.nextDelivery', 'Next delivery')}: ${escapeHtml(vendor.nextDeliveryDate || '—')} (${daysLabel})`;
     const rows = items
       .map((item) => {
-        const { main, sub } = formatSuggestedPdfParts(item);
+        const { main, sub } = formatSuggestedPdfParts(item, locale);
+        // NEEDS: the case count is the manager's action figure → red. Non-case
+        // needs items (no cases) stay default. ENOUGH: plain (Suggested is 0).
+        const mainCls = isNeeds && item.suggestedCases != null ? 'strong cs-red' : 'strong';
         const suggestedCell = sub
-          ? `<span class="strong">${escapeHtml(main)}</span><span class="sub-unit"> &middot; ${escapeHtml(sub)}</span>`
-          : `<span class="strong">${escapeHtml(main)}</span>`;
+          ? `<span class="${mainCls}">${escapeHtml(main)}</span><span class="sub-unit"> &middot; ${escapeHtml(sub)}</span>`
+          : `<span class="${mainCls}">${escapeHtml(main)}</span>`;
+        const unitCell = isNeeds ? '' : `<td>${escapeHtml(unitOf(item.unit, locale))}</td>`;
         return `
           <tr>
-            <td>${escapeHtml(item.itemName)}</td>
+            <td>${escapeHtml(nameOf(item, locale))}</td>
             <td class="num">${formatQty(item.onHand)}</td>
             <td class="num">${formatQty(item.pendingPoQty)}</td>
             <td class="num">${formatQty(item.parLevel)}</td>
             <td class="num">${suggestedCell}</td>
-            <td>${escapeHtml(item.unit)}</td>
+            ${unitCell}
           </tr>`;
       })
       .join('');
+    const unitHead = isNeeds ? '' : `<th>${L('reorderExport.colUnit', 'Unit')}</th>`;
     return `
       <h2 class="${cls}">${subHeader}</h2>
       <table class="${cls}">
         <thead>
           <tr>
-            <th>Item</th><th class="num">On Hand</th><th class="num">Pending</th>
-            <th class="num">Par</th><th class="num">Suggested</th><th>Unit</th>
+            <th>${L('reorderExport.colItem', 'Item')}</th><th class="num">${L('reorderExport.colOnHand', 'On Hand')}</th><th class="num">${L('reorderExport.colPending', 'Pending')}</th>
+            <th class="num">${L('reorderExport.colPar', 'Par')}</th><th class="num">${L('reorderExport.colSuggested', 'Suggested')}</th>${unitHead}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -176,14 +248,15 @@ export function buildStaffReorderPdfHtml(payload: ReorderPayload, storeName: str
   const section = (
     title: string,
     cls: string,
-    keep: (it: ReorderPayload['vendors'][number]['items'][number]) => boolean,
+    isNeeds: boolean,
+    keep: (it: ItemT) => boolean,
   ) => {
     const groups = payload.vendors
       .map((v) => ({ v, items: v.items.filter(keep) }))
       .filter((g) => g.items.length > 0);
     const body = groups.length
-      ? groups.map((g) => vendorBlock(g.v, g.items, cls)).join('')
-      : '<p class="none">(none)</p>';
+      ? groups.map((g) => vendorBlock(g.v, g.items, cls, isNeeds)).join('')
+      : `<p class="none">${L('reorderExport.none', '(none)')}</p>`;
     return `<h1 class="section ${cls}">${title}</h1>${body}`;
   };
 
@@ -209,6 +282,7 @@ export function buildStaffReorderPdfHtml(payload: ReorderPayload, storeName: str
   table.enough th { background: #2e7d1e; }
   td.num, th.num { text-align: right; }
   td.strong, .strong { font-weight: 700; }
+  .cs-red { color: #b23030; }
   .sub-unit { font-weight: 400; font-size: 9px; color: #777; }
   .none { color: #999; font-size: 11px; margin: 4px 0 0 0; }
   .footer { margin-top: 20px; font-size: 12px; font-weight: 700; }
@@ -216,12 +290,12 @@ export function buildStaffReorderPdfHtml(payload: ReorderPayload, storeName: str
 </style>
 </head>
 <body>
-  <h1 class="title">I.M.R — Per-Vendor Reorder Suggestions</h1>
-  <p class="sub">Store: ${escapeHtml(storeName)} &nbsp;|&nbsp; As of: ${escapeHtml(date)}</p>
-  ${section('Needs to Order', 'needs', (it) => it.needsOrder !== false)}
-  ${section('Have Enough Stock', 'enough', (it) => it.needsOrder === false)}
-  <p class="footer">Items to order: ${payload.kpis.itemCount}</p>
-  <p class="gen">Generated by I.M.R — Inventory Management for Restaurant</p>
+  <h1 class="title">I.M.R — ${L('reorderExport.title', 'Per-Vendor Reorder Suggestions')}</h1>
+  <p class="sub">${L('reorderExport.store', 'Store')}: ${escapeHtml(storeName)} &nbsp;|&nbsp; ${L('reorderExport.asOf', 'As of')}: ${escapeHtml(date)}</p>
+  ${section(L('reorderExport.needsToOrder', 'Needs to Order'), 'needs', true, (it) => it.needsOrder !== false)}
+  ${section(L('reorderExport.haveEnough', 'Have Enough Stock'), 'enough', false, (it) => it.needsOrder === false)}
+  <p class="footer">${L('reorderExport.itemsToOrder', 'Items to order')}: ${payload.kpis.itemCount}</p>
+  <p class="gen">${L('reorderExport.generatedBy', 'Generated by I.M.R — Inventory Management for Restaurant')}</p>
 </body>
 </html>`;
 }

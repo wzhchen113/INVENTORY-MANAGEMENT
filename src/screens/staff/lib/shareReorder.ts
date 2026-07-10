@@ -27,6 +27,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import type { ReorderPayload } from '../../../types';
+import type { Locale } from '../../../i18n';
 import { slugifyStore, todayLocalIso } from '../../../utils/reorderExport';
 // Staff exports are cost-free (owner decision 2026-07) — the price-stripped
 // mirrors of the shared builders. The shared util stays intact for admin.
@@ -112,9 +113,13 @@ async function nativeShare(content: string, filename: string, mimeType: string):
 }
 
 /** Export/share the reorder list as CSV. */
-export async function shareReorderCsv(payload: ReorderPayload, storeName: string): Promise<void> {
+export async function shareReorderCsv(
+  payload: ReorderPayload,
+  storeName: string,
+  locale: Locale = 'en',
+): Promise<void> {
   try {
-    const content = buildStaffReorderCsv(payload);
+    const content = buildStaffReorderCsv(payload, locale);
     const filename = `${filenameBase(payload, storeName)}.csv`;
     const mimeType = 'text/csv';
     if (Platform.OS === 'web') {
@@ -129,9 +134,13 @@ export async function shareReorderCsv(payload: ReorderPayload, storeName: string
 }
 
 /** Export/share the reorder list as plain text. */
-export async function shareReorderText(payload: ReorderPayload, storeName: string): Promise<void> {
+export async function shareReorderText(
+  payload: ReorderPayload,
+  storeName: string,
+  locale: Locale = 'en',
+): Promise<void> {
   try {
-    const content = buildStaffReorderText(payload, storeName);
+    const content = buildStaffReorderText(payload, storeName, locale);
     const filename = `${filenameBase(payload, storeName)}.txt`;
     const mimeType = 'text/plain';
     if (Platform.OS === 'web') {
@@ -152,9 +161,13 @@ export async function shareReorderText(payload: ReorderPayload, storeName: strin
  *   - native → `Print.printToFileAsync({ html })` renders a temp PDF, then
  *              the OS share sheet shares it.
  */
-export async function shareReorderPdf(payload: ReorderPayload, storeName: string): Promise<void> {
+export async function shareReorderPdf(
+  payload: ReorderPayload,
+  storeName: string,
+  locale: Locale = 'en',
+): Promise<void> {
   try {
-    const html = buildStaffReorderPdfHtml(payload, storeName);
+    const html = buildStaffReorderPdfHtml(payload, storeName, locale);
     const filename = `${filenameBase(payload, storeName)}.pdf`;
     if (Platform.OS === 'web') {
       // expo-print on web drives window.print via an iframe; there is no

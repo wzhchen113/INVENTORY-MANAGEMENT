@@ -16,6 +16,7 @@ import {
   formatQty,
   formatSuggested,
   formatSuggestedPdf,
+  localizeUnit,
   slugifyStore,
   todayLocalIso,
 } from './reorderExport';
@@ -340,5 +341,48 @@ describe('buildReorderPdfHtml (NEW — shared HTML→PDF source)', () => {
       warnings: [],
     };
     expect(buildReorderPdfHtml(empty, 'Towson')).toContain('(no items to order)');
+  });
+});
+
+describe('localized downloads (2026-07)', () => {
+  it('English output is byte-identical to the no-locale default', () => {
+    const p = payloadWith([
+      caseItem({ itemName: 'Chicken Leg', unit: 'bags', suggestedQty: 16, caseQty: 4 }),
+    ]);
+    expect(buildReorderCsv(p, 'en')).toBe(buildReorderCsv(p));
+    const it = p.vendors[0].items[0];
+    expect(formatSuggestedPdf(it, 'en')).toBe(formatSuggestedPdf(it));
+    expect(formatSuggestedPdf(it)).toBe('4 cs · 16 bags');
+  });
+
+  it('localizeUnit translates dictionary units and passes unknown units through', () => {
+    expect(localizeUnit('bags', 'zh-CN')).toBe('袋');
+    expect(localizeUnit('lbs', 'zh-CN')).toBe('磅');
+    expect(localizeUnit('bags', 'es')).toBe('bolsas');
+    // Not in the enum.unit dictionary → passes through unchanged.
+    expect(localizeUnit('loaves', 'zh-CN')).toBe('loaves');
+  });
+
+  it('formatSuggestedPdf localizes the case noun + unit token (es / zh)', () => {
+    const it = caseItem({ unit: 'bags', suggestedQty: 16, caseQty: 4 });
+    expect(formatSuggestedPdf(it, 'zh-CN')).toBe('4 箱 · 16 袋');
+    expect(formatSuggestedPdf(it, 'es')).toBe('4 cs · 16 bolsas');
+  });
+
+  it('CSV headers + unit + item name localize; the English EOD numeric shape survives', () => {
+    const item = caseItem({ itemName: 'Chicken Leg', unit: 'bags', suggestedQty: 16, caseQty: 4 });
+    item.i18nNames = { 'zh-CN': '鸡腿' };
+    const csv = buildReorderCsv(payloadWith([item]), 'zh-CN');
+    expect(csv).toContain('供应商'); // Vendor header
+    expect(csv).toContain('建议数量'); // Suggested Qty header
+    expect(csv).toContain('鸡腿'); // localized item name
+    expect(csv).toContain('袋'); // localized unit
+    expect(csv).not.toContain('Suggested Qty');
+  });
+
+  it('item name falls back to English when the locale override is absent', () => {
+    const item = caseItem({ itemName: 'Chicken Leg', unit: 'bags', suggestedQty: 16, caseQty: 4 });
+    const csv = buildReorderCsv(payloadWith([item]), 'zh-CN');
+    expect(csv).toContain('Chicken Leg');
   });
 });

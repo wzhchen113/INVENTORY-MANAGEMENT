@@ -121,3 +121,49 @@ describe('staff reorder exports are cost-free', () => {
     expect(html).toContain('Stocked Item');
   });
 });
+
+describe('staff reorder PDF — NEEDS section dedupe + red cases (2026-07)', () => {
+  it('drops the redundant Unit column in NEEDS and paints the case count red', () => {
+    const html = buildStaffReorderPdfHtml(payload(), 'Towson');
+    // The case count carries the red highlight class; the Suggested string is
+    // "3 cs · 72 each" with no trailing standalone unit column in NEEDS.
+    expect(html).toContain('cs-red');
+    expect(html).toContain('3 cs');
+    // The NEEDS table has 5 headers (Item, On Hand, Pending, Par, Suggested) —
+    // no Unit header before the have-enough section.
+    const needsBlock = html.slice(html.indexOf('Needs to Order'), html.indexOf('Have Enough Stock'));
+    expect(needsBlock).not.toContain('>Unit<');
+  });
+});
+
+describe('staff downloads localize to the active locale (2026-07)', () => {
+  it('English output is unchanged (byte-identical to no-locale default)', () => {
+    const p = payload();
+    expect(buildStaffReorderCsv(p, 'en')).toBe(buildStaffReorderCsv(p));
+    expect(buildStaffReorderText(p, 'Towson', 'en')).toBe(buildStaffReorderText(p, 'Towson'));
+  });
+
+  it('CSV localizes headers, unit, item name (zh) with silent English fallback', () => {
+    const item = { ...caseItem(), itemName: 'Case Item', i18nNames: { 'zh-CN': '箱装货' } };
+    const p = payload();
+    p.vendors[0].items = [item];
+    const csv = buildStaffReorderCsv(p, 'zh-CN');
+    expect(csv).toContain('建议数量'); // Suggested Qty header
+    expect(csv).toContain('箱装货'); // localized item name
+    expect(csv).not.toContain('Suggested Qty');
+    expect(csv).not.toContain('$'); // still cost-free
+  });
+
+  it('Text localizes the section titles + Suggested figure (zh)', () => {
+    const txt = buildStaffReorderText(payload(), 'Towson', 'zh-CN');
+    expect(txt).toContain('需要订购'); // NEEDS TO ORDER localized
+    expect(txt).toContain('3 箱 · 72 个'); // cases + unit localized (each → 个)
+  });
+
+  it('PDF localizes section headers + unit; stays cost-free (zh)', () => {
+    const html = buildStaffReorderPdfHtml(payload(), 'Towson', 'zh-CN');
+    expect(html).toContain('需要订购'); // Needs-to-order section
+    expect(html).toContain('3 箱'); // localized case count
+    expect(html).not.toContain('$');
+  });
+});

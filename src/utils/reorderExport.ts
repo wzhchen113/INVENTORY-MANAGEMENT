@@ -22,6 +22,32 @@
 
 import Papa from 'papaparse';
 import type { ReorderItem, ReorderPayload } from '../types';
+import { t, type Locale } from '../i18n';
+import { getLocalizedName } from '../i18n/localizedName';
+import { unitLabel } from './enumLabels';
+
+// 2026-07 — localized downloads. Every builder takes the active `locale`;
+// with `locale === 'en'` the output stays BYTE-FOR-BYTE identical to the
+// pre-i18n behavior (the English literal paths are preserved verbatim so the
+// existing jest pins hold), and es / zh-CN translate the chrome (column
+// headers, section titles, labels), the case noun, the unit token, and item
+// names (via the payload's per-item i18n_names). Default `'en'` keeps every
+// existing call site working unchanged.
+
+/**
+ * Translate a free-text unit token ("bags" → "bolsas" / "袋") through the
+ * shared `enum.unit.*` dictionary. Units with no dictionary entry (e.g.
+ * "loaves", "dozen", "pack") pass through unchanged — the agreed "unknown
+ * units stay English" behavior. Never called on the English path.
+ */
+export function localizeUnit(unit: string, locale: Locale): string {
+  return unitLabel(unit, (key, vars) => t(locale, key, vars));
+}
+
+/** Item display name in the active locale (silent English fallback). */
+function itemDisplayName(item: ReorderItem, locale: Locale): string {
+  return getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
+}
 
 export function formatQty(n: number): string {
   if (!Number.isFinite(n)) return '0';
@@ -57,28 +83,43 @@ function isCaseUnit(unit: string): boolean {
   return u === 'case' || u === 'cases';
 }
 
-export function formatSuggestedParts(item: ReorderItem): SuggestedParts {
+export function formatSuggestedParts(item: ReorderItem, locale: Locale = 'en'): SuggestedParts {
+  const unitOf = (u: string) => (locale === 'en' ? u : localizeUnit(u, locale));
   if (item.suggestedCases != null) {
     const cases = item.suggestedCases;
-    const caseWord = cases === 1 ? 'case' : 'cases';
+    const main =
+      locale === 'en'
+        ? `${formatQty(cases)} ${cases === 1 ? 'case' : 'cases'}`
+        : t(locale, cases === 1 ? 'reorderExport.caseOne' : 'reorderExport.caseMany', {
+            count: formatQty(cases),
+          });
     return {
-      main: `${formatQty(cases)} ${caseWord}`,
-      sub: isCaseUnit(item.unit) ? null : `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+      main,
+      sub: isCaseUnit(item.unit)
+        ? null
+        : `${formatQty(item.suggestedUnits)} ${unitOf(item.unit)}`.trim(),
     };
   }
-  return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };
+  return { main: `${formatQty(item.suggestedQty)} ${unitOf(item.unit)}`.trim(), sub: null };
 }
 
 // PDF variant — same split with the compact `cs` abbreviation (a glanceable
 // string is fine for a print artifact). Exported for jest.
-export function formatSuggestedPdfParts(item: ReorderItem): SuggestedParts {
+export function formatSuggestedPdfParts(item: ReorderItem, locale: Locale = 'en'): SuggestedParts {
+  const unitOf = (u: string) => (locale === 'en' ? u : localizeUnit(u, locale));
   if (item.suggestedCases != null) {
+    const main =
+      locale === 'en'
+        ? `${formatQty(item.suggestedCases)} cs`
+        : t(locale, 'reorderExport.casesShort', { count: formatQty(item.suggestedCases) });
     return {
-      main: `${formatQty(item.suggestedCases)} cs`,
-      sub: isCaseUnit(item.unit) ? null : `${formatQty(item.suggestedUnits)} ${item.unit}`.trim(),
+      main,
+      sub: isCaseUnit(item.unit)
+        ? null
+        : `${formatQty(item.suggestedUnits)} ${unitOf(item.unit)}`.trim(),
     };
   }
-  return { main: `${formatQty(item.suggestedQty)} ${item.unit}`.trim(), sub: null };
+  return { main: `${formatQty(item.suggestedQty)} ${unitOf(item.unit)}`.trim(), sub: null };
 }
 
 // Spec 088 — the Suggested order is shown in WHOLE CASES for items with a
@@ -92,15 +133,15 @@ export function formatSuggestedPdfParts(item: ReorderItem): SuggestedParts {
 // `{suggestedQty} {unit}`. Composes from `formatSuggestedParts` so the joined
 // string stays byte-for-byte identical (CSV + Text depend on this). Exported
 // for jest.
-export function formatSuggested(item: ReorderItem): string {
-  const { main, sub } = formatSuggestedParts(item);
+export function formatSuggested(item: ReorderItem, locale: Locale = 'en'): string {
+  const { main, sub } = formatSuggestedParts(item, locale);
   return sub ? `${main} · ${sub}` : main;
 }
 
 // PDF variant — same cases·units split with the compact `cs` abbreviation
 // (a glanceable string is fine for a print artifact). Exported for jest.
-export function formatSuggestedPdf(item: ReorderItem): string {
-  const { main, sub } = formatSuggestedPdfParts(item);
+export function formatSuggestedPdf(item: ReorderItem, locale: Locale = 'en'): string {
+  const { main, sub } = formatSuggestedPdfParts(item, locale);
   return sub ? `${main} · ${sub}` : main;
 }
 
@@ -124,50 +165,69 @@ export function todayLocalIso(): string {
 // via `Papa.unparse(rows, { columns })` so accidental row-field changes
 // don't reshape the header.
 // Exported for jest (spec 088 — case columns).
-export function buildReorderCsv(payload: ReorderPayload): string {
+export function buildReorderCsv(payload: ReorderPayload, locale: Locale = 'en'): string {
+  // Localized column headers double as the row-object keys so `columns` and the
+  // row map stay in lockstep. English values are byte-identical to the prior
+  // literals (the reorderExport.en.json entries copy them verbatim).
+  const H = (k: string, en: string) => (locale === 'en' ? en : t(locale, k));
+  const cVendor = H('reorderExport.colVendor', 'Vendor');
+  const cNeeds = H('reorderExport.colNeedsOrder', 'Needs Order');
+  const cItemName = H('reorderExport.colItemName', 'Item Name');
+  const cOnHand = H('reorderExport.colOnHand', 'On Hand');
+  const cPendingPo = H('reorderExport.colPendingPo', 'Pending PO');
+  const cParLevel = H('reorderExport.colParLevel', 'Par Level');
+  const cSuggestedQty = H('reorderExport.colSuggestedQty', 'Suggested Qty');
+  const cCases = H('reorderExport.colCases', 'Cases');
+  const cUnitsPerCase = H('reorderExport.colUnitsPerCase', 'Units Per Case');
+  const cUnit = H('reorderExport.colUnit', 'Unit');
+  const cEstCost = H('reorderExport.colEstCost', 'Est. Cost');
+  const cFlags = H('reorderExport.colFlags', 'Flags');
+  const cEodAt = H('reorderExport.colEodCountedAt', 'EOD Counted At');
+  const yes = locale === 'en' ? 'yes' : t(locale, 'reorderExport.yes');
+  const no = locale === 'en' ? 'no' : t(locale, 'reorderExport.no');
   const columns = [
-    'Vendor',
+    cVendor,
     // 2026-07 — 'Needs Order' (yes/no) so the export carries BOTH the
     // needs-to-order and have-enough-stock rows, matching the two on-screen
     // sections (the caller now passes every displayed item).
-    'Needs Order',
-    'Item Name',
-    'On Hand',
-    'Pending PO',
-    'Par Level',
-    'Suggested Qty',
+    cNeeds,
+    cItemName,
+    cOnHand,
+    cPendingPo,
+    cParLevel,
+    cSuggestedQty,
     // Spec 088 — explicit numeric-friendly case columns right after
     // `Suggested Qty` so the case count and the ordered base-unit total are
     // both recoverable + spreadsheet-summable. Empty for non-case rows.
-    'Cases',
-    'Units Per Case',
-    'Unit',
-    'Est. Cost',
-    'Flags',
-    'EOD Counted At',
+    cCases,
+    cUnitsPerCase,
+    cUnit,
+    cEstCost,
+    cFlags,
+    cEodAt,
   ];
   const rows: Record<string, string | number>[] = [];
   for (const vendor of payload.vendors) {
     for (const item of vendor.items) {
       const isCase = item.suggestedCases != null;
       rows.push({
-        'Vendor': vendor.vendorName,
-        'Needs Order': item.needsOrder === false ? 'no' : 'yes',
-        'Item Name': item.itemName,
-        'On Hand': item.onHand,
-        'Pending PO': item.pendingPoQty,
-        'Par Level': item.parLevel,
+        [cVendor]: vendor.vendorName,
+        [cNeeds]: item.needsOrder === false ? no : yes,
+        [cItemName]: itemDisplayName(item, locale),
+        [cOnHand]: item.onHand,
+        [cPendingPo]: item.pendingPoQty,
+        [cParLevel]: item.parLevel,
         // Case rows carry the ordered base-unit total `M`; non-case rows
         // carry the raw suggestion (byte-for-byte unchanged from today).
-        'Suggested Qty': isCase ? item.suggestedUnits : item.suggestedQty,
-        'Cases': item.suggestedCases != null ? item.suggestedCases : '',
-        'Units Per Case': item.caseQty > 1 ? item.caseQty : '',
-        'Unit': item.unit,
+        [cSuggestedQty]: isCase ? item.suggestedUnits : item.suggestedQty,
+        [cCases]: item.suggestedCases != null ? item.suggestedCases : '',
+        [cUnitsPerCase]: item.caseQty > 1 ? item.caseQty : '',
+        [cUnit]: locale === 'en' ? item.unit : localizeUnit(item.unit, locale),
         // No `$` — CSV stays numeric-friendly for spreadsheet sums. Already
         // case-rounded server-side; the FE does no cost math.
-        'Est. Cost': item.estimatedCost.toFixed(2),
-        'Flags': (item.flags || []).join(', '),
-        'EOD Counted At': vendor.eodSubmittedAt || '',
+        [cEstCost]: item.estimatedCost.toFixed(2),
+        [cFlags]: (item.flags || []).join(', '),
+        [cEodAt]: vendor.eodSubmittedAt || '',
       });
     }
   }

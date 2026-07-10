@@ -37,11 +37,14 @@ import {
   formatSuggested,
   formatSuggestedParts,
   formatSuggestedPdf,
+  formatSuggestedPdfParts,
+  localizeUnit,
   slugifyStore,
   todayLocalIso,
   buildReorderCsv,
 } from '../../../utils/reorderExport';
 import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
+import { t, type Locale } from '../../../i18n';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -606,9 +609,9 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
-async function handleCsvExport(payload: ReorderPayload, store: Store): Promise<void> {
+async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Locale): Promise<void> {
   try {
-    const csv = buildReorderCsv(payload);
+    const csv = buildReorderCsv(payload, locale);
     const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
     const filename = `IMR_Reorder_${slugifyStore(store.name)}_${date}.csv`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -632,11 +635,25 @@ async function handleCsvExport(payload: ReorderPayload, store: Store): Promise<v
 
 // Spec 025 AC5 — jsPDF + jspdf-autotable dynamic-imported per legacy
 // pattern so the bundle stays lean for users who never click "PDF".
-async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<void> {
+async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: Locale): Promise<void> {
   try {
     const { default: jsPDF } = await import('jspdf');
     const autoTableMod: any = await import('jspdf-autotable');
     const autoTable = autoTableMod.default || autoTableMod;
+
+    // jsPDF's built-in Helvetica has NO CJK glyphs, so a zh-CN PDF renders as
+    // garbage. Owner decision (2026-07): ship the admin PDF localized for
+    // en/es only and FALL BACK TO ENGLISH for the PDF when the active locale is
+    // Chinese (the CSV / Text downloads and the staff HTML→print PDF stay fully
+    // localized). A follow-up will move this PDF onto a CJK-capable engine.
+    const locale: Locale = localeIn === 'zh-CN' ? 'en' : localeIn;
+
+    // Localized label shorthand — English path returns the prior literals.
+    const L = (key: string, en: string, vars?: Record<string, string | number>) =>
+      locale === 'en' ? en : t(locale, key, vars);
+    const unitOf = (u: string) => (locale === 'en' ? u : localizeUnit(u, locale));
+    const nameOf = (item: ReorderItem) =>
+      getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
 
     const doc = new jsPDF({ unit: 'pt' });
     const margin = 40;
@@ -648,10 +665,14 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
     doc.text('I.M.R', margin, margin);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(12);
-    doc.text('Per-Vendor Reorder Suggestions', margin, margin + 18);
+    doc.text(L('reorderExport.title', 'Per-Vendor Reorder Suggestions'), margin, margin + 18);
     doc.setFontSize(10);
     doc.setTextColor(120);
-    doc.text(`Store: ${store.name}  |  As of: ${date}`, margin, margin + 34);
+    doc.text(
+      `${L('reorderExport.store', 'Store')}: ${store.name}  |  ${L('reorderExport.asOf', 'As of')}: ${date}`,
+      margin,
+      margin + 34,
+    );
     doc.setTextColor(0);
 
     let cursorY = margin + 56;
@@ -668,6 +689,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
       title: string,
       rgb: [number, number, number],
       vendors: ReorderVendor[],
+      isNeeds: boolean,
     ) => {
       if (vendors.length === 0) return;
       if (cursorY > pageHeight - 90) {
@@ -682,14 +704,20 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
       cursorY += 12;
 
       for (const vendor of vendors) {
-        const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
+        const sourceLabel =
+          vendor.onHandSource === 'eod'
+            ? L('reorderExport.sourceEod', 'EOD')
+            : L('reorderExport.sourceStock', 'STOCK FALLBACK');
         const daysLabel =
           vendor.daysUntilNextDelivery === 0
-            ? 'today'
+            ? L('reorderExport.deliveryToday', 'today')
             : vendor.daysUntilNextDelivery === 1
-              ? 'tomorrow'
-              : `in ${vendor.daysUntilNextDelivery} days`;
-        const subHeader = `${vendor.vendorName || 'unnamed vendor'}  ·  Source: ${sourceLabel}  ·  Next delivery: ${vendor.nextDeliveryDate || '—'} (${daysLabel})`;
+              ? L('reorderExport.deliveryTomorrow', 'tomorrow')
+              : L('reorderExport.deliveryInDays', `in ${vendor.daysUntilNextDelivery} days`, {
+                  days: vendor.daysUntilNextDelivery,
+                });
+        const vendorName = vendor.vendorName || L('reorderExport.unnamedVendor', 'unnamed vendor');
+        const subHeader = `${vendorName}  ·  ${L('reorderExport.source', 'Source')}: ${sourceLabel}  ·  ${L('reorderExport.nextDelivery', 'Next delivery')}: ${vendor.nextDeliveryDate || '—'} (${daysLabel})`;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(rgb[0], rgb[1], rgb[2]);
@@ -697,28 +725,108 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
         doc.setTextColor(0);
         cursorY += 6;
 
+        // NEEDS section (2026-07): drop the redundant Unit column — the unit
+        // already lives inside the Suggested string ("4 cs · 16 bags"), so a
+        // separate Unit column read "16 bags bags". The compact per-item cases
+        // parts feed a custom didDrawCell that paints ONLY the "N cs" case
+        // count red. HAVE ENOUGH keeps the Unit column (there it labels the
+        // On-Hand figure and Suggested is 0).
+        const SUGGESTED_COL = 4;
+        const parts = vendor.items.map((item) => ({
+          ...formatSuggestedPdfParts(item, locale),
+          isCases: item.suggestedCases != null,
+        }));
+        const head = isNeeds
+          ? [
+              [
+                L('reorderExport.colItem', 'Item'),
+                L('reorderExport.colOnHand', 'On Hand'),
+                L('reorderExport.colPending', 'Pending'),
+                L('reorderExport.colPar', 'Par'),
+                L('reorderExport.colSuggested', 'Suggested'),
+                L('reorderExport.colEstCost', 'Est. Cost'),
+              ],
+            ]
+          : [
+              [
+                L('reorderExport.colItem', 'Item'),
+                L('reorderExport.colOnHand', 'On Hand'),
+                L('reorderExport.colPending', 'Pending'),
+                L('reorderExport.colPar', 'Par'),
+                L('reorderExport.colSuggested', 'Suggested'),
+                L('reorderExport.colUnit', 'Unit'),
+                L('reorderExport.colEstCost', 'Est. Cost'),
+              ],
+            ];
+        const body = vendor.items.map((item) =>
+          isNeeds
+            ? [
+                nameOf(item),
+                formatQty(item.onHand),
+                formatQty(item.pendingPoQty),
+                formatQty(item.parLevel),
+                formatSuggestedPdf(item, locale),
+                `$${item.estimatedCost.toFixed(2)}`,
+              ]
+            : [
+                nameOf(item),
+                formatQty(item.onHand),
+                formatQty(item.pendingPoQty),
+                formatQty(item.parLevel),
+                formatSuggestedPdf(item, locale),
+                unitOf(item.unit),
+                `$${item.estimatedCost.toFixed(2)}`,
+              ],
+        );
+
         autoTable(doc, {
           startY: cursorY + 8,
-          head: [['Item', 'On Hand', 'Pending', 'Par', 'Suggested', 'Unit', 'Est. Cost']],
-          body: vendor.items.map((item) => [
-            item.itemName,
-            formatQty(item.onHand),
-            formatQty(item.pendingPoQty),
-            formatQty(item.parLevel),
-            formatSuggestedPdf(item),
-            item.unit,
-            `$${item.estimatedCost.toFixed(2)}`,
-          ]),
+          head,
+          body,
           styles: { fontSize: 9, cellPadding: 3 },
           // Section-tinted header (red / green) so the two boxes read at a glance.
           headStyles: { fillColor: rgb, textColor: 255, fontStyle: 'bold' },
-          columnStyles: {
-            1: { halign: 'right' },
-            2: { halign: 'right' },
-            3: { halign: 'right' },
-            4: { halign: 'right' },
-            6: { halign: 'right' },
-          },
+          columnStyles: isNeeds
+            ? { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 5: { halign: 'right' } }
+            : { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 6: { halign: 'right' } },
+          // NEEDS only: blank autotable's own Suggested text so the custom
+          // partial-red draw below owns the cell.
+          didParseCell: isNeeds
+            ? (data: any) => {
+                if (data.section === 'body' && data.column.index === SUGGESTED_COL) {
+                  data.cell.text = [];
+                }
+              }
+            : undefined,
+          // NEEDS only: paint "N cs" red (the case count the manager acts on),
+          // then " · M unit" in muted grey. Non-case rows draw their whole
+          // order figure in the default colour (nothing to highlight).
+          didDrawCell: isNeeds
+            ? (data: any) => {
+                if (data.section !== 'body' || data.column.index !== SUGGESTED_COL) return;
+                const p = parts[data.row.index];
+                if (!p) return;
+                const px = data.cell.x + (data.cell.padding('left') as number);
+                const py = data.cell.y + data.cell.height / 2 + 3;
+                doc.setFontSize(9);
+                if (p.isCases) {
+                  doc.setFont('helvetica', 'bold');
+                  doc.setTextColor(RED[0], RED[1], RED[2]);
+                } else {
+                  doc.setFont('helvetica', 'normal');
+                  doc.setTextColor(30);
+                }
+                doc.text(p.main, px, py);
+                if (p.sub) {
+                  const mainW = doc.getTextWidth(p.main);
+                  doc.setFont('helvetica', 'normal');
+                  doc.setTextColor(90);
+                  doc.text(` · ${p.sub}`, px + mainW, py);
+                }
+                doc.setTextColor(0);
+                doc.setFont('helvetica', 'normal');
+              }
+            : undefined,
           margin: { left: margin, right: margin },
         });
 
@@ -728,21 +836,25 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
       cursorY += 12;
     };
 
-    renderSection('NEEDS TO ORDER', RED, splitReorderVendorsByNeed(payload.vendors, true));
-    renderSection('HAVE ENOUGH STOCK', GREEN, splitReorderVendorsByNeed(payload.vendors, false));
+    renderSection(L('reorderExport.needsToOrder', 'NEEDS TO ORDER').toUpperCase(), RED, splitReorderVendorsByNeed(payload.vendors, true), true);
+    renderSection(L('reorderExport.haveEnough', 'HAVE ENOUGH STOCK').toUpperCase(), GREEN, splitReorderVendorsByNeed(payload.vendors, false), false);
 
     // Footer (last page).
     const totalItems = payload.kpis.itemCount;
     const totalCost = payload.kpis.totalEstimatedCost;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text(`Total items: ${totalItems}  |  Est. total: $${totalCost.toFixed(2)}`, margin, cursorY);
+    doc.text(
+      `${L('reorderExport.totalItems', 'Total items')}: ${totalItems}  |  ${L('reorderExport.estTotal', 'Est. total')}: $${totalCost.toFixed(2)}`,
+      margin,
+      cursorY,
+    );
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(140);
     doc.text(
-      'Generated by I.M.R — Inventory Management for Restaurant',
+      L('reorderExport.generatedBy', 'Generated by I.M.R — Inventory Management for Restaurant'),
       margin,
       pageHeight - 24,
     );
@@ -769,6 +881,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
 export default function ReorderSection() {
   const C = useCmdColors();
   const T = useT();
+  const locale = useLocale();
   const currentStore = useStore((s) => s.currentStore);
   const orderSchedule = useStore((s) => s.orderSchedule);
   const reorderPayload = useStore((s) => s.reorderPayload);
@@ -865,13 +978,13 @@ export default function ReorderSection() {
 
   const onCsvPress = React.useCallback(() => {
     if (!exportPayload || !currentStore) return;
-    void handleCsvExport(exportPayload, currentStore);
-  }, [exportPayload, currentStore]);
+    void handleCsvExport(exportPayload, currentStore, locale);
+  }, [exportPayload, currentStore, locale]);
 
   const onPdfPress = React.useCallback(() => {
     if (!exportPayload || !currentStore) return;
-    void handlePdfExport(exportPayload, currentStore);
-  }, [exportPayload, currentStore]);
+    void handlePdfExport(exportPayload, currentStore, locale);
+  }, [exportPayload, currentStore, locale]);
 
   // Spec 087 (E) — no-focal-store guard. Placed AFTER all hooks so the
   // hook count stays stable across renders. Mirrors OrderScheduleSection /

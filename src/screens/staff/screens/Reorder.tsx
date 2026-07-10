@@ -41,6 +41,7 @@ import {
 import { useStaffStore } from '../store/useStaffStore';
 import { todayIso } from '../lib/date';
 import { getLocalizedName } from '../../../i18n/localizedName';
+import type { Locale } from '../../../i18n';
 import { t, useI18n } from '../i18n';
 import {
   useStaffColors,
@@ -346,6 +347,8 @@ export function Reorder() {
   );
   const setAuthState = useStaffStore((s) => s.setAuthState);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
+  // Active language — downloads follow it (2026-07).
+  const locale = useStaffStore((s) => s.locale);
 
   // Latest selectable date = today. Computed on EVERY render (cheap string
   // build) rather than memoized once — a mount-only useMemo goes one day stale
@@ -503,16 +506,17 @@ export function Reorder() {
 
   // ─── export menu (CSV / text / PDF) ─────────────────────────────────
   const runExport = useCallback(
-    async (fn: (p: ReorderPayload, name: string) => Promise<void>) => {
+    async (fn: (p: ReorderPayload, name: string, loc: Locale) => Promise<void>) => {
       if (!exportPayload || !activeStore || exporting) return;
       setExporting(true);
       try {
-        await fn(exportPayload, activeStore.name);
+        // Downloads follow the user's active language (2026-07).
+        await fn(exportPayload, activeStore.name, locale);
       } finally {
         setExporting(false);
       }
     },
-    [exportPayload, activeStore, exporting],
+    [exportPayload, activeStore, exporting, locale],
   );
 
   // Defensive guard — placed AFTER all hooks so the hook count stays stable

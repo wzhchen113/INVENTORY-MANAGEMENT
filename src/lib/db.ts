@@ -3736,6 +3736,12 @@ function mapReorderVendor(v: any): ReorderVendor {
     ? v.items.map((it: any) => ({
         itemId: String(it?.item_id ?? ''),
         itemName: String(it?.item_name ?? ''),
+        // 2026-07 — surface the RPC's per-item i18n_names so localized
+        // downloads (CSV/PDF) can render item names in the active locale.
+        // Spec 100 originally left this English-only for the admin path; the
+        // localized-exports change populates it. Inert for the on-screen admin
+        // UI (which resolves names via the inventory slice). `{}` when absent.
+        i18nNames: (it?.i18n_names ?? {}),
         unit: String(it?.unit ?? ''),
         onHand: Number(it?.on_hand ?? 0),
         pendingPoQty: Number(it?.pending_po_qty ?? 0),
