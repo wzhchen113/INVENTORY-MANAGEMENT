@@ -127,6 +127,10 @@ export function todayLocalIso(): string {
 export function buildReorderCsv(payload: ReorderPayload): string {
   const columns = [
     'Vendor',
+    // 2026-07 — 'Needs Order' (yes/no) so the export carries BOTH the
+    // needs-to-order and have-enough-stock rows, matching the two on-screen
+    // sections (the caller now passes every displayed item).
+    'Needs Order',
     'Item Name',
     'On Hand',
     'Pending PO',
@@ -148,6 +152,7 @@ export function buildReorderCsv(payload: ReorderPayload): string {
       const isCase = item.suggestedCases != null;
       rows.push({
         'Vendor': vendor.vendorName,
+        'Needs Order': item.needsOrder === false ? 'no' : 'yes',
         'Item Name': item.itemName,
         'On Hand': item.onHand,
         'Pending PO': item.pendingPoQty,

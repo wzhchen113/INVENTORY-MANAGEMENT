@@ -233,11 +233,15 @@ describe('buildReorderCsv (cases columns, spec 088)', () => {
     const csv = buildReorderCsv(
       payloadWith([caseItem({ suggestedQty: 49, caseQty: 24, costPerUnit: 1, itemName: 'Buns' })]),
     );
+    // Columns (2026-07 — 'Needs Order' inserted at index 1): Vendor(0),
+    // Needs Order(1), Item Name(2), On Hand(3), Pending PO(4), Par Level(5),
+    // Suggested Qty(6), Cases(7), Units Per Case(8), Unit(9), Est. Cost(10).
     const cells = csv.split('\n').find((l) => l.includes('Buns'))!.split(',');
-    expect(cells[5]).toBe('72');
-    expect(cells[6]).toBe('3');
-    expect(cells[7]).toBe('24');
-    expect(cells[9]).toBe('72.00');
+    expect(cells[1]).toBe('yes'); // below par → needs order
+    expect(cells[6]).toBe('72');
+    expect(cells[7]).toBe('3');
+    expect(cells[8]).toBe('24');
+    expect(cells[10]).toBe('72.00');
   });
 });
 

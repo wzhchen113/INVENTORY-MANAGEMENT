@@ -656,55 +656,80 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
 
     let cursorY = margin + 56;
 
-    // Per-vendor block: one autoTable per vendor.
-    for (const vendor of payload.vendors) {
-      // Sub-header text row.
-      const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
-      const daysLabel =
-        vendor.daysUntilNextDelivery === 0
-          ? 'today'
-          : vendor.daysUntilNextDelivery === 1
-            ? 'tomorrow'
-            : `in ${vendor.daysUntilNextDelivery} days`;
-      const subHeader = `${vendor.vendorName || 'unnamed vendor'}  ·  Source: ${sourceLabel}  ·  Next delivery: ${vendor.nextDeliveryDate || '—'} (${daysLabel})`;
+    // 2026-07 — two colour-coded sections mirroring the screen: "NEEDS TO
+    // ORDER" (red) then "HAVE ENOUGH STOCK" (green). Each renders one autoTable
+    // per vendor (only that section's items); the section replaces the per-row
+    // Needs Order column. RED/GREEN RGB match the danger/ok palette tokens.
+    const RED: [number, number, number] = [121, 31, 31];
+    const GREEN: [number, number, number] = [59, 109, 17];
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    const renderSection = (
+      title: string,
+      rgb: [number, number, number],
+      vendors: ReorderVendor[],
+    ) => {
+      if (vendors.length === 0) return;
+      if (cursorY > pageHeight - 90) {
+        doc.addPage();
+        cursorY = margin;
+      }
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(subHeader, margin, cursorY);
-      cursorY += 6;
+      doc.setFontSize(13);
+      doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+      doc.text(title, margin, cursorY);
+      doc.setTextColor(0);
+      cursorY += 12;
 
-      autoTable(doc, {
-        startY: cursorY + 8,
-        head: [['Item', 'On Hand', 'Pending', 'Par', 'Suggested', 'Unit', 'Est. Cost']],
-        body: vendor.items.map((item) => [
-          item.itemName,
-          formatQty(item.onHand),
-          formatQty(item.pendingPoQty),
-          formatQty(item.parLevel),
-          // Spec 088 — case-aware suggested cell (`N cs · M unit` for case
-          // items). Est. Cost reads the server-rounded value unchanged.
-          formatSuggestedPdf(item),
-          item.unit,
-          `$${item.estimatedCost.toFixed(2)}`,
-        ]),
-        styles: { fontSize: 9, cellPadding: 3 },
-        headStyles: { fillColor: [26, 26, 24], textColor: 255, fontStyle: 'bold' },
-        columnStyles: {
-          1: { halign: 'right' },
-          2: { halign: 'right' },
-          3: { halign: 'right' },
-          // Spec: subunit de-emphasis. jsPDF autoTable can't mix weights in
-          // one cell, so the Suggested cell drops bold entirely (the case
-          // figure no longer reads as heavy/bulk in the admin PDF).
-          4: { halign: 'right' },
-          6: { halign: 'right' },
-        },
-        margin: { left: margin, right: margin },
-      });
+      for (const vendor of vendors) {
+        const sourceLabel = vendor.onHandSource === 'eod' ? 'EOD' : 'STOCK FALLBACK';
+        const daysLabel =
+          vendor.daysUntilNextDelivery === 0
+            ? 'today'
+            : vendor.daysUntilNextDelivery === 1
+              ? 'tomorrow'
+              : `in ${vendor.daysUntilNextDelivery} days`;
+        const subHeader = `${vendor.vendorName || 'unnamed vendor'}  ·  Source: ${sourceLabel}  ·  Next delivery: ${vendor.nextDeliveryDate || '—'} (${daysLabel})`;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+        doc.text(subHeader, margin, cursorY);
+        doc.setTextColor(0);
+        cursorY += 6;
 
-      // `autoTable` records its end Y on `doc.lastAutoTable.finalY`.
-      const finalY = ((doc as unknown) as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-      cursorY = (typeof finalY === 'number' ? finalY : cursorY) + 28;
-    }
+        autoTable(doc, {
+          startY: cursorY + 8,
+          head: [['Item', 'On Hand', 'Pending', 'Par', 'Suggested', 'Unit', 'Est. Cost']],
+          body: vendor.items.map((item) => [
+            item.itemName,
+            formatQty(item.onHand),
+            formatQty(item.pendingPoQty),
+            formatQty(item.parLevel),
+            formatSuggestedPdf(item),
+            item.unit,
+            `$${item.estimatedCost.toFixed(2)}`,
+          ]),
+          styles: { fontSize: 9, cellPadding: 3 },
+          // Section-tinted header (red / green) so the two boxes read at a glance.
+          headStyles: { fillColor: rgb, textColor: 255, fontStyle: 'bold' },
+          columnStyles: {
+            1: { halign: 'right' },
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+            4: { halign: 'right' },
+            6: { halign: 'right' },
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        const finalY = ((doc as unknown) as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+        cursorY = (typeof finalY === 'number' ? finalY : cursorY) + 20;
+      }
+      cursorY += 12;
+    };
+
+    renderSection('NEEDS TO ORDER', RED, splitReorderVendorsByNeed(payload.vendors, true));
+    renderSection('HAVE ENOUGH STOCK', GREEN, splitReorderVendorsByNeed(payload.vendors, false));
 
     // Footer (last page).
     const totalItems = payload.kpis.itemCount;
@@ -716,7 +741,6 @@ async function handlePdfExport(payload: ReorderPayload, store: Store): Promise<v
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(140);
-    const pageHeight = doc.internal.pageSize.getHeight();
     doc.text(
       'Generated by I.M.R — Inventory Management for Restaurant',
       margin,
@@ -820,23 +844,22 @@ export default function ReorderSection() {
   // Spec 087 — secondary "no schedule" group is collapsed by default.
   const [noScheduleOpen, setNoScheduleOpen] = React.useState(false);
 
-  // Export must reflect the on-screen filtered + as-of view, and only what
-  // needs ordering — derived payload = needs-order vendors + recomputed KPIs
-  // so the CSV rows / PDF tables / footer match the cards (enough-stock items
-  // are never exported).
+  // Export reflects the on-screen filtered + as-of view with ALL items — both
+  // "needs to order" AND "have enough stock" data (2026-07), each carrying its
+  // `needsOrder` flag so the CSV/PDF match the two on-screen sections and
+  // vendor/item counts. KPIs stay the needs-order figures (actionable totals).
   const exportPayload = React.useMemo<ReorderPayload | null>(
-    () => (reorderPayload ? { ...reorderPayload, vendors: needsOrderVendors, kpis } : null),
-    [reorderPayload, needsOrderVendors, kpis],
+    () => (reorderPayload ? { ...reorderPayload, vendors: primary, kpis } : null),
+    [reorderPayload, primary, kpis],
   );
 
-  // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when
-  // there is no usable data. Spec 087 (D): gate on the FILTERED primary
-  // length, not the raw payload, so the buttons hide when the day-filtered
-  // list is empty (nothing meaningful to export).
+  // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when there is
+  // no usable data. Gate on the FILTERED primary length so the buttons hide
+  // when the day-filtered list is empty.
   const showExport =
     Platform.OS === 'web' &&
     !!exportPayload &&
-    needsOrderVendors.length > 0 &&
+    primary.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
 

@@ -461,19 +461,21 @@ export function Reorder() {
   );
   const kpis = useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
 
-  // Export must reflect the on-screen FILTERED + as-of view, and only what
-  // needs ordering — derived payload = needs-order vendors + recomputed KPIs
-  // (same invariant as admin; enough-stock items are never exported).
+  // Export reflects the on-screen FILTERED + as-of view with ALL items — both
+  // the "needs to order" AND "have enough stock" data (2026-07), each carrying
+  // its `needsOrder` flag so the exported files match the two on-screen
+  // sections and vendor/item counts. KPIs stay the needs-order figures (the
+  // actionable "to order" totals).
   const exportPayload = useMemo<ReorderPayload | null>(
-    () => (payload ? { ...payload, vendors: needsOrderVendors, kpis } : null),
-    [payload, needsOrderVendors, kpis],
+    () => (payload ? { ...payload, vendors: displayVendors, kpis } : null),
+    [payload, displayVendors, kpis],
   );
 
   // showExport gate mirrors the admin (minus the web-only clause — staff
   // export is cross-platform): enabled iff there's a non-empty filtered set,
   // no error, and not the initial load.
   const showExport =
-    !!exportPayload && needsOrderVendors.length > 0 && !error && !(loading && !payload);
+    !!exportPayload && displayVendors.length > 0 && !error && !(loading && !payload);
 
   // ─── header actions (mirror EODCount) ──────────────────────────────
   const onSignOut = useCallback(() => {

@@ -77,15 +77,17 @@ describe('staff reorder exports are cost-free', () => {
     expect(csv).toContain('Case Item');
   });
 
-  it('text drops per-item cost, subtotal, and Est. total — keeps Suggested + item count', () => {
+  it('text drops per-item cost, subtotal, and Est. total — keeps Suggested + count', () => {
     const txt = buildStaffReorderText(payload(), 'Towson');
     expect(txt).not.toContain('$');
     expect(txt).not.toContain('est ');
     expect(txt).not.toContain('subtotal');
     expect(txt).not.toContain('Est. total');
-    // Cases-aware Suggested figure and the count footer survive.
+    // The needs-order item shows its cases-aware Suggested figure under the
+    // NEEDS TO ORDER section; footer counts items to order.
+    expect(txt).toContain('=== NEEDS TO ORDER ===');
     expect(txt).toContain('Case Item: 3 cases · 72 each');
-    expect(txt).toContain('Total items: 1');
+    expect(txt).toContain('Total items to order: 1');
   });
 
   it('PDF HTML drops the Est. Cost column + Est. total footer', () => {
@@ -93,9 +95,29 @@ describe('staff reorder exports are cost-free', () => {
     expect(html).not.toContain('Est. Cost');
     expect(html).not.toContain('Est. total');
     expect(html).not.toContain('$');
-    // Suggested cell + quantity headers survive.
+    // Suggested cell + quantity headers survive; colour-coded section header.
     expect(html).toContain('3 cs');
     expect(html).toContain('Suggested');
-    expect(html).toContain('Total items: 1');
+    expect(html).toContain('Needs to Order');
+    expect(html).toContain('Items to order: 1');
+  });
+
+  it('includes the have-enough-stock data too (both sections / Needs Order flag)', () => {
+    const enough = { ...caseItem(), itemId: 'i-2', itemName: 'Stocked Item', needsOrder: false };
+    const p = payload();
+    p.vendors[0].items.push(enough);
+    // CSV: both rows present; needs-order flag distinguishes them.
+    const csv = buildStaffReorderCsv(p);
+    expect(csv).toContain('Needs Order');
+    expect(csv.split('\n').find((l) => l.includes('Stocked Item'))).toContain('no');
+    expect(csv.split('\n').find((l) => l.includes('Case Item'))).toContain('yes');
+    // Text: the HAVE ENOUGH STOCK section carries the enough item.
+    const txt = buildStaffReorderText(p, 'Towson');
+    expect(txt).toContain('=== HAVE ENOUGH STOCK ===');
+    expect(txt).toContain('Stocked Item: on hand 5 each');
+    // PDF: the enough item lands in the HAVE ENOUGH STOCK section.
+    const html = buildStaffReorderPdfHtml(p, 'Towson');
+    expect(html).toContain('Have Enough Stock');
+    expect(html).toContain('Stocked Item');
   });
 });

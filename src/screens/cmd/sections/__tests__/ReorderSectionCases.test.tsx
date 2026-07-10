@@ -284,21 +284,23 @@ describe('buildReorderCsv (Cases / Units Per Case columns)', () => {
     const csv = buildReorderCsv(payloadWith([caseItem({ suggestedQty: 49, caseQty: 24, costPerUnit: 1, itemName: 'Buns' })]));
     const line = csv.split('\n').find((l) => l.includes('Buns'))!;
     const cells = line.split(',');
-    // columns: Vendor,Item Name,On Hand,Pending PO,Par Level,Suggested Qty,Cases,Units Per Case,Unit,Est. Cost,...
-    expect(cells[5]).toBe('72'); // Suggested Qty = ordered units M
-    expect(cells[6]).toBe('3');  // Cases
-    expect(cells[7]).toBe('24'); // Units Per Case
-    expect(cells[9]).toBe('72.00'); // Est. Cost = 72 × $1, server-rounded
+    // columns (2026-07 — 'Needs Order' at index 1): Vendor,Needs Order,Item Name,
+    // On Hand,Pending PO,Par Level,Suggested Qty,Cases,Units Per Case,Unit,Est. Cost,...
+    expect(cells[1]).toBe('yes'); // below par → needs order
+    expect(cells[6]).toBe('72'); // Suggested Qty = ordered units M
+    expect(cells[7]).toBe('3');  // Cases
+    expect(cells[8]).toBe('24'); // Units Per Case
+    expect(cells[10]).toBe('72.00'); // Est. Cost = 72 × $1, server-rounded
   });
 
-  it('non-case row is byte-for-byte unchanged: Suggested Qty = raw, Cases/Units Per Case empty', () => {
+  it('non-case row: Suggested Qty = raw, Cases/Units Per Case empty', () => {
     const csv = buildReorderCsv(payloadWith([plainItem({ suggestedQty: 8, caseQty: 1, unit: 'gal', itemName: 'Oil' })]));
     const line = csv.split('\n').find((l) => l.includes('Oil'))!;
     const cells = line.split(',');
-    expect(cells[5]).toBe('8'); // Suggested Qty = raw suggestedQty
-    expect(cells[6]).toBe('');  // Cases empty
-    expect(cells[7]).toBe('');  // Units Per Case empty
-    expect(cells[8]).toBe('gal');
+    expect(cells[6]).toBe('8'); // Suggested Qty = raw suggestedQty
+    expect(cells[7]).toBe('');  // Cases empty
+    expect(cells[8]).toBe('');  // Units Per Case empty
+    expect(cells[9]).toBe('gal');
   });
 });
 
