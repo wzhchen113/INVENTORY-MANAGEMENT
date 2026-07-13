@@ -34,6 +34,14 @@ interface FormValues {
   // rounds UP to whole cases; 'unit' → counted units verbatim. Held as the total
   // union directly (not a free-text string) since the control can only emit these.
   orderUnit: 'case' | 'unit';
+  // 2026-07 — vendor-specific "Import Order" file export. '' = none (generic
+  // reorder export only), 'us_foods' = the US Foods Import-Order CSV. The two
+  // header values below feed that CSV (CUSTOMER NUMBER reuses Account #).
+  orderImportFormat: '' | 'us_foods';
+  importDistributorNumber: string;
+  importDepartment: string;
+  // Per-store US Foods customer number, keyed by store id.
+  importCustomerNumbers: Record<string, string>;
 }
 
 const blank = (): FormValues => ({
@@ -48,6 +56,10 @@ const blank = (): FormValues => ({
   orderCutoffTime: '',
   eodDeadlineTime: '',
   orderUnit: 'case', // R-2 — 'case' is the safe default on a new vendor.
+  orderImportFormat: '',
+  importDistributorNumber: '',
+  importDepartment: '',
+  importCustomerNumbers: {},
 });
 
 const fromVendor = (v: Vendor): FormValues => ({
@@ -62,6 +74,10 @@ const fromVendor = (v: Vendor): FormValues => ({
   orderCutoffTime: v.orderCutoffTime || '',
   eodDeadlineTime: v.eodDeadlineTime || '',
   orderUnit: v.orderUnit ?? 'case', // defensive default for a pre-migration row.
+  orderImportFormat: v.orderImportFormat === 'us_foods' ? 'us_foods' : '',
+  importDistributorNumber: v.importDistributorNumber || '',
+  importDepartment: v.importDepartment || '',
+  importCustomerNumbers: { ...(v.importCustomerNumbers || {}) },
 });
 
 const toUpdates = (v: FormValues): Partial<Vendor> => ({
@@ -76,6 +92,15 @@ const toUpdates = (v: FormValues): Partial<Vendor> => ({
   orderCutoffTime: v.orderCutoffTime.trim() || undefined,
   eodDeadlineTime: v.eodDeadlineTime.trim() || undefined,
   orderUnit: v.orderUnit,
+  orderImportFormat: v.orderImportFormat,
+  importDistributorNumber: v.importDistributorNumber.trim(),
+  importDepartment: v.importDepartment.trim(),
+  // Drop blank per-store entries so an emptied input clears that store's number.
+  importCustomerNumbers: Object.fromEntries(
+    Object.entries(v.importCustomerNumbers)
+      .map(([k, val]) => [k, (val || '').trim()])
+      .filter(([, val]) => val.length > 0),
+  ),
 });
 
 // ─── Form field row ────────────────────────────────────────────
@@ -181,6 +206,14 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
   const isPhone = useIsPhone();
   const addVendor = useStore((s) => s.addVendor);
   const updateVendor = useStore((s) => s.updateVendor);
+  // Stores in THIS vendor's brand — for the per-store US Foods customer-number
+  // inputs. In 'new' mode the vendor has no brandId yet, so the list is empty
+  // and the section is hidden until the vendor is saved.
+  const allStores = useStore((s) => s.stores);
+  const brandStores = React.useMemo(
+    () => (vendor?.brandId ? (allStores || []).filter((s) => s.brandId === vendor.brandId) : []),
+    [allStores, vendor?.brandId],
+  );
 
   const initial = React.useMemo<FormValues>(
     () => (mode === 'edit' && vendor ? fromVendor(vendor) : blank()),
@@ -337,6 +370,52 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
           ]}
           onChange={(v) => setValues((p) => ({ ...p, orderUnit: v }))}
         />
+        {/* 2026-07 — vendor-specific "Import Order" file export. 'US Foods'
+            unlocks the DISTRIBUTOR / DEPARTMENT header fields (division-level,
+            shared) plus the per-store CUSTOMER NUMBER inputs. When set, the
+            reorder CSV button emits this vendor's Import-Order file instead of
+            the generic CSV. */}
+        <SegmentField<'' | 'us_foods'>
+          label={T('section.vendors.importFormatLabel')}
+          hint={T('section.vendors.importFormatHint')}
+          value={values.orderImportFormat}
+          options={[
+            { value: '', label: T('section.vendors.importFormatNone') },
+            { value: 'us_foods', label: T('section.vendors.importFormatUsFoods') },
+          ]}
+          onChange={(v) => setValues((p) => ({ ...p, orderImportFormat: v }))}
+        />
+        {values.orderImportFormat === 'us_foods' ? (
+          <>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Field label={T('section.vendors.importDistributor')} hint="US Foods" value={values.importDistributorNumber} onChange={set('importDistributorNumber')} placeholder="4147" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label={T('section.vendors.importDepartment')} value={values.importDepartment} onChange={set('importDepartment')} placeholder="0" />
+              </View>
+            </View>
+            {brandStores.length > 0 ? (
+              <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                  <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>{T('section.vendors.importCustomerByStore')}</Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>· {T('section.vendors.importCustomerHint')}</Text>
+                </View>
+                {brandStores.map((s) => (
+                  <Field
+                    key={s.id}
+                    label={s.name}
+                    value={values.importCustomerNumbers[s.id] || ''}
+                    onChange={(val) =>
+                      setValues((p) => ({ ...p, importCustomerNumbers: { ...p.importCustomerNumbers, [s.id]: val } }))
+                    }
+                    placeholder="12345678"
+                  />
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : null}
       </ScrollView>
     </ResponsiveSheet>
   );

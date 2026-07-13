@@ -94,3 +94,48 @@ describe('updateVendor — deliveryDays + categories data-loss fix', () => {
     expect('categories' in body).toBe(false);
   });
 });
+
+describe('updateVendor — account_number + US Foods import fields persist (2026-07)', () => {
+  it('threads accountNumber → account_number (was silently dropped on update)', async () => {
+    await updateVendor('v1', { accountNumber: '12345678' });
+    expect(updateSpy).toHaveBeenCalledWith({ account_number: '12345678' });
+  });
+
+  it('empty accountNumber clears to null', async () => {
+    await updateVendor('v1', { accountNumber: '' });
+    expect(updateSpy).toHaveBeenCalledWith({ account_number: null });
+  });
+
+  it('threads the import fields incl. the per-store customer-number map', async () => {
+    await updateVendor('v1', {
+      orderImportFormat: 'us_foods',
+      importDistributorNumber: '4147',
+      importDepartment: '0',
+      importCustomerNumbers: { 's1': '111', 's2': '222' },
+    });
+    expect(updateSpy).toHaveBeenCalledWith({
+      order_import_format: 'us_foods',
+      import_distributor_number: '4147',
+      import_department: '0',
+      import_customer_numbers: { 's1': '111', 's2': '222' },
+    });
+  });
+
+  it('an empty customer-number map clears to null', async () => {
+    await updateVendor('v1', { importCustomerNumbers: {} });
+    expect(updateSpy).toHaveBeenCalledWith({ import_customer_numbers: null });
+  });
+});
+
+describe('updateVendor — surfaces backend errors (optimistic-revert contract)', () => {
+  it('throws when the UPDATE returns an error (previously swallowed → fake success)', async () => {
+    abortSpy.mockResolvedValueOnce({ data: null, error: { message: 'permission denied' } });
+    await expect(updateVendor('v1', { accountNumber: '12345678' })).rejects.toEqual({
+      message: 'permission denied',
+    });
+  });
+
+  it('resolves normally when the UPDATE succeeds', async () => {
+    await expect(updateVendor('v1', { name: 'US FOOD' })).resolves.toBeUndefined();
+  });
+});

@@ -460,6 +460,21 @@ export interface Vendor {
   // 'case', so every fetched vendor carries it and the segmented control's
   // value type stays total.
   orderUnit: 'case' | 'unit';
+  // 2026-07 — vendor-specific "Import Order" file export (builds on spec 114
+  // order codes). `orderImportFormat` tags which vendor file template this
+  // vendor uses: undefined/'' = none (generic reorder export only), 'us_foods'
+  // = the US Foods Import-Order CSV. `importDistributorNumber` / `importDepartment`
+  // are that CSV's account-header values (DISTRIBUTOR e.g. '4147', DEPARTMENT
+  // e.g. '0'); CUSTOMER NUMBER reuses `accountNumber`. All optional — a vendor
+  // with no format set behaves exactly as before.
+  orderImportFormat?: 'us_foods' | '';
+  importDistributorNumber?: string;
+  importDepartment?: string;
+  // Per-store US Foods CUSTOMER NUMBER override, keyed by store id. The US FOOD
+  // vendor is brand-shared but each store has its own ship-to/customer number;
+  // the export resolves `importCustomerNumbers[storeId]` and falls back to
+  // `accountNumber`. Distributor/department stay vendor-level (division-scoped).
+  importCustomerNumbers?: Record<string, string>;
 }
 
 export interface POSSaleItem {

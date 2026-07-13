@@ -770,7 +770,15 @@
       "orderUnitCase": "Cajas",
       "orderUnitUnit": "Unidades contadas",
       "missingCodes": "Códigos faltantes",
-      "missingCodesSub": "artículos vinculados sin código de pedido"
+      "missingCodesSub": "artículos vinculados sin código de pedido",
+      "importFormatLabel": "Formato de importación",
+      "importFormatHint": "tipo de archivo CSV",
+      "importFormatNone": "Ninguno",
+      "importFormatUsFoods": "US Foods",
+      "importDistributor": "N.º distribuidor",
+      "importDepartment": "Departamento",
+      "importCustomerByStore": "N.º cliente por tienda",
+      "importCustomerHint": "envío por tienda"
     },
     "recipes": {
       "title": "Menú / BOM",

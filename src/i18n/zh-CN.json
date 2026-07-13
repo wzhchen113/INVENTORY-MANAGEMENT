@@ -770,7 +770,15 @@
       "orderUnitCase": "按箱",
       "orderUnitUnit": "按计数单位",
       "missingCodes": "缺失编码",
-      "missingCodesSub": "已关联但无订货编码的商品"
+      "missingCodesSub": "已关联但无订货编码的商品",
+      "importFormatLabel": "订单导入格式",
+      "importFormatHint": "补货 CSV 文件类型",
+      "importFormatNone": "无",
+      "importFormatUsFoods": "US Foods",
+      "importDistributor": "分销商编号",
+      "importDepartment": "部门",
+      "importCustomerByStore": "各门店客户编号",
+      "importCustomerHint": "各门店送货客户号"
     },
     "recipes": {
       "title": "菜品 / BOM",

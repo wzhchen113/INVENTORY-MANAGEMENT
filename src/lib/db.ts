@@ -1803,6 +1803,12 @@ export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
       // guards a null defensively (e.g. a row read in a mixed window before the
       // migration applied) and matches the DB default.
       orderUnit: v.order_unit ?? 'case',
+      // 2026-07 — vendor import-order file fields (nullable → '' / undefined).
+      orderImportFormat: v.order_import_format === 'us_foods' ? 'us_foods' : undefined,
+      importDistributorNumber: v.import_distributor_number || '',
+      importDepartment: v.import_department || '',
+      // Per-store customer-number override map (jsonb; {} when absent).
+      importCustomerNumbers: (v.import_customer_numbers ?? {}) as Record<string, string>,
     }));
   }, { kind: 'read', label: 'fetchVendors' });
 }
@@ -1821,6 +1827,13 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> 
       // times): order_unit is NOT NULL with a value always in hand; default to
       // 'case' when a caller omits it (R-2 safe default).
       order_unit: vendor.orderUnit ?? 'case',
+      // 2026-07 — vendor import-order file fields (nullable; omit-when-empty).
+      ...(vendor.orderImportFormat ? { order_import_format: vendor.orderImportFormat } : {}),
+      ...(vendor.importDistributorNumber ? { import_distributor_number: vendor.importDistributorNumber } : {}),
+      ...(vendor.importDepartment ? { import_department: vendor.importDepartment } : {}),
+      ...(vendor.importCustomerNumbers && Object.keys(vendor.importCustomerNumbers).length > 0
+        ? { import_customer_numbers: vendor.importCustomerNumbers }
+        : {}),
     }).select().abortSignal(signal).single();
     if (error) throw error;
     return { ...vendor, id: data.id };
@@ -2939,11 +2952,25 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     if (updates.contactName !== undefined) dbUpdates.contact_name = updates.contactName;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
     if (updates.email !== undefined) dbUpdates.email = updates.email;
+    // account_number was previously dropped here — editing "Account #" in the
+    // form silently didn't persist on UPDATE (worked on CREATE). Fixed 2026-07
+    // (CUSTOMER NUMBER for the US Foods import file reuses this column). Empty
+    // string clears it.
+    if (updates.accountNumber !== undefined) dbUpdates.account_number = updates.accountNumber || null;
     if (updates.leadTimeDays !== undefined) dbUpdates.lead_time_days = updates.leadTimeDays;
     // Pass the empty string through too so an admin can clear a previously-set cutoff.
     if (updates.orderCutoffTime !== undefined) dbUpdates.order_cutoff_time = updates.orderCutoffTime || null;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime || null;
     if (updates.orderUnit !== undefined) dbUpdates.order_unit = updates.orderUnit;
+    // 2026-07 — vendor import-order file fields. Empty string clears (→ null)
+    // so an admin can un-set the format / header values.
+    if (updates.orderImportFormat !== undefined) dbUpdates.order_import_format = updates.orderImportFormat || null;
+    if (updates.importDistributorNumber !== undefined) dbUpdates.import_distributor_number = updates.importDistributorNumber || null;
+    if (updates.importDepartment !== undefined) dbUpdates.import_department = updates.importDepartment || null;
+    // Per-store customer-number map. Empty map clears (→ null).
+    if (updates.importCustomerNumbers !== undefined)
+      dbUpdates.import_customer_numbers =
+        Object.keys(updates.importCustomerNumbers).length > 0 ? updates.importCustomerNumbers : null;
     // Delivery days + categories ARE editable in VendorFormDrawer but were
     // previously dropped here — a silent data-loss bug on vendor edit (the
     // save appeared to succeed but neither field persisted). Thread them
@@ -2951,7 +2978,14 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     // omit-key-to-skip like the rest.
     if (updates.deliveryDays !== undefined) dbUpdates.delivery_days = updates.deliveryDays;
     if (updates.categories !== undefined) dbUpdates.categories = updates.categories;
-    await supabase.from('vendors').update(dbUpdates).eq('id', id).abortSignal(signal);
+    // Throw on a backend error so the store slice's optimistic-then-revert +
+    // notifyBackendError contract actually fires — matching updateStore /
+    // createVendor. Previously the error was swallowed, so a failed write
+    // resolved as success and the UI reported "Saved" while nothing persisted
+    // (the same silent-data-loss class the delivery_days/categories comment
+    // above documents). 2026-07.
+    const { error } = await supabase.from('vendors').update(dbUpdates).eq('id', id).abortSignal(signal);
+    if (error) throw error;
   }, { kind: 'write', label: 'updateVendor' });
 }
 

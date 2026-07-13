@@ -770,7 +770,15 @@
       "orderUnitCase": "Cases",
       "orderUnitUnit": "Counted units",
       "missingCodes": "Missing codes",
-      "missingCodesSub": "linked items with no order code"
+      "missingCodesSub": "linked items with no order code",
+      "importFormatLabel": "Order import format",
+      "importFormatHint": "reorder CSV file type",
+      "importFormatNone": "None",
+      "importFormatUsFoods": "US Foods",
+      "importDistributor": "Distributor #",
+      "importDepartment": "Department",
+      "importCustomerByStore": "Customer # by store",
+      "importCustomerHint": "US Foods ship-to per location"
     },
     "recipes": {
       "title": "Menu items / BOM",
