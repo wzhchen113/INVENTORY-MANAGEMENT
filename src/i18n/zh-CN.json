@@ -778,7 +778,8 @@
       "importDistributor": "分销商编号",
       "importDepartment": "部门",
       "importCustomerByStore": "各门店客户编号",
-      "importCustomerHint": "各门店送货客户号"
+      "importCustomerHint": "各门店客户号",
+      "importFormatSysco": "SYSCO"
     },
     "recipes": {
       "title": "菜品 / BOM",

@@ -1804,7 +1804,10 @@ export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
       // migration applied) and matches the DB default.
       orderUnit: v.order_unit ?? 'case',
       // 2026-07 — vendor import-order file fields (nullable → '' / undefined).
-      orderImportFormat: v.order_import_format === 'us_foods' ? 'us_foods' : undefined,
+      orderImportFormat:
+        v.order_import_format === 'us_foods' || v.order_import_format === 'sysco'
+          ? v.order_import_format
+          : undefined,
       importDistributorNumber: v.import_distributor_number || '',
       importDepartment: v.import_department || '',
       // Per-store customer-number override map (jsonb; {} when absent).

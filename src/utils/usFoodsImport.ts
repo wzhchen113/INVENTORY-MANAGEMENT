@@ -14,7 +14,15 @@
 
 import Papa from 'papaparse';
 import type { ReorderItem, ReorderPayload } from '../types';
-import { formatQty, slugifyStore, todayLocalIso } from './reorderExport';
+import { slugifyStore } from './reorderExport';
+import {
+  csvSafe,
+  deriveOrderLine,
+  isOrdered,
+  resolveExportBase,
+  type ImportOrderPlan,
+  type ImportVendorConfig,
+} from './vendorImportShared';
 
 // Exact template column order (Import_Order_Template.csv). Do not reorder — the
 // US Foods importer maps by header name, but keeping the template's order makes
@@ -55,18 +63,6 @@ export interface UsFoodsImportResult {
   skippedNoCode: number; // needs-order items dropped for a missing order code
 }
 
-// Neutralize CSV / spreadsheet formula injection. A cell whose text begins with
-// `= + - @` (or a leading tab/CR some clients treat as a formula lead-in) is
-// prefixed with a single quote so Excel / Sheets render it as literal text, not
-// an executable formula. Papa.unparse handles delimiter/quote escaping but NOT
-// this. In-threat-model because `order_code` (→ PRODUCT NUMBER) is writable by
-// any store member via the staff app, and this file is opened in a spreadsheet
-// by an admin. Applied to every free-text cell (defense-in-depth on the
-// admin-set header values too).
-function csvSafe(value: string): string {
-  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-}
-
 // YYYY-MM-DD → M/D/YYYY (no leading zeros), the US date format the template
 // uses ("2/21/2024"). Falls back to the raw input if it isn't an ISO date.
 function toUsDate(iso: string): string {
@@ -74,23 +70,6 @@ function toUsDate(iso: string): string {
   if (!m) return iso || '';
   const [, y, mo, d] = m;
   return `${Number(mo)}/${Number(d)}/${y}`;
-}
-
-// An item is on the order iff it's below par (needsOrder !== false) AND has a
-// positive suggested quantity. At/above-par ("have enough") rows never belong
-// in an order-upload file.
-function isOrdered(item: ReorderItem): boolean {
-  if (item.needsOrder === false) return false;
-  const cases = item.suggestedCases ?? 0;
-  return cases > 0 || item.suggestedQty > 0;
-}
-
-// CS / EA split: case-size items (suggestedCases non-null) order in WHOLE CASES
-// (CS = suggestedCases, EA = 0 — the reorder engine already rounded up); items
-// with no case size order in base units (EA = suggestedQty, CS = 0).
-function csEa(item: ReorderItem): { cs: number; ea: number } {
-  if (item.suggestedCases != null) return { cs: item.suggestedCases, ea: 0 };
-  return { cs: 0, ea: item.suggestedQty };
 }
 
 /**
@@ -115,12 +94,9 @@ export function buildUsFoodsImportCsv(
       skippedNoCode += 1;
       continue;
     }
-    const { cs, ea } = csEa(item);
-    // Prices are informational (US Foods ignores them on upload); derive from
-    // the server-rounded line total so no FE cost math is invented.
-    const csPrice = cs > 0 ? (item.estimatedCost / cs).toFixed(2) : '';
-    const eaPrice = ea > 0 ? (item.estimatedCost / ea).toFixed(2) : '';
-    const packSize = item.caseQty > 1 ? `${formatQty(item.caseQty)} ${item.unit}`.trim() : '';
+    // cases → CS, base units → EA; prices/pack derived once in the shared helper
+    // (informational — US Foods ignores them on upload).
+    const { cases, units, packSize, casePrice, eachPrice } = deriveOrderLine(item);
     rows.push({
       'CUSTOMER NUMBER': csvSafe(header.customerNumber),
       'DISTRIBUTOR': csvSafe(header.distributor),
@@ -132,10 +108,10 @@ export function buildUsFoodsImportCsv(
       'DESCRIPTION': csvSafe(item.itemName),
       'BRAND': '',
       'PACK SIZE': csvSafe(packSize),
-      'CS PRICE': csPrice,
-      'EA PRICE': eaPrice,
-      'CS': cs,
-      'EA': ea,
+      'CS PRICE': casePrice,
+      'EA PRICE': eachPrice,
+      'CS': cases,
+      'EA': units,
       'EXTENDED PRICE': item.estimatedCost.toFixed(2),
       'ORDER #': '',
       'STOCK STATUS': '',
@@ -154,32 +130,20 @@ export function buildUsFoodsImportCsv(
   return { csv, included: rows.length, skippedNoCode };
 }
 
-// The vendor-config shape the export needs (a structural subset of `Vendor`).
-export interface UsFoodsVendorConfig {
-  id: string;
-  accountNumber?: string;
+// The US Foods vendor config = the shared per-store config PLUS the US-Foods-
+// only division fields (distributor / department).
+export interface UsFoodsVendorConfig extends ImportVendorConfig {
   importDistributorNumber?: string;
   importDepartment?: string;
-  importCustomerNumbers?: Record<string, string>;
-}
-
-export interface UsFoodsExportPlan {
-  csv: string;
-  filename: string;
-  included: number;
-  skippedNoCode: number;
-  otherVendorCount: number; // non-US-Foods vendors in the payload, omitted from this file
-  customerNumberMissing: boolean; // no per-store override AND no account_number fallback
 }
 
 /**
  * Pure planner for the US Foods export off a reorder payload for ONE store.
- * Resolves the store's items, its per-store CUSTOMER NUMBER (override →
- * account_number fallback), the filename, and the cue flags — everything the
- * `onCsvPress` branch needs EXCEPT the DOM download + toast. Extracted so the
- * branch decision + customer-number resolution are unit-testable (the trigger
- * logic previously had zero coverage). `orderCodeFor` resolves each item's
- * PRODUCT NUMBER (the caller reads it off the hydrated inventory rows).
+ * The per-store CUSTOMER NUMBER resolution, item selection, filename cue flags,
+ * and omitted-vendor count come from the shared `resolveExportBase`; this only
+ * adds the US-Foods-specific header (distributor/department) + filename. Everything
+ * the `onCsvPress` branch needs EXCEPT the DOM download + toast, so the trigger
+ * logic is unit-testable.
  */
 export function planUsFoodsExport(
   payload: ReorderPayload,
@@ -187,29 +151,24 @@ export function planUsFoodsExport(
   storeName: string,
   cfg: UsFoodsVendorConfig,
   orderCodeFor: (item: ReorderItem) => string | null | undefined,
-): UsFoodsExportPlan {
-  const pv = payload.vendors.find((v) => v.vendorId === cfg.id);
-  const items = pv ? pv.items : [];
-  // CUSTOMER NUMBER is per-store (each location has its own US Foods ship-to
-  // number); fall back to the vendor-level account_number.
-  const customerNumber = cfg.importCustomerNumbers?.[storeId] || cfg.accountNumber || '';
-  const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
+): ImportOrderPlan {
+  const base = resolveExportBase(payload, storeId, cfg);
   const { csv, included, skippedNoCode } = buildUsFoodsImportCsv(
-    items,
+    base.items,
     {
-      customerNumber,
+      customerNumber: base.customerNumber,
       distributor: cfg.importDistributorNumber || '',
       department: cfg.importDepartment || '0',
-      asOfDate: date,
+      asOfDate: base.date,
     },
     orderCodeFor,
   );
   return {
     csv,
-    filename: `USFoods_ImportOrder_${slugifyStore(storeName)}_${date}.csv`,
+    filename: `USFoods_ImportOrder_${slugifyStore(storeName)}_${base.date}.csv`,
     included,
     skippedNoCode,
-    otherVendorCount: payload.vendors.filter((v) => v.vendorId !== cfg.id).length,
-    customerNumberMissing: !customerNumber,
+    otherVendorCount: base.otherVendorCount,
+    customerNumberMissing: base.customerNumberMissing,
   };
 }

@@ -35,9 +35,9 @@ interface FormValues {
   // union directly (not a free-text string) since the control can only emit these.
   orderUnit: 'case' | 'unit';
   // 2026-07 — vendor-specific "Import Order" file export. '' = none (generic
-  // reorder export only), 'us_foods' = the US Foods Import-Order CSV. The two
-  // header values below feed that CSV (CUSTOMER NUMBER reuses Account #).
-  orderImportFormat: '' | 'us_foods';
+  // reorder export only), 'us_foods' = US Foods CSV, 'sysco' = SYSCO H/F/P file.
+  // Per-store CUSTOMER NUMBER feeds both; distributor/department are US-Foods-only.
+  orderImportFormat: '' | 'us_foods' | 'sysco';
   importDistributorNumber: string;
   importDepartment: string;
   // Per-store US Foods customer number, keyed by store id.
@@ -74,7 +74,8 @@ const fromVendor = (v: Vendor): FormValues => ({
   orderCutoffTime: v.orderCutoffTime || '',
   eodDeadlineTime: v.eodDeadlineTime || '',
   orderUnit: v.orderUnit ?? 'case', // defensive default for a pre-migration row.
-  orderImportFormat: v.orderImportFormat === 'us_foods' ? 'us_foods' : '',
+  orderImportFormat:
+    v.orderImportFormat === 'us_foods' || v.orderImportFormat === 'sysco' ? v.orderImportFormat : '',
   importDistributorNumber: v.importDistributorNumber || '',
   importDepartment: v.importDepartment || '',
   importCustomerNumbers: { ...(v.importCustomerNumbers || {}) },
@@ -370,31 +371,34 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
           ]}
           onChange={(v) => setValues((p) => ({ ...p, orderUnit: v }))}
         />
-        {/* 2026-07 — vendor-specific "Import Order" file export. 'US Foods'
-            unlocks the DISTRIBUTOR / DEPARTMENT header fields (division-level,
-            shared) plus the per-store CUSTOMER NUMBER inputs. When set, the
-            reorder CSV button emits this vendor's Import-Order file instead of
-            the generic CSV. */}
-        <SegmentField<'' | 'us_foods'>
+        {/* 2026-07 — vendor-specific "Import Order" file export. 'US Foods' /
+            'SYSCO' unlock the per-store CUSTOMER NUMBER inputs; US Foods also
+            has DISTRIBUTOR / DEPARTMENT (division-level). When set, the reorder
+            CSV button emits this vendor's Import-Order file instead of the
+            generic CSV. */}
+        <SegmentField<'' | 'us_foods' | 'sysco'>
           label={T('section.vendors.importFormatLabel')}
           hint={T('section.vendors.importFormatHint')}
           value={values.orderImportFormat}
           options={[
             { value: '', label: T('section.vendors.importFormatNone') },
             { value: 'us_foods', label: T('section.vendors.importFormatUsFoods') },
+            { value: 'sysco', label: T('section.vendors.importFormatSysco') },
           ]}
           onChange={(v) => setValues((p) => ({ ...p, orderImportFormat: v }))}
         />
-        {values.orderImportFormat === 'us_foods' ? (
+        {values.orderImportFormat !== '' ? (
           <>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Field label={T('section.vendors.importDistributor')} hint="US Foods" value={values.importDistributorNumber} onChange={set('importDistributorNumber')} placeholder="4147" />
+            {values.orderImportFormat === 'us_foods' ? (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Field label={T('section.vendors.importDistributor')} hint="US Foods" value={values.importDistributorNumber} onChange={set('importDistributorNumber')} placeholder="4147" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Field label={T('section.vendors.importDepartment')} value={values.importDepartment} onChange={set('importDepartment')} placeholder="0" />
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Field label={T('section.vendors.importDepartment')} value={values.importDepartment} onChange={set('importDepartment')} placeholder="0" />
-              </View>
-            </View>
+            ) : null}
             {brandStores.length > 0 ? (
               <View style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>

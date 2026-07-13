@@ -467,7 +467,7 @@ export interface Vendor {
   // are that CSV's account-header values (DISTRIBUTOR e.g. '4147', DEPARTMENT
   // e.g. '0'); CUSTOMER NUMBER reuses `accountNumber`. All optional — a vendor
   // with no format set behaves exactly as before.
-  orderImportFormat?: 'us_foods' | '';
+  orderImportFormat?: 'us_foods' | 'sysco' | '';
   importDistributorNumber?: string;
   importDepartment?: string;
   // Per-store US Foods CUSTOMER NUMBER override, keyed by store id. The US FOOD

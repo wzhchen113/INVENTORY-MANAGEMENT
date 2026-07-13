@@ -46,6 +46,8 @@ import {
 import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
 import { t, type Locale } from '../../../i18n';
 import { planUsFoodsExport } from '../../../utils/usFoodsImport';
+import { planSyscoExport } from '../../../utils/syscoImport';
+import { pickImportVendor, type ImportOrderPlan } from '../../../utils/vendorImportShared';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -634,45 +636,53 @@ async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Lo
   }
 }
 
-// 2026-07 — US Foods "Import Order" CSV. When the reorder list's vendor is
-// configured `order_import_format = 'us_foods'`, the CSV button emits THIS
-// file (US-FOOD items only, in the exact US Foods template) instead of the
-// generic reorder CSV. Header values come from the vendor config
-// (account_number → CUSTOMER NUMBER, import_distributor_number, import_department);
-// each item's PRODUCT NUMBER is its per-vendor order_code, resolved from the
-// hydrated inventory rows the same way the quick-order path does. Items without
-// an order code are skipped and surfaced in the toast.
-function handleUsFoodsImportExport(
+// 2026-07 — vendor-specific "Import Order" files. When the reorder list's vendor
+// is configured `order_import_format` ('us_foods' | 'sysco'), the CSV button
+// emits THAT vendor's order file (that vendor's items only, in the vendor's own
+// layout) instead of the generic reorder CSV. Each item's product number is its
+// per-vendor order_code, resolved from the hydrated inventory rows the same way
+// the quick-order path does; items without a code are skipped and surfaced in
+// the toast. `planUsFoodsExport` / `planSyscoExport` do the pure work; this pair
+// of thin handlers share the download + toast emitter below.
+function emitImportPlan(plan: ImportOrderPlan, label: string): void {
+  const blob = new Blob([plan.csv], { type: 'text/csv;charset=utf-8;' });
+  triggerDownload(blob, plan.filename);
+  // Compose the toast: skipped-no-code, other-vendors-omitted (Risk 1), and
+  // missing-customer-# cues, so a multi-vendor day never silently drops the
+  // other vendors' rows and a store with no ship-to number is flagged.
+  const notes: string[] = [];
+  if (plan.skippedNoCode > 0) notes.push(`${plan.skippedNoCode} skipped — no order code`);
+  if (plan.otherVendorCount > 0)
+    notes.push(`${plan.otherVendorCount} other vendor${plan.otherVendorCount === 1 ? '' : 's'} not in this file`);
+  if (plan.customerNumberMissing) notes.push('no customer # set for this store');
+  Toast.show({
+    type: notes.length > 0 ? 'info' : 'success',
+    text1: `${label}: ${plan.included} item${plan.included === 1 ? '' : 's'}`,
+    text2: notes.length > 0 ? `${notes.join(' · ')}. ${plan.filename}` : plan.filename,
+    visibilityTime: notes.length > 0 ? 5000 : 3000,
+  });
+}
+
+function handleImportExport(
   payload: ReorderPayload,
   store: Store,
   cfg: Vendor,
   inventory: InventoryItem[],
 ): void {
+  const label = cfg.orderImportFormat === 'sysco' ? 'SYSCO order' : 'US Foods import';
   try {
     const resolveCode = (item: ReorderItem): string | null | undefined =>
       inventory.find((i) => i.id === item.itemId)?.vendors?.find((v) => v.vendorId === cfg.id)?.orderCode;
-    const plan = planUsFoodsExport(payload, store.id, store.name, cfg, resolveCode);
-    const blob = new Blob([plan.csv], { type: 'text/csv;charset=utf-8;' });
-    triggerDownload(blob, plan.filename);
-    // Compose the toast: skipped-no-code, other-vendors-omitted (Risk 1), and
-    // missing-customer-# cues, so a multi-vendor day never silently drops the
-    // non-US-Foods rows and a store with no ship-to number is flagged.
-    const notes: string[] = [];
-    if (plan.skippedNoCode > 0) notes.push(`${plan.skippedNoCode} skipped — no order code`);
-    if (plan.otherVendorCount > 0)
-      notes.push(`${plan.otherVendorCount} other vendor${plan.otherVendorCount === 1 ? '' : 's'} not in this file`);
-    if (plan.customerNumberMissing) notes.push('no customer # set for this store');
-    Toast.show({
-      type: notes.length > 0 ? 'info' : 'success',
-      text1: `US Foods import: ${plan.included} item${plan.included === 1 ? '' : 's'}`,
-      text2: notes.length > 0 ? `${notes.join(' · ')}. ${plan.filename}` : plan.filename,
-      visibilityTime: notes.length > 0 ? 5000 : 3000,
-    });
+    const plan =
+      cfg.orderImportFormat === 'sysco'
+        ? planSyscoExport(payload, store.id, store.name, cfg, resolveCode)
+        : planUsFoodsExport(payload, store.id, store.name, cfg, resolveCode);
+    emitImportPlan(plan, label);
   } catch (e: any) {
-    console.warn('[ReorderSection] US Foods import export failed:', e?.message || e);
+    console.warn(`[ReorderSection] ${label} export failed:`, e?.message || e);
     Toast.show({
       type: 'error',
-      text1: 'US Foods import export failed',
+      text1: `${label} export failed`,
       text2: e?.message || 'Unable to build the import file',
       visibilityTime: 4000,
     });
@@ -1026,14 +1036,12 @@ export default function ReorderSection() {
 
   const onCsvPress = React.useCallback(() => {
     if (!exportPayload || !currentStore) return;
-    // If a displayed vendor is configured for the US Foods import format, the
-    // CSV button emits that vendor's Import-Order file instead of the generic
-    // CSV (owner decision 2026-07 — "replace generic CSV for US FOOD").
-    const usCfg = exportPayload.vendors
-      .map((pv) => vendorsList.find((v) => v.id === pv.vendorId))
-      .find((v): v is Vendor => !!v && v.orderImportFormat === 'us_foods');
-    if (usCfg) {
-      handleUsFoodsImportExport(exportPayload, currentStore, usCfg, inventory);
+    // If a displayed vendor is configured for a vendor-specific import format
+    // (US Foods or SYSCO), the CSV button emits that vendor's order file instead
+    // of the generic CSV (owner decision 2026-07 — "replace generic CSV").
+    const importCfg = pickImportVendor(exportPayload, vendorsList);
+    if (importCfg) {
+      handleImportExport(exportPayload, currentStore, importCfg, inventory);
       return;
     }
     void handleCsvExport(exportPayload, currentStore, locale);

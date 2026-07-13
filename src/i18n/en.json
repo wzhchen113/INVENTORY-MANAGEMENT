@@ -778,7 +778,8 @@
       "importDistributor": "Distributor #",
       "importDepartment": "Department",
       "importCustomerByStore": "Customer # by store",
-      "importCustomerHint": "US Foods ship-to per location"
+      "importCustomerHint": "customer # per store",
+      "importFormatSysco": "SYSCO"
     },
     "recipes": {
       "title": "Menu items / BOM",

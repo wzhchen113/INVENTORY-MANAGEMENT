@@ -778,7 +778,8 @@
       "importDistributor": "N.º distribuidor",
       "importDepartment": "Departamento",
       "importCustomerByStore": "N.º cliente por tienda",
-      "importCustomerHint": "envío por tienda"
+      "importCustomerHint": "n.º cliente por tienda",
+      "importFormatSysco": "SYSCO"
     },
     "recipes": {
       "title": "Menú / BOM",
