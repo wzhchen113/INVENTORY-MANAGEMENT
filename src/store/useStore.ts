@@ -201,6 +201,31 @@ interface StoreActions {
       vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
     },
   ) => void;
+  /**
+   * Spec 119 — explicit brand-wide vendor propagation. Applies the CURRENT
+   * submitted vendor link set (attached vendors + which is primary + each
+   * link's order code) for a catalog ingredient to that ingredient's
+   * inventory_items row in EVERY visible store of the current brand, via the
+   * `apply_item_vendors_to_brand` RPC. DISTINCT from `updateItem` (Save) —
+   * this is only ever the deliberate "Apply vendors to all stores" button
+   * press, never a Save side effect (AC-1/AC-2).
+   *
+   * No naive optimistic write: the fan-out touches OTHER stores' inventory
+   * not held in the current slice, so an optimistic-then-revert cannot span
+   * them. Instead the RPC fires, and on success the current store's inventory
+   * is reloaded so the local view converges to server truth (other clients
+   * viewing an affected store see it live via realtime). On failure the error
+   * surfaces via `notifyBackendError` (AC-11 — never silent success).
+   *
+   * Resolves to the RPC's summary `{ updatedCount, skippedCount,
+   * skippedStoreIds }` on success (for the editor's summary toast) or `null`
+   * on failure.
+   */
+  applyVendorsToAllStores: (
+    catalogId: string,
+    vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>,
+    primaryVendorId: string | null,
+  ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
   deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
@@ -1361,6 +1386,33 @@ export const useStore = create<FullStore>((set, get) => ({
       itemRef: get().inventory.find((i) => i.id === id)?.name || id,
       value: JSON.stringify(updates),
     });
+  },
+
+  // Spec 119 — brand-wide vendor propagation. See the interface doc above.
+  // No optimistic write: the fan-out reconciles item_vendors on OTHER stores'
+  // inventory that this client's slice doesn't hold, so there's nothing local
+  // to optimistically patch (and nothing to revert on the fan-out targets).
+  // Fire the RPC; on success reload the current store so the acting client's
+  // view converges to server truth; on failure surface via notifyBackendError.
+  applyVendorsToAllStores: async (catalogId, vendors, primaryVendorId) => {
+    if (!catalogId) return null;
+    try {
+      const result = await db.applyItemVendorsToBrand(catalogId, vendors, primaryVendorId);
+      // Refresh the current store's inventory so the local view reflects any
+      // change to THIS store's item (the other stores converge via realtime on
+      // their own store-{id} channels). Non-fatal if the reload itself hiccups —
+      // the write already committed server-side.
+      const storeId = get().currentStore?.id;
+      if (storeId) await get().loadFromSupabase(storeId);
+      // No audit-log entry: `AuditAction` is a fixed union and a brand-wide
+      // vendor propagation has no dedicated verb; mirrors updateCatalogIngredient
+      // (brand-level, no audit). The RPC's returned summary is the user-facing
+      // record, surfaced by the editor's toast.
+      return result;
+    } catch (e: any) {
+      notifyBackendError('Apply vendors to all stores', e);
+      return null;
+    }
   },
 
   deleteItem: (id) => {

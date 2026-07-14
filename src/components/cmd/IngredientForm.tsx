@@ -298,6 +298,17 @@ interface Props {
   autoFocusName?: boolean;
   /** Fired when user picks the "+ new vendor" sentinel — host opens VendorFormDrawer. */
   onAddVendor?: () => void;
+  /**
+   * Spec 119 — fired by the SEPARATE "Apply vendors to all stores" action in
+   * the VENDORS section. Provided ONLY in EDIT mode (a catalog ingredient must
+   * already exist to fan out across the brand); undefined in NEW mode, in which
+   * case the button is not rendered. The host (IngredientFormDrawer) owns the
+   * confirm + store-action call + summary toast — this component just renders
+   * the affordance and calls back. DISTINCT from Save (AC-1).
+   */
+  onApplyToAllStores?: () => void;
+  /** Spec 119 — true while the brand-wide apply is in flight; disables the button. */
+  applyingToAllStores?: boolean;
 }
 
 // Numeric-only validation is centralized in `src/utils/validators.ts` —
@@ -503,7 +514,7 @@ const FlagRow: React.FC<{ label: string; desc: string; on: boolean; onToggle: ()
   );
 };
 
-export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFocusName, onAddVendor }) => {
+export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFocusName, onAddVendor, onApplyToAllStores, applyingToAllStores }) => {
   const C = useCmdColors();
   const T = useT();
   const isNew = mode === 'new';
@@ -1280,6 +1291,45 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
           allowEmpty
           help={values.vendors.length > 0 ? 'first vendor attached is the primary · tap "make primary" to change' : undefined}
         />
+
+        {/* Spec 119 — SEPARATE, explicit "Apply vendors to all stores" action.
+            DISTINCT from Save (owner decision: brand-wide propagation is always a
+            deliberate button press, never a Save side effect). Rendered ONLY in
+            EDIT mode (the host passes onApplyToAllStores only when a catalog
+            ingredient exists to fan out). Applies the CURRENT submitted vendor
+            set — attached vendors + primary + order codes — to this ingredient
+            across every store of the brand; the host confirms first (brand-wide)
+            and toasts the updated/skipped summary. Non-destructive on price:
+            existing per-store prices are kept (see help text) — prices change on
+            Save only. */}
+        {onApplyToAllStores ? (
+          <View style={{ marginTop: 4, gap: 6 }}>
+            <TouchableOpacity
+              onPress={onApplyToAllStores}
+              disabled={applyingToAllStores}
+              accessibilityRole="button"
+              accessibilityLabel={T('section.inventory.applyVendorsAllStores')}
+              activeOpacity={0.85}
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: CmdRadius.sm,
+                borderWidth: 1,
+                borderColor: C.border,
+                backgroundColor: C.panel2,
+                alignItems: 'center',
+                opacity: applyingToAllStores ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {applyingToAllStores ? '…' : T('section.inventory.applyVendorsAllStores')}
+              </Text>
+            </TouchableOpacity>
+            <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3, lineHeight: 14 }}>
+              {T('section.inventory.applyVendorsHelp')}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={{ height: 14 }} />

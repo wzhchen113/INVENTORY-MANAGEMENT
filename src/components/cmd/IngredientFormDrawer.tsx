@@ -12,6 +12,8 @@ import { AuditHistory } from './AuditHistory';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsCompact, useIsPhone } from '../../theme/breakpoints';
 import { InventoryItem, LocalizedNames } from '../../types';
+import { confirmAction } from '../../utils/confirmAction';
+import { useT } from '../../hooks/useT';
 
 type Mode = 'edit' | 'new';
 
@@ -146,10 +148,13 @@ const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({
 // on phone — it's a power-user assist that doesn't fit thumb width.
 export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onClose }) => {
   const C = useCmdColors();
+  const T = useT();
   const isCompact = useIsCompact();
   const isPhone = useIsPhone();
   const addItem = useStore((s) => s.addItem);
   const updateItem = useStore((s) => s.updateItem);
+  // Spec 119 — explicit brand-wide vendor propagation (SEPARATE from Save).
+  const applyVendorsToAllStores = useStore((s) => s.applyVendorsToAllStores);
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
   const vendors = useStore((s) => s.vendors);
@@ -180,6 +185,9 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   );
   const [values, setValues] = React.useState<IngredientFormValues>(initial);
   const [vendorDrawerOpen, setVendorDrawerOpen] = React.useState(false);
+  // Spec 119 — in-flight guard for the brand-wide "Apply vendors to all stores"
+  // action so a double-tap can't fire the RPC twice.
+  const [applyingToAllStores, setApplyingToAllStores] = React.useState(false);
   const vendorIdsBeforeAddRef = React.useRef<Set<string>>(new Set());
 
   // Reset form when the drawer reopens or the host item changes.
@@ -302,6 +310,46 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
     onClose();
   };
 
+  // Spec 119 — SEPARATE brand-wide vendor propagation. DISTINCT from Save: it
+  // does NOT persist name/category/price/etc. — it fans out ONLY the current
+  // submitted vendor SET (attached vendors + primary + order codes) to this
+  // ingredient's item in every store of the brand. Confirm first (brand-wide,
+  // touches other stores), then call the store action which fires the RPC and
+  // reloads the current store; toast the updated/skipped summary on success
+  // (failure surfaces via notifyBackendError inside the action). EDIT-only —
+  // the button is not rendered in NEW mode (no catalog id to fan out yet).
+  const handleApplyVendorsToAllStores = () => {
+    const catalogId = item?.catalogId;
+    if (mode !== 'edit' || !catalogId || applyingToAllStores) return;
+    confirmAction(
+      T('section.inventory.applyVendorsConfirmTitle'),
+      T('section.inventory.applyVendorsConfirmBody'),
+      async () => {
+        setApplyingToAllStores(true);
+        try {
+          const result = await applyVendorsToAllStores(
+            catalogId,
+            vendorRowsToLinkPayload(values.vendors),
+            values.vendorId || null,
+          );
+          if (result) {
+            Toast.show({
+              type: 'success',
+              text1: T('section.inventory.applyVendorsSuccessTitle'),
+              text2: T('section.inventory.applyVendorsSuccessDetail', {
+                updated: result.updatedCount,
+                skipped: result.skippedCount,
+              }),
+            });
+          }
+        } finally {
+          setApplyingToAllStores(false);
+        }
+      },
+      T('section.inventory.applyVendorsConfirmCta'),
+    );
+  };
+
   const handleDiscard = () => {
     setValues(initial);
     onClose();
@@ -410,13 +458,29 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   const body = isCompact ? (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
       <View style={{ flexDirection: 'column', gap: 0 }}>
-        <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
+        <IngredientForm
+          mode={mode}
+          values={values}
+          onChange={setValues}
+          autoFocusName={isNew}
+          onAddVendor={handleAddVendor}
+          onApplyToAllStores={mode === 'edit' && item?.catalogId ? handleApplyVendorsToAllStores : undefined}
+          applyingToAllStores={applyingToAllStores}
+        />
         {sidePane}
       </View>
     </ScrollView>
   ) : (
     <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
-      <IngredientForm mode={mode} values={values} onChange={setValues} autoFocusName={isNew} onAddVendor={handleAddVendor} />
+      <IngredientForm
+        mode={mode}
+        values={values}
+        onChange={setValues}
+        autoFocusName={isNew}
+        onAddVendor={handleAddVendor}
+        onApplyToAllStores={mode === 'edit' && item?.catalogId ? handleApplyVendorsToAllStores : undefined}
+        applyingToAllStores={applyingToAllStores}
+      />
       {sidePane}
     </View>
   );

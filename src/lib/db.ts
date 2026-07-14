@@ -519,6 +519,47 @@ export async function updateInventoryItem(
   }, { kind: 'write', label: 'updateInventoryItem' });
 }
 
+// Spec 119 — brand-wide fan-out of an ingredient's vendor link set. Thin
+// wrapper over the apply_item_vendors_to_brand SECURITY DEFINER RPC. Unlike
+// updateInventoryItem (which writes ONLY the current store's item), this
+// propagates the submitted `vendors[]` set — attached vendors, which is
+// primary, and each link's order_code — to the SAME catalog ingredient's
+// inventory_items row in EVERY caller-visible store of the current brand.
+// The RPC preserves each store's existing per-vendor price and seeds new
+// links from the submitted values (AC-6), mirrors is_primary + the legacy
+// scalar vendor_id on each store (AC-8), and reports which stores were
+// skipped for lacking a row (AC-9). This is invoked ONLY by the explicit
+// "Apply vendors to all stores" button — Save stays per-store (AC-2).
+export async function applyItemVendorsToBrand(
+  catalogId: string,
+  vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>,
+  primaryVendorId: string | null,
+): Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] }> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('apply_item_vendors_to_brand', {
+      p_catalog_id: catalogId,
+      // camelCase link payload → the RPC's snake_case JSONB. Same shape the
+      // update path builds; order_code empty/absent → null (spec 114).
+      p_vendors: vendors.map((v) => ({
+        vendor_id: v.vendorId,
+        cost_per_unit: v.costPerUnit ?? 0,
+        case_price: v.casePrice ?? 0,
+        order_code: v.orderCode || null,
+      })),
+      p_primary_vendor_id: primaryVendorId && primaryVendorId.length > 10 ? primaryVendorId : null,
+    // Spec 055 discipline — thread the inflight abort signal so the 30s
+    // hard-abort timer can cancel a hung RPC (matches every sibling wrapper).
+    }).abortSignal(signal);
+    if (error) throw error;
+    const row: any = data ?? {};
+    return {
+      updatedCount: row.updated_count ?? 0,
+      skippedCount: row.skipped_count ?? 0,
+      skippedStoreIds: row.skipped_store_ids ?? [],
+    };
+  }, { kind: 'write', label: 'applyItemVendorsToBrand' });
+}
+
 export async function adjustItemStock(id: string, newStock: number, updatedById: string): Promise<void> {
   return useInflight.getState().track(async (signal) => {
     const { error } = await supabase
