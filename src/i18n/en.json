@@ -64,6 +64,26 @@
         "es": "ES",
         "zh-CN": "中文"
       }
+    },
+    "notifications": {
+      "label": "Notifications",
+      "aria": "Toggle notifications on this device",
+      "state": {
+        "on": "On",
+        "off": "Off"
+      },
+      "iosInstall": {
+        "title": "Add this app to your Home Screen to enable notifications",
+        "steps": "Tap Share, then 'Add to Home Screen'."
+      },
+      "msg": {
+        "unsupported": "Notifications aren't available in this browser.",
+        "misconfigured": "Notifications are misconfigured on the server.",
+        "denied": "Notifications are blocked. Re-enable them in your device/browser settings, then try again.",
+        "dismissed": "Permission was dismissed. Tap to try again.",
+        "generic": "Couldn't enable notifications. Try again."
+      },
+      "retry": "Try again"
     }
   },
   "common": {

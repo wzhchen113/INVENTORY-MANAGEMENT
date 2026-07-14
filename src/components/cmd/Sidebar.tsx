@@ -5,6 +5,7 @@ import { mono, sans } from '../../theme/typography';
 import { AccentTile } from './AccentTile';
 import { TreeGroup, TreeItem } from './TreeGroup';
 import { LocaleSwitcher } from './LocaleSwitcher';
+import { NotificationToggle } from './NotificationToggle';
 import { useT } from '../../hooks/useT';
 import { APP_VERSION } from '../../utils/version';
 
@@ -103,6 +104,7 @@ export const Sidebar: React.FC<Props> = ({
         <AccentTile glyph="i" size={22} />
         <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>im.cmd</Text>
         <LocaleSwitcher />
+        <NotificationToggle />
         <View style={{ flex: 1 }} />
         {showEditAffordances && onToggleEditMode ? (
           editMode ? (

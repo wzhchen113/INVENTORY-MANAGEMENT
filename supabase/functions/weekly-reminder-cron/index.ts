@@ -227,15 +227,6 @@ Deno.serve(async (req) => {
     if (adminErr) return new Response(JSON.stringify({ ok: false, error: `admins: ${adminErr.message}` }), { status: 500 });
     const adminUserIds = new Set((adminRows || []).map((r: any) => r.id as string));
 
-    // Per-user notifications kill switch — excluded from BOTH push and
-    // email. Missing/NULL column treated as enabled (matches client default).
-    const { data: optedOutRows, error: optedOutErr } = await sb
-      .from('profiles').select('id').eq('notifications_enabled', false);
-    if (optedOutErr) {
-      console.warn('[cron] notifications_enabled fetch failed:', optedOutErr.message);
-    }
-    const optedOutUserIds = new Set((optedOutRows || []).map((r: any) => r.id as string));
-
     const { data: usRows } = await sb.from('user_stores').select('user_id, store_id');
     const usersByStore = new Map<string, Set<string>>();
     for (const r of (usRows || []) as any[]) {
@@ -289,7 +280,7 @@ Deno.serve(async (req) => {
         .select('user_id').eq('store_id', store.id).eq('week_start', windowStart);
       const alreadyReminded = new Set((logRows || []).map((r: any) => r.user_id as string));
 
-      const toRemind = [...storeUsers].filter((u) => !alreadyReminded.has(u) && !optedOutUserIds.has(u));
+      const toRemind = [...storeUsers].filter((u) => !alreadyReminded.has(u));
       if (toRemind.length === 0) {
         summary.weekly.push({ storeName: store.name, weekStart: windowStart, skipped: 'all_reminded' });
         continue;

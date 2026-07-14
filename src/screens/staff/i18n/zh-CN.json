@@ -363,6 +363,26 @@
     },
     "scaleSwitcher": {
       "aria": "调整字体大小"
+    },
+    "notifications": {
+      "label": "通知",
+      "aria": "在此设备上开关通知",
+      "state": {
+        "on": "已开启",
+        "off": "已关闭"
+      },
+      "iosInstall": {
+        "title": "将此应用添加到主屏幕以启用通知",
+        "steps": "点击分享，然后选择“添加到主屏幕”。"
+      },
+      "msg": {
+        "unsupported": "此浏览器不支持通知。",
+        "misconfigured": "服务器上的通知配置有误。",
+        "denied": "通知已被屏蔽。请在设备或浏览器设置中重新启用后再试。",
+        "dismissed": "已取消授权。点击重试。",
+        "generic": "无法启用通知。请重试。"
+      },
+      "retry": "重试"
     }
   }
 }

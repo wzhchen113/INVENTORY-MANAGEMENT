@@ -17,6 +17,7 @@ import { TitleBar } from '../../components/cmd/TitleBar';
 import { StoreSwitchOverlay } from '../../components/cmd/StoreSwitchOverlay';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
+import { NotificationToggle } from '../../components/cmd/NotificationToggle';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
 import { useIsSuperAdmin } from '../../hooks/useRole';
 import { useT } from '../../hooks/useT';
@@ -272,11 +273,12 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     </View>
   );
 
-  // Rail footer: locale switcher + sign-out. Theme toggle lives in the
-  // TitleBar's top-right cluster (next to the brand picker), not duplicated
-  // here.
+  // Rail footer: per-device notification toggle + locale switcher + sign-out.
+  // Theme toggle lives in the TitleBar's top-right cluster (next to the brand
+  // picker), not duplicated here.
   const railFooter = (
     <View style={{ alignItems: 'center', gap: 6 }}>
+      <NotificationToggle />
       <LocaleSwitcher />
       <TouchableOpacity
         onPress={() => confirmAction(T('chrome.signOutConfirm'), T('chrome.signOutBody'), logout)}
@@ -378,6 +380,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           trailing={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {brandPickerCompact}
+              <NotificationToggle />
               <ThemeToggle />
             </View>
           }

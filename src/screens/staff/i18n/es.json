@@ -363,6 +363,26 @@
     },
     "scaleSwitcher": {
       "aria": "Cambiar tamaño del texto"
+    },
+    "notifications": {
+      "label": "Notificaciones",
+      "aria": "Activar notificaciones en este dispositivo",
+      "state": {
+        "on": "Activadas",
+        "off": "Desactivadas"
+      },
+      "iosInstall": {
+        "title": "Agrega esta app a tu pantalla de inicio para activar las notificaciones",
+        "steps": "Toca Compartir y luego 'Agregar a inicio'."
+      },
+      "msg": {
+        "unsupported": "Las notificaciones no están disponibles en este navegador.",
+        "misconfigured": "Las notificaciones están mal configuradas en el servidor.",
+        "denied": "Las notificaciones están bloqueadas. Vuelve a activarlas en la configuración de tu dispositivo o navegador e inténtalo de nuevo.",
+        "dismissed": "Se descartó el permiso. Toca para intentarlo de nuevo.",
+        "generic": "No se pudieron activar las notificaciones. Inténtalo de nuevo."
+      },
+      "retry": "Intentar de nuevo"
     }
   }
 }

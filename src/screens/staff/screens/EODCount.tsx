@@ -39,6 +39,7 @@ import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
+import { unsubscribeFromPush } from '../../../lib/webPush';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import {
   applyCountOrder,
@@ -532,6 +533,13 @@ export function EODCount() {
       t('chrome.signOut.confirmTitle'),
       t('chrome.signOut.confirmMessage'),
       async () => {
+        // Tear down THIS device's web-push subscription before signing out —
+        // mirrors admin logout (useStore.ts). Must run BEFORE signOut() so the
+        // push_subscriptions row delete happens under the authenticated
+        // session (RLS owner-scopes it). Best-effort — unsubscribeFromPush
+        // swallows its own errors. Without this, a shared device keeps
+        // delivering the prior user's reminders to the next signed-in user.
+        await unsubscribeFromPush();
         try {
           await supabase.auth.signOut();
         } catch (err) {
