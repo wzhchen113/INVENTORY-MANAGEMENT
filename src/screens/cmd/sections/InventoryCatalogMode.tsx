@@ -76,6 +76,9 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const locale         = useLocale();
   const inventory      = useStore((s) => s.inventory);
   const stores         = useStore((s) => s.stores);
+  // Spec 122 — the edit drawer must seed from (and the fan-out re-center on)
+  // the CURRENT store's row, not the arbitrary `primary` (first-iterated) row.
+  const currentStore   = useStore((s) => s.currentStore);
   const vendors        = useStore((s) => s.vendors);
   const ingredientCats = useStore((s) => s.ingredientCategories);
   const getItemStatus  = useStore((s) => s.getItemStatus);
@@ -749,7 +752,14 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
       <IngredientFormDrawer
         visible={editDrawerOpen}
         mode="edit"
-        item={sel?.primary}
+        // Spec 122 (AC-1) — seed from the CURRENT store's row for this catalog
+        // ingredient when it exists; fall back to `sel.primary` (deterministic)
+        // when the current store has no row. Fixes the wrong-store binding that
+        // showed + saved par/cost to an arbitrary store.
+        item={sel && (sel.rows.find((r) => r.storeId === currentStore.id) ?? sel.primary)}
+        // Spec 122 — catalog.tsv Save fans par/cost/case_price out to every
+        // store of the brand (items.tsv passes no flag → single-store).
+        brandWide
         onClose={() => setEditDrawerOpen(false)}
       />
       <ExportCsvDrawer visible={exportOpen} onClose={() => setExportOpen(false)} />

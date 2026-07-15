@@ -561,6 +561,41 @@ export async function applyItemVendorsToBrand(
   }, { kind: 'write', label: 'applyItemVendorsToBrand' });
 }
 
+// Spec 122 — brand-wide OVERWRITE fan-out of an ingredient's per-store CONFIG
+// scalars (par_level, cost_per_unit, case_price). Thin wrapper over the
+// apply_item_scalars_to_brand SECURITY DEFINER RPC. Unlike updateInventoryItem
+// (which writes ONLY the current store's item — items.tsv stays single-store),
+// this OVERWRITES the three scalars on the SAME catalog ingredient's
+// inventory_items row in EVERY caller-visible store of the current brand. Fired
+// automatically on a catalog.tsv Save. A blank/undefined field maps to `null`
+// (skip that field — NULL-means-skip), NOT 0 — so an untyped field never zeroes
+// every store. current_stock and count-like fields are NEVER passed here; they
+// flow only through updateInventoryItem → current store (AC-5/AC-6).
+export async function applyItemScalarsToBrand(
+  catalogId: string,
+  scalars: { parLevel?: number | null; costPerUnit?: number | null; casePrice?: number | null },
+): Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] }> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('apply_item_scalars_to_brand', {
+      p_catalog_id: catalogId,
+      // `?? null` converts an omitted/blank field into the SQL NULL-means-skip
+      // param (leave that column alone on every store).
+      p_par_level: scalars.parLevel ?? null,
+      p_cost_per_unit: scalars.costPerUnit ?? null,
+      p_case_price: scalars.casePrice ?? null,
+    // Spec 055 discipline — thread the inflight abort signal so the 30s
+    // hard-abort timer can cancel a hung RPC (matches every sibling wrapper).
+    }).abortSignal(signal);
+    if (error) throw error;
+    const row: any = data ?? {};
+    return {
+      updatedCount: row.updated_count ?? 0,
+      skippedCount: row.skipped_count ?? 0,
+      skippedStoreIds: row.skipped_store_ids ?? [],
+    };
+  }, { kind: 'write', label: 'applyItemScalarsToBrand' });
+}
+
 export async function adjustItemStock(id: string, newStock: number, updatedById: string): Promise<void> {
   return useInflight.getState().track(async (signal) => {
     const { error } = await supabase

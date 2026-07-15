@@ -340,6 +340,8 @@
       "applyVendorsConfirmCta": "应用到全部",
       "applyVendorsSuccessTitle": "供应商已应用",
       "applyVendorsSuccessDetail": "已更新 {updated} · 已跳过 {skipped}",
+      "applyScalarsSuccessTitle": "参考量/成本已应用到所有门店",
+      "applyScalarsSuccessDetail": "已更新 {updated} · 已跳过 {skipped}",
       "uniqueCount": "{count} 种",
       "filterPlaceholder": "cat:蛋白 vendor:sysco",
       "filterAll": "全部",

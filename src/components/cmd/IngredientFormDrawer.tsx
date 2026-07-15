@@ -22,6 +22,12 @@ interface Props {
   mode: Mode;
   /** EDIT mode: the item to edit. Required when mode='edit'. */
   item?: InventoryItem;
+  /**
+   * Spec 122 — when true (the brand-level catalog.tsv view), an edit Save also
+   * fans the CONFIG scalars (par/cost/case_price) out to every store of the
+   * brand. Default false = per-store items.tsv behavior (single store only).
+   */
+  brandWide?: boolean;
   onClose: () => void;
 }
 
@@ -85,6 +91,18 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
         : [],
 });
 
+// Spec 122 — parse a form scalar string for the brand-wide fan-out payload.
+// A blank field maps to `null` (NULL-means-skip on the RPC → that column is
+// left ALONE on every store) rather than `0`, so clearing a field never zeros
+// par/cost/case_price across the whole brand. A genuine typed `0` is a real
+// overwrite. (Contrast `toUpdates`, which `|| 0`s the current-store write.)
+function scalarOrNull(s: string): number | null {
+  const t = (s ?? '').trim();
+  if (t === '') return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Spec 040 P3 — build a LocalizedNames map from the form's translation
 // overrides. Empty strings are omitted so they don't shadow the silent-
 // English fallback with an "empty translation" sentinel.
@@ -146,7 +164,7 @@ const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({
 // On compact tiers (phone/tablet) the form body flips to a vertical
 // stack and the side pane (JsonPreview / AuditHistory) is suppressed
 // on phone — it's a power-user assist that doesn't fit thumb width.
-export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onClose }) => {
+export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, brandWide, onClose }) => {
   const C = useCmdColors();
   const T = useT();
   const isCompact = useIsCompact();
@@ -155,6 +173,9 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
   const updateItem = useStore((s) => s.updateItem);
   // Spec 119 — explicit brand-wide vendor propagation (SEPARATE from Save).
   const applyVendorsToAllStores = useStore((s) => s.applyVendorsToAllStores);
+  // Spec 122 — brand-wide CONFIG scalar propagation (par/cost/case_price),
+  // fired automatically on Save when `brandWide` (catalog.tsv view).
+  const applyScalarsToAllStores = useStore((s) => s.applyScalarsToAllStores);
   const stores = useStore((s) => s.stores);
   const currentStore = useStore((s) => s.currentStore);
   const vendors = useStore((s) => s.vendors);
@@ -266,7 +287,34 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, onC
           setCatalogI18nNames(catalogId, nextI18n);
         }
       }
-      Toast.show({ type: 'success', text1: 'Saved', text2: values.name });
+      // Spec 122 — from the catalog.tsv view (`brandWide`), fan the three
+      // CONFIG scalars (par/cost/case_price) out to EVERY store of the brand.
+      // `updateItem` above already wrote the CURRENT store's row (incl.
+      // current_stock / expiry / count fields — those NEVER fan out); this
+      // adds the brand-wide overwrite of just the three scalars. Fire-and-
+      // forget with its own summary toast; failure surfaces via
+      // notifyBackendError inside the action (AC-10). Blank field → null so a
+      // cleared value skips rather than zeroing every store.
+      if (brandWide && catalogId) {
+        applyScalarsToAllStores(catalogId, {
+          parLevel: scalarOrNull(values.parLevel),
+          costPerUnit: scalarOrNull(values.costPerUnit),
+          casePrice: scalarOrNull(values.casePrice),
+        }).then((summary) => {
+          if (summary) {
+            Toast.show({
+              type: 'success',
+              text1: T('section.inventory.applyScalarsSuccessTitle'),
+              text2: T('section.inventory.applyScalarsSuccessDetail', {
+                updated: summary.updatedCount,
+                skipped: summary.skippedCount,
+              }),
+            });
+          }
+        });
+      } else {
+        Toast.show({ type: 'success', text1: 'Saved', text2: values.name });
+      }
       onClose();
       return;
     }

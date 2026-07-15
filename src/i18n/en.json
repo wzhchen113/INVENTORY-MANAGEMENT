@@ -340,6 +340,8 @@
       "applyVendorsConfirmCta": "Apply to all",
       "applyVendorsSuccessTitle": "Vendors applied",
       "applyVendorsSuccessDetail": "Updated {updated} · skipped {skipped}",
+      "applyScalarsSuccessTitle": "Par/cost applied to all stores",
+      "applyScalarsSuccessDetail": "Updated {updated} · skipped {skipped}",
       "uniqueCount": "{count} unique",
       "filterPlaceholder": "cat:protein vendor:sysco",
       "filterAll": "all",

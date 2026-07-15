@@ -104,6 +104,13 @@ jest.mock('../lib/db', () => ({
   // test path doesn't exercise these, but the import-level namespace
   // resolves to this mock and a stray reference would TypeError.
   updateCatalogIngredientI18n: jest.fn().mockResolvedValue(undefined),
+  // Spec 122 — brand-wide scalar fan-out RPC wrapper. Default success shape;
+  // per-test overridden to reject for the revert path.
+  applyItemScalarsToBrand: jest.fn().mockResolvedValue({
+    updatedCount: 3,
+    skippedCount: 0,
+    skippedStoreIds: [],
+  }),
   updateRecipeI18n: jest.fn().mockResolvedValue(undefined),
   updatePrepRecipeI18n: jest.fn().mockResolvedValue(undefined),
   updateRecipeCategoryI18n: jest.fn().mockResolvedValue(undefined),
@@ -432,5 +439,107 @@ describe('getIngredientLineCost — per-each basis (spec 104)', () => {
       itemId: 'missing', itemName: 'Nope', unit: 'each', quantity: 5,
     } as any);
     expect(cost).toBe(0);
+  });
+});
+
+// ─── Spec 122 — applyScalarsToAllStores brand-wide fan-out ─────────────────
+//
+// The catalog view holds every store's inventory_items row in the `inventory`
+// slice, so the action optimistically patches par/cost/case_price on ALL rows
+// for the catalog, fires db.applyItemScalarsToBrand, and reverts on failure.
+// current_stock is NEVER touched (AC-5/AC-6).
+describe('applyScalarsToAllStores (spec 122)', () => {
+  const CAT = 'cat-fanout';
+  function seedRow(over: Partial<InventoryItem>): InventoryItem {
+    return {
+      id: 'r', catalogId: CAT, name: 'Corn', category: 'produce', unit: 'each',
+      costPerUnit: 1, currentStock: 0, parLevel: 0, averageDailyUsage: 0,
+      safetyStock: 0, vendorId: '', vendorName: '', usagePerPortion: 0,
+      lastUpdatedBy: '', lastUpdatedAt: '', eodRemaining: 0, storeId: 's',
+      casePrice: 10, caseQty: 1, subUnitSize: 1,
+      ...over,
+    } as InventoryItem;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useStore.setState(INITIAL_STATE, true);
+    // clearAllMocks wiped the default resolved value on the db wrapper.
+    const db = require('../lib/db');
+    (db.applyItemScalarsToBrand as jest.Mock).mockResolvedValue({
+      updatedCount: 2, skippedCount: 1, skippedStoreIds: ['store-z'],
+    });
+  });
+
+  it('optimistically overwrites par/cost/case_price on every row for the catalog, leaving current_stock untouched, and returns the summary', async () => {
+    useStore.setState({
+      currentStore: { id: 'store-1', name: 'Frederick' } as any,
+      inventory: [
+        seedRow({ id: 'r1', storeId: 'store-1', parLevel: 480, currentStock: 5, costPerUnit: 1, casePrice: 40 }),
+        seedRow({ id: 'r2', storeId: 'store-2', parLevel: 4, currentStock: 99, costPerUnit: 2, casePrice: 50 }),
+        // A different catalog — must NOT be touched.
+        seedRow({ id: 'r3', catalogId: 'other', storeId: 'store-1', parLevel: 7, currentStock: 3 }),
+      ],
+    });
+
+    const result = await useStore.getState().applyScalarsToAllStores(CAT, {
+      parLevel: 480, costPerUnit: 9, casePrice: 40,
+    });
+
+    expect(result).toEqual({ updatedCount: 2, skippedCount: 1, skippedStoreIds: ['store-z'] });
+
+    const inv = useStore.getState().inventory;
+    const r1 = inv.find((i) => i.id === 'r1')!;
+    const r2 = inv.find((i) => i.id === 'r2')!;
+    const r3 = inv.find((i) => i.id === 'r3')!;
+
+    // Both catalog rows fanned to the new scalars.
+    expect(r1.parLevel).toBe(480);
+    expect(r2.parLevel).toBe(480);
+    expect(r1.costPerUnit).toBe(9);
+    expect(r2.costPerUnit).toBe(9);
+    expect(r1.casePrice).toBe(40);
+    expect(r2.casePrice).toBe(40);
+    // current_stock is NEVER overwritten.
+    expect(r1.currentStock).toBe(5);
+    expect(r2.currentStock).toBe(99);
+    // The other catalog's row is untouched.
+    expect(r3.parLevel).toBe(7);
+
+    const db = require('../lib/db');
+    expect(db.applyItemScalarsToBrand).toHaveBeenCalledWith(CAT, {
+      parLevel: 480, costPerUnit: 9, casePrice: 40,
+    });
+  });
+
+  it('reverts the optimistic patch and surfaces notifyBackendError on failure, returning null', async () => {
+    const db = require('../lib/db');
+    (db.applyItemScalarsToBrand as jest.Mock).mockRejectedValueOnce(new Error('rpc boom'));
+
+    useStore.setState({
+      currentStore: { id: 'store-1', name: 'Frederick' } as any,
+      inventory: [
+        seedRow({ id: 'r1', storeId: 'store-1', parLevel: 480, currentStock: 5, costPerUnit: 1, casePrice: 40 }),
+        seedRow({ id: 'r2', storeId: 'store-2', parLevel: 4, currentStock: 99, costPerUnit: 2, casePrice: 50 }),
+      ],
+    });
+
+    const result = await useStore.getState().applyScalarsToAllStores(CAT, {
+      parLevel: 999, costPerUnit: 9, casePrice: 88,
+    });
+
+    expect(result).toBeNull();
+
+    // Rows reverted to their pre-patch values.
+    const inv = useStore.getState().inventory;
+    const r1 = inv.find((i) => i.id === 'r1')!;
+    const r2 = inv.find((i) => i.id === 'r2')!;
+    expect(r1.parLevel).toBe(480);
+    expect(r2.parLevel).toBe(4);
+    expect(r1.casePrice).toBe(40);
+    expect(r2.costPerUnit).toBe(2);
+
+    // Error surfaced via notifyBackendError (→ toast).
+    expect(toastShowMock).toHaveBeenCalled();
   });
 });

@@ -340,6 +340,8 @@
       "applyVendorsConfirmCta": "Aplicar a todas",
       "applyVendorsSuccessTitle": "Proveedores aplicados",
       "applyVendorsSuccessDetail": "Actualizadas {updated} · omitidas {skipped}",
+      "applyScalarsSuccessTitle": "Par/costo aplicado a todas las tiendas",
+      "applyScalarsSuccessDetail": "Actualizadas {updated} · omitidas {skipped}",
       "uniqueCount": "{count} únicos",
       "filterPlaceholder": "cat:proteína vendor:sysco",
       "filterAll": "todos",

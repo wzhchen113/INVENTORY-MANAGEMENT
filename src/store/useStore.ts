@@ -226,6 +226,29 @@ interface StoreActions {
     vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>,
     primaryVendorId: string | null,
   ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
+  /**
+   * Spec 122 — brand-wide propagation of per-store CONFIG scalars
+   * (`par_level`, `cost_per_unit`, `case_price`) for a catalog ingredient.
+   * Invoked automatically on Save from the brand-level catalog.tsv view so a
+   * per-store edit lands on EVERY store of the brand (the "this IS the
+   * ingredient" model), not the arbitrary primary row.
+   *
+   * `current_stock` and count-like physical fields are NEVER passed here —
+   * they stay strictly per-store via `updateItem` (AC-5/AC-6). A `null` /
+   * omitted scalar is a NULL-means-skip no-op on that column server-side.
+   *
+   * Unlike `applyVendorsToAllStores`, this DOES optimistically patch — the
+   * catalog view holds every store's row in the `inventory` slice, so the
+   * fan-out targets ARE local. All in-memory rows for the catalog are patched
+   * with the new scalars and reverted on failure via `notifyBackendError`.
+   *
+   * Resolves to the RPC's `{ updatedCount, skippedCount, skippedStoreIds }`
+   * summary on success (for the editor's summary toast) or `null` on failure.
+   */
+  applyScalarsToAllStores: (
+    catalogId: string,
+    scalars: { parLevel?: number | null; costPerUnit?: number | null; casePrice?: number | null },
+  ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
   deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
   getItemStatus: (item: InventoryItem) => ItemStatus;
@@ -1419,6 +1442,56 @@ export const useStore = create<FullStore>((set, get) => ({
       return result;
     } catch (e: any) {
       notifyBackendError('Apply vendors to all stores', e);
+      return null;
+    }
+  },
+
+  // Spec 122 — brand-wide scalar propagation (par/cost/case_price). See the
+  // interface doc above. Unlike the vendor fan-out, the catalog view holds
+  // every store's inventory_items row in the `inventory` slice, so the fan-out
+  // targets are local: optimistically patch all rows for this catalog with the
+  // supplied (non-null) scalars, fire the RPC, and revert every patched row to
+  // its snapshot on failure. `current_stock` and count-like fields are never
+  // touched here — they are not parameters and never patched (AC-5/AC-6).
+  applyScalarsToAllStores: async (catalogId, scalars) => {
+    if (!catalogId) return null;
+    // Snapshot the pre-patch rows for this catalog so a failed RPC can revert
+    // exactly what it changed (keyed by row id — stable across the set()).
+    const prevById = new Map(
+      get().inventory.filter((i) => i.catalogId === catalogId).map((r) => [r.id, r]),
+    );
+    if (prevById.size === 0) {
+      // Nothing local to patch — still fire the RPC (server may have rows this
+      // client hasn't loaded) and surface the summary.
+      try {
+        return await db.applyItemScalarsToBrand(catalogId, scalars);
+      } catch (e: any) {
+        notifyBackendError('Apply to all stores', e);
+        return null;
+      }
+    }
+    // Optimistic patch — only the supplied (non-null) scalars, only rows for
+    // this catalog. current_stock and every other field are left untouched.
+    set((s) => ({
+      inventory: s.inventory.map((i) =>
+        i.catalogId === catalogId
+          ? {
+              ...i,
+              ...(scalars.parLevel != null ? { parLevel: scalars.parLevel } : {}),
+              ...(scalars.costPerUnit != null ? { costPerUnit: scalars.costPerUnit } : {}),
+              ...(scalars.casePrice != null ? { casePrice: scalars.casePrice } : {}),
+            }
+          : i,
+      ),
+    }));
+    try {
+      return await db.applyItemScalarsToBrand(catalogId, scalars);
+    } catch (e: any) {
+      // Revert every patched row to its pre-patch snapshot.
+      set((s) => ({
+        inventory: s.inventory.map((i) => prevById.get(i.id) ?? i),
+      }));
+      notifyBackendError('Apply to all stores', e);
       return null;
     }
   },
