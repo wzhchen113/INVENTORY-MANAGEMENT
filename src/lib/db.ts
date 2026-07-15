@@ -4017,6 +4017,11 @@ function mapReorderVendor(v: any): ReorderVendor {
     eodSubmittedAt: v?.eod_submitted_at ? String(v.eod_submitted_at) : null,
     items,
     vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
+    // Spec 123 — per-vendor "PO CREATED" signal from the RPC. TRUE when a
+    // non-cancelled purchase_orders row exists for (store, this vendor, the
+    // reorder list's as-of/reference date). Absent → false (older envelope /
+    // below-par-only path shows "+ CREATE PO").
+    hasPo: Boolean(v?.has_po ?? false),
   };
 }
 

@@ -1011,6 +1011,8 @@
       "createPoConfirmCta": "Crear borrador",
       "createPoToastTitle": "Borrador de OC creado",
       "createPoToastBody": "Borrador para {vendor} creado — edítalo y envíalo en Órdenes de compra.",
+      "poCreatedLabel": "OC CREADA",
+      "poCreatedAria": "Orden de compra ya creada para {vendor}",
       "quickOrderAria": "Lista de pedido rápido para {vendor}"
     },
     "reconciliation": {

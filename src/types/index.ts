@@ -902,6 +902,14 @@ export interface ReorderVendor {
   eodSubmittedAt: string | null;  // ISO-8601 or null
   items: ReorderItem[];
   vendorTotalCost: number;
+  /**
+   * Spec 123 — true when a non-cancelled purchase_orders row exists for
+   * (store, this vendor, the reorder list's as-of/reference date). Drives the
+   * persistent "PO CREATED" (disabled) button state. Computed server-side by
+   * report_reorder_list against v_as_of_date; keyed to the same date the card
+   * renders for. `false` for legacy null-reference_date drafts (never matched).
+   */
+  hasPo?: boolean;
 }
 
 /**

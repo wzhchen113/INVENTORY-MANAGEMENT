@@ -1011,6 +1011,8 @@
       "createPoConfirmCta": "创建草稿",
       "createPoToastTitle": "采购单草稿已创建",
       "createPoToastBody": "已为{vendor}创建草稿 — 请在采购单中编辑并发送。",
+      "poCreatedLabel": "采购单已创建",
+      "poCreatedAria": "已为{vendor}创建采购单",
       "quickOrderAria": "{vendor}的快速订货清单"
     },
     "reconciliation": {

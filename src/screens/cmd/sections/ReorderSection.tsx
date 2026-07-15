@@ -74,6 +74,22 @@ export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
+// Spec 123 — the reorder RPC emits a per-vendor `has_po` flag (mapped to `hasPo`
+// on `ReorderVendor` in src/lib/db.ts), true when a non-cancelled purchase_orders
+// row exists for (store, vendor, reorder date). Drives the persistent, disabled
+// "PO CREATED" state. Read via `?? false` so an older envelope (no field) is
+// treated as "no PO" → shows "+ CREATE PO".
+const vendorHasPo = (v: ReorderVendor): boolean => v.hasPo ?? false;
+
+// Spec 123 — narrow the full reorder payload to a SINGLE vendor for the
+// per-vendor CSV/PDF export. The KPIs are recomputed from just that vendor so
+// the export footer totals match the one card. Shape matches what the existing
+// builders (`buildReorderCsv`, inline `handlePdfExport`) already loop over —
+// no builder signature change.
+export function narrowReorderToVendor(payload: ReorderPayload, vendor: ReorderVendor): ReorderPayload {
+  return { ...payload, vendors: [vendor], kpis: computeReorderKpis([vendor]) };
+}
+
 // Inline per-item breakdown: `on hand: 0 each | inbound: 0 each | par: 40 each
 // → order: 40 each`. This is the primary per-item display (2026-07 — the
 // aligned numeric columns were removed as redundant). `tone` colors the
@@ -196,6 +212,38 @@ function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
   const T = useT();
   const createPoDraft = useStore((s) => s.createPoDraft);
   const [busy, setBusy] = React.useState(false);
+
+  // Spec 123 — a PO already exists for (store, this vendor, the reorder date).
+  // Render a disabled, muted "PO CREATED" chip (hard duplicate-prevention) with
+  // no press handler so a second draft can't be created for the same key. The
+  // flag is server-derived + date-keyed, so it persists across REFRESH/reload
+  // and flips back to "+ CREATE PO" when the date picker points at a date with
+  // no PO for this vendor.
+  if (vendorHasPo(vendor)) {
+    return (
+      <View
+        testID={`reorder-create-po-${vendor.vendorId}`}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: true }}
+        accessibilityLabel={T('section.reorder.poCreatedAria', { vendor: vendor.vendorName || '' })}
+        style={{
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          borderRadius: CmdRadius.sm,
+          borderWidth: 1,
+          borderColor: C.border,
+          backgroundColor: C.panel2,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.3 }}>
+          {T('section.reorder.poCreatedLabel')}
+        </Text>
+      </View>
+    );
+  }
 
   const onPress = () => {
     if (busy) return;
@@ -351,11 +399,77 @@ function ReorderQuickOrderButton({
   );
 }
 
+// Spec 123 — per-vendor CSV + PDF export, in the vendor card footer (replaces
+// the former global top-of-screen CSV/PDF buttons). Each button narrows the
+// full reorder payload to THIS vendor and hands it to the SAME builders the
+// global buttons used. Web-only — the parent gates rendering on `showExport`.
+// The US Foods / SYSCO import-format path is preserved: `pickImportVendor` runs
+// against the narrowed single-vendor payload, so a card whose vendor is
+// configured for an import format emits that order file; otherwise the generic
+// reorder CSV.
+function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
+  const C = useCmdColors();
+  const locale = useLocale();
+  const currentStore = useStore((s) => s.currentStore);
+  const reorderPayload = useStore((s) => s.reorderPayload);
+  const vendorsList = useStore((s) => s.vendors);
+  const inventory = useStore((s) => s.inventory);
+
+  const onCsv = () => {
+    if (!reorderPayload || !currentStore) return;
+    const narrowed = narrowReorderToVendor(reorderPayload, vendor);
+    const importCfg = pickImportVendor(narrowed, vendorsList);
+    if (importCfg) {
+      handleImportExport(narrowed, currentStore, importCfg, inventory);
+      return;
+    }
+    void handleCsvExport(narrowed, currentStore, locale);
+  };
+
+  const onPdf = () => {
+    if (!reorderPayload || !currentStore) return;
+    void handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
+  };
+
+  const btnStyle = {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: CmdRadius.sm,
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+  } as const;
+
+  return (
+    <>
+      <TouchableOpacity
+        testID={`reorder-export-csv-${vendor.vendorId}`}
+        onPress={onCsv}
+        accessibilityRole="button"
+        accessibilityLabel="Export CSV"
+        style={btnStyle}
+      >
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>CSV</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID={`reorder-export-pdf-${vendor.vendorId}`}
+        onPress={onPdf}
+        accessibilityRole="button"
+        accessibilityLabel="Export PDF"
+        style={btnStyle}
+      >
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>PDF</Text>
+      </TouchableOpacity>
+    </>
+  );
+}
+
 // Renders a single vendor's reorder card.
 // `needsOrder` selects the section tone: true → below-par items (red name +
 // suggested), false → at/above-par items (green — the "have enough stock"
 // section). Mirrors the staff Reorder card.
-function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder: boolean }) {
+// `showExport` (spec 123) gates the per-vendor CSV/PDF footer buttons — web-only,
+// threaded from the parent so it matches the former global-button gating.
+function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor; needsOrder: boolean; showExport: boolean }) {
   const C = useCmdColors();
   const T = useT();
   const itemTone = needsOrder ? C.danger : C.ok;
@@ -557,6 +671,8 @@ function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder:
           </>
         ) : null}
         <View style={{ flex: 1 }} />
+        {/* Spec 123 — per-vendor CSV/PDF export (web-only, showExport-gated). */}
+        {showExport ? <ReorderVendorExportButtons vendor={vendor} /> : null}
         {/* Spec 115 (W-3) — Quick-order list export, next to Create PO. */}
         <ReorderQuickOrderButton vendor={vendor} onPreview={setQuickPreview} />
         <CreatePoButton vendor={vendor} />
@@ -616,7 +732,12 @@ async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Lo
   try {
     const csv = buildReorderCsv(payload, locale);
     const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
-    const filename = `IMR_Reorder_${slugifyStore(store.name)}_${date}.csv`;
+    // Per-vendor exports (spec 123) narrow to a single vendor — include the
+    // vendor name so two vendor cards for the same store+date don't collide on
+    // one filename. Whole-list exports (>1 vendor) keep the store-only name.
+    const vendorSuffix =
+      payload.vendors.length === 1 ? `_${slugifyStore(payload.vendors[0].vendorName)}` : '';
+    const filename = `IMR_Reorder_${slugifyStore(store.name)}${vendorSuffix}_${date}.csv`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     triggerDownload(blob, filename);
     Toast.show({
@@ -915,7 +1036,11 @@ async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: 
       pageHeight - 24,
     );
 
-    const filename = `IMR_Reorder_${slugifyStore(store.name)}_${date}.pdf`;
+    // Per-vendor exports (spec 123) narrow to one vendor — include its name so
+    // multiple vendor-card downloads for the same store+date stay distinct.
+    const vendorSuffix =
+      payload.vendors.length === 1 ? `_${slugifyStore(payload.vendors[0].vendorName)}` : '';
+    const filename = `IMR_Reorder_${slugifyStore(store.name)}${vendorSuffix}_${date}.pdf`;
     doc.save(filename);
     Toast.show({
       type: 'success',
@@ -937,10 +1062,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: 
 export default function ReorderSection() {
   const C = useCmdColors();
   const T = useT();
-  const locale = useLocale();
   const currentStore = useStore((s) => s.currentStore);
-  const vendorsList = useStore((s) => s.vendors);
-  const inventory = useStore((s) => s.inventory);
   const orderSchedule = useStore((s) => s.orderSchedule);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const reorderLoading = useStore((s) => s.reorderLoading);
@@ -1015,42 +1137,18 @@ export default function ReorderSection() {
   // Spec 087 — secondary "no schedule" group is collapsed by default.
   const [noScheduleOpen, setNoScheduleOpen] = React.useState(false);
 
-  // Export reflects the on-screen filtered + as-of view with ALL items — both
-  // "needs to order" AND "have enough stock" data (2026-07), each carrying its
-  // `needsOrder` flag so the CSV/PDF match the two on-screen sections and
-  // vendor/item counts. KPIs stay the needs-order figures (actionable totals).
-  const exportPayload = React.useMemo<ReorderPayload | null>(
-    () => (reorderPayload ? { ...reorderPayload, vendors: primary, kpis } : null),
-    [reorderPayload, primary, kpis],
-  );
-
   // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when there is
   // no usable data. Gate on the FILTERED primary length so the buttons hide
-  // when the day-filtered list is empty.
+  // when the day-filtered list is empty. (Spec 123 removed the global export
+  // memo — exports are now per-vendor, narrowed at the card via
+  // narrowReorderToVendor; this flag only decides whether the per-vendor
+  // buttons render.)
   const showExport =
     Platform.OS === 'web' &&
-    !!exportPayload &&
+    !!reorderPayload &&
     primary.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
-
-  const onCsvPress = React.useCallback(() => {
-    if (!exportPayload || !currentStore) return;
-    // If a displayed vendor is configured for a vendor-specific import format
-    // (US Foods or SYSCO), the CSV button emits that vendor's order file instead
-    // of the generic CSV (owner decision 2026-07 — "replace generic CSV").
-    const importCfg = pickImportVendor(exportPayload, vendorsList);
-    if (importCfg) {
-      handleImportExport(exportPayload, currentStore, importCfg, inventory);
-      return;
-    }
-    void handleCsvExport(exportPayload, currentStore, locale);
-  }, [exportPayload, currentStore, locale, vendorsList, inventory]);
-
-  const onPdfPress = React.useCallback(() => {
-    if (!exportPayload || !currentStore) return;
-    void handlePdfExport(exportPayload, currentStore, locale);
-  }, [exportPayload, currentStore, locale]);
 
   // Spec 087 (E) — no-focal-store guard. Placed AFTER all hooks so the
   // hook count stays stable across renders. Mirrors OrderScheduleSection /
@@ -1086,40 +1184,9 @@ export default function ReorderSection() {
               maxDate={maxDate}
               activeWeekdays={activeWeekdays}
             />
-            {showExport ? (
-              <>
-                <TouchableOpacity
-                  testID="reorder-export-csv"
-                  onPress={onCsvPress}
-                  accessibilityRole="button"
-                  accessibilityLabel="Export CSV"
-                  style={{
-                    paddingVertical: 4,
-                    paddingHorizontal: 10,
-                    borderWidth: 1,
-                    borderColor: C.borderStrong,
-                    borderRadius: CmdRadius.sm,
-                  }}
-                >
-                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>CSV</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  testID="reorder-export-pdf"
-                  onPress={onPdfPress}
-                  accessibilityRole="button"
-                  accessibilityLabel="Export PDF"
-                  style={{
-                    paddingVertical: 4,
-                    paddingHorizontal: 10,
-                    borderWidth: 1,
-                    borderColor: C.borderStrong,
-                    borderRadius: CmdRadius.sm,
-                  }}
-                >
-                  <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>PDF</Text>
-                </TouchableOpacity>
-              </>
-            ) : null}
+            {/* Spec 123 — the global CSV/PDF export buttons moved into each
+                vendor card footer (per-vendor export). The date picker + REFRESH
+                remain here. */}
             <TouchableOpacity
               testID="reorder-refresh"
               onPress={refresh}
@@ -1318,7 +1385,7 @@ export default function ReorderSection() {
               {T('section.reorder.needsToOrder')}
             </Text>
             {needsOrderVendors.map((v) => (
-              <VendorCard key={`need-${v.vendorId}`} vendor={v} needsOrder />
+              <VendorCard key={`need-${v.vendorId}`} vendor={v} needsOrder showExport={showExport} />
             ))}
           </>
         ) : null}
@@ -1333,7 +1400,7 @@ export default function ReorderSection() {
               {T('section.reorder.haveEnough')}
             </Text>
             {enoughStockVendors.map((v) => (
-              <VendorCard key={`ok-${v.vendorId}`} vendor={v} needsOrder={false} />
+              <VendorCard key={`ok-${v.vendorId}`} vendor={v} needsOrder={false} showExport={showExport} />
             ))}
           </>
         ) : null}
@@ -1375,7 +1442,7 @@ export default function ReorderSection() {
             </TouchableOpacity>
             {noScheduleOpen
               ? splitReorderVendorsByNeed(noSchedule, true).map((v) => (
-                  <VendorCard key={v.vendorId} vendor={v} needsOrder />
+                  <VendorCard key={v.vendorId} vendor={v} needsOrder showExport={showExport} />
                 ))
               : null}
           </View>

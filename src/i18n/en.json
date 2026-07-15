@@ -1011,6 +1011,8 @@
       "createPoConfirmCta": "Create draft",
       "createPoToastTitle": "Draft PO created",
       "createPoToastBody": "Draft for {vendor} created — edit and send it in Purchase orders.",
+      "poCreatedLabel": "PO CREATED",
+      "poCreatedAria": "Purchase order already created for {vendor}",
       "quickOrderAria": "Quick-order list for {vendor}"
     },
     "reconciliation": {

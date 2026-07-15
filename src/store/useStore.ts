@@ -2689,10 +2689,18 @@ export const useStore = create<FullStore>((set, get) => ({
       return null;
     }
     try {
+      // Spec 123 — key the draft to the currently-displayed reorder date so its
+      // persisted reference_date equals the v_as_of_date the report_reorder_list
+      // has_po EXISTS queries against; the two dates share one source string
+      // (reorderPayload.asOfDate ← envelope.as_of_date), so they round-trip
+      // exactly and the vendor's card flips to the persistent "PO CREATED" state
+      // on the next loadReorderSuggestions().
+      const referenceDate = get().reorderPayload?.asOfDate || undefined;
       const poId = await db.createPurchaseOrderDraft({
         storeId,
         vendorId: vendor.vendorId,
         createdByUserId: get().currentUser?.id,
+        referenceDate,
         lines,
       });
       if (!poId) {

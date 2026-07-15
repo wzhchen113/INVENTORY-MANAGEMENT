@@ -103,6 +103,11 @@ function mapReorderVendor(v: any): ReorderVendor {
     eodSubmittedAt: v?.eod_submitted_at ? String(v.eod_submitted_at) : null,
     items,
     vendorTotalCost: Number(v?.vendor_total_cost ?? 0),
+    // Spec 123 — same additive per-vendor flag the admin db.ts copy reads.
+    // The staff Reorder surface does not render a create-PO button, so this is
+    // inert here; mapped only to satisfy the shared ReorderVendor type. Absent
+    // → false.
+    hasPo: Boolean(v?.has_po ?? false),
   };
 }
 
