@@ -54,6 +54,31 @@ function inWindow(minutesUntil: number, bucket: number) {
   return Math.abs(minutesUntil - bucket) <= TOLERANCE_MIN;
 }
 
+// Wall-clock "minutes SINCE the deadline" — used by Track 3 (missed EOD), which
+// spans 22:00 → 02:59 (same business date, past the 3 AM rollover). minutesUntilCutoff
+// returns a POSITIVE value after midnight (at 01:00 with a 22:00 cutoff it reports
+// "+1260 min until", not "passed"), which would make a miss silently never fire in
+// the post-midnight window. This helper normalizes across the 3 AM rollover with a
+// +1440 shift so a post-midnight run still reads the deadline as passed.
+// minutesAfter >= 0 => deadline has passed. Once the wall clock crosses 03:00 the
+// business date rolls forward and the prior day is no longer checked (forward-only).
+// NOTE: the pure integer arithmetic below (nowMin/cutMin with the +1440 shift)
+// is mirrored VERBATIM in src/utils/minutesAfterDeadline.ts, which exists solely
+// so jest can regression-test the post-midnight rollover (escapeHtml.ts pattern:
+// separate bundle, no import across the boundary, logic identity enforced at
+// code-review). Keep the two in lockstep — any change here changes there.
+function minutesSinceDeadline(deadlineHHMM: string, tz: string) {
+  const wall = wallPartsInTZ(tz);
+  const biz = businessTodayInTZ(tz);
+  const wallHour = Number(wall.hour);
+  let nowMin = wallHour * 60 + Number(wall.minute);
+  if (wallHour < BUSINESS_DAY_ROLLOVER_HOURS) nowMin += 1440;
+  const [ch, cm] = deadlineHHMM.split(':').map(Number);
+  let cutMin = ch * 60 + cm;
+  if (ch < BUSINESS_DAY_ROLLOVER_HOURS) cutMin += 1440;
+  return { minutesAfter: nowMin - cutMin, localDate: biz.localDate };
+}
+
 async function sendPushAll(
   sb: any, webpush: any, userSubs: Sub[], payload: string,
 ): Promise<{ sentAny: boolean }> {
@@ -208,7 +233,7 @@ Deno.serve(async (req) => {
     const eligibleUsersForStore = (storeId: string) =>
       new Set<string>([...(usersByStore.get(storeId) || []), ...adminUserIds]);
 
-    const summary: any = { eod: [], vendor: [] };
+    const summary: any = { eod: [], vendor: [], missed: [] };
 
     // ─── TRACK 1: EOD count per store (store-level) ─────────────────────
     for (const store of (stores || []) as Store[]) {
@@ -314,6 +339,49 @@ Deno.serve(async (req) => {
           }
         }
         summary.vendor.push({ storeName: store.name, vendorName: vendor.name, bucket, minutesUntil: minutes, toRemind: toRemind.length, pushed, emailed });
+      }
+    }
+
+    // ─── TRACK 3: missed EOD count per (store, vendor) — fires AFTER deadline ──
+    // Spec 121. A miss = a vendor scheduled on the business weekday with NO
+    // submitted eod_submissions row by the store's EOD deadline. Idempotency is
+    // carried by the deterministic (type, source_id) dedup inside emit_missed_count,
+    // so the 5-min re-runs across the 22:00→02:59 window are cheap no-ops after the
+    // first emit. Uses minutesSinceDeadline (NOT minutesUntilCutoff) so a
+    // post-midnight run reads the deadline as passed. NO per-vendor EOD override
+    // exists (vendors only has order_cutoff_time, used by Track 2 for ORDERS).
+    const { data: missSched } = await sb.from('order_schedule')
+      .select('store_id, vendor_id, vendor_name').eq('day_of_week', weekday);
+
+    if (missSched && missSched.length > 0) {
+      const missLocalDate = businessTodayInTZ(DEFAULT_TZ).localDate;
+      const storeById = new Map((stores || []).map((s: any) => [s.id, s as Store]));
+
+      // One batched read of today's SUBMITTED rows → Set('store|vendor'). A 'draft'
+      // row is still a miss, so filter status='submitted'.
+      const { data: submitted } = await sb.from('eod_submissions')
+        .select('store_id, vendor_id').eq('date', missLocalDate).eq('status', 'submitted');
+      const submittedSet = new Set(
+        (submitted || []).map((r: any) => `${r.store_id}|${r.vendor_id}`),
+      );
+
+      for (const row of missSched as { store_id: string; vendor_id: string; vendor_name: string | null }[]) {
+        const store = storeById.get(row.store_id);
+        if (!store) continue;
+        const { minutesAfter } = minutesSinceDeadline(store.eod_deadline_time || '22:00', DEFAULT_TZ);
+        if (minutesAfter < 0) continue;                                    // deadline not passed yet
+        if (submittedSet.has(`${row.store_id}|${row.vendor_id}`)) continue; // not a miss
+
+        const { error: emitErr } = await sb.rpc('emit_missed_count', {
+          p_store_id: row.store_id,
+          p_vendor_id: row.vendor_id,
+          p_vendor_name: row.vendor_name,
+          p_business_date: missLocalDate,
+        });
+        summary.missed.push({
+          storeName: store.name, vendorName: row.vendor_name, minutesAfter,
+          ...(emitErr ? { error: emitErr.message } : {}),
+        });
       }
     }
 

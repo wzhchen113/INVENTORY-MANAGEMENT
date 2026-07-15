@@ -76,7 +76,8 @@
         "weekly": "Conteo semanal",
         "waste": "Registro de merma",
         "receiving": "Entrega recibida",
-        "po": "Orden de compra"
+        "po": "Orden de compra",
+        "missed_eod": "Conteo de cierre no realizado"
       },
       "time": {
         "now": "ahora mismo",

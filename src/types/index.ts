@@ -1078,7 +1078,13 @@ export type SubmissionNotificationType =
   | 'weekly'
   | 'waste'
   | 'receiving'
-  | 'po';
+  | 'po'
+  // Spec 121 — a scheduled EOD count a store failed to submit by its
+  // deadline. Distinct from the five submission-arrived types: rendered with
+  // a RED row dot (vs accent) and turns the bell badge red when unread, so a
+  // miss is impossible to overlook. The `actor_name` slot carries the
+  // scheduled vendor name (there is no submitter/actor for a miss).
+  | 'missed_eod';
 
 export interface AdminNotification {
   id: string;

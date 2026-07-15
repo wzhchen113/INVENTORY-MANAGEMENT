@@ -30,6 +30,39 @@ function relativeTime(iso: string): { key: string; vars?: Record<string, number>
   return { key: 'chrome.submissionBell.time.days', vars: { n: day } };
 }
 
+// Spec 121 — color derivation, extracted as pure functions so the badge /
+// row-dot recolor is unit-testable without dragging the store + react-dom
+// portal into the test runtime (mirrors the StatusPill test's boundary
+// approach). The component memoizes over these; jest exercises them directly.
+// Structural color type — the minimal Cmd-palette subset these branches read.
+type BellColors = { danger: string; accent: string; accentFg: string };
+
+/** True iff there is ≥1 UNREAD `missed_eod` row in the feed. Drives the red
+ *  badge fork — red is reserved for misses (spec 121 Q1). */
+export function feedHasUnreadMissed(notifications: AdminNotification[]): boolean {
+  return notifications.some((n) => n.type === 'missed_eod' && !n.read);
+}
+
+/** Unread-count badge background: red when an unread miss exists, else the
+ *  neutral accent (recolors the routine spec-120 submission badge off red). */
+export function badgeBackgroundColor(C: BellColors, hasUnreadMissed: boolean): string {
+  return hasUnreadMissed ? C.danger : C.accent;
+}
+
+/** Badge text color — white on the danger-red badge (legible in both
+ *  palettes); accentFg on the accent badge (white on light, near-black on
+ *  dark accent), so the count stays readable in both palettes. */
+export function badgeTextColor(C: BellColors, hasUnreadMissed: boolean): string {
+  return hasUnreadMissed ? '#FFFFFF' : C.accentFg;
+}
+
+/** Leading unread dot: transparent when read; red for a `missed_eod` row;
+ *  accent for every other (submission) type. */
+export function rowDotColor(C: BellColors, n: AdminNotification): string {
+  if (n.read) return 'transparent';
+  return n.type === 'missed_eod' ? C.danger : C.accent;
+}
+
 export const NotificationBell: React.FC = () => {
   const C = useCmdColors();
   const T = useT();
@@ -38,6 +71,13 @@ export const NotificationBell: React.FC = () => {
   const markRead = useStore((s) => s.markSubmissionNotificationRead);
   const markAllRead = useStore((s) => s.markAllSubmissionNotificationsRead);
   const [open, setOpen] = React.useState(false);
+
+  // Spec 121 — reserve red for misses: the badge forks red only when there's
+  // an unread `missed_eod` in the feed; otherwise it uses the neutral accent.
+  const hasUnreadMissed = React.useMemo(
+    () => feedHasUnreadMissed(notifications),
+    [notifications],
+  );
 
   const typeLabel = React.useCallback(
     (t: AdminNotification['type']) => T(`chrome.submissionBell.type.${t}`),
@@ -74,16 +114,22 @@ export const NotificationBell: React.FC = () => {
               height: 16,
               paddingHorizontal: 4,
               borderRadius: 8,
-              backgroundColor: C.danger,
+              backgroundColor: badgeBackgroundColor(C, hasUnreadMissed),
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            {/* White on the danger-red badge reads cleanly in both light
-                (#791F1F) and dark (#D84B4B) palettes. There is no on-danger
-                token in the Cmd palette (accentFg is accent-specific), so the
-                literal is deliberate here rather than a stray hardcode. */}
-            <Text style={{ fontFamily: mono(600), fontSize: 9, color: '#FFFFFF' }}>{badge}</Text>
+            {/* Spec 121 — red badge means specifically "a count was missed":
+                white on the danger-red badge reads cleanly in both light
+                (#791F1F) and dark (#D84B4B) palettes, and accentFg keeps the
+                count legible on the accent badge (white on light accent,
+                near-black on dark accent) when the unread set is
+                submission-only. */}
+            <Text
+              style={{ fontFamily: mono(600), fontSize: 9, color: badgeTextColor(C, hasUnreadMissed) }}
+            >
+              {badge}
+            </Text>
           </View>
         ) : null}
       </TouchableOpacity>
@@ -181,7 +227,9 @@ export const NotificationBell: React.FC = () => {
                             height: 6,
                             borderRadius: 3,
                             marginTop: 4,
-                            backgroundColor: n.read ? 'transparent' : C.accent,
+                            // Spec 121 — red dot for a miss, accent for a
+                            // submission; transparent once read.
+                            backgroundColor: rowDotColor(C, n),
                           }}
                         />
                         <View style={{ flex: 1 }}>

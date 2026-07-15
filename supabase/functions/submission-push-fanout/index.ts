@@ -25,6 +25,7 @@ const TYPE_LABEL: Record<string, string> = {
   waste: 'Waste log',
   receiving: 'Delivery received',
   po: 'Purchase order',
+  missed_eod: 'Missed EOD count',
 };
 
 // ─── sendPushAll — copied VERBATIM from eod-reminder-cron/index.ts:57 ──
@@ -147,9 +148,15 @@ Deno.serve(async (req) => {
     }
 
     const label = TYPE_LABEL[notif.type as string] ?? 'Submission';
+    // A miss has no submitter — its copy must NOT read "... submitted". For a
+    // missed_eod row, actor_name carries the vendor name (spec 121 §4 slot reuse),
+    // so the body reads "<store> · <vendor>".
+    const isMiss = notif.type === 'missed_eod';
     const payload = JSON.stringify({
-      title: `${label} submitted`,
-      body: `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim(),
+      title: isMiss ? 'Missed EOD count' : `${label} submitted`,
+      body: isMiss
+        ? `${notif.store_name ?? ''} · ${notif.actor_name ?? ''}`.trim()
+        : `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim(),
       tag: `notif-${notif.id}`,
       url: '/',
     });

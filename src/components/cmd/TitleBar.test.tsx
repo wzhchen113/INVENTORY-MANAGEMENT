@@ -76,6 +76,13 @@ jest.mock('../../store/useStore', () => {
     brand: { id: 'brand-1', name: '2AM PROJECT' },
     brandsList: [],
     setCurrentStore: jest.fn(),
+    // Spec 120/121 — TitleBar mounts NotificationBell, which selects these.
+    // The bell now derives `hasUnreadMissed` from the feed on every render, so
+    // the fixture must supply the feed (an empty array here) or the memo throws.
+    submissionNotifications: [],
+    submissionUnreadCount: 0,
+    markSubmissionNotificationRead: jest.fn(),
+    markAllSubmissionNotificationsRead: jest.fn(),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;

@@ -76,7 +76,8 @@
         "weekly": "Weekly count",
         "waste": "Waste log",
         "receiving": "Delivery received",
-        "po": "Purchase order"
+        "po": "Purchase order",
+        "missed_eod": "Missed EOD count"
       },
       "time": {
         "now": "just now",
