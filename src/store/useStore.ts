@@ -8,7 +8,7 @@ import {
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand, InventoryCountKind, ReorderPayload, ReorderVendor, MenuCapacityRow,
   LocalizedNames, RecipeCategory, IngredientCategory,
-  WeeklyCountStatus, ItemVendorLink,
+  WeeklyCountStatus, ItemVendorLink, AdminNotification,
 } from '../types';
 import type { PoLine } from '../lib/db';
 import { callEdgeFunction } from '../lib/auth';
@@ -551,10 +551,16 @@ interface StoreActions {
    */
   setSidebarLayoutOverride: (override: SidebarLayoutOverride | null) => void;
 
-  // Notifications
+  // Notifications (EOD-reminder inbox)
   addNotification: (message: string) => void;
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
+
+  // Spec 120 — submission notification feed (Cmd UI bell). Named distinctly
+  // from the reminder-inbox actions above to avoid clobbering them.
+  loadSubmissionNotifications: () => Promise<void>;
+  markSubmissionNotificationRead: (id: string) => void;
+  markAllSubmissionNotificationsRead: () => void;
 
   // Audit
   addAuditEvent: (event: Omit<AuditEvent, 'id'>) => void;
@@ -694,6 +700,8 @@ export const useStore = create<FullStore>((set, get) => ({
   // at login (App.tsx) and mutated by setSidebarLayoutOverride.
   sidebarLayoutOverride: null,
   notifications: [],
+  submissionNotifications: [],
+  submissionUnreadCount: 0,
   storeLoading: false,
   // Spec 111 — full-screen switch takeover. null = no switch in flight
   // (overlay hidden). Set by setCurrentStore ('store') / setCurrentBrandId
@@ -2834,6 +2842,56 @@ export const useStore = create<FullStore>((set, get) => ({
     if (userId) {
       db.clearNotificationsDb(userId).catch((e: any) => console.warn('[Supabase] clearNotifications:', e?.message || e));
     }
+  },
+
+  // Spec 120 — submission notification feed (Cmd UI bell). The feed read is
+  // a plain fetch (not optimistic); the badge count comes from a dedicated
+  // RPC anti-join so it stays correct even when the 50-row feed is capped.
+  loadSubmissionNotifications: async () => {
+    const [rows, count] = await Promise.all([
+      db.fetchAdminNotifications(),
+      db.fetchUnreadNotificationCount(),
+    ]);
+    set({ submissionNotifications: rows, submissionUnreadCount: count });
+  },
+
+  // Optimistic-then-revert: flip read locally + decrement the badge, then
+  // persist. On failure restore the flag + count and surface the error.
+  markSubmissionNotificationRead: (id) => {
+    const prev = get().submissionNotifications;
+    const target = prev.find((n) => n.id === id);
+    if (!target || target.read) return; // already read → idempotent no-op
+    set((s) => ({
+      submissionNotifications: s.submissionNotifications.map((n) =>
+        n.id === id ? { ...n, read: true } : n,
+      ),
+      submissionUnreadCount: Math.max(0, s.submissionUnreadCount - 1),
+    }));
+    db.markNotificationRead(id).catch((e: any) => {
+      set((s) => ({
+        submissionNotifications: s.submissionNotifications.map((n) =>
+          n.id === id ? { ...n, read: false } : n,
+        ),
+        submissionUnreadCount: s.submissionUnreadCount + 1,
+      }));
+      notifyBackendError('Mark notification read', e);
+    });
+  },
+
+  // Optimistic mark-all: flip every row read + zero the badge, then persist
+  // via the RPC. On failure restore the prior feed + count.
+  markAllSubmissionNotificationsRead: () => {
+    const prevRows = get().submissionNotifications;
+    const prevCount = get().submissionUnreadCount;
+    if (prevCount === 0 && prevRows.every((n) => n.read)) return;
+    set((s) => ({
+      submissionNotifications: s.submissionNotifications.map((n) => ({ ...n, read: true })),
+      submissionUnreadCount: 0,
+    }));
+    db.markAllNotificationsRead().catch((e: any) => {
+      set({ submissionNotifications: prevRows, submissionUnreadCount: prevCount });
+      notifyBackendError('Mark all notifications read', e);
+    });
   },
 
   // Audit — write only to Supabase, loaded on next refresh via loadFromSupabase

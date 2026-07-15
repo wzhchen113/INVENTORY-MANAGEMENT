@@ -7,6 +7,7 @@ import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { ThemeToggle } from './ThemeToggle';
+import { NotificationBell } from './NotificationBell';
 import { LoadingBar } from './LoadingBar';
 
 interface Props {
@@ -230,6 +231,8 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
         : null}
       {/* Spec 012b — brand picker slot (super-admin only, gated upstream) */}
       {brandPicker ? <View>{brandPicker}</View> : null}
+      {/* Spec 120 — submission notification bell + badge + portaled panel. */}
+      <NotificationBell />
       {/* Theme toggle — always visible, sits next to the brand picker. */}
       <ThemeToggle />
       {/* Connection indicator */}

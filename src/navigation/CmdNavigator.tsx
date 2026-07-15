@@ -4,6 +4,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { createStackNavigator } from '@react-navigation/stack';
 import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
+import { useSubmissionNotifications } from '../hooks/useSubmissionNotifications';
 import { useCmdColors } from '../theme/colors';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
 import { usePaletteAction } from '../lib/paletteAction';
@@ -71,6 +72,9 @@ function AuthedRoot() {
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
   }, []);
   useRealtimeSync(storeId, handleSync, brandId);
+  // Spec 120 — submission-notification bell feed + dedicated realtime
+  // channel. Kept off the heavy `onSync` full-reload (see the hook).
+  useSubmissionNotifications(brandId);
 
   return (
     <>

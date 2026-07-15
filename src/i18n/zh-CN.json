@@ -65,6 +65,26 @@
         "zh-CN": "中文"
       }
     },
+    "submissionBell": {
+      "aria": "提交记录",
+      "title": "提交记录",
+      "markAll": "全部标为已读",
+      "empty": "暂无提交记录。",
+      "unknownActor": "某人",
+      "type": {
+        "eod": "日结盘点",
+        "weekly": "每周盘点",
+        "waste": "损耗记录",
+        "receiving": "已收货",
+        "po": "采购订单"
+      },
+      "time": {
+        "now": "刚刚",
+        "minutes": "{n}分钟前",
+        "hours": "{n}小时前",
+        "days": "{n}天前"
+      }
+    },
     "notifications": {
       "label": "通知",
       "aria": "在此设备上开关通知",

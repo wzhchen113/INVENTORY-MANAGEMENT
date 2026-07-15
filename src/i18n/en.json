@@ -65,6 +65,26 @@
         "zh-CN": "中文"
       }
     },
+    "submissionBell": {
+      "aria": "Submissions",
+      "title": "Submissions",
+      "markAll": "mark all read",
+      "empty": "No submissions yet.",
+      "unknownActor": "Someone",
+      "type": {
+        "eod": "EOD count",
+        "weekly": "Weekly count",
+        "waste": "Waste log",
+        "receiving": "Delivery received",
+        "po": "Purchase order"
+      },
+      "time": {
+        "now": "just now",
+        "minutes": "{n}m ago",
+        "hours": "{n}h ago",
+        "days": "{n}d ago"
+      }
+    },
     "notifications": {
       "label": "Notifications",
       "aria": "Toggle notifications on this device",

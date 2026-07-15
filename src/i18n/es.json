@@ -65,6 +65,26 @@
         "zh-CN": "中文"
       }
     },
+    "submissionBell": {
+      "aria": "Envíos",
+      "title": "Envíos",
+      "markAll": "marcar todo leído",
+      "empty": "Aún no hay envíos.",
+      "unknownActor": "Alguien",
+      "type": {
+        "eod": "Conteo de cierre",
+        "weekly": "Conteo semanal",
+        "waste": "Registro de merma",
+        "receiving": "Entrega recibida",
+        "po": "Orden de compra"
+      },
+      "time": {
+        "now": "ahora mismo",
+        "minutes": "hace {n}m",
+        "hours": "hace {n}h",
+        "days": "hace {n}d"
+      }
+    },
     "notifications": {
       "label": "Notificaciones",
       "aria": "Activar notificaciones en este dispositivo",

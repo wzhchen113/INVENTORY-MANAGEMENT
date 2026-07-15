@@ -441,6 +441,16 @@ verify_jwt = false
 [functions.weekly-reminder-cron]
 verify_jwt = false
 
+# submission-push-fanout (spec 120) is invoked by pg_net from the
+# emit_submission_notification SECURITY DEFINER path with the SHARED bearer
+# (public._edge_auth.cron_bearer), not a per-user Supabase JWT — the gateway
+# JWT check would reject every call. It validates the shared bearer itself,
+# same posture as the reminder crons above. Event-driven, not a user-invoked
+# privileged op, so NO ADMIN_ROLES gate. Pinned here so a CLI redeploy can't
+# silently re-enable JWT and break the fan-out.
+[functions.submission-push-fanout]
+verify_jwt = false
+
 # send-po-email (spec 107, OQ-1) is the OPPOSITE posture of the staff-*/cron
 # functions above: it is an admin-triggered action that carries the CALLER's
 # Supabase JWT and gates on it (requireAdminCaller / ADMIN_ROLES mirror of
