@@ -464,14 +464,16 @@ export async function updateInventoryItem(
     }
 
     // Spec 102 (§8) — reconcile the item_vendors link set when the editor
-    // submitted `vendors[]`. Upsert each present link (cost/case_price
-    // edits land on exactly that link; is_primary tracks the scalar
-    // vendorId — SD-1, one writer owns both), then delete links whose
-    // vendorId is not in the submitted set ("removing a vendor removes its
-    // link" — AC-C). An empty `vendors: []` removes ALL links for the item.
-    // Omitting the key leaves links untouched (a primary-picker-only or
-    // non-vendor edit). The composite unique + onConflict make a re-submit
-    // idempotent (the dup-guard backstop).
+    // submitted `vendors[]`. Ordering (spec 124): demote the old primary →
+    // upsert each present link (cost/case_price edits land on exactly that
+    // link; is_primary tracks the scalar vendorId — SD-1, one writer owns
+    // both) → delete links whose vendorId is not in the submitted set
+    // ("removing a vendor removes its link" — AC-C). The demote-first step
+    // keeps a primary SWITCH from transiently holding two is_primary=true rows
+    // (the item_vendors_one_primary_per_item partial unique index). An empty
+    // `vendors: []` removes ALL links for the item. Omitting the key leaves
+    // links untouched (a primary-picker-only or non-vendor edit). The composite
+    // unique + onConflict make a re-submit idempotent (the dup-guard backstop).
     if (updates.vendors !== undefined) {
       const ids = updates.vendors.map((v) => v.vendorId);
       // SD-1 primary basis. `is_primary` mirrors the item's scalar vendor_id.
@@ -493,6 +495,17 @@ export async function updateInventoryItem(
         primaryVendorId = (cur?.vendor_id as string | null) ?? null;
       }
       if (updates.vendors.length > 0) {
+        // Spec 124 — demote the existing primary(s) that aren't the new one BEFORE the
+        // upsert, so a primary SWITCH never transiently has two is_primary=true rows
+        // (which violates the item_vendors_one_primary_per_item partial unique index).
+        // Mirrors apply_item_vendors_to_brand's in-transaction ordering.
+        let demote = supabase.from('item_vendors')
+          .update({ is_primary: false })
+          .eq('item_id', id)
+          .eq('is_primary', true);
+        if (primaryVendorId) demote = demote.neq('vendor_id', primaryVendorId);
+        const demoteRes = await demote.abortSignal(signal);
+        if (demoteRes.error) throw demoteRes.error;
         const linkUpsert = await supabase.from('item_vendors').upsert(
           updates.vendors.map((v) => ({
             item_id: id,
