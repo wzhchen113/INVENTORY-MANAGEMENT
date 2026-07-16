@@ -1547,6 +1547,7 @@ export async function createPurchaseOrderDraft(params: {
   vendorId: string;
   createdByUserId?: string;
   referenceDate?: string;                 // YYYY-MM-DD → reference_date
+  expectedDelivery?: string | null;       // YYYY-MM-DD → expected_delivery (spec 125)
   lines: Array<{
     itemId: string;
     orderedQty: number;                   // COUNTED units (= suggestedUnits from reorder)
@@ -1570,6 +1571,7 @@ export async function createPurchaseOrderDraft(params: {
         status: 'draft',
         total_cost: totalCost,
         ...(params.referenceDate ? { reference_date: params.referenceDate } : {}),
+        ...(params.expectedDelivery ? { expected_delivery: params.expectedDelivery } : {}),
       })
       .select('id')
       .abortSignal(signal)

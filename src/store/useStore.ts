@@ -2696,11 +2696,21 @@ export const useStore = create<FullStore>((set, get) => ({
       // exactly and the vendor's card flips to the persistent "PO CREATED" state
       // on the next loadReorderSuggestions().
       const referenceDate = get().reorderPayload?.asOfDate || undefined;
+      // Spec 125 (Decision A) — persist the vendor's scheduled next-delivery
+      // date onto the PO header (expected_delivery) so the daily auto-receive
+      // job can flip it to received on/after that date. ONLY when the vendor's
+      // schedule is KNOWN: a schedule-unknown vendor's nextDeliveryDate is the
+      // reorder engine's synthetic as_of+7 fallback, and auto-receiving on a
+      // guessed date is wrong (violates AC "no synthetic date"). Undefined
+      // omits the key → expected_delivery stays NULL → never auto-receives.
+      const expectedDelivery =
+        vendor.scheduleKnown && vendor.nextDeliveryDate ? vendor.nextDeliveryDate : undefined;
       const poId = await db.createPurchaseOrderDraft({
         storeId,
         vendorId: vendor.vendorId,
         createdByUserId: get().currentUser?.id,
         referenceDate,
+        expectedDelivery,
         lines,
       });
       if (!poId) {
