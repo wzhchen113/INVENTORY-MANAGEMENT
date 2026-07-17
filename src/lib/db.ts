@@ -2032,6 +2032,9 @@ function mapNotification(row: any): AdminNotification {
     // RLS clips the embedded `notification_reads` to the caller's own rows,
     // so any embedded read row means THIS viewer has read it.
     read: Array.isArray(row.reads) ? row.reads.length > 0 : false,
+    // Spec 126 — only 'issue' rows carry these; NULL on every other type.
+    body: row.body ?? undefined,
+    category: row.category ?? undefined,
   };
 }
 

@@ -233,25 +233,88 @@ export const NotificationBell: React.FC = () => {
                           }}
                         />
                         <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              fontFamily: mono(n.read ? 400 : 600),
-                              fontSize: 11,
-                              color: C.fg,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {typeLabel(n.type)}
-                            {n.storeName ? ` · ${n.storeName}` : ''}
-                          </Text>
-                          <Text
-                            style={{ fontFamily: mono(400), fontSize: 10, color: C.fg2 }}
-                            numberOfLines={1}
-                          >
-                            {n.actorName ?? T('chrome.submissionBell.unknownActor')}
-                            {' · '}
-                            {T(rt.key, rt.vars)}
-                          </Text>
+                          {n.type === 'issue' ? (
+                            // Spec 126 — a staff-filed report. Primary line is a
+                            // category badge + the free-text message (`body`);
+                            // the secondary line carries store + reporter + time.
+                            // Read the message directly (zero-join denormalized
+                            // onto the notification row) so the recipient sees
+                            // WHAT was reported, not a bare "issue" placeholder.
+                            <>
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'flex-start',
+                                  gap: 6,
+                                }}
+                              >
+                                {n.category ? (
+                                  <View
+                                    style={{
+                                      backgroundColor: C.accentBg,
+                                      borderRadius: CmdRadius.sm,
+                                      paddingHorizontal: 5,
+                                      paddingVertical: 1,
+                                      marginTop: 1,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontFamily: mono(600),
+                                        fontSize: 9,
+                                        color: C.accent,
+                                        textTransform: 'uppercase',
+                                      }}
+                                    >
+                                      {T(`chrome.submissionBell.issueCategory.${n.category}`)}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                <Text
+                                  style={{
+                                    flex: 1,
+                                    fontFamily: mono(n.read ? 400 : 600),
+                                    fontSize: 11,
+                                    color: C.fg,
+                                  }}
+                                  numberOfLines={2}
+                                >
+                                  {n.body ?? typeLabel('issue')}
+                                </Text>
+                              </View>
+                              <Text
+                                style={{ fontFamily: mono(400), fontSize: 10, color: C.fg2 }}
+                                numberOfLines={1}
+                              >
+                                {n.storeName ? `${n.storeName} · ` : ''}
+                                {n.actorName ?? T('chrome.submissionBell.unknownActor')}
+                                {' · '}
+                                {T(rt.key, rt.vars)}
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <Text
+                                style={{
+                                  fontFamily: mono(n.read ? 400 : 600),
+                                  fontSize: 11,
+                                  color: C.fg,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {typeLabel(n.type)}
+                                {n.storeName ? ` · ${n.storeName}` : ''}
+                              </Text>
+                              <Text
+                                style={{ fontFamily: mono(400), fontSize: 10, color: C.fg2 }}
+                                numberOfLines={1}
+                              >
+                                {n.actorName ?? T('chrome.submissionBell.unknownActor')}
+                                {' · '}
+                                {T(rt.key, rt.vars)}
+                              </Text>
+                            </>
+                          )}
                         </View>
                       </TouchableOpacity>
                     );

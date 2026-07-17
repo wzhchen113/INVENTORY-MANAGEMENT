@@ -36,6 +36,7 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
+import { SettingsGear } from '../components/SettingsGear';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
@@ -1051,9 +1052,12 @@ export function WeeklyCount() {
           { backgroundColor: c.surface, borderBottomColor: c.border },
         ]}
       >
-        <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
-          {t('weekly.title')}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
+            {t('weekly.title')}
+          </Text>
+          <SettingsGear />
+        </View>
         <Text style={[styles.subtitle, { color: c.textSecondary }]} numberOfLines={2}>
           {activeStore.name} · {todayLabel}
         </Text>
@@ -1374,7 +1378,16 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     borderBottomWidth: 1,
     gap: 2,
   },
+  // Spec 126 — title + settings gear on one row (gear pinned right).
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: T.spacing.sm,
+  },
   title: {
+    flex: 1,
+    minWidth: 0,
     fontSize: T.typography.title,
     fontWeight: T.typography.bold,
   },

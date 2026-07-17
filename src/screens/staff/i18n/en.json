@@ -364,6 +364,27 @@
     "scaleSwitcher": {
       "aria": "Change text size"
     },
+    "settings": {
+      "title": "Settings",
+      "gearAria": "Open settings",
+      "back": "Back"
+    },
+    "reportIssue": {
+      "title": "Report an issue",
+      "categoryLabel": "Category",
+      "messageLabel": "What's going on?",
+      "messagePlaceholder": "Describe the problem…",
+      "submit": "Send report",
+      "submitting": "Sending…",
+      "success": "Report sent. Thank you!",
+      "error": "Couldn't send your report. Please try again.",
+      "category": {
+        "equipment": "Equipment",
+        "inventory": "Inventory",
+        "app_tech": "App/Tech",
+        "other": "Other"
+      }
+    },
     "notifications": {
       "label": "Notifications",
       "aria": "Toggle notifications on this device",

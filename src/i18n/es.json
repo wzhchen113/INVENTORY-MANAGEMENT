@@ -77,7 +77,14 @@
         "waste": "Registro de merma",
         "receiving": "Entrega recibida",
         "po": "Orden de compra",
-        "missed_eod": "Conteo de cierre no realizado"
+        "missed_eod": "Conteo de cierre no realizado",
+        "issue": "Problema reportado"
+      },
+      "issueCategory": {
+        "equipment": "Equipo",
+        "inventory": "Inventario",
+        "app_tech": "App/Técnico",
+        "other": "Otro"
       },
       "time": {
         "now": "ahora mismo",

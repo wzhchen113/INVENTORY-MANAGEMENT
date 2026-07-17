@@ -21,12 +21,14 @@
 jest.setTimeout(20000);
 
 // useFocusEffect → run the callback once on mount (no navigator in tests).
+// Spec 126 — <SettingsGear /> in the header also needs useNavigation.
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => cb(), [cb]);
   },
+  useNavigation: () => ({ navigate: jest.fn() }),
 }));
 
 // ─── mock the receiving carve-out at its module boundary ─────────────

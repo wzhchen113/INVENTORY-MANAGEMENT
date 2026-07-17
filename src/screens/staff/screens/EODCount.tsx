@@ -35,6 +35,7 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
+import { SettingsGear } from '../components/SettingsGear';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
 import { confirmAction } from '../../../utils/confirmAction';
@@ -877,6 +878,7 @@ export function EODCount() {
               {todayLabel}
             </Text>
           </Pressable>
+          <SettingsGear />
           <Pressable
             onPress={onSignOut}
             style={({ pressed }) => [

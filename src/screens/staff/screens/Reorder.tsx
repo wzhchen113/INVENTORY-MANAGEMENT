@@ -28,6 +28,7 @@ import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
+import { SettingsGear } from '../components/SettingsGear';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
@@ -568,6 +569,7 @@ export function Reorder() {
             </Text>
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('reorder.title')}</Text>
           </Pressable>
+          <SettingsGear />
           <Pressable
             onPress={onSignOut}
             style={({ pressed }) => [styles.signOutBtn, pressed ? { backgroundColor: c.surfaceAlt } : null]}

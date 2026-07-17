@@ -26,6 +26,12 @@
 // fixtures, so it adds no work here.)
 jest.setTimeout(20000);
 
+// Spec 126 — the header now renders <SettingsGear />, which calls
+// useNavigation. Stub it (no NavigationContainer in these unit renders).
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: jest.fn() }),
+}));
+
 const mockFetchStaffReorder = jest.fn();
 const mockFetchStaffOrderSchedule = jest.fn();
 jest.mock('../lib/fetchReorder', () => ({

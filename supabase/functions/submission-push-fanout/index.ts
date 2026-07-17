@@ -26,6 +26,17 @@ const TYPE_LABEL: Record<string, string> = {
   receiving: 'Delivery received',
   po: 'Purchase order',
   missed_eod: 'Missed EOD count',
+  issue: 'Issue reported',
+};
+
+// Spec 126 — short human labels for the issue category badge in the push body.
+// The fanout has no i18n bundle; keep this minimal + parallel to the staff
+// catalog's chrome.reportIssue.category.* tokens.
+const ISSUE_CATEGORY_LABEL: Record<string, string> = {
+  equipment: 'Equipment',
+  inventory: 'Inventory',
+  app_tech: 'App/Tech',
+  other: 'Other',
 };
 
 // ─── sendPushAll — copied VERBATIM from eod-reminder-cron/index.ts:57 ──
@@ -108,7 +119,7 @@ Deno.serve(async (req) => {
     // Load the notification (service_role bypasses RLS).
     const { data: notif, error: notifErr } = await sb
       .from('notifications')
-      .select('id, brand_id, type, actor_user_id, actor_name, store_name')
+      .select('id, brand_id, type, actor_user_id, actor_name, store_name, category, body')
       .eq('id', notificationId)
       .single();
     if (notifErr || !notif) {
@@ -152,11 +163,30 @@ Deno.serve(async (req) => {
     // missed_eod row, actor_name carries the vendor name (spec 121 §4 slot reuse),
     // so the body reads "<store> · <vendor>".
     const isMiss = notif.type === 'missed_eod';
+    // Spec 126 — an issue report carries free text: body reads
+    // "<store> · <category> · <message preview>" (preview truncated to ~100c).
+    const isIssue = notif.type === 'issue';
+
+    let title: string;
+    let bodyText: string;
+    if (isIssue) {
+      const categoryLabel = ISSUE_CATEGORY_LABEL[notif.category as string] ?? (notif.category ?? '');
+      const rawMsg = (notif.body ?? '') as string;
+      const preview = rawMsg.length > 100 ? `${rawMsg.slice(0, 100)}…` : rawMsg;
+      title = 'Issue reported';
+      bodyText = [notif.store_name ?? '', categoryLabel, preview]
+        .filter(Boolean).join(' · ');
+    } else if (isMiss) {
+      title = 'Missed EOD count';
+      bodyText = `${notif.store_name ?? ''} · ${notif.actor_name ?? ''}`.trim();
+    } else {
+      title = `${label} submitted`;
+      bodyText = `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim();
+    }
+
     const payload = JSON.stringify({
-      title: isMiss ? 'Missed EOD count' : `${label} submitted`,
-      body: isMiss
-        ? `${notif.store_name ?? ''} · ${notif.actor_name ?? ''}`.trim()
-        : `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim(),
+      title,
+      body: bodyText,
       tag: `notif-${notif.id}`,
       url: '/',
     });

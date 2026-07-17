@@ -41,6 +41,7 @@ import { EODCount } from '../screens/EODCount';
 import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
 import { Receiving } from '../screens/Receiving';
+import { Settings } from '../screens/Settings';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { lockStaffViewport } from '../lib/lockViewport';
 import { useStaffStore } from '../store/useStaffStore';
@@ -201,6 +202,11 @@ export function StaffStack() {
     content = (
       <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="StaffTabs" component={StaffTabs} />
+        {/* Spec 126 — the consolidated Settings screen, reached via the gear
+            (⚙) in each in-store header. A sibling of StaffTabs so a
+            `navigation.navigate('Settings')` from a nested tab bubbles up to
+            this parent stack. */}
+        <Stack.Screen name="Settings" component={Settings} />
       </Stack.Navigator>
     );
   } else {

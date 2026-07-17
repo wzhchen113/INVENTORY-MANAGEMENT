@@ -364,6 +364,27 @@
     "scaleSwitcher": {
       "aria": "Cambiar tamaño del texto"
     },
+    "settings": {
+      "title": "Configuración",
+      "gearAria": "Abrir configuración",
+      "back": "Atrás"
+    },
+    "reportIssue": {
+      "title": "Reportar un problema",
+      "categoryLabel": "Categoría",
+      "messageLabel": "¿Qué está pasando?",
+      "messagePlaceholder": "Describe el problema…",
+      "submit": "Enviar reporte",
+      "submitting": "Enviando…",
+      "success": "Reporte enviado. ¡Gracias!",
+      "error": "No se pudo enviar tu reporte. Inténtalo de nuevo.",
+      "category": {
+        "equipment": "Equipo",
+        "inventory": "Inventario",
+        "app_tech": "App/Técnico",
+        "other": "Otro"
+      }
+    },
     "notifications": {
       "label": "Notificaciones",
       "aria": "Activar notificaciones en este dispositivo",

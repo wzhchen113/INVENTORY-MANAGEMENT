@@ -364,6 +364,27 @@
     "scaleSwitcher": {
       "aria": "调整字体大小"
     },
+    "settings": {
+      "title": "设置",
+      "gearAria": "打开设置",
+      "back": "返回"
+    },
+    "reportIssue": {
+      "title": "报告问题",
+      "categoryLabel": "类别",
+      "messageLabel": "发生了什么？",
+      "messagePlaceholder": "描述问题…",
+      "submit": "发送报告",
+      "submitting": "发送中…",
+      "success": "报告已发送，谢谢！",
+      "error": "无法发送报告，请重试。",
+      "category": {
+        "equipment": "设备",
+        "inventory": "库存",
+        "app_tech": "应用/技术",
+        "other": "其他"
+      }
+    },
     "notifications": {
       "label": "通知",
       "aria": "在此设备上开关通知",

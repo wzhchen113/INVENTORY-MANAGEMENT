@@ -46,6 +46,7 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
+import { SettingsGear } from '../components/SettingsGear';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
 import { unsubscribeFromPush } from '../../../lib/webPush';
@@ -378,6 +379,7 @@ export function Receiving() {
             </Text>
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('receiving.title')}</Text>
           </Pressable>
+          <SettingsGear />
           <Pressable
             onPress={onSignOut}
             style={({ pressed }) => [styles.signOutBtn, pressed ? { backgroundColor: c.surfaceAlt } : null]}

@@ -77,7 +77,14 @@
         "waste": "损耗记录",
         "receiving": "已收货",
         "po": "采购订单",
-        "missed_eod": "未完成的日结盘点"
+        "missed_eod": "未完成的日结盘点",
+        "issue": "问题反馈"
+      },
+      "issueCategory": {
+        "equipment": "设备",
+        "inventory": "库存",
+        "app_tech": "应用/技术",
+        "other": "其他"
       },
       "time": {
         "now": "刚刚",

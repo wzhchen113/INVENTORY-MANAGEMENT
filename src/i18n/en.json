@@ -77,7 +77,14 @@
         "waste": "Waste log",
         "receiving": "Delivery received",
         "po": "Purchase order",
-        "missed_eod": "Missed EOD count"
+        "missed_eod": "Missed EOD count",
+        "issue": "Issue reported"
+      },
+      "issueCategory": {
+        "equipment": "Equipment",
+        "inventory": "Inventory",
+        "app_tech": "App/Tech",
+        "other": "Other"
       },
       "time": {
         "now": "just now",

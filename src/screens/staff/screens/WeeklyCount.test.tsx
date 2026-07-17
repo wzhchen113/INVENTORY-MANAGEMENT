@@ -16,12 +16,14 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import Toast from 'react-native-toast-message';
 
 // useFocusEffect → run the callback once on mount (no navigator in tests).
+// Spec 126 — <SettingsGear /> in the header also needs useNavigation.
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => cb(), [cb]);
   },
+  useNavigation: () => ({ navigate: jest.fn() }),
 }));
 
 // ─── mock supabase.from() (item read) + supabase.rpc() (status) ──────

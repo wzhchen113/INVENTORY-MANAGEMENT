@@ -1092,7 +1092,11 @@ export type SubmissionNotificationType =
   // a RED row dot (vs accent) and turns the bell badge red when unread, so a
   // miss is impossible to overlook. The `actor_name` slot carries the
   // scheduled vendor name (there is no submitter/actor for a miss).
-  | 'missed_eod';
+  | 'missed_eod'
+  // Spec 126 — a staff-filed problem report. `actor_name` carries the reporter,
+  // `body` the free-text message, `category` the badge token (one of
+  // equipment/inventory/app_tech/other). source_id = the staff_reports row id.
+  | 'issue';
 
 export interface AdminNotification {
   id: string;
@@ -1105,6 +1109,9 @@ export interface AdminNotification {
   sourceId: string;
   createdAt: string;
   read: boolean;
+  // Spec 126 — populated only for `issue` rows (NULL/undefined otherwise).
+  body?: string;
+  category?: string;
 }
 
 /**
