@@ -89,6 +89,14 @@ jest.mock('../lib/yesterdayStatus', () => ({
   fetchYesterdayIncomplete: (...args: unknown[]) => mockYesterdayIncomplete(...args),
 }));
 
+// Spec 129 — the per-vendor "submitted today" status is its own mock seam
+// (like yesterdayStatus) so it never consumes a fixture from the shared
+// vendor/item/existing query stack. Default empty set → every chip renders red.
+const mockSubmittedVendorIds = jest.fn().mockResolvedValue(new Set<string>());
+jest.mock('../lib/submittedStatus', () => ({
+  fetchSubmittedVendorIds: (...args: unknown[]) => mockSubmittedVendorIds(...args),
+}));
+
 import { EODCount } from './EODCount';
 import { useStaffStore } from '../store/useStaffStore';
 
@@ -122,6 +130,8 @@ beforeEach(() => {
   mockUpdatedResult = { data: [], error: null };
   mockYesterdayIncomplete.mockReset();
   mockYesterdayIncomplete.mockResolvedValue(false);
+  mockSubmittedVendorIds.mockReset();
+  mockSubmittedVendorIds.mockResolvedValue(new Set<string>());
   mockNavigate.mockReset();
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });
@@ -356,18 +366,19 @@ describe('EODCount', () => {
     );
   });
 
-  it('navigates to the Reorder tab after a successful submit', async () => {
+  it('stays on the EOD screen after a successful submit (spec 129 — no navigate to Reorder)', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
-      { data: null, error: null },
+      { data: null, error: null }, // post-submit existing refetch
     ];
     const { findByTestId } = render(<EODCount />);
     fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
     fireEvent.press(await findByTestId('eod-submit'));
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Reorder'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('round-trips a spec-093 fixed row (case_qty=20): total = cases × 20 + units', async () => {
@@ -561,24 +572,26 @@ describe('EODCount', () => {
     expect(useStaffStore.getState().authState.kind).toBe('signed-in');
   });
 
-  it('clears inputs on queued outcome', async () => {
+  it('queued (offline): optimistic lock + green, inputs NOT cleared (spec 129)', async () => {
     mockSubmit.mockResolvedValue({ kind: 'queued', client_uuid: 'q-1' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    const cases = await findByTestId('eod-item-cases-item-1');
-    const units = await findByTestId('eod-item-units-item-1');
-    fireEvent.changeText(cases, '2');
-    fireEvent.changeText(units, '7');
-    fireEvent.press(await findByTestId('eod-submit'));
-    // Both inputs clear on the queued outcome (spec §B7).
-    await waitFor(() => {
-      expect(cases.props.value).toBe('');
-      expect(units.props.value).toBe('');
-    });
+    const { findByTestId, getByTestId } = render(<EODCount />);
+    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '2');
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
+    fireEvent.press(getByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // Inputs retain their values (they are the synthesized locked/submitted
+    // values now) — the old §B7 clear is removed.
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('7'));
+    expect(getByTestId('eod-item-cases-item-1').props.value).toBe('2');
+    // Read-only lock engaged + chip optimistically green; no navigation.
+    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
+    expect(getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('renders vendor switcher only when multiple vendors scheduled', async () => {
@@ -927,5 +940,162 @@ describe('EODCount — spec 128 Updated badge', () => {
     const { getByTestId, queryByTestId } = render(<EODCount />);
     await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
     expect(queryByTestId('eod-updated-badge-item-1')).toBeNull();
+  });
+});
+
+// ─── Spec 129 — per-vendor status badge + submit/EDIT/Cancel state machine ──
+describe('EODCount — spec 129 vendor status + edit flow', () => {
+  const flourRow = itemVendorRow({
+    id: 'item-1',
+    catalog: { name: 'Flour', unit: 'lb', case_qty: 12 },
+  });
+
+  // A submitted eod_submissions row for a single item (Units = `each`).
+  function submittedRow(itemId: string, each = 3) {
+    return {
+      data: {
+        id: 'sub-1',
+        submitted_at: '2026-05-24T18:30:00Z',
+        eod_entries: [
+          {
+            item_id: itemId,
+            actual_remaining: each,
+            actual_remaining_cases: null,
+            actual_remaining_each: each,
+          },
+        ],
+      },
+      error: null,
+    };
+  }
+
+  // Single vendor + one item; `existing` is the third fixture (null → UNSUBMITTED).
+  function seedOneVendor(existing: { data: unknown; error: unknown } = { data: null, error: null }) {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [flourRow], error: null },
+      existing,
+    ];
+  }
+
+  it('colors each vendor chip green (submitted) vs red (outstanding) from the set', async () => {
+    mockSubmittedVendorIds.mockResolvedValue(new Set(['v-1']));
+    mockNextResultStack = [
+      {
+        data: [
+          { vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } },
+          { vendor_id: 'v-2', vendor_name: 'US Foods', vendor: { id: 'v-2', name: 'US Foods' } },
+        ],
+        error: null,
+      },
+      { data: [flourRow], error: null },
+      { data: null, error: null },
+    ];
+    const { findByTestId, getByTestId } = render(<EODCount />);
+    const v1 = await findByTestId('eod-vendor-status-v-1');
+    await waitFor(() => expect(v1.props.accessibilityLabel).toBe('Submitted'));
+    expect(getByTestId('eod-vendor-status-v-2').props.accessibilityLabel).toBe('Not submitted');
+    // The status badge is independent of the selection highlight (v-1 selected
+    // by default, yet v-2's red badge is unaffected).
+    expect(getByTestId('vendor-chip-v-1').props.accessibilityState?.selected).toBe(true);
+  });
+
+  it('UNSUBMITTED (no existing): inputs editable + primary button reads "Submit"', async () => {
+    seedOneVendor();
+    const { findByTestId, findByText } = render(<EODCount />);
+    expect((await findByTestId('eod-item-units-item-1')).props.editable).toBe(true);
+    expect(await findByText('Submit')).toBeTruthy();
+  });
+
+  it('after a successful Submit: locks read-only, button becomes "Edit", chip green, no navigate', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    seedOneVendor();
+    mockNextResultStack.push(submittedRow('item-1')); // post-submit existing refetch → non-null
+    const { findByTestId, getByTestId, findByText } = render(<EODCount />);
+    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
+    fireEvent.press(getByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // Primary button flips to Edit; inputs go read-only.
+    expect(await findByText('Edit')).toBeTruthy();
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
+    // Optimistic green on the lone-vendor badge; stayed on the screen.
+    expect(getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('existing on load: SUBMITTED_LOCKED (read-only + "Edit", no Cancel)', async () => {
+    seedOneVendor(submittedRow('item-1'));
+    const { getByTestId, findByText, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
+    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
+    expect(await findByText('Edit')).toBeTruthy();
+    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+  });
+
+  it('EDIT tap: inputs become editable, Cancel appears', async () => {
+    seedOneVendor(submittedRow('item-1'));
+    const { getByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
+    fireEvent.press(getByTestId('eod-submit')); // "Edit" in SUBMITTED_LOCKED
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
+    expect(getByTestId('eod-cancel-edit')).toBeTruthy();
+  });
+
+  it('Cancel: reverts inputs to submitted values, re-locks, Cancel disappears', async () => {
+    seedOneVendor(submittedRow('item-1'));
+    const { getByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
+    fireEvent.press(getByTestId('eod-submit')); // Edit
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
+    fireEvent.changeText(getByTestId('eod-item-units-item-1'), '99');
+    fireEvent.press(getByTestId('eod-cancel-edit'));
+    // Reverts to the last-submitted value + re-locks.
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
+    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
+    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+  });
+
+  it('Submit from EDITING: re-submits and returns to read-only + "Edit"', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-1' });
+    seedOneVendor(submittedRow('item-1'));
+    mockNextResultStack.push(submittedRow('item-1', 8)); // post-submit refetch
+    const { getByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
+    fireEvent.press(getByTestId('eod-submit')); // Edit → EDITING
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
+    fireEvent.changeText(getByTestId('eod-item-units-item-1'), '8');
+    fireEvent.press(getByTestId('eod-submit')); // now "Submit"
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // Back to read-only + Edit, Cancel gone.
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
+    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+  });
+
+  it('switching vendor resets the editing flag (target lands locked, not editing)', async () => {
+    // Both vendors already submitted today → both load SUBMITTED_LOCKED.
+    mockSubmittedVendorIds.mockResolvedValue(new Set(['v-1', 'v-2']));
+    mockNextResultStack = [
+      {
+        data: [
+          { vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } },
+          { vendor_id: 'v-2', vendor_name: 'US Foods', vendor: { id: 'v-2', name: 'US Foods' } },
+        ],
+        error: null,
+      },
+      { data: [flourRow], error: null },
+      submittedRow('item-1'),
+      { data: [itemVendorRow({ id: 'item-2', catalog: { name: 'Salt', unit: 'oz', case_qty: 1 } })], error: null },
+      submittedRow('item-2'),
+    ];
+    const { getByTestId, findByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
+    fireEvent.press(getByTestId('eod-submit')); // enter EDIT on v-1
+    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
+    // Switch to v-2. If editing had leaked, v-2 (existing != null) would render
+    // EDITING (editable + Cancel). Reset → v-2 loads its own SUBMITTED_LOCKED.
+    fireEvent.press(getByTestId('vendor-chip-v-2'));
+    await findByTestId('eod-item-units-item-2');
+    await waitFor(() => expect(getByTestId('eod-item-units-item-2').props.editable).toBe(false));
+    expect(queryByTestId('eod-cancel-edit')).toBeNull();
   });
 });

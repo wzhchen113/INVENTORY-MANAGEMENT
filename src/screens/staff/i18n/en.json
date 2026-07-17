@@ -70,6 +70,12 @@
     "countedOfTotal": "{counted} of {total} counted",
     "submit": "Submit",
     "submitting": "Submitting...",
+    "edit": "Edit",
+    "cancel": "Cancel",
+    "status": {
+      "submitted": "Submitted",
+      "outstanding": "Not submitted"
+    },
     "banner": {
       "lastSubmitted": "Last submitted at {time} — your changes will overwrite",
       "alreadySubmitted": "Already submitted — your counts match the existing submission"

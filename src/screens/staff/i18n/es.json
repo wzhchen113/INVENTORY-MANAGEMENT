@@ -70,6 +70,12 @@
     "countedOfTotal": "{counted} de {total} contados",
     "submit": "Enviar",
     "submitting": "Enviando...",
+    "edit": "Editar",
+    "cancel": "Cancelar",
+    "status": {
+      "submitted": "Enviado",
+      "outstanding": "Sin enviar"
+    },
     "banner": {
       "lastSubmitted": "Último envío a las {time} — tus cambios lo reemplazarán",
       "alreadySubmitted": "Ya enviado — tus conteos coinciden con el envío existente"

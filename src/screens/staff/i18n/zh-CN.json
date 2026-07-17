@@ -70,6 +70,12 @@
     "countedOfTotal": "已清点 {counted}/{total}",
     "submit": "提交",
     "submitting": "正在提交...",
+    "edit": "编辑",
+    "cancel": "取消",
+    "status": {
+      "submitted": "已提交",
+      "outstanding": "未提交"
+    },
     "banner": {
       "lastSubmitted": "上次于 {time} 提交 — 你的更改将覆盖它",
       "alreadySubmitted": "已提交 — 你的盘点与现有提交一致"

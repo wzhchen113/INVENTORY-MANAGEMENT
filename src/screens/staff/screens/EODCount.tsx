@@ -28,7 +28,6 @@ import {
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -50,6 +49,7 @@ import {
 } from '../lib/countOrder';
 import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
+import { fetchSubmittedVendorIds } from '../lib/submittedStatus';
 import { fetchUpdatedItemIds } from '../lib/itemsUpdated';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
@@ -254,9 +254,6 @@ export function EODCount() {
   const c = useStaffColors();
   const T = useStaffTokens();
   const styles = useMemo(() => makeStyles(T), [T]);
-  // 2026-07 — jump to the Reorder tab after a successful submit so staff both
-  // see the count landed AND land on the list it feeds.
-  const navigation = useNavigation<any>();
   // Reactive `t` (spec 099) — every render-path string below uses this so
   // the screen re-renders and re-translates on a locale change.
   const { t } = useI18n();
@@ -309,6 +306,16 @@ export function EODCount() {
     );
   }, [items, orderedItems, viewMode, search, locale]);
   const [existing, setExisting] = useState<ExistingSubmission | null>(null);
+  // Spec 129 — post-submit state machine. `existing` (from the fetch) + this
+  // client-only `editing` flag DERIVE three states:
+  //   existing == null            → UNSUBMITTED      (editable, "Submit")
+  //   existing != null && !editing→ SUBMITTED_LOCKED (read-only, "Edit")
+  //   existing != null && editing → EDITING          (editable, "Submit" + Cancel)
+  const [editing, setEditing] = useState<boolean>(false);
+  // Spec 129 — vendor_ids with a submitted eod_submissions row for the current
+  // (store, count date). Drives the per-chip red/green status badge. Best-effort:
+  // a failed fetch leaves it empty (no false green).
+  const [submittedVendorIds, setSubmittedVendorIds] = useState<Set<string>>(new Set());
   // Spec 086 — two per-item maps mirroring the admin worksheet's
   // case/unit split (un-keyed-by-vendor: the staff screen already scopes
   // to one selected vendor at a time).
@@ -335,6 +342,50 @@ export function EODCount() {
       ).length,
     [items, caseCounts, unitCounts],
   );
+
+  // Spec 129 — SUBMITTED_LOCKED: the selected vendor has an existing submission
+  // and we're not editing it. The Cases/Units inputs render read-only.
+  const inputsLocked = existing != null && !editing;
+
+  // Spec 129 — seed the Cases/Units maps from an existing submission. Shared by
+  // the vendor-change load effect and the EDIT→Cancel revert so the two paths
+  // can't drift (the legacy-row fallback below is subtle — cases-only rows must
+  // NOT re-seed Units from the total, per spec 086 OQ-4).
+  const seedFromExisting = useCallback((ex: ExistingSubmission | null) => {
+    const caseSeed: Record<string, string> = {};
+    const unitSeed: Record<string, string> = {};
+    if (ex) {
+      for (const e of ex.entries) {
+        if (e.actual_remaining_cases != null) {
+          caseSeed[e.item_id] = String(e.actual_remaining_cases);
+        }
+        const units =
+          e.actual_remaining_each != null
+            ? e.actual_remaining_each
+            : e.actual_remaining_cases == null
+              ? e.actual_remaining
+              : null;
+        if (units != null) {
+          unitSeed[e.item_id] = String(units);
+        }
+      }
+    }
+    setCaseCounts(caseSeed);
+    setUnitCounts(unitSeed);
+  }, []);
+
+  // Spec 129 — Cancel an in-progress edit: revert the inputs to the last
+  // submitted values and re-lock (→ SUBMITTED_LOCKED). Cancel is only ever
+  // rendered in EDITING, which is reachable only from SUBMITTED_LOCKED, so
+  // `existing` is always non-null here; the guard is belt-and-suspenders.
+  const onCancelEdit = useCallback(() => {
+    if (!existing) {
+      setEditing(false);
+      return;
+    }
+    seedFromExisting(existing);
+    setEditing(false);
+  }, [existing, seedFromExisting]);
 
   // ─── count date: today (default) or yesterday for a missed/late count ──
   // Owner request (2026-07): if staff missed a vendor's count date they can
@@ -407,10 +458,25 @@ export function EODCount() {
         setSelectedVendorId(null);
       })
       .finally(() => setLoading(false));
-  }, [activeStore, countDate]);
+    // Spec 129 — per-vendor submitted status for the chip badges, in parallel
+    // and best-effort (helper degrades to an empty Set on error). Both reads
+    // scope to (store, count date), so they refresh together when the
+    // Today/Yesterday toggle flips the date. Guard against a stale landing.
+    let cancelled = false;
+    fetchSubmittedVendorIds(activeStore.id, countIso).then((ids) => {
+      if (!cancelled) setSubmittedVendorIds(ids);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStore, countDate, countIso]);
 
   // ─── load items + existing submission when vendor changes ─────────
   useEffect(() => {
+    // Spec 129 — a vendor switch always lands in that vendor's OWN derived
+    // state (UNSUBMITTED or SUBMITTED_LOCKED per its own `existing`), never
+    // carrying the previous vendor's EDITING flag.
+    setEditing(false);
     if (!activeStore || !selectedVendorId) {
       setItems([]);
       setExisting(null);
@@ -435,38 +501,11 @@ export function EODCount() {
         }));
         setItems(nextItems);
         setExisting(nextExisting);
-        // Pre-fill BOTH boxes from any existing submission. Cases seeds from
-        // actual_remaining_cases (blank when null).
-        //
-        // Units seed: prefer the explicit `each` split. The legacy-row
-        // fallback to the stored TOTAL (`actual_remaining`) applies ONLY to a
-        // TRUE legacy row — one with NO split columns at all (cases AND each
-        // both null), per spec 086 OQ-4. It must NOT fire for a new
-        // cases-only submission (cases set, each null): the total there is
-        // cases×caseQty, so seeding units from it re-adds the case amount and
-        // DOUBLES the count on reload (a manager entering 14 cases of a
-        // case-of-6 item saw loose auto-fill to 84 → total 168). Discriminator
-        // is `actual_remaining_cases == null` — a new split row always has it.
-        const caseSeed: Record<string, string> = {};
-        const unitSeed: Record<string, string> = {};
-        if (nextExisting) {
-          for (const e of nextExisting.entries) {
-            if (e.actual_remaining_cases != null) {
-              caseSeed[e.item_id] = String(e.actual_remaining_cases);
-            }
-            const units =
-              e.actual_remaining_each != null
-                ? e.actual_remaining_each
-                : e.actual_remaining_cases == null
-                  ? e.actual_remaining
-                  : null;
-            if (units != null) {
-              unitSeed[e.item_id] = String(units);
-            }
-          }
-        }
-        setCaseCounts(caseSeed);
-        setUnitCounts(unitSeed);
+        // Pre-fill BOTH boxes from any existing submission (shared with the
+        // EDIT→Cancel revert via `seedFromExisting`). Cases seeds from
+        // actual_remaining_cases (blank when null); the Units legacy-row
+        // fallback (spec 086 OQ-4) lives inside the helper.
+        seedFromExisting(nextExisting);
       })
       .catch((err) => {
         notifyBackendError('fetchItemsForVendor', err);
@@ -476,7 +515,7 @@ export function EODCount() {
         setUnitCounts({});
       })
       .finally(() => setLoading(false));
-  }, [activeStore, selectedVendorId, countIso]);
+  }, [activeStore, selectedVendorId, countIso, seedFromExisting]);
 
   // ─── Spec 103: load the saved custom order for (this vendor) on change ──
   // The order is per-(staff-eod, vendor). On open, if a saved order exists for
@@ -659,34 +698,55 @@ export function EODCount() {
         vendor_id: selectedVendorId,
         entries,
       });
-      if (outcome.kind === 'success') {
-        Toast.show({
-          type: 'success',
-          text1: t('eod.toast.submitted'),
-          position: 'bottom',
+      // Spec 129 — a confirmed server write (fresh 'success' or idempotent
+      // 'success-replay') enters SUBMITTED_LOCKED. Shared so the two branches
+      // don't drift. Synthesize a local `existing` from the just-written
+      // entries FIRST so the read-only lock engages deterministically even if
+      // the confirmation refetch fails (mirrors the queued branch) — otherwise
+      // a swallowed refetch error would leave a green chip with an unlocked
+      // "Submit" button. The refetch then refines it (real submission_id /
+      // submitted_at) when it succeeds.
+      const enterLockedAfterWrite = async () => {
+        setSubmittedVendorIds((prev) => new Set(prev).add(selectedVendorId));
+        setExisting({
+          submission_id: '(local)',
+          submitted_at: new Date().toISOString(),
+          entries,
         });
-        // Refresh existing to show the "Last submitted at HH:MM" banner.
         try {
           const fresh = await fetchExistingSubmission(
             activeStore.id,
             dateIso,
             selectedVendorId,
           );
-          setExisting(fresh);
+          if (fresh) setExisting(fresh);
         } catch {
-          // ignore — primary action succeeded
+          // keep the synthesized locked state — primary write succeeded
         }
+        // Authoritative reconcile of the chip set (picks up OTHER vendors
+        // submitted meanwhile). Union so a degraded-to-empty fetch can't wipe
+        // the optimistic green.
+        const ids = await fetchSubmittedVendorIds(activeStore.id, dateIso);
+        setSubmittedVendorIds((prev) => new Set([...prev, ...ids]));
+        setEditing(false);
         // Re-check the yesterday-incomplete nudge (a yesterday submit clears it).
         setSubmitTick((n) => n + 1);
-        navigation.navigate('Reorder');
+      };
+
+      if (outcome.kind === 'success') {
+        Toast.show({
+          type: 'success',
+          text1: t('eod.toast.submitted'),
+          position: 'bottom',
+        });
+        await enterLockedAfterWrite();
       } else if (outcome.kind === 'success-replay') {
         Toast.show({
           type: 'success',
           text1: t('eod.toast.alreadySubmitted'),
           position: 'bottom',
         });
-        setSubmitTick((n) => n + 1);
-        navigation.navigate('Reorder');
+        await enterLockedAfterWrite();
       } else if (outcome.kind === 'forbidden') {
         setForbidden(true);
       } else if (outcome.kind === 'queued') {
@@ -695,9 +755,19 @@ export function EODCount() {
           text1: t('eod.toast.queued'),
           position: 'bottom',
         });
-        // Clear inputs so the user moves on — spec §B7.
-        setCaseCounts({});
-        setUnitCounts({});
+        // Spec 129 — optimistic green + lock read-only. The confirmed refetch
+        // won't return the just-queued row (not on the server yet), so
+        // synthesize a local `existing` from the entries just submitted; the
+        // durable queue drains + reconciles later. Do NOT clear the inputs —
+        // they are the locked/submitted values now (the QueueIndicator remains
+        // the authoritative "not yet synced" cue).
+        setSubmittedVendorIds((prev) => new Set(prev).add(selectedVendorId));
+        setExisting({
+          submission_id: '(queued)',
+          submitted_at: new Date().toISOString(),
+          entries,
+        });
+        setEditing(false);
       } else {
         Toast.show({
           type: 'error',
@@ -784,8 +854,15 @@ export function EODCount() {
                   keyboardType="decimal-pad"
                   {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                   placeholder="0"
+                  // Spec 129 — read-only in SUBMITTED_LOCKED (Input forwards
+                  // `editable` to its inner TextInput; RN-web renders `readonly`).
+                  editable={!inputsLocked}
                   testID={`eod-item-cases-${item.id}`}
-                  style={[styles.countInput, !entered && { borderColor: c.error }]}
+                  style={[
+                    styles.countInput,
+                    !entered && { borderColor: c.error },
+                    inputsLocked && styles.countInputLocked,
+                  ]}
                   accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
                 />
               </View>
@@ -801,8 +878,14 @@ export function EODCount() {
                   keyboardType="decimal-pad"
                   {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
                   placeholder="0"
+                  // Spec 129 — read-only in SUBMITTED_LOCKED (see Cases input).
+                  editable={!inputsLocked}
                   testID={`eod-item-units-${item.id}`}
-                  style={[styles.countInput, !entered && { borderColor: c.error }]}
+                  style={[
+                    styles.countInput,
+                    !entered && { borderColor: c.error },
+                    inputsLocked && styles.countInputLocked,
+                  ]}
                   accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
                 />
               </View>
@@ -811,7 +894,7 @@ export function EODCount() {
         />
       );
     },
-    [caseCounts, unitCounts, locale, c, t],
+    [caseCounts, unitCounts, locale, c, t, inputsLocked],
   );
 
   if (!activeStore) {
@@ -969,6 +1052,11 @@ export function EODCount() {
             contentContainerStyle={styles.vendorChipRow}
             renderItem={({ item }) => {
               const active = item.id === selectedVendorId;
+              // Spec 129 — count-status badge (distinct from the selection
+              // highlight): GREEN once this vendor is submitted for the current
+              // (store, date), RED while outstanding. A surface-colored ring
+              // keeps it legible on the selected (green-background) chip.
+              const submitted = submittedVendorIds.has(item.id);
               return (
                 <Pressable
                   onPress={() => setSelectedVendorId(item.id)}
@@ -995,6 +1083,18 @@ export function EODCount() {
                   >
                     {item.name}
                   </Text>
+                  <View
+                    testID={`eod-vendor-status-${item.id}`}
+                    accessible
+                    accessibilityRole="image"
+                    accessibilityLabel={t(
+                      submitted ? 'eod.status.submitted' : 'eod.status.outstanding',
+                    )}
+                    style={[
+                      styles.vendorStatusDot,
+                      { backgroundColor: submitted ? c.success : c.error, borderColor: c.surface },
+                    ]}
+                  />
                 </Pressable>
               );
             }}
@@ -1004,6 +1104,7 @@ export function EODCount() {
         <View
           style={[
             styles.vendorSwitcher,
+            styles.vendorSingleRow,
             { backgroundColor: c.surface, borderBottomColor: c.border },
           ]}
         >
@@ -1014,6 +1115,27 @@ export function EODCount() {
           >
             {t('eod.vendor.single', { name: vendors[0].name })}
           </Text>
+          {/* Spec 129 — status badge for the lone vendor keeps the red/green
+              model uniform on a one-vendor day. */}
+          <View
+            testID={`eod-vendor-status-${vendors[0].id}`}
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={t(
+              submittedVendorIds.has(vendors[0].id)
+                ? 'eod.status.submitted'
+                : 'eod.status.outstanding',
+            )}
+            style={[
+              styles.vendorStatusDotInline,
+              {
+                backgroundColor: submittedVendorIds.has(vendors[0].id)
+                  ? c.success
+                  : c.error,
+                borderColor: c.surface,
+              },
+            ]}
+          />
         </View>
       ) : null}
 
@@ -1240,13 +1362,33 @@ export function EODCount() {
       >
         <QueueIndicator pending={pending} draining={draining} testID="eod-queue-indicator" />
         <View style={styles.submitWrap}>
-          <Button
-            label={submitting ? t('eod.submitting') : t('eod.submit')}
-            onPress={onSubmit}
-            disabled={items.length === 0 || forbidden}
-            loading={submitting}
-            testID="eod-submit"
-          />
+          {/* Spec 129 — EDITING shows a Cancel affordance above the primary
+              button (revert to the last-submitted values + re-lock). */}
+          {existing != null && editing ? (
+            <Button
+              label={t('eod.cancel')}
+              variant="secondary"
+              onPress={onCancelEdit}
+              testID="eod-cancel-edit"
+            />
+          ) : null}
+          {/* SUBMITTED_LOCKED → "Edit" (unlock, never gated by count-complete);
+              UNSUBMITTED / EDITING → "Submit". */}
+          {inputsLocked ? (
+            <Button
+              label={t('eod.edit')}
+              onPress={() => setEditing(true)}
+              testID="eod-submit"
+            />
+          ) : (
+            <Button
+              label={submitting ? t('eod.submitting') : t('eod.submit')}
+              onPress={onSubmit}
+              disabled={items.length === 0 || forbidden}
+              loading={submitting}
+              testID="eod-submit"
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -1336,6 +1478,30 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   vendorChipText: {
     fontSize: T.typography.body,
   },
+  // Spec 129 — count-status badge in the chip's top-right corner. The
+  // surface-colored ring keeps it legible on both the unselected (surface)
+  // and selected (primary) chip backgrounds.
+  vendorStatusDot: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+  },
+  vendorSingleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.spacing.sm,
+  },
+  // Inline (not absolute) badge for the lone-vendor label row.
+  vendorStatusDotInline: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+  },
   vendorLabel: {
     paddingHorizontal: T.spacing.lg,
     fontSize: T.typography.body,
@@ -1423,6 +1589,10 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     width: 52,
     textAlign: 'center',
   },
+  // Spec 129 — muted cue for read-only (SUBMITTED_LOCKED) inputs.
+  countInputLocked: {
+    opacity: 0.6,
+  },
   footer: {
     paddingHorizontal: T.spacing.lg,
     paddingTop: T.spacing.md,
@@ -1432,5 +1602,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   },
   submitWrap: {
     width: '100%',
+    gap: T.spacing.sm,
   },
 });

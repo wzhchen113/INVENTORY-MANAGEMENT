@@ -1,0 +1,35 @@
+# Code review for spec 129
+
+Scope: `src/screens/staff/lib/submittedStatus.ts` (+ test), `src/screens/staff/screens/EODCount.tsx` (+ test), staff i18n en/es/zh-CN. Frontend-only per spec; no backend surface touched.
+
+## Critical
+
+None. No direct-Supabase-outside-db.ts violation (the staff subtree is the documented spec-063 carve-out and this mirrors the existing `fetchExistingSubmission`/`fetchYesterdayIncomplete` shape), no inline color literals (chip/badge colors all come from `useStaffColors()` — `c.success` / `c.error` / `c.surface`, and are visibly distinct from the SettingsGear notification red-dot, which is its own component/token usage — confirmed clean per the out-of-scope note), no legacy-file edits, no slug change, no `window.confirm`/`Alert.alert` misuse, no new realtime channels, no test files outside the jest track. The navigate-to-Reorder removal is complete — `EODCount.tsx` no longer imports `useNavigation`/`navigation` at all (grep confirms zero references); the `@react-navigation/native` mock retained in the test file is still load-bearing because the rendered `<SettingsGear />` child calls `useNavigation` itself, so that mock is not dead.
+
+## Should-fix
+
+- `src/screens/staff/screens/EODCount.tsx:701-748` — the `success` and `success-replay` branches are near-duplicates (Toast → optimistic `submittedVendorIds` add → try/refetch `existing` → `setEditing(false)` → `setSubmitTick`), but `success` additionally does the authoritative reconcile (`fetchSubmittedVendorIds` + union-merge, lines 724-725) while `success-replay` does not. Per the spec's own design ("Keep the authoritative refetch too... so the set reconciles with the server on the confirmed path"), this should apply to both confirmed outcomes, not just `success`. As written, a `success-replay` outcome never picks up any other vendor that was submitted by a different client in the interim, and the two nearly-identical blocks are a duplication candidate — factor into one shared helper (e.g. `lockAfterConfirmedSubmit(dateIso)`) called from both branches so they can't drift further.
+- `src/screens/staff/screens/EODCount.tsx:709-720, 736-746` — the SUBMITTED_LOCKED transition depends on the post-submit `fetchExistingSubmission` refetch succeeding; on failure the `catch` block is a silent no-op (`// ignore — primary action succeeded`), leaving `existing` at its pre-submit value. For a first-time submit (`existing` was `null`), a failed refetch means `existing` stays `null` and the derived state stays UNSUBMITTED (inputs still editable, button still reads "Submit") even though the chip has already optimistically flipped green — a real, user-visible inconsistency (green chip + "Submit" button) that contradicts the AC ("locks read-only... button reads EDIT"), triggered by nothing more than a flaky second network call right after a successful write. The `queued` branch already shows the fix: synthesize a local `existing` from the just-submitted `entries` (`submission_id`, `submitted_at`, `entries`) as a fallback when the refetch throws, instead of leaving the transition contingent on it succeeding. No test currently exercises this failure path either.
+- `src/screens/staff/screens/EODCount.tsx:1085-1094, 1117-1133` — the corner/inline status badge's `accessibilityLabel` is set on a plain `View` nested inside a `Pressable` (chip) / row that has no `accessibilityLabel` of its own. React Native does not automatically surface a descendant's `accessibilityLabel` to assistive tech unless that descendant is itself `accessible` (or the ancestor concatenates only `Text` content) — so VoiceOver/TalkBack will likely announce just the vendor name and never "Submitted"/"Not submitted". The jest assertions (`.props.accessibilityLabel`) confirm the prop is *set* but can't confirm it's actually *exposed*. Recommend either merging the status into the chip's own `accessibilityLabel` (e.g. `"Sysco, Submitted"`) or explicitly marking the badge `accessible` so the label is reachable.
+
+## Nits
+
+- `src/screens/staff/screens/EODCount.tsx:1373-1377` — the "Edit" button (rendered only in SUBMITTED_LOCKED) reuses `testID="eod-submit"` from the Submit button. The states are mutually exclusive so nothing breaks, but a testID literally named `eod-submit` driving `setEditing(true)` reads as misleading; consider `eod-edit` (tests would need the corresponding one-line rename).
+- `src/screens/staff/screens/EODCount.tsx:1058-1094` vs `:1115-1133` — the `submitted = submittedVendorIds.has(...)` lookup + badge `backgroundColor`/`borderColor`/`accessibilityLabel` wiring is written out twice (multi-vendor chip vs the single-vendor label row). Small, but a shared `VendorStatusDot` helper/component would remove the duplication.
+- (out-of-scope) `src/screens/staff/screens/EODCount.tsx:1465-1487` — `vendorChip`/`vendorChipText` padding wasn't adjusted for the new absolute-positioned corner badge; a long vendor name at `numberOfLines={1}` could crowd the top-right corner where the badge now sits. Cosmetic, pre-existing padding untouched by this spec.
+- `src/screens/staff/screens/EODCount.tsx:712-716, 724, 740` — the post-submit refetches use the submit-time-fresh `dateIso` rather than the screen's display-scoped `countIso`; the two only diverge in the narrow edge case of submitting right as the session crosses midnight while `dayOffset === 0` (a case the file's own header comment already flags as an accepted risk for the write path). Low real-world impact, but worth a one-line comment noting the read-vs-write date choice is intentional rather than an oversight.
+
+## What's solid
+
+- `submittedStatus.ts` matches the spec's helper contract exactly (`store_id` + `date` + `status = 'submitted'` scoping, best-effort degrade to an empty `Set` via `notifyBackendError`, ignores null `vendor_id`) and its test suite covers scoping, population, empty, null-filtering, and the error-degrade path.
+- The derived state machine (`existing`/`editing` → UNSUBMITTED / SUBMITTED_LOCKED / EDITING) has no stored `mode`, matches the table in the spec exactly, and `seedFromExisting` is correctly shared between the vendor-load effect and Cancel so the two paths can't drift (including the subtle cases-only vs legacy-row seed logic).
+- Vendor switch correctly resets `editing` to `false` in both the guard-clause and load branches, verified by a dedicated test.
+- Read-only lock uses `editable={!inputsLocked}` (RN-canonical, confirmed forwarded by `Input.tsx`'s `{...rest}`), not `pointerEvents`, and is exercised on both Cases and Units by the test suite for all three states.
+- i18n parity confirmed across en/es/zh-CN for `eod.edit`, `eod.cancel`, `eod.status.submitted`, `eod.status.outstanding`.
+- Queued/offline path is optimistic-green, synthesizes a locally-consistent `existing` so the lock has values to show, no longer clears `caseCounts`/`unitCounts`, and doesn't navigate — matches the spec's resolved OQ-(c) exactly.
+
+## Handoff
+next_agent: NONE
+prompt: Code review complete. 0 Critical, 3 Should-fix, 4 Nits.
+payload_paths:
+  - specs/129-eod-vendor-status-edit-flow/reviews/code-reviewer.md
