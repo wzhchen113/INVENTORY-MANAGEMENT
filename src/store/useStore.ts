@@ -267,6 +267,30 @@ interface StoreActions {
     patch: { defaultShelfLifeDays?: number | null },
   ) => void;
 
+  /**
+   * Spec 127 — upload a photo for a catalog ingredient. `blob` is the
+   * pre-downscaled JPEG (see src/utils/downscaleImage). Delegates the storage
+   * upload + `image_path` set (and best-effort delete of the previous object
+   * on Replace) to `db.uploadIngredientImage`, which reads the previous path
+   * internally and owns the upload/set/cleanup sequencing. On success patches
+   * `imagePath` on the catalog row AND every joined inventory row so admin
+   * surfaces refresh immediately. Resolves to the new stored path, or null on
+   * failure (routed through `notifyBackendError`).
+   */
+  uploadIngredientImage: (
+    catalogId: string,
+    brandId: string,
+    blob: Blob,
+  ) => Promise<string | null>;
+  /**
+   * Spec 127 — clear a catalog ingredient's photo. Optimistically nulls
+   * `imagePath` on the catalog + joined inventory rows, then calls
+   * `db.removeIngredientImage` (which reads + deletes the object internally);
+   * reverts on failure via `notifyBackendError`. Resolves true on success,
+   * false on failure.
+   */
+  removeIngredientImage: (catalogId: string) => Promise<boolean>;
+
   // Recipe Categories
   // Spec 040 P3 — `i18nNames` is an optional new parameter on add /
   // rename that persists per-locale labels through `db.addRecipeCategory`
@@ -1555,6 +1579,55 @@ export const useStore = create<FullStore>((set, get) => ({
       set({ catalogIngredients: prev });
       notifyBackendError('Update catalog ingredient', e);
     });
+  },
+
+  // Spec 127 — the new object path is server-generated inside
+  // db.uploadIngredientImage (fresh uuid per upload), so there is nothing to
+  // set optimistically before the call resolves; the caller shows an
+  // in-flight state and the store patches the real path on success. Failure
+  // toasts via notifyBackendError and leaves the prior imagePath untouched.
+  uploadIngredientImage: async (catalogId, brandId, blob) => {
+    if (!catalogId || !brandId) return null;
+    try {
+      const newPath = await db.uploadIngredientImage(catalogId, brandId, blob);
+      set((s) => ({
+        catalogIngredients: s.catalogIngredients.map((c) =>
+          c.id === catalogId ? { ...c, imagePath: newPath } : c,
+        ),
+        inventory: s.inventory.map((i) =>
+          i.catalogId === catalogId ? { ...i, imagePath: newPath } : i,
+        ),
+      }));
+      return newPath;
+    } catch (e: any) {
+      notifyBackendError('Upload ingredient photo', e);
+      return null;
+    }
+  },
+
+  // Spec 127 — optimistic-then-revert: null the imagePath locally, then clear
+  // it server-side (column-clear + best-effort object delete inside db.ts).
+  // Revert + toast on failure.
+  removeIngredientImage: async (catalogId) => {
+    if (!catalogId) return false;
+    const prevCatalog = get().catalogIngredients;
+    const prevInventory = get().inventory;
+    set((s) => ({
+      catalogIngredients: s.catalogIngredients.map((c) =>
+        c.id === catalogId ? { ...c, imagePath: null } : c,
+      ),
+      inventory: s.inventory.map((i) =>
+        i.catalogId === catalogId ? { ...i, imagePath: null } : i,
+      ),
+    }));
+    try {
+      await db.removeIngredientImage(catalogId);
+      return true;
+    } catch (e: any) {
+      set({ catalogIngredients: prevCatalog, inventory: prevInventory });
+      notifyBackendError('Remove ingredient photo', e);
+      return false;
+    }
   },
 
   getItemStatus: (item) => {

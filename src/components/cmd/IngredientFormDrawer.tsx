@@ -514,6 +514,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
           onAddVendor={handleAddVendor}
           onApplyToAllStores={mode === 'edit' && item?.catalogId ? handleApplyVendorsToAllStores : undefined}
           applyingToAllStores={applyingToAllStores}
+          item={item}
         />
         {sidePane}
       </View>
@@ -528,6 +529,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
         onAddVendor={handleAddVendor}
         onApplyToAllStores={mode === 'edit' && item?.catalogId ? handleApplyVendorsToAllStores : undefined}
         applyingToAllStores={applyingToAllStores}
+        item={item}
       />
       {sidePane}
     </View>

@@ -40,6 +40,12 @@ export type EodItem = {
    *  resolved via `getLocalizedName({ name, i18nNames }, locale)` so the
    *  list re-renders in the active staff locale. */
   i18nNames?: LocalizedNames;
+  /** Spec 127 — brand-shared ingredient photo OBJECT PATH from
+   *  `catalog_ingredients.image_path` (`<brandId>/<catalogId>/<uuid>.jpg`, NOT
+   *  a URL). Resolved to a public CDN URL via `ingredientImageUrl`
+   *  (../../../lib/ingredientImage) at render time. Optional — absent/undefined
+   *  or null = no photo → the count row renders the placeholder thumbnail. */
+  imagePath?: string | null;
 };
 
 /** Vendor row (id + name) for the vendor switcher. */
@@ -151,6 +157,11 @@ export type WeeklyItem = {
    *  via `getLocalizedName({ name, i18nNames }, locale)` so item names
    *  switch with the active staff locale. */
   i18nNames?: LocalizedNames;
+  /** Spec 127 — brand-shared ingredient photo OBJECT PATH from
+   *  `catalog_ingredients.image_path` (`<brandId>/<catalogId>/<uuid>.jpg`, NOT
+   *  a URL). Resolved via `ingredientImageUrl` (../../../lib/ingredientImage) at
+   *  render time. Optional — absent/null = no photo → placeholder thumbnail. */
+  imagePath?: string | null;
 };
 
 /** Spec 098 — single entry inside a weekly-count submit. Mirrors the

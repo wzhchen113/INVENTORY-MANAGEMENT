@@ -34,6 +34,7 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
+import { IngredientThumb } from '../components/IngredientThumb';
 import { SettingsGear } from '../components/SettingsGear';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
@@ -93,7 +94,7 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
   // the EOD screen reads (catalog_ingredients.case_qty, spec 086).
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, catalog:catalog_ingredients(name, unit, category, case_qty, i18n_names)')
+    .select('id, catalog:catalog_ingredients(name, unit, category, case_qty, i18n_names, image_path)')
     .eq('store_id', storeId)
     .order('id', { ascending: true });
   if (error) throw error;
@@ -103,6 +104,8 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
     category: string | null;
     case_qty: number | string | null;
     i18n_names: LocalizedNames | null;
+    // Spec 127 — brand-level photo object path (nullable).
+    image_path: string | null;
   };
   type Row = {
     id: string;
@@ -124,6 +127,8 @@ async function fetchAllItemsForStore(storeId: string): Promise<WeeklyItem[]> {
         // Per-locale name overrides — null/missing → undefined so
         // getLocalizedName falls back to the English `name`.
         i18nNames: c?.i18n_names ?? undefined,
+        // Spec 127 — brand-level photo path; null → placeholder thumbnail.
+        imagePath: c?.image_path ?? null,
       };
     })
     // Stable alphabetical order so the long full-store list is scannable.
@@ -921,7 +926,10 @@ export function WeeklyCount() {
         <ListRow
           testID={`weekly-item-row-${item.id}`}
           leading={
-            <View>
+            <View style={styles.leadingRow}>
+              {/* Spec 127 — ingredient photo (or placeholder), view-only. */}
+              <IngredientThumb path={item.imagePath} testID={`weekly-item-thumb-${item.id}`} />
+              <View style={styles.leadingText}>
               <View style={styles.itemNameRow}>
                 <Text
                   style={[styles.itemName, { color: entered ? c.text : c.error }]}
@@ -954,6 +962,7 @@ export function WeeklyCount() {
                   {t('weekly.row.total', { total, unit: item.unit })}
                 </Text>
               ) : null}
+              </View>
             </View>
           }
           trailing={
@@ -1443,6 +1452,16 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   // Spec 102 — name + low-stock badge share a row so the badge sits inline
   // with the (possibly 2-line) ingredient name. `flex: 1` on the name lets it
   // wrap while the badge keeps its intrinsic width.
+  // Spec 127 — leading cell is now [thumbnail | name/unit column].
+  leadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.spacing.md,
+  },
+  leadingText: {
+    flex: 1,
+    minWidth: 0,
+  },
   itemNameRow: {
     flexDirection: 'row',
     alignItems: 'center',

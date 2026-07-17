@@ -112,6 +112,14 @@ export interface CatalogIngredient {
    * inventory list views read it without a second lookup.
    */
   i18nNames?: LocalizedNames;
+  /**
+   * Spec 127 — brand-shared ingredient photo. Stores the OBJECT PATH in the
+   * public `ingredient-images` bucket (`<brandId>/<catalogId>/<uuid>.jpg`), NOT
+   * a URL — resolve to a public CDN URL via `ingredientImageUrl`
+   * (src/lib/ingredientImage.ts). Hydrated from `catalog_ingredients.image_path`.
+   * `null`/undefined = no photo (render the placeholder).
+   */
+  imagePath?: string | null;
 }
 
 export interface InventoryItem {
@@ -152,6 +160,14 @@ export interface InventoryItem {
    * may omit it; readers must treat `undefined` as `{}`.
    */
   i18nNames?: LocalizedNames;
+  /**
+   * Spec 127 — brand-shared ingredient photo, hydrated from the joined catalog
+   * row's `image_path` by `mapItem` (same path as `i18nNames`). Stores the
+   * OBJECT PATH in the public `ingredient-images` bucket, not a URL — resolve
+   * via `ingredientImageUrl` (src/lib/ingredientImage.ts). `null`/undefined =
+   * no photo → staff count rows render the placeholder.
+   */
+  imagePath?: string | null;
   /**
    * Spec 102 — the full item↔vendor link set from the `item_vendors`
    * junction, hydrated by `db.fetchInventory` / `mapItem`. Each entry

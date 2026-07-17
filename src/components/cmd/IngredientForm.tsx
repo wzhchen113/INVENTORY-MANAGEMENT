@@ -8,8 +8,9 @@ import { CANONICAL_UNITS, isCanonicalUnit, calcUnitCost } from '../../utils/unit
 import { deriveBrandUnitPool } from '../../utils/brandUnitPool';
 import { piecesPerCase } from '../../utils/perEachCost';
 import { isNumericInput } from '../../utils/validators';
-import type { Vendor } from '../../types';
+import type { Vendor, InventoryItem } from '../../types';
 import { useT } from '../../hooks/useT';
+import { IngredientPhotoControl } from './IngredientPhotoControl';
 import { unitLabel } from '../../utils/enumLabels';
 import { translateOnSave } from '../../lib/translate';
 
@@ -309,6 +310,13 @@ interface Props {
   onApplyToAllStores?: () => void;
   /** Spec 119 — true while the brand-wide apply is in flight; disables the button. */
   applyingToAllStores?: boolean;
+  /**
+   * Spec 127 — the item being edited (EDIT mode only). Supplies the
+   * `catalogId` + `imagePath` for the brand-level photo control. Undefined in
+   * NEW mode (no catalog id yet → the photo control is not rendered until the
+   * ingredient is saved once, per spec 127 §10).
+   */
+  item?: InventoryItem;
 }
 
 // Numeric-only validation is centralized in `src/utils/validators.ts` —
@@ -514,7 +522,7 @@ const FlagRow: React.FC<{ label: string; desc: string; on: boolean; onToggle: ()
   );
 };
 
-export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFocusName, onAddVendor, onApplyToAllStores, applyingToAllStores }) => {
+export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFocusName, onAddVendor, onApplyToAllStores, applyingToAllStores, item }) => {
   const C = useCmdColors();
   const T = useT();
   const isNew = mode === 'new';
@@ -955,6 +963,17 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
           />
         </View>
       </View>
+
+      {/* Spec 127 — brand-level photo control (EDIT mode only; a saved
+          catalog id + brand are required for the storage path). Web-only
+          upload; native renders view-only inside the control. */}
+      {mode === 'edit' && item?.catalogId && currentStore?.brandId ? (
+        <IngredientPhotoControl
+          catalogId={item.catalogId}
+          brandId={currentStore.brandId}
+          imagePath={item.imagePath}
+        />
+      ) : null}
 
       <SectionCaption tone="fg3" size={9.5}>UNITS &amp; PACK</SectionCaption>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 8 }}>

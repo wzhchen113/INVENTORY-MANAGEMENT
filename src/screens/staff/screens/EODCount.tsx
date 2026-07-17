@@ -33,6 +33,7 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
+import { IngredientThumb } from '../components/IngredientThumb';
 import { SettingsGear } from '../components/SettingsGear';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
@@ -144,7 +145,7 @@ async function fetchItemsForVendor(
   const { data, error } = await supabase
     .from('item_vendors')
     .select(
-      'vendor_id, item:inventory_items!inner(id, store_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names))',
+      'vendor_id, item:inventory_items!inner(id, store_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names, image_path))',
     )
     .eq('vendor_id', vendorId)
     .eq('item.store_id', storeId)
@@ -155,6 +156,8 @@ async function fetchItemsForVendor(
     unit: string | null;
     case_qty: number | string | null;
     i18n_names: LocalizedNames | null;
+    // Spec 127 — brand-level photo object path (nullable).
+    image_path: string | null;
   };
   type ItemRow = {
     id: string;
@@ -184,6 +187,8 @@ async function fetchItemsForVendor(
         // Per-locale name overrides — null/missing → undefined so
         // getLocalizedName falls back to the English `name`.
         i18nNames: c?.i18n_names ?? undefined,
+        // Spec 127 — brand-level photo path; null → placeholder thumbnail.
+        imagePath: c?.image_path ?? null,
       },
     ];
   });
@@ -716,7 +721,11 @@ export function EODCount() {
         <ListRow
           testID={`eod-item-row-${item.id}`}
           leading={
-            <View>
+            <View style={styles.leadingRow}>
+              {/* Spec 127 — ingredient photo (or placeholder) so staff can
+                  visually identify the physical item. View-only. */}
+              <IngredientThumb path={item.imagePath} testID={`eod-item-thumb-${item.id}`} />
+              <View style={styles.leadingText}>
               <Text
                 style={[styles.itemName, { color: entered ? c.text : c.error }]}
                 numberOfLines={2}
@@ -737,6 +746,7 @@ export function EODCount() {
                   {t('eod.row.total', { total, unit: item.unit })}
                 </Text>
               ) : null}
+              </View>
             </View>
           }
           trailing={
@@ -1338,6 +1348,16 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   },
   itemSeparator: {
     height: T.spacing.sm,
+  },
+  // Spec 127 — leading cell is now [thumbnail | name/unit column].
+  leadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.spacing.md,
+  },
+  leadingText: {
+    flex: 1,
+    minWidth: 0,
   },
   itemName: {
     fontSize: T.typography.bodyLarge,

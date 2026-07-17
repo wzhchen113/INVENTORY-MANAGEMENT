@@ -239,7 +239,7 @@ export async function fetchInventory(
         item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
                                   order_code, vendor:vendors(id, name)),
         updater:profiles!last_updated_by(name),
-        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names)`)
+        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path)`)
       .order('id', { ascending: true });
     if (storeId) query = query.eq('store_id', storeId);
     const { data, error } = await query.abortSignal(signal);
@@ -4766,6 +4766,9 @@ export async function fetchCatalogIngredients(brandId: string) {
       // {"es"?, "zh-CN"?}. Falls back to `{}` when the column is missing or
       // unpopulated.
       i18nNames: (c.i18n_names ?? {}) as Record<string, string>,
+      // Spec 127 — brand-shared ingredient photo object path (select is `*`, so
+      // the column is already present). NULL = no photo.
+      imagePath: c.image_path ?? null,
     }));
   }, { kind: 'read', label: 'fetchCatalogIngredients' });
 }
@@ -4797,6 +4800,133 @@ export async function updateCatalogIngredient(
       .abortSignal(signal);
     if (error) throw error;
   }, { kind: 'write', label: 'updateCatalogIngredient' });
+}
+
+// ─── Spec 127: ingredient photos (Supabase Storage) ──────────────────────
+//
+// First use of Supabase Storage in the repo. The public `ingredient-images`
+// bucket + its write-gating storage.objects policies live in
+// 20260721000000_ingredient_photos.sql. Path scheme:
+// `<brandId>/<catalogId>/<uuid>.jpg` — the first folder is the brand id, which
+// the storage.objects RLS policies gate via
+// auth_can_see_brand((storage.foldername(name))[1]). Reads are public
+// (resolved by src/lib/ingredientImage.ts); writes here are RLS-gated.
+//
+// NOTE on the `track()` carve-out: these helpers do storage I/O
+// (`supabase.storage`) which does NOT expose the PostgREST `.abortSignal(signal)`
+// builder, so the storage calls cannot be signal-chained. The single
+// `catalog_ingredients` UPDATE inside each helper IS the PostgREST touch and is
+// signal-chained per the file-header discipline. Both are `kind: 'write'` so the
+// abort-timeout copy is correct.
+
+/**
+ * Upload a (pre-downscaled) JPEG blob for a catalog ingredient, set
+ * `catalog_ingredients.image_path` to the new object path, and best-effort
+ * delete the PREVIOUS object (Replace). Returns the new stored path.
+ *
+ * Sequencing + cleanup (design §4):
+ *   1. Read the current image_path (the previous object, if any).
+ *   2. Upload to `<brandId>/<catalogId>/<uuid>.jpg` (upsert:false — every key is
+ *      a fresh uuid, so a Replace changes the public URL → free cache-bust).
+ *   3. Update image_path = newPath. On failure → best-effort remove the just-
+ *      uploaded orphan, then re-throw the column-update error.
+ *   4. On success, best-effort remove the previous object (a failed old-delete
+ *      is swallowed/logged — the row already points at the new object, so a
+ *      stale old object is a harmless orphan, not a correctness bug).
+ */
+export async function uploadIngredientImage(
+  catalogId: string,
+  brandId: string,
+  blob: Blob,
+): Promise<string> {
+  return useInflight.getState().track(async (signal) => {
+    // 1. Read the previous object path so we can best-effort delete it after a
+    //    successful swap. A missing/failed read is non-fatal — treat as "no
+    //    previous object" (worst case leaves a harmless orphan on Replace).
+    let previousPath: string | null = null;
+    {
+      const { data: prev } = await supabase
+        .from('catalog_ingredients')
+        .select('image_path')
+        .eq('id', catalogId)
+        .abortSignal(signal)
+        .maybeSingle();
+      previousPath = prev?.image_path ?? null;
+    }
+
+    // 2. Upload the new object under a fresh uuid key.
+    const newPath = `${brandId}/${catalogId}/${crypto.randomUUID()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from('ingredient-images')
+      .upload(newPath, blob, { contentType: 'image/jpeg', upsert: false });
+    if (uploadError) throw uploadError;
+
+    // 3. Point the row at the new object. On failure, remove the orphan we just
+    //    uploaded before re-throwing (AC — no dangling object on column-fail).
+    const { error: updateError } = await supabase
+      .from('catalog_ingredients')
+      .update({ image_path: newPath, updated_at: new Date().toISOString() })
+      .eq('id', catalogId)
+      .abortSignal(signal);
+    if (updateError) {
+      try {
+        await supabase.storage.from('ingredient-images').remove([newPath]);
+      } catch (cleanupErr) {
+        console.warn('[uploadIngredientImage] orphan cleanup failed', cleanupErr);
+      }
+      throw updateError;
+    }
+
+    // 4. Best-effort delete the previous object (Replace). Swallow failures —
+    //    the row already points at the new object.
+    if (previousPath && previousPath !== newPath) {
+      try {
+        await supabase.storage.from('ingredient-images').remove([previousPath]);
+      } catch (removeErr) {
+        console.warn('[uploadIngredientImage] old-object delete failed', removeErr);
+      }
+    }
+
+    return newPath;
+  }, { kind: 'write', label: 'uploadIngredientImage' });
+}
+
+/**
+ * Clear `catalog_ingredients.image_path` and best-effort delete the object.
+ * Reads the current path, NULLs the column first (so the UI is correct even if
+ * the storage delete fails), then best-effort removes the object. A leftover
+ * object is a harmless orphan (public bucket, small JPEG). Design §4.
+ */
+export async function removeIngredientImage(catalogId: string): Promise<void> {
+  return useInflight.getState().track(async (signal) => {
+    // Read the current object path (non-fatal if absent).
+    let currentPath: string | null = null;
+    {
+      const { data: cur } = await supabase
+        .from('catalog_ingredients')
+        .select('image_path')
+        .eq('id', catalogId)
+        .abortSignal(signal)
+        .maybeSingle();
+      currentPath = cur?.image_path ?? null;
+    }
+
+    // Column-clear FIRST so the UI is correct even if the object delete fails.
+    const { error: updateError } = await supabase
+      .from('catalog_ingredients')
+      .update({ image_path: null, updated_at: new Date().toISOString() })
+      .eq('id', catalogId)
+      .abortSignal(signal);
+    if (updateError) throw updateError;
+
+    if (currentPath) {
+      try {
+        await supabase.storage.from('ingredient-images').remove([currentPath]);
+      } catch (removeErr) {
+        console.warn('[removeIngredientImage] object delete failed', removeErr);
+      }
+    }
+  }, { kind: 'write', label: 'removeIngredientImage' });
 }
 
 /**
@@ -5136,6 +5266,11 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
     // the select projection). Keys: 'es', 'zh-CN'. English canonical lives
     // in `name` above and is never written here.
     i18nNames: (cat.i18n_names ?? {}) as Record<string, string>,
+    // Spec 127 — brand-shared ingredient photo object path, hydrated from the
+    // joined catalog row's `image_path`. NULL = no photo → the staff count row
+    // renders the placeholder. Resolved to a public URL via `ingredientImageUrl`
+    // (src/lib/ingredientImage.ts) at render time.
+    imagePath: cat.image_path ?? null,
     // Spec 102 (§6a) — full per-vendor link set + derived membership array.
     vendors: vendorLinks,
     vendorIds: vendorLinks.map((v) => v.vendorId).filter((id) => id.length > 0),
