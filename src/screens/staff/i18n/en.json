@@ -390,6 +390,7 @@
     "notifications": {
       "label": "Notifications",
       "aria": "Toggle notifications on this device",
+      "reminderBanner": "Turn on notifications to get reminders",
       "state": {
         "on": "On",
         "off": "Off"

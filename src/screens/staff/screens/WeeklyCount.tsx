@@ -36,6 +36,7 @@ import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { SettingsGear } from '../components/SettingsGear';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
+import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
 // Spec 110 — the staff Weekly screen is PICK-ONLY: it reads the store's shared
@@ -1063,6 +1064,10 @@ export function WeeklyCount() {
           {t('weekly.subtitle')}
         </Text>
       </View>
+
+      {/* Persistent "turn on notifications" nudge — RED, non-dismissible,
+          disappears once notifications are on. */}
+      <NotificationReminderBanner />
 
       {/* Persistent due/overdue banner — the reliable floor. */}
       <WeeklyDueBanner />

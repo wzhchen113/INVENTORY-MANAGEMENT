@@ -26,6 +26,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Banner } from '../components/Banner';
 import { SettingsGear } from '../components/SettingsGear';
+import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { fetchStaffOrderSchedule, fetchStaffReorder } from '../lib/fetchReorder';
@@ -566,6 +567,10 @@ export function Reorder() {
           </Pressable>
         </View>
       </View>
+
+      {/* Persistent "turn on notifications" nudge — RED, non-dismissible,
+          disappears once notifications are on. */}
+      <NotificationReminderBanner />
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
         {/* KPI strip — 2×2 grid, values from computeReorderKpis(displayVendors) */}

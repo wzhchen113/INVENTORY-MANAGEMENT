@@ -9,11 +9,13 @@
 // up to the parent stack where the `Settings` Stack.Screen is registered.
 //
 // Spec 126 follow-up: the control now renders a "Settings" text label next to
-// the gear, and a small red dot overlaps the gear when notifications are OFF
-// but there's an actionable next step in Settings (`off` = supported-but-not-
-// subscribed, `needs-install` = iOS-needs-PWA-install). The dot is suppressed
-// for the non-actionable views (`on`, `unsupported`, `denied`, `error`) so it
-// never nags with no in-app fix.
+// the gear plus a small status dot overlapping the gear. The dot is GREEN when
+// notifications are ON, RED when they are OFF-but-actionable (`off`,
+// `needs-install`, `denied` — Settings has a next step), and HIDDEN for the
+// non-actionable views (`unsupported`, `error`) so it never nags with no
+// in-app fix. The 3-level GREEN/RED/none derivation is the shared
+// `notificationLevel` helper so this dot, the reminder banner, and the
+// Settings pill never drift.
 
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -23,6 +25,7 @@ import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import { useI18n } from '../i18n';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useNotificationToggle } from '../../../lib/useNotificationToggle';
+import { notificationLevel } from '../lib/notificationLevel';
 
 type Props = {
   testID?: string;
@@ -37,9 +40,11 @@ export function SettingsGear({ testID }: Props) {
   const userId = useStaffStore((s) => currentStaffUserId(s.authState));
   const m = useNotificationToggle(userId, t);
 
-  // Nudge to enable notifications only when Settings has an actionable next
-  // step: `off` (supported-but-not-subscribed) or `needs-install` (iOS PWA).
-  const showDot = m.view === 'off' || m.view === 'needs-install';
+  // Shared 3-level signal: GREEN dot when on, RED dot when off-but-actionable,
+  // hidden for the non-actionable views (`unsupported`, `error`).
+  const level = notificationLevel(m.view);
+  const showDot = level !== 'na';
+  const dotColor = level === 'on' ? c.success : c.error;
 
   return (
     <Pressable
@@ -47,7 +52,7 @@ export function SettingsGear({ testID }: Props) {
       testID={testID ?? 'staff-settings-gear'}
       accessibilityRole="button"
       accessibilityLabel={
-        showDot
+        level === 'off'
           ? t('chrome.settings.gearAriaNotifOff')
           : t('chrome.settings.gearAria')
       }
@@ -61,7 +66,7 @@ export function SettingsGear({ testID }: Props) {
         {showDot ? (
           <View
             testID="staff-settings-notif-dot"
-            style={[styles.dot, { backgroundColor: c.error, borderColor: c.bg }]}
+            style={[styles.dot, { backgroundColor: dotColor, borderColor: c.bg }]}
           />
         ) : null}
       </View>

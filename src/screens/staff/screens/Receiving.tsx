@@ -45,6 +45,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { SettingsGear } from '../components/SettingsGear';
+import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { confirmAction } from '../../../utils/confirmAction';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
@@ -386,6 +387,10 @@ export function Receiving() {
           </Pressable>
         </View>
       </View>
+
+      {/* Persistent "turn on notifications" nudge — RED, non-dismissible,
+          disappears once notifications are on. */}
+      <NotificationReminderBanner />
 
       {/* Offline banner (R-2 / AC-11) — receiving needs a live connection. */}
       {!isOnline ? (

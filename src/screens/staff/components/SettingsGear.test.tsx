@@ -4,8 +4,10 @@
 // a "Settings" label, and shows a red dot when notifications are OFF but
 // actionable (spec 126 follow-up).
 
+import { StyleSheet } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import type { NotificationView } from '../../../lib/notificationState';
+import { darkColors } from '../theme';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -52,30 +54,41 @@ describe('SettingsGear', () => {
     expect(getByTestId('staff-settings-gear').props.accessibilityLabel).toBe('Open settings');
   });
 
-  it('shows the red dot when notifications are off', () => {
+  it('shows a RED dot when notifications are off', () => {
     mockView = 'off';
     const { getByTestId } = render(<SettingsGear />);
-    expect(getByTestId('staff-settings-notif-dot')).toBeTruthy();
+    const dot = getByTestId('staff-settings-notif-dot');
+    expect(StyleSheet.flatten(dot.props.style).backgroundColor).toBe(darkColors.error);
     // The aria switches to the "notifications off" variant.
     expect(getByTestId('staff-settings-gear').props.accessibilityLabel).toBe(
       'Settings — notifications off',
     );
   });
 
-  it('shows the red dot when notifications need iOS install', () => {
+  it('shows a RED dot when notifications need iOS install', () => {
     mockView = 'needs-install';
     const { getByTestId } = render(<SettingsGear />);
-    expect(getByTestId('staff-settings-notif-dot')).toBeTruthy();
+    const dot = getByTestId('staff-settings-notif-dot');
+    expect(StyleSheet.flatten(dot.props.style).backgroundColor).toBe(darkColors.error);
   });
 
-  it('hides the red dot when notifications are on', () => {
+  it('shows a GREEN dot when notifications are on', () => {
     mockView = 'on';
+    const { getByTestId } = render(<SettingsGear />);
+    const dot = getByTestId('staff-settings-notif-dot');
+    expect(StyleSheet.flatten(dot.props.style).backgroundColor).toBe(darkColors.success);
+    // The default "Open settings" aria (not the notif-off variant).
+    expect(getByTestId('staff-settings-gear').props.accessibilityLabel).toBe('Open settings');
+  });
+
+  it('hides the dot when notifications are unsupported', () => {
+    mockView = 'unsupported';
     const { queryByTestId } = render(<SettingsGear />);
     expect(queryByTestId('staff-settings-notif-dot')).toBeNull();
   });
 
-  it('hides the red dot when notifications are unsupported', () => {
-    mockView = 'unsupported';
+  it('hides the dot when notifications errored', () => {
+    mockView = 'error';
     const { queryByTestId } = render(<SettingsGear />);
     expect(queryByTestId('staff-settings-notif-dot')).toBeNull();
   });

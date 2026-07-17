@@ -390,6 +390,7 @@
     "notifications": {
       "label": "通知",
       "aria": "在此设备上开关通知",
+      "reminderBanner": "开启通知以接收提醒",
       "state": {
         "on": "已开启",
         "off": "已关闭"

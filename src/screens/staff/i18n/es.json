@@ -390,6 +390,7 @@
     "notifications": {
       "label": "Notificaciones",
       "aria": "Activar notificaciones en este dispositivo",
+      "reminderBanner": "Activa las notificaciones para recibir recordatorios",
       "state": {
         "on": "Activadas",
         "off": "Desactivadas"

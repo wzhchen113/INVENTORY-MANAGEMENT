@@ -34,6 +34,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { SettingsGear } from '../components/SettingsGear';
+import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
 import { supabase } from '../../../lib/supabase';
@@ -883,6 +884,10 @@ export function EODCount() {
           })}
         </View>
       </View>
+
+      {/* Persistent "turn on notifications" nudge — RED, non-dismissible,
+          disappears once notifications are on. */}
+      <NotificationReminderBanner />
 
       {/* Late-submission banner — shown whenever a past (yesterday) date is
           selected so staff know this count is recorded as late. */}

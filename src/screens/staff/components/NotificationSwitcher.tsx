@@ -15,6 +15,7 @@ import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useI18n } from '../i18n';
 import { useNotificationToggle } from '../../../lib/useNotificationToggle';
+import { notificationLevel } from '../lib/notificationLevel';
 
 type Props = {
   testID?: string;
@@ -29,6 +30,11 @@ export function NotificationSwitcher({ testID }: Props) {
 
   const m = useNotificationToggle(userId, t);
 
+  // Shared 3-level signal so the Settings pill matches the SettingsGear dot +
+  // reminder banner: GREEN on, RED off. The `na` views keep the neutral
+  // (transparent/secondary) styling — no colored state to imply an action.
+  const level = notificationLevel(m.view);
+
   return (
     <View style={styles.wrap} testID={testID ?? 'staff-notification-switcher'}>
       <Pressable
@@ -41,12 +47,14 @@ export function NotificationSwitcher({ testID }: Props) {
         style={({ pressed }) => [
           styles.pill,
           {
-            borderColor: c.border,
+            borderColor: level === 'off' ? c.error : c.border,
             backgroundColor: m.isOn
-              ? c.primary
-              : pressed && m.interactive
-                ? c.surfaceAlt
-                : 'transparent',
+              ? c.success
+              : level === 'off'
+                ? c.errorBg
+                : pressed && m.interactive
+                  ? c.surfaceAlt
+                  : 'transparent',
             opacity: m.interactive ? 1 : 0.55,
           },
         ]}
@@ -55,7 +63,11 @@ export function NotificationSwitcher({ testID }: Props) {
           style={[
             styles.label,
             {
-              color: m.isOn ? c.textOnPrimary : c.textSecondary,
+              color: m.isOn
+                ? c.textOnPrimary
+                : level === 'off'
+                  ? c.error
+                  : c.textSecondary,
               fontWeight: m.isOn ? T.typography.semibold : T.typography.medium,
             },
           ]}
