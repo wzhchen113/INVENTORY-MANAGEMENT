@@ -144,7 +144,6 @@ jest.mock('../../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => mockQueryBuilder(table),
     rpc: (_fn: string) => Promise.resolve(mockRpcResult),
-    auth: { signOut: jest.fn().mockResolvedValue({ error: null }) },
   },
 }));
 

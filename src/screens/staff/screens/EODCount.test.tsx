@@ -73,7 +73,6 @@ function mockQueryBuilder(table: string) {
 jest.mock('../../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => mockQueryBuilder(table),
-    auth: { signOut: jest.fn().mockResolvedValue({ error: null }) },
   },
 }));
 

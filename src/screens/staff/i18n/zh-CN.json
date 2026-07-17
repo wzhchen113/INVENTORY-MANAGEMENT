@@ -366,7 +366,9 @@
     },
     "settings": {
       "title": "设置",
+      "gearLabel": "设置",
       "gearAria": "打开设置",
+      "gearAriaNotifOff": "设置 — 通知已关闭",
       "back": "返回"
     },
     "reportIssue": {

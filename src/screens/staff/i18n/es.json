@@ -366,7 +366,9 @@
     },
     "settings": {
       "title": "Configuración",
+      "gearLabel": "Ajustes",
       "gearAria": "Abrir configuración",
+      "gearAriaNotifOff": "Ajustes — notificaciones desactivadas",
       "back": "Atrás"
     },
     "reportIssue": {

@@ -24,15 +24,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
-import { LocaleSwitcher } from '../components/LocaleSwitcher';
-import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { SettingsGear } from '../components/SettingsGear';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
-import { confirmAction } from '../../../utils/confirmAction';
-import { supabase } from '../../../lib/supabase';
-import { unsubscribeFromPush } from '../../../lib/webPush';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { fetchStaffOrderSchedule, fetchStaffReorder } from '../lib/fetchReorder';
 import {
@@ -347,7 +341,6 @@ export function Reorder() {
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
   );
-  const setAuthState = useStaffStore((s) => s.setAuthState);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
   // Active language — downloads follow it (2026-07).
   const locale = useStaffStore((s) => s.locale);
@@ -483,31 +476,6 @@ export function Reorder() {
     !!exportPayload && displayVendors.length > 0 && !error && !(loading && !payload);
 
   // ─── header actions (mirror EODCount) ──────────────────────────────
-  const onSignOut = useCallback(() => {
-    confirmAction(
-      t('chrome.signOut.confirmTitle'),
-      t('chrome.signOut.confirmMessage'),
-      async () => {
-        // Tear down THIS device's web-push subscription before signing out —
-        // mirrors admin logout (useStore.ts). Must run BEFORE signOut() so the
-        // push_subscriptions row delete happens under the authenticated
-        // session (RLS owner-scopes it). Best-effort — unsubscribeFromPush
-        // swallows its own errors. Without this, a shared device keeps
-        // delivering the prior user's reminders to the next signed-in user.
-        await unsubscribeFromPush();
-        try {
-          await supabase.auth.signOut();
-        } catch (err) {
-          notifyBackendError('signOut', err);
-        }
-        setActiveStore(null);
-        Toast.show({ type: 'success', text1: t('chrome.signedOut'), position: 'bottom' });
-        setAuthState({ kind: 'signed-out' });
-      },
-      t('chrome.signOut.label'),
-    );
-  }, [setAuthState, setActiveStore, t]);
-
   const onSwitchStore = useCallback(() => {
     if (!canSwitchStore) return;
     setActiveStore(null);
@@ -570,20 +538,6 @@ export function Reorder() {
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('reorder.title')}</Text>
           </Pressable>
           <SettingsGear />
-          <Pressable
-            onPress={onSignOut}
-            style={({ pressed }) => [styles.signOutBtn, pressed ? { backgroundColor: c.surfaceAlt } : null]}
-            accessibilityRole="button"
-            accessibilityLabel={t('chrome.signOut.label')}
-            testID="staff-reorder-sign-out"
-          >
-            <Text style={[styles.signOutText, { color: c.error }]}>{t('chrome.signOut.label')}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.headerSwitcherRow}>
-          <LocaleSwitcher />
-          <ScaleSwitcher />
         </View>
 
         {/* Controls — date picker + refresh */}
@@ -873,15 +827,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: T.spacing.md,
   },
-  // Mirrors EODCount.headerSwitcherRow — the LocaleSwitcher sits left-aligned
-  // on its own row under the store/sign-out row. No marginTop here: the
-  // header's `gap` already spaces the rows (EODCount's header has no gap, so
-  // it adds the marginTop there instead).
-  headerSwitcherRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   storePressable: {
     flex: 1,
     minWidth: 0,
@@ -896,17 +841,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   headerSub: {
     fontSize: T.typography.caption,
     marginTop: 2,
-  },
-  signOutBtn: {
-    paddingVertical: T.spacing.sm,
-    paddingHorizontal: T.spacing.md,
-    borderRadius: T.radius.sm,
-    minHeight: T.touchTarget.min,
-    justifyContent: 'center',
-  },
-  signOutText: {
-    fontSize: T.typography.body,
-    fontWeight: T.typography.semibold,
   },
   controlsRow: {
     flexDirection: 'row',

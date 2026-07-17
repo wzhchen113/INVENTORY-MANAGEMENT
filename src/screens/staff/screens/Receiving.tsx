@@ -44,12 +44,8 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
-import { LocaleSwitcher } from '../components/LocaleSwitcher';
-import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { SettingsGear } from '../components/SettingsGear';
 import { confirmAction } from '../../../utils/confirmAction';
-import { supabase } from '../../../lib/supabase';
-import { unsubscribeFromPush } from '../../../lib/webPush';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { uuidv4 } from '../lib/uuid';
@@ -127,7 +123,6 @@ export function Receiving() {
   const stores = useStaffStore((s) =>
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
   );
-  const setAuthState = useStaffStore((s) => s.setAuthState);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
 
   // Online-only gate (R-2). Disables the commit + shows an offline banner.
@@ -321,31 +316,6 @@ export function Receiving() {
     );
   }
 
-  const onSignOut = () => {
-    confirmAction(
-      t('chrome.signOut.confirmTitle'),
-      t('chrome.signOut.confirmMessage'),
-      async () => {
-        // Tear down THIS device's web-push subscription before signing out —
-        // mirrors admin logout (useStore.ts). Must run BEFORE signOut() so the
-        // push_subscriptions row delete happens under the authenticated
-        // session (RLS owner-scopes it). Best-effort — unsubscribeFromPush
-        // swallows its own errors. Without this, a shared device keeps
-        // delivering the prior user's reminders to the next signed-in user.
-        await unsubscribeFromPush();
-        try {
-          await supabase.auth.signOut();
-        } catch (err) {
-          notifyBackendError('signOut', err);
-        }
-        setActiveStore(null);
-        Toast.show({ type: 'success', text1: t('chrome.signedOut'), position: 'bottom' });
-        setAuthState({ kind: 'signed-out' });
-      },
-      t('chrome.signOut.label'),
-    );
-  };
-
   const onSwitchStore = () => {
     if (!canSwitchStore) return;
     setActiveStore(null);
@@ -380,20 +350,6 @@ export function Receiving() {
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('receiving.title')}</Text>
           </Pressable>
           <SettingsGear />
-          <Pressable
-            onPress={onSignOut}
-            style={({ pressed }) => [styles.signOutBtn, pressed ? { backgroundColor: c.surfaceAlt } : null]}
-            accessibilityRole="button"
-            accessibilityLabel={t('chrome.signOut.label')}
-            testID="staff-receiving-sign-out"
-          >
-            <Text style={[styles.signOutText, { color: c.error }]}>{t('chrome.signOut.label')}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.headerSwitcherRow}>
-          <LocaleSwitcher />
-          <ScaleSwitcher />
         </View>
 
         {/* Controls — refresh (list view) or back (detail view) */}
@@ -635,11 +591,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: T.spacing.md,
   },
-  headerSwitcherRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   storePressable: {
     flex: 1,
     minWidth: 0,
@@ -654,17 +605,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   headerSub: {
     fontSize: T.typography.caption,
     marginTop: 2,
-  },
-  signOutBtn: {
-    paddingVertical: T.spacing.sm,
-    paddingHorizontal: T.spacing.md,
-    borderRadius: T.radius.sm,
-    minHeight: T.touchTarget.min,
-    justifyContent: 'center',
-  },
-  signOutText: {
-    fontSize: T.typography.body,
-    fontWeight: T.typography.semibold,
   },
   controlsRow: {
     flexDirection: 'row',

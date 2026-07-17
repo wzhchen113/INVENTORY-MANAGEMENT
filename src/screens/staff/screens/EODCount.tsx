@@ -33,14 +33,10 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
-import { LocaleSwitcher } from '../components/LocaleSwitcher';
-import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { SettingsGear } from '../components/SettingsGear';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
-import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
-import { unsubscribeFromPush } from '../../../lib/webPush';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import {
   applyCountOrder,
@@ -265,7 +261,6 @@ export function EODCount() {
     s.authState.kind === 'signed-in' ? s.authState.stores : [],
   );
   const userId = useStaffStore((s) => currentStaffUserId(s.authState));
-  const setAuthState = useStaffStore((s) => s.setAuthState);
   const setActiveStore = useStaffStore((s) => s.setActiveStore);
 
   const { submit, pending, draining } = useEodSubmit();
@@ -529,40 +524,6 @@ export function EODCount() {
   }, [userId, selectedVendorId, savedIds]);
 
   // ─── header actions ───────────────────────────────────────────────
-  const onSignOut = useCallback(() => {
-    confirmAction(
-      t('chrome.signOut.confirmTitle'),
-      t('chrome.signOut.confirmMessage'),
-      async () => {
-        // Tear down THIS device's web-push subscription before signing out —
-        // mirrors admin logout (useStore.ts). Must run BEFORE signOut() so the
-        // push_subscriptions row delete happens under the authenticated
-        // session (RLS owner-scopes it). Best-effort — unsubscribeFromPush
-        // swallows its own errors. Without this, a shared device keeps
-        // delivering the prior user's reminders to the next signed-in user.
-        await unsubscribeFromPush();
-        try {
-          await supabase.auth.signOut();
-        } catch (err) {
-          notifyBackendError('signOut', err);
-        }
-        // Queue is NOT cleared per spec — intent_user_id boundary
-        // preserves items across sign-out.
-        setActiveStore(null);
-        // Surface the "signed out" toast directly — the AuthState
-        // 'signed-out' branch is plain, callers fire toasts at the
-        // failure / transition site.
-        Toast.show({
-          type: 'success',
-          text1: t('chrome.signedOut'),
-          position: 'bottom',
-        });
-        setAuthState({ kind: 'signed-out' });
-      },
-      t('chrome.signOut.label'),
-    );
-  }, [setAuthState, setActiveStore, t]);
-
   const onSwitchStore = useCallback(() => {
     if (!canSwitchStore) return;
     setActiveStore(null);
@@ -879,24 +840,6 @@ export function EODCount() {
             </Text>
           </Pressable>
           <SettingsGear />
-          <Pressable
-            onPress={onSignOut}
-            style={({ pressed }) => [
-              styles.signOutBtn,
-              pressed ? { backgroundColor: c.surfaceAlt } : null,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t('chrome.signOut.label')}
-            testID="eod-sign-out"
-          >
-            <Text style={[styles.signOutText, { color: c.error }]}>
-              {t('chrome.signOut.label')}
-            </Text>
-          </Pressable>
-        </View>
-        <View style={styles.headerSwitcherRow}>
-          <LocaleSwitcher />
-          <ScaleSwitcher />
         </View>
         {/* Today / Yesterday count-date toggle. Yesterday lets staff catch a
             vendor whose count date was missed; the submission is flagged late
@@ -1307,12 +1250,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: T.spacing.md,
   },
-  headerSwitcherRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: T.spacing.sm,
-  },
   // Today / Yesterday segmented toggle — mirrors the LocaleSwitcher pill shape.
   dateToggle: {
     flexDirection: 'row',
@@ -1345,17 +1282,6 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   todayLabel: {
     fontSize: T.typography.caption,
     marginTop: 2,
-  },
-  signOutBtn: {
-    paddingVertical: T.spacing.sm,
-    paddingHorizontal: T.spacing.md,
-    borderRadius: T.radius.sm,
-    minHeight: T.touchTarget.min,
-    justifyContent: 'center',
-  },
-  signOutText: {
-    fontSize: T.typography.body,
-    fontWeight: T.typography.semibold,
   },
   vendorSwitcher: {
     paddingTop: T.spacing.sm,

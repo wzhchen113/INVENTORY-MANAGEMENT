@@ -366,7 +366,9 @@
     },
     "settings": {
       "title": "Settings",
+      "gearLabel": "Settings",
       "gearAria": "Open settings",
+      "gearAriaNotifOff": "Settings — notifications off",
       "back": "Back"
     },
     "reportIssue": {

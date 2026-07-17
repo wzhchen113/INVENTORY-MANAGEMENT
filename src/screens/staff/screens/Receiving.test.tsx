@@ -16,7 +16,7 @@
 //
 // Boundary mocking mirrors WeeklyCount.test.tsx / Reorder.test.tsx: mock the
 // carve-out lib + useConnectionStatus + confirmAction, shim useFocusEffect to a
-// plain effect, and stub the supabase client (sign-out only touches it).
+// plain effect, and stub the supabase client boundary.
 
 jest.setTimeout(20000);
 
@@ -72,13 +72,11 @@ jest.mock('../lib/uuid', () => ({
   uuidv4: () => mockUuid(),
 }));
 
-// Receiving.tsx imports the real supabase client for its sign-out action — stub
-// the boundary so the test env doesn't need SUPABASE_URL (mirrors Reorder.test).
-// The data path is mocked at ../lib/receiving above.
+// Stub the supabase boundary so the test env doesn't need SUPABASE_URL for any
+// transitive import (mirrors Reorder.test). The data path is mocked at
+// ../lib/receiving above; spec 126 follow-up removed the inline sign-out action.
 jest.mock('../../../lib/supabase', () => ({
-  supabase: {
-    auth: { signOut: jest.fn().mockResolvedValue({ error: null }) },
-  },
+  supabase: {},
 }));
 
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';

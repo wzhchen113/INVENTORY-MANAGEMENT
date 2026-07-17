@@ -48,13 +48,11 @@ jest.mock('../lib/shareReorder', () => ({
   shareReorderPdf: (...a: unknown[]) => mockShareReorderPdf(...a),
 }));
 
-// Reorder.tsx imports the real supabase client for its sign-out action —
-// stub the boundary so the test env doesn't need SUPABASE_URL (mirrors
-// EODCount.test.tsx). The data path is mocked at fetchReorder above.
+// Stub the supabase boundary so the test env doesn't need SUPABASE_URL for any
+// transitive import (mirrors EODCount.test.tsx). The data path is mocked at
+// fetchReorder above; spec 126 follow-up removed the inline sign-out action.
 jest.mock('../../../lib/supabase', () => ({
-  supabase: {
-    auth: { signOut: jest.fn().mockResolvedValue({ error: null }) },
-  },
+  supabase: {},
 }));
 
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
