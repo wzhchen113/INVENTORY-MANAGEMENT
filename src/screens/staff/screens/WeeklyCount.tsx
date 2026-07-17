@@ -35,6 +35,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { IngredientThumb } from '../components/IngredientThumb';
+import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
@@ -67,6 +68,7 @@ import {
   serializeWeeklyDraft,
   deserializeWeeklyDraft,
 } from '../lib/countDrafts';
+import { fetchUpdatedItemIds } from '../lib/itemsUpdated';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { todayIso } from '../lib/date';
 import { confirmAction } from '../../../utils/confirmAction';
@@ -283,9 +285,16 @@ export function WeeklyCount() {
     setLoading(true);
     setForbidden(false);
     setCompletedFor(null);
-    fetchAllItemsForStore(activeStore.id)
-      .then((next) => {
-        setItems(next);
+    // Spec 128 — the "Updated" badge set rides in parallel with the item fetch,
+    // best-effort: fetchUpdatedItemIds swallows errors to an empty set, and the
+    // extra `.catch` keeps a rejection from ever failing the primary item read.
+    Promise.all([
+      fetchAllItemsForStore(activeStore.id),
+      fetchUpdatedItemIds(activeStore.id).catch(() => new Set<string>()),
+    ])
+      .then(([next, updatedIds]) => {
+        // Merge the badge flag onto each item (like spec 127's imagePath).
+        setItems(next.map((it) => ({ ...it, updated: updatedIds.has(it.id) })));
         setCaseCounts({});
         setUnitCounts({});
       })
@@ -946,6 +955,12 @@ export function WeeklyCount() {
                       {t('weekly.lowStock.badge')}
                     </Text>
                   </View>
+                ) : null}
+                {/* Spec 128 — subtle "Updated" pill (info tone, distinct from
+                    the LOW warning pill) when the item's product changed since
+                    this store last counted it. */}
+                {item.updated ? (
+                  <UpdatedBadge testID={`weekly-updated-badge-${item.id}`} />
                 ) : null}
               </View>
               {item.unit || hasPack ? (

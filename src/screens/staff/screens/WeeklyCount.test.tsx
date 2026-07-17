@@ -34,6 +34,10 @@ let mockItemsResult: QueryResult = { data: [], error: null };
 // data (default empty for categories so existing tests are unaffected).
 let mockCategoriesResult: QueryResult = { data: [], error: null };
 let mockRpcResult: QueryResult = { data: null, error: null };
+// Spec 128 — the staff_items_updated RPC (drives the "Updated" badge). Kept on
+// its own channel so it never collides with report_weekly_lowstock's result.
+// Default empty → no badges for existing tests.
+let mockUpdatedResult: QueryResult = { data: [], error: null };
 // Spec 103 — the per-user saved count order (user_count_orders). `.maybeSingle()`
 // returns this; default no-row so existing tests open in default view. The
 // upsert/delete (save/reset) just resolve OK.
@@ -143,7 +147,8 @@ jest.mock('../../../utils/confirmAction', () => ({
 jest.mock('../../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => mockQueryBuilder(table),
-    rpc: (_fn: string) => Promise.resolve(mockRpcResult),
+    rpc: (fn: string) =>
+      Promise.resolve(fn === 'staff_items_updated' ? mockUpdatedResult : mockRpcResult),
   },
 }));
 
@@ -178,6 +183,7 @@ beforeEach(async () => {
   mockItemsResult = { data: [], error: null };
   mockCategoriesResult = { data: [], error: null };
   mockRpcResult = { data: null, error: null };
+  mockUpdatedResult = { data: [], error: null };
   mockCountOrderResult = { data: null, error: null };
   // Spec 110 — reset the shared-layouts server-mock (Default-only by default).
   mockLayoutsResult = { data: [], error: null };
@@ -630,6 +636,57 @@ describe('WeeklyCount — spec 110 pick-only layouts', () => {
       (c) => c[0]?.text1 === 'Count every item first',
     );
     expect(toastCall?.[0]).toMatchObject({ text2: '1 still need a count' });
+  });
+});
+
+// ─── Spec 128 — "Updated" badge ──────────────────────────────────────
+// The staff_items_updated RPC set is merged onto each item as `updated`; a row
+// shows the "Updated" pill iff its id is in the set. Best-effort: an empty/failed
+// RPC leaves items badge-less and never blocks the list.
+describe('WeeklyCount — spec 128 Updated badge', () => {
+  it('renders the "Updated" badge only on items in the staff_items_updated set', async () => {
+    mockItemsResult = {
+      data: [
+        { id: 'item-1', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 1 } },
+        { id: 'item-2', catalog: { name: 'Salt', unit: 'oz', category: 'Dry Goods', case_qty: 1 } },
+      ],
+      error: null,
+    };
+    // Only item-1 changed since the store last counted it.
+    mockUpdatedResult = {
+      data: [
+        { item_id: 'item-1', updated: true },
+        { item_id: 'item-2', updated: false },
+      ],
+      error: null,
+    };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    await waitFor(() => expect(getByTestId('weekly-updated-badge-item-1')).toBeTruthy());
+    // item-2 (updated:false) shows no badge.
+    expect(queryByTestId('weekly-updated-badge-item-2')).toBeNull();
+  });
+
+  it('shows NO badges when the RPC returns an empty set', async () => {
+    mockItemsResult = {
+      data: [{ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 1 } }],
+      error: null,
+    };
+    mockUpdatedResult = { data: [], error: null };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    expect(queryByTestId('weekly-updated-badge-item-1')).toBeNull();
+  });
+
+  it('still renders the list when the badge RPC fails (best-effort degrade)', async () => {
+    mockItemsResult = {
+      data: [{ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', category: 'Dry Goods', case_qty: 1 } }],
+      error: null,
+    };
+    mockUpdatedResult = { data: null, error: { code: '42501', message: 'denied' } };
+    const { getByTestId, queryByTestId } = render(<WeeklyCount />);
+    await waitFor(() => expect(getByTestId('weekly-item-row-item-1')).toBeTruthy());
+    expect(queryByTestId('weekly-updated-badge-item-1')).toBeNull();
   });
 });
 

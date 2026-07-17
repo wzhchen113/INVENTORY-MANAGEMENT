@@ -46,6 +46,11 @@ export type EodItem = {
    *  (../../../lib/ingredientImage) at render time. Optional — absent/undefined
    *  or null = no photo → the count row renders the placeholder thumbnail. */
   imagePath?: string | null;
+  /** Spec 128 — whether this item's product effectively changed (photo or
+   *  primary-vendor) since THIS store last counted it. Set from the
+   *  `staff_items_updated` RPC (via `fetchUpdatedItemIds`) and merged onto the
+   *  item before `setItems`. Absent/false → no "Updated" badge. */
+  updated?: boolean;
 };
 
 /** Vendor row (id + name) for the vendor switcher. */
@@ -162,6 +167,11 @@ export type WeeklyItem = {
    *  a URL). Resolved via `ingredientImageUrl` (../../../lib/ingredientImage) at
    *  render time. Optional — absent/null = no photo → placeholder thumbnail. */
   imagePath?: string | null;
+  /** Spec 128 — whether this item's product effectively changed (photo or
+   *  primary-vendor) since THIS store last counted it. Set from the
+   *  `staff_items_updated` RPC (via `fetchUpdatedItemIds`) and merged onto the
+   *  item before `setItems`. Absent/false → no "Updated" badge. */
+  updated?: boolean;
 };
 
 /** Spec 098 — single entry inside a weekly-count submit. Mirrors the

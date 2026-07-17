@@ -335,6 +335,9 @@
   },
   "chrome": {
     "clear": "清除",
+    "count": {
+      "updatedBadge": "已更新"
+    },
     "queue": {
       "pending": "{count} 条待处理",
       "queuedRow": "已加入队列 — 联网后将同步",

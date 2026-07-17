@@ -335,6 +335,9 @@
   },
   "chrome": {
     "clear": "Borrar",
+    "count": {
+      "updatedBadge": "Actualizado"
+    },
     "queue": {
       "pending": "{count} pendientes",
       "queuedRow": "En cola — se sincronizará al conectarse",

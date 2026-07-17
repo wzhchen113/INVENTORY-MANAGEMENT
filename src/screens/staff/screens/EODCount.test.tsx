@@ -41,6 +41,10 @@ let mockNextResultStack: QueryResult[] = [];
 // stack. Default no-row → the screen opens in default view. The upsert/delete
 // (save/reset) just resolve OK.
 let mockCountOrderResult: QueryResult = { data: null, error: null };
+// Spec 128 — the staff_items_updated RPC (drives the "Updated" badge). Its own
+// channel so it never consumes a fixture from the vendor/item/existing stack.
+// Default empty → no badges for existing tests.
+let mockUpdatedResult: QueryResult = { data: [], error: null };
 
 function mockQueryBuilder(table: string) {
   mockFromCalls.push(table);
@@ -73,6 +77,7 @@ function mockQueryBuilder(table: string) {
 jest.mock('../../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => mockQueryBuilder(table),
+    rpc: (_fn: string) => Promise.resolve(mockUpdatedResult),
   },
 }));
 
@@ -114,6 +119,7 @@ beforeEach(() => {
   mockFromCalls.length = 0;
   mockNextResultStack = [];
   mockCountOrderResult = { data: null, error: null };
+  mockUpdatedResult = { data: [], error: null };
   mockYesterdayIncomplete.mockReset();
   mockYesterdayIncomplete.mockResolvedValue(false);
   mockNavigate.mockReset();
@@ -869,5 +875,57 @@ describe('EODCount — spec 103 custom order', () => {
     await waitFor(() =>
       expect(getByTestId('eod-view-default').props.accessibilityState?.selected).toBe(true),
     );
+  });
+});
+
+// ─── Spec 128 — "Updated" badge ──────────────────────────────────────
+// The staff_items_updated RPC set is merged onto each item as `updated`; the
+// row shows the "Updated" pill iff its id is in the set. Best-effort: an
+// empty/failed RPC leaves the row badge-less and never blocks the list.
+describe('EODCount — spec 128 Updated badge', () => {
+  function seedVendorAndItems() {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      {
+        data: [
+          itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
+          itemVendorRow({ id: 'item-2', catalog: { name: 'Salt', unit: 'oz', case_qty: 1 } }),
+        ],
+        error: null,
+      },
+      { data: null, error: null }, // no existing submission
+    ];
+  }
+
+  it('renders the "Updated" badge only on items in the staff_items_updated set', async () => {
+    seedVendorAndItems();
+    mockUpdatedResult = {
+      data: [
+        { item_id: 'item-1', updated: true },
+        { item_id: 'item-2', updated: false },
+      ],
+      error: null,
+    };
+    const { getByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
+    await waitFor(() => expect(getByTestId('eod-updated-badge-item-1')).toBeTruthy());
+    expect(queryByTestId('eod-updated-badge-item-2')).toBeNull();
+  });
+
+  it('shows NO badges when the RPC returns an empty set', async () => {
+    seedVendorAndItems();
+    mockUpdatedResult = { data: [], error: null };
+    const { getByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
+    expect(queryByTestId('eod-updated-badge-item-1')).toBeNull();
+    expect(queryByTestId('eod-updated-badge-item-2')).toBeNull();
+  });
+
+  it('still renders the rows when the badge RPC fails (best-effort degrade)', async () => {
+    seedVendorAndItems();
+    mockUpdatedResult = { data: null, error: { code: '42501', message: 'denied' } };
+    const { getByTestId, queryByTestId } = render(<EODCount />);
+    await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
+    expect(queryByTestId('eod-updated-badge-item-1')).toBeNull();
   });
 });

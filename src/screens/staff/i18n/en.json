@@ -335,6 +335,9 @@
   },
   "chrome": {
     "clear": "Clear",
+    "count": {
+      "updatedBadge": "Updated"
+    },
     "queue": {
       "pending": "{count} pending",
       "queuedRow": "Queued — will sync when online",

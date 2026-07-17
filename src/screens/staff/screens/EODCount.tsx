@@ -34,6 +34,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { IngredientThumb } from '../components/IngredientThumb';
+import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
@@ -49,6 +50,7 @@ import {
 } from '../lib/countOrder';
 import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
+import { fetchUpdatedItemIds } from '../lib/itemsUpdated';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
@@ -420,8 +422,17 @@ export function EODCount() {
     Promise.all([
       fetchItemsForVendor(activeStore.id, selectedVendorId),
       fetchExistingSubmission(activeStore.id, countIso, selectedVendorId),
+      // Spec 128 — "Updated" badge set, in parallel + best-effort. A slow/failed
+      // RPC degrades to an empty set (fetchUpdatedItemIds swallows errors), so
+      // items just render without the badge and the count list is never blocked.
+      fetchUpdatedItemIds(activeStore.id),
     ])
-      .then(([nextItems, nextExisting]) => {
+      .then(([fetchedItems, nextExisting, updatedIds]) => {
+        // Merge the badge flag onto each item (like spec 127's imagePath).
+        const nextItems = fetchedItems.map((it) => ({
+          ...it,
+          updated: updatedIds.has(it.id),
+        }));
         setItems(nextItems);
         setExisting(nextExisting);
         // Pre-fill BOTH boxes from any existing submission. Cases seeds from
@@ -726,12 +737,19 @@ export function EODCount() {
                   visually identify the physical item. View-only. */}
               <IngredientThumb path={item.imagePath} testID={`eod-item-thumb-${item.id}`} />
               <View style={styles.leadingText}>
-              <Text
-                style={[styles.itemName, { color: entered ? c.text : c.error }]}
-                numberOfLines={2}
-              >
-                {displayName}
-              </Text>
+              <View style={styles.itemNameRow}>
+                <Text
+                  style={[styles.itemName, { color: entered ? c.text : c.error }]}
+                  numberOfLines={2}
+                >
+                  {displayName}
+                </Text>
+                {/* Spec 128 — subtle "Updated" pill when the item's product
+                    changed since this store last counted it. */}
+                {item.updated ? (
+                  <UpdatedBadge testID={`eod-updated-badge-${item.id}`} />
+                ) : null}
+              </View>
               {item.unit || hasPack ? (
                 <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
                   {item.unit}
@@ -1359,7 +1377,16 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // Spec 128 — name + "Updated" badge share a row so the badge sits inline with
+  // the (possibly 2-line) ingredient name. `flexShrink` on the name lets it
+  // wrap while the badge keeps its intrinsic width (mirrors Weekly's row).
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.spacing.sm,
+  },
   itemName: {
+    flexShrink: 1,
     fontSize: T.typography.bodyLarge,
     fontWeight: T.typography.semibold,
   },
