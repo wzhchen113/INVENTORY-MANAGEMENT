@@ -481,6 +481,7 @@
       "selectStoreToCount": "Selecciona una tienda para contar inventario.",
       "weekShort": "sem {num}",
       "submittedAria": "enviado",
+      "notSubmittedAria": "no enviado",
       "removeVendorAria": "Quitar {vendor} del horario de {day}",
       "addVendorAria": "Añadir un proveedor al horario de {day}",
       "noVendorsScheduled": "no hay proveedores programados para {day}",

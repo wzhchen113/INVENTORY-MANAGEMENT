@@ -1232,7 +1232,22 @@ export default function EODCountSection() {
                       >
                         ✓
                       </Text>
-                    ) : null}
+                    ) : (
+                      // Mirror of the staff chip's spec-129 status badge: red
+                      // dot while this vendor's count is outstanding for the
+                      // selected (store, date). C.danger stays legible on the
+                      // selected chip's light C.fg background.
+                      <Text
+                        accessibilityLabel={T('section.eod.notSubmittedAria')}
+                        style={{
+                          fontFamily: mono(700),
+                          fontSize: 11,
+                          color: C.danger,
+                        }}
+                      >
+                        ●
+                      </Text>
+                    )}
                     <Text style={{ fontFamily: mono(sel ? 700 : 500), fontSize: 11, color: sel ? C.bg : C.fg2 }}>
                       {v.name.toUpperCase()} ({v.count})
                     </Text>

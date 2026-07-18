@@ -481,6 +481,7 @@
       "selectStoreToCount": "选择门店以盘点库存。",
       "weekShort": "第 {num} 周",
       "submittedAria": "已提交",
+      "notSubmittedAria": "未提交",
       "removeVendorAria": "从 {day} 排程中移除 {vendor}",
       "addVendorAria": "向 {day} 排程添加供应商",
       "noVendorsScheduled": "{day} 没有安排的供应商",

@@ -481,6 +481,7 @@
       "selectStoreToCount": "Select a store to count inventory.",
       "weekShort": "wk {num}",
       "submittedAria": "submitted",
+      "notSubmittedAria": "not submitted",
       "removeVendorAria": "Remove {vendor} from {day} schedule",
       "addVendorAria": "Add a vendor to {day} schedule",
       "noVendorsScheduled": "no vendors scheduled for {day}",
