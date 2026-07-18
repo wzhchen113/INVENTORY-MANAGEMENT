@@ -661,7 +661,7 @@ function BreadbotPreviewCard({
           borderBottomColor: C.border,
         }}
       >
-        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accent }}>
+        <View style={{ paddingHorizontal: 9, paddingVertical: 2, borderRadius: CmdRadius.pill, borderWidth: 0.5, borderColor: C.accent, backgroundColor: C.accent }}>
           <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>PREVIEW</Text>
         </View>
         <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: C.fg, flex: 1 }} numberOfLines={1}>
@@ -684,9 +684,11 @@ function BreadbotPreviewCard({
       >
         <View
           style={{
-            paddingHorizontal: 7,
+            paddingHorizontal: 9,
             paddingVertical: 2,
-            borderRadius: 3,
+            borderRadius: CmdRadius.pill,
+            borderWidth: 0.5,
+            borderColor: C.ok,
             backgroundColor: C.okBg,
           }}
         >
@@ -697,9 +699,11 @@ function BreadbotPreviewCard({
         {preview.rows.length - matchedCount > 0 && (
           <View
             style={{
-              paddingHorizontal: 7,
+              paddingHorizontal: 9,
               paddingVertical: 2,
-              borderRadius: 3,
+              borderRadius: CmdRadius.pill,
+              borderWidth: 0.5,
+              borderColor: C.warn,
               backgroundColor: C.warnBg,
             }}
           >
@@ -1109,11 +1113,11 @@ function MappingTab() {
                   {isGlobal ? (
                     <View
                       style={{
-                        borderWidth: 1,
+                        borderWidth: 0.5,
                         borderColor: C.info,
-                        borderRadius: CmdRadius.xs,
-                        paddingHorizontal: 5,
-                        paddingVertical: 1,
+                        borderRadius: CmdRadius.pill,
+                        paddingHorizontal: 9,
+                        paddingVertical: 2,
                         backgroundColor: C.infoBg,
                       }}
                     >

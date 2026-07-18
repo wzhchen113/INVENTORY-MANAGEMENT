@@ -534,7 +534,7 @@ function WasteRecentTab() {
                 </Text>
                 <Text style={{ fontFamily: sans(500), fontSize: 12.5, color: C.fg, flex: 1 }} numberOfLines={1}>{r.itemName || item?.name || '—'}</Text>
                 <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 90 }}>{r.quantity} {r.unit || item?.unit}</Text>
-                <View style={{ borderWidth: 1, borderColor: C.warn, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: C.warnBg }}>
+                <View style={{ borderWidth: 0.5, borderColor: C.warn, borderRadius: CmdRadius.pill, paddingHorizontal: 9, paddingVertical: 2, backgroundColor: C.warnBg }}>
                   <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.4 }}>
                     {(r.reason || 'OTHER').toUpperCase()}
                   </Text>

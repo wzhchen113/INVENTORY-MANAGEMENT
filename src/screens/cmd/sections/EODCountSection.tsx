@@ -992,7 +992,7 @@ export default function EODCountSection() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 15 }}>
-                  <View style={{ paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 3, backgroundColor: pill.bg }}>
+                  <View style={{ paddingHorizontal: 9, paddingVertical: 2, borderRadius: CmdRadius.pill, borderWidth: 0.5, borderColor: d.status === 'rest' ? C.border : pill.fg, backgroundColor: pill.bg }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 9, color: pill.fg, letterSpacing: 0.5 }}>
                       {pill.label.toUpperCase()}
                     </Text>
@@ -1088,7 +1088,7 @@ export default function EODCountSection() {
                 // REST DAY pill — Q7=(a) with read-only enforcement. Echoes
                 // the per-day-cell pill in the week sidebar so the user sees
                 // a matching signal at the worksheet head.
-                <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warn }}>
+                <View style={{ paddingHorizontal: 9, paddingVertical: 3, borderRadius: CmdRadius.pill, backgroundColor: C.warnBg, borderWidth: 0.5, borderColor: C.warn }}>
                   <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.warn, letterSpacing: 0.5 }}>
                     {T('section.eod.restDayLabel')}
                   </Text>
@@ -1100,7 +1100,7 @@ export default function EODCountSection() {
                   so the user sees a matching signal at the worksheet head. */}
               {isVendorLocked ? (
                 <>
-                  <View style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: CmdRadius.xs, backgroundColor: C.okBg, borderWidth: 1, borderColor: C.ok }}>
+                  <View style={{ paddingHorizontal: 9, paddingVertical: 3, borderRadius: CmdRadius.pill, backgroundColor: C.okBg, borderWidth: 0.5, borderColor: C.ok }}>
                     <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.ok, letterSpacing: 0.5 }}>
                       {T('section.eod.submittedLocked')}
                     </Text>
@@ -1734,7 +1734,7 @@ function EODHistoryTab() {
                   <Text style={{ fontFamily: sans(500), fontSize: 12, color: C.fg2, flex: 1 }} numberOfLines={1}>{sub.submittedBy || '—'}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg, width: 80, textAlign: 'right' }}>{sub.itemCount || sub.entries?.length || 0}</Text>
                   <View style={{ width: 90, alignItems: 'flex-end' }}>
-                    <View style={{ borderWidth: 1, borderColor: tone === 'warn' ? C.warn : C.ok, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: tone === 'warn' ? C.warnBg : C.okBg }}>
+                    <View style={{ borderWidth: 0.5, borderColor: tone === 'warn' ? C.warn : C.ok, borderRadius: CmdRadius.pill, paddingHorizontal: 9, paddingVertical: 2, backgroundColor: tone === 'warn' ? C.warnBg : C.okBg }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone === 'warn' ? C.warn : C.ok, letterSpacing: 0.4 }}>
                         {sub.status === 'draft' ? T('section.eod.statusDraftPill') : T('section.eod.statusSubmittedPill')}
                       </Text>
@@ -1868,7 +1868,7 @@ function VarianceLogTab() {
                     {v.deltaCost >= 0 ? '+' : '−'}${Math.abs(v.deltaCost).toFixed(0)}
                   </Text>
                   <View style={{ width: 80, alignItems: 'flex-end' }}>
-                    <View style={{ borderWidth: 1, borderColor: tone, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: bg }}>
+                    <View style={{ borderWidth: 0.5, borderColor: tone, borderRadius: CmdRadius.pill, paddingHorizontal: 9, paddingVertical: 2, backgroundColor: bg }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone, letterSpacing: 0.4 }}>{v.tag}</Text>
                     </View>
                   </View>

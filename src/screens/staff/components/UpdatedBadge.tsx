@@ -43,9 +43,9 @@ export function UpdatedBadge({ testID }: Props) {
 const makeStyles = (T: StaffTokens) =>
   StyleSheet.create({
     badge: {
-      paddingHorizontal: 6,
+      paddingHorizontal: 8,
       paddingVertical: 1,
-      borderRadius: 4,
+      borderRadius: T.radius.pill,
       borderWidth: 1,
     },
     badgeText: {

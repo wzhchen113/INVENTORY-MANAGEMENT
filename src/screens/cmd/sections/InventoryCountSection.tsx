@@ -2002,11 +2002,11 @@ function HistoryTab({
                   >
                     <View
                       style={{
-                        paddingHorizontal: 6,
+                        paddingHorizontal: 9,
                         paddingVertical: 2,
-                        borderRadius: CmdRadius.xs,
+                        borderRadius: CmdRadius.pill,
                         backgroundColor: C.accentBg,
-                        borderWidth: 1,
+                        borderWidth: 0.5,
                         borderColor: C.accent,
                       }}
                     >
@@ -2563,11 +2563,11 @@ function WeeklyTab({
                 <View style={{ width: 120, alignItems: 'flex-end' }}>
                   <View
                     style={{
-                      paddingHorizontal: 8,
+                      paddingHorizontal: 9,
                       paddingVertical: 3,
-                      borderRadius: CmdRadius.xs,
+                      borderRadius: CmdRadius.pill,
                       backgroundColor: tone.bg,
-                      borderWidth: 1,
+                      borderWidth: 0.5,
                       borderColor: tone.border,
                     }}
                   >

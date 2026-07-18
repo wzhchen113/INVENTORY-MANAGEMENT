@@ -86,7 +86,7 @@ export const Badge: React.FC<BadgeProps> = ({ label, variant }) => {
   };
   const { bg, text } = conf[variant] || conf.ok;
   return (
-    <View style={[styles.badge, { backgroundColor: bg }]}>
+    <View style={[styles.badge, { backgroundColor: bg, borderColor: text }]}>
       <Text style={[styles.badgeText, { color: text }]}>{label}</Text>
     </View>
   );
@@ -244,8 +244,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   badge: {
-    borderRadius: Radius.round,
-    paddingHorizontal: 7,
+    borderRadius: Radius.pill,
+    borderWidth: 0.5,
+    paddingHorizontal: 9,
     paddingVertical: 2,
     alignSelf: 'flex-start',
   },

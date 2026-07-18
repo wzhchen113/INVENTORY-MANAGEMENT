@@ -279,7 +279,7 @@ function ByUserTab({ events, onJumpToFeed }: { events: AuditEvent[]; onJumpToFee
                   <Text style={{ fontFamily: mono(500), fontSize: 11, color: C.fg2, width: 50, textAlign: 'right' }}>{u.total}</Text>
                   <View style={{ flexDirection: 'row', gap: 4 }}>
                     {u.hot.map(([action, count]) => (
-                      <View key={action} style={{ borderWidth: 1, borderColor: C.border, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1 }}>
+                      <View key={action} style={{ borderWidth: 0.5, borderColor: C.border, borderRadius: CmdRadius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
                         {/* Spec 038 Round 2 — abbreviated hot-action chip stays English-first.
                             The full translated label lives on the row to the left via formatAuditAction;
                             this chip's job is a single-word density indicator, so we accept the

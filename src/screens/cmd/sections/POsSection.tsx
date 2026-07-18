@@ -748,7 +748,7 @@ export function POHistoryTab({ vendorIdFilter }: { vendorIdFilter?: string } = {
                     ${(o.totalCost || 0).toFixed(0)}
                   </Text>
                   <View style={{ width: 90, alignItems: 'flex-end' }}>
-                    <View style={{ borderWidth: 1, borderColor: tone, borderRadius: CmdRadius.xs, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: bg }}>
+                    <View style={{ borderWidth: 0.5, borderColor: tone, borderRadius: CmdRadius.pill, paddingHorizontal: 9, paddingVertical: 2, backgroundColor: bg }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: tone, letterSpacing: 0.4 }}>{status.toUpperCase()}</Text>
                     </View>
                   </View>

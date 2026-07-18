@@ -371,11 +371,11 @@ function UserRow({
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <View
           style={{
-            paddingHorizontal: 6,
+            paddingHorizontal: 9,
             paddingVertical: 2,
-            borderRadius: CmdRadius.xs,
+            borderRadius: CmdRadius.pill,
             backgroundColor: C.panel2,
-            borderWidth: 1,
+            borderWidth: 0.5,
             borderColor: C.border,
           }}
         >

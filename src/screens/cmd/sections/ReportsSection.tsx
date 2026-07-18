@@ -320,7 +320,7 @@ export default function ReportsSection() {
                   <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>{r.id.slice(0, 8)}</Text>
                     <View style={{ flex: 1 }} />
-                    <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accentBg }}>
+                    <View style={{ paddingHorizontal: 9, paddingVertical: 2, borderRadius: CmdRadius.pill, borderWidth: 0.5, borderColor: C.accent, backgroundColor: C.accentBg }}>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.accent, letterSpacing: 0.4 }}>{r.templateId.toUpperCase()}</Text>
                     </View>
                   </View>
@@ -389,9 +389,11 @@ export default function ReportsSection() {
                 {r.status === 'preview' ? (
                   <View
                     style={{
-                      paddingHorizontal: 7,
+                      paddingHorizontal: 9,
                       paddingVertical: 2,
-                      borderRadius: 3,
+                      borderRadius: CmdRadius.pill,
+                      borderWidth: 0.5,
+                      borderColor: C.border,
                       backgroundColor: C.panel2,
                     }}
                   >

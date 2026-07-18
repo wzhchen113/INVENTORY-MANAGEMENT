@@ -138,15 +138,17 @@ function Badge({
   const C = useCmdColors();
   const bg = tone === 'accent' ? C.accentBg : tone === 'warn' ? C.warnBg : 'transparent';
   const fg = tone === 'accent' ? C.accent : tone === 'warn' ? C.warn : C.fg3;
-  const border = tone === 'fg3' ? C.border : 'transparent';
+  // Hairline tone border completes the pill treatment: tone-colored for the
+  // filled accent/warn variants, muted `border` for the transparent fg3 one.
+  const border = tone === 'fg3' ? C.border : fg;
   return (
     <View
       style={{
         paddingHorizontal: 8,
         paddingVertical: 3,
-        borderRadius: CmdRadius.sm,
+        borderRadius: CmdRadius.pill,
         backgroundColor: bg,
-        borderWidth: border === 'transparent' ? 0 : 1,
+        borderWidth: 0.5,
         borderColor: border,
       }}
     >
@@ -181,7 +183,7 @@ function FlagChip({ token }: { token: string }) {
     // Forward-compat — render unknown tokens raw rather than dropping
     // them. Lets backend v2 add flags without churning the section.
     return (
-      <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, borderWidth: 1, borderColor: C.border }}>
+      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: CmdRadius.pill, borderWidth: 0.5, borderColor: C.border }}>
         <Text style={{ fontFamily: mono(600), fontSize: 9, color: C.fg3 }}>{token}</Text>
       </View>
     );
@@ -191,12 +193,12 @@ function FlagChip({ token }: { token: string }) {
   return (
     <View
       style={{
-        paddingHorizontal: 6,
+        paddingHorizontal: 7,
         paddingVertical: 2,
-        borderRadius: 3,
+        borderRadius: CmdRadius.pill,
         backgroundColor: bg,
-        borderWidth: entry.tone === 'fg3' ? 1 : 0,
-        borderColor: C.border,
+        borderWidth: 0.5,
+        borderColor: entry.tone === 'warn' ? C.warn : C.border,
       }}
     >
       <Text style={{ fontFamily: mono(600), fontSize: 9, color: fg, letterSpacing: 0.3 }}>{entry.label}</Text>

@@ -886,9 +886,11 @@ const StoreCol: React.FC<StoreColProps> = ({
         </View>
         <View
           style={{
-            paddingHorizontal: 6,
+            paddingHorizontal: 9,
             paddingVertical: 2,
-            borderRadius: CmdRadius.xs,
+            borderRadius: CmdRadius.pill,
+            borderWidth: 0.5,
+            borderColor: statusFg,
             backgroundColor: statusBg,
           }}
         >

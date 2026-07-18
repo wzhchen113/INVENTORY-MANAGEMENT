@@ -1488,9 +1488,9 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     fontWeight: T.typography.semibold,
   },
   lowBadge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: T.radius.pill,
     borderWidth: 1,
   },
   lowBadgeText: {

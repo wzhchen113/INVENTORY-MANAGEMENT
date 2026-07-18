@@ -85,13 +85,17 @@ export const MenuCapacityBadge: React.FC<Props> = ({ recipeId }) => {
   // Tone + colors per the visual table in the design.
   let bg = 'transparent';
   let fg = C.fg2;
+  // Hairline tone border completes the pill treatment for the zero/low
+  // states (badge-restyle pass) — set alongside bg/fg below.
   let borderColor: string | undefined;
   if (isZero) {
     bg = C.dangerBg;
     fg = C.danger;
+    borderColor = C.danger;
   } else if (isLow) {
     bg = C.warnBg;
     fg = C.warn;
+    borderColor = C.warn;
   }
 
   // Build the displayed number: "~" prefix for unit mismatch, "?" suffix
@@ -131,11 +135,11 @@ export const MenuCapacityBadge: React.FC<Props> = ({ recipeId }) => {
         accessibilityLabel={ariaLabel}
         {...tooltipProps}
         style={{
-          paddingHorizontal: 7,
+          paddingHorizontal: 9,
           paddingVertical: 2,
-          borderRadius: CmdRadius.xs,
+          borderRadius: CmdRadius.pill,
           backgroundColor: bg,
-          borderWidth: borderColor ? 1 : 0,
+          borderWidth: borderColor ? 0.5 : 0,
           borderColor,
           alignSelf: 'flex-start',
         }}

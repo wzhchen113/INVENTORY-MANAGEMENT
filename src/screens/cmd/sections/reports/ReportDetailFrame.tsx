@@ -313,9 +313,11 @@ export const ReportDetailFrame: React.FC<ReportDetailFrameProps> = ({
 
           <View
             style={{
-              paddingHorizontal: 7,
+              paddingHorizontal: 9,
               paddingVertical: 2,
-              borderRadius: 3,
+              borderRadius: CmdRadius.pill,
+              borderWidth: 0.5,
+              borderColor: C.accent,
               backgroundColor: C.accentBg,
             }}
           >
@@ -831,9 +833,11 @@ const NotImplementedPanel: React.FC<SubProps & { message: string }> = ({ C, mess
   >
     <View
       style={{
-        paddingHorizontal: 8,
+        paddingHorizontal: 9,
         paddingVertical: 3,
-        borderRadius: 3,
+        borderRadius: CmdRadius.pill,
+        borderWidth: 0.5,
+        borderColor: C.border,
         backgroundColor: C.panel2,
       }}
     >

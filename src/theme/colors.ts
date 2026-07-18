@@ -129,6 +129,9 @@ export const Radius = {
   lg: 12,
   xl: 16,
   round: 999,
+  // Fully-rounded badge/pill radius (status chips). `round` predates this
+  // and is retained for existing call sites; `pill` is the badge-restyle token.
+  pill: 999,
 };
 
 export const FontSize = {
@@ -239,4 +242,4 @@ export function useCmdColors() {
   return darkMode ? DarkCmd : LightCmd;
 }
 
-export const CmdRadius = { xs: 3, sm: 4, md: 5, lg: 6 };
+export const CmdRadius = { xs: 3, sm: 4, md: 5, lg: 6, pill: 999 };

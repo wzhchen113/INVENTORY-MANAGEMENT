@@ -428,9 +428,11 @@ function Row({ row, first, showBrand }: { row: DerivedRow; first: boolean; showB
       return (
         <View
           style={{
-            paddingHorizontal: 7,
+            paddingHorizontal: 9,
             paddingVertical: 2,
-            borderRadius: CmdRadius.xs,
+            borderRadius: CmdRadius.pill,
+            borderWidth: 0.5,
+            borderColor: fg,
             backgroundColor: bg,
             alignSelf: 'flex-end',
           }}
@@ -546,10 +548,10 @@ function UnitMismatchIcon({ T }: { T: (key: string) => string }) {
     <View
       {...tooltipProps}
       style={{
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        borderRadius: 3,
-        borderWidth: 1,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: CmdRadius.pill,
+        borderWidth: 0.5,
         borderColor: C.warn,
         backgroundColor: C.warnBg,
       }}

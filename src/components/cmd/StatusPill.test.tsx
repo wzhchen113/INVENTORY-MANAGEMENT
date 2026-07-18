@@ -35,7 +35,7 @@ jest.mock('../../theme/colors', () => ({
     info: '#185FA5',
     infoBg: '#E6F1FB',
   }),
-  CmdRadius: { xs: 3, sm: 4, md: 5, lg: 6 },
+  CmdRadius: { xs: 3, sm: 4, md: 5, lg: 6, pill: 999 },
 }));
 
 jest.mock('../../hooks/useT', () => ({
@@ -80,5 +80,20 @@ describe('StatusPill', () => {
     expect(screen.getByText('Custom')).toBeTruthy();
     // The default "OK" should NOT appear when an override is provided.
     expect(screen.queryByText('OK')).toBeNull();
+  });
+
+  // Badge-restyle pass — the pill is fully rounded (pill radius token) with a
+  // hairline tone border. Guards against a regression back to the squared xs.
+  it('renders as a fully-rounded pill with a hairline tone border', () => {
+    render(<StatusPill status="low" label="LOW" />);
+    // The label Text sits inside the pill View (host tree nests one level).
+    const pill = screen.getByText('LOW').parent?.parent;
+    const flat = Object.assign(
+      {},
+      ...(Array.isArray(pill?.props.style) ? pill!.props.style.flat(Infinity) : [pill?.props.style]).filter(Boolean),
+    );
+    expect(flat.borderRadius).toBe(999);
+    expect(flat.borderWidth).toBe(0.5);
+    expect(flat.borderColor).toBe('#854F0B'); // warn tone from the mock
   });
 });

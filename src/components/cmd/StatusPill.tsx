@@ -16,9 +16,11 @@ export const StatusPill: React.FC<Props> = ({ status, label }) => {
   return (
     <View
       style={{
-        paddingHorizontal: 7,
+        paddingHorizontal: 9,
         paddingVertical: 2,
-        borderRadius: CmdRadius.xs,
+        borderRadius: CmdRadius.pill,
+        borderWidth: 0.5,
+        borderColor: statusFg(C, status),
         backgroundColor: statusBg(C, status),
         alignSelf: 'flex-start',
       }}
