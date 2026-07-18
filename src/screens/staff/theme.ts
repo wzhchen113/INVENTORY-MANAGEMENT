@@ -61,6 +61,10 @@ export const lightColors = {
   successBg: '#E7F4EC',
   warning: '#B5710B',
   warningBg: '#FBF0DC',
+  // Spec 130 follow-up — violet, reserved for the "count not submitted"
+  // reorder treatment (distinct from the amber warning / STOCK FALLBACK).
+  violet: '#6B4BA8',
+  violetBg: '#EEE9F8',
   error: '#C0392B',
   errorBg: '#FBEAE8',
   info: '#2C7A6F',
@@ -107,6 +111,10 @@ export const darkColors: typeof lightColors = {
   successBg: 'rgba(95,186,110,0.16)',
   warning: '#E0A030',
   warningBg: 'rgba(224,160,48,0.16)',
+  // Spec 130 follow-up — violet for the "count not submitted" reorder
+  // treatment on dark staff surfaces (distinct from the amber warning).
+  violet: '#C39BE0',
+  violetBg: 'rgba(160,120,220,0.16)',
   error: '#E36A5C',
   errorBg: 'rgba(227,106,92,0.16)',
   info: '#4FC4B6',

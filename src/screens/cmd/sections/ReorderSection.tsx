@@ -547,7 +547,7 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
           backgroundColor: C.panel,
           borderRadius: CmdRadius.lg,
           borderWidth: 1,
-          borderColor: C.warn,
+          borderColor: C.violet,
           overflow: 'hidden',
         }}
       >
@@ -568,10 +568,20 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
         {/* Count-not-submitted state block — replaces columns/items/footer. */}
         <View
           testID={`reorder-count-not-submitted-${vendor.vendorId}`}
-          style={{ paddingHorizontal: 16, paddingVertical: 28, alignItems: 'center', gap: 8 }}
+          style={{
+            margin: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 24,
+            alignItems: 'center',
+            gap: 8,
+            borderRadius: CmdRadius.lg,
+            borderWidth: 0.5,
+            borderColor: C.violet,
+            backgroundColor: C.violetBg,
+          }}
         >
-          <Text style={{ fontFamily: mono(400), fontSize: 22, color: C.warn }}>⊘</Text>
-          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.warn, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+          <Text style={{ fontFamily: mono(400), fontSize: 22, color: C.violet }}>⊘</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.violet, letterSpacing: 0.4, textTransform: 'uppercase' }}>
             {T('section.reorder.countNotSubmittedTitle')}
           </Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 480 }}>
@@ -1464,7 +1474,7 @@ export default function ReorderSection() {
           <>
             <Text
               testID="reorder-section-count-not-submitted"
-              style={{ fontFamily: mono(700), fontSize: 11, color: C.warn, letterSpacing: 0.5, textTransform: 'uppercase' }}
+              style={{ fontFamily: mono(700), fontSize: 11, color: C.violet, letterSpacing: 0.5, textTransform: 'uppercase' }}
             >
               {T('section.reorder.countNotSubmittedGroupTitle')} · {notSubmittedPrimary.length}
             </Text>

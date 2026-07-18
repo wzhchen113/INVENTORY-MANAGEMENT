@@ -201,6 +201,10 @@ export const LightCmd = {
   dangerBg:     '#FCEBEB',
   info:         '#185FA5',
   infoBg:       '#E6F1FB',
+  // Spec 130 follow-up — violet, reserved for the "count not submitted"
+  // reorder treatment so it reads distinct from the amber `warn`/STOCK FALLBACK.
+  violet:       '#6B4BA8',
+  violetBg:     '#EEE9F8',
   // Spec 055 — global loading indicator (TopProgressBar in TitleBar).
   // `loadingBar` is the idle/active stripe; `loadingBarSlow` is the
   // "taking longer than usual" warn shade that kicks in at the 5s mark.
@@ -231,6 +235,10 @@ export const DarkCmd: typeof LightCmd = {
   dangerBg:     'rgba(224,72,72,0.15)',
   info:         '#5AA8F0',
   infoBg:       'rgba(90,168,240,0.15)',
+  // Spec 130 follow-up — violet for the "count not submitted" reorder
+  // treatment; distinct from the amber `warn`/STOCK FALLBACK on dark surfaces.
+  violet:       '#C39BE0',
+  violetBg:     'rgba(160,120,220,0.16)',
   // Spec 055 — matches LightCmd loadingBar / loadingBarSlow rationale,
   // tuned for the dark surface.
   loadingBar:     '#7DD668',

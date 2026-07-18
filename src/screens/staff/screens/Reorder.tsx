@@ -199,15 +199,15 @@ function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder:
     return (
       <View
         testID={`staff-reorder-vendor-${vendor.vendorId}`}
-        style={[styles.vendorCard, { backgroundColor: c.surface, borderColor: c.warning }, e.card]}
+        style={[styles.vendorCard, { backgroundColor: c.surface, borderColor: c.violet }, e.card]}
       >
         {header}
         <View
           testID={`staff-reorder-count-not-submitted-${vendor.vendorId}`}
-          style={styles.notSubmittedBlock}
+          style={[styles.notSubmittedBlock, { backgroundColor: c.violetBg, borderColor: c.violet, borderWidth: 0.5 }]}
         >
-          <Text style={[styles.notSubmittedGlyph, { color: c.warning }]}>⊘</Text>
-          <Text style={[styles.notSubmittedTitle, { color: c.warning }]}>
+          <Text style={[styles.notSubmittedGlyph, { color: c.violet }]}>⊘</Text>
+          <Text style={[styles.notSubmittedTitle, { color: c.violet }]}>
             {t('reorder.countNotSubmitted.title')}
           </Text>
           <Text style={[styles.notSubmittedBody, { color: c.textTertiary }]}>
@@ -804,7 +804,7 @@ export function Reorder() {
         {notSubmittedDisplay.length > 0 ? (
           <>
             <Text
-              style={[styles.sectionHeader, { color: c.warning }]}
+              style={[styles.sectionHeader, { color: c.violet }]}
               testID="staff-reorder-section-count-not-submitted"
             >
               {t('reorder.countNotSubmitted.groupTitle')} · {notSubmittedDisplay.length}
