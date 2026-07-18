@@ -648,6 +648,7 @@ function DetailPane({
           <MembersTab
             admins={admins}
             loading={loadingAdmins}
+            brandId={sel.id}
             onInvite={onInvite}
             onDeleteProfile={onDeleteProfile}
             superAdminUserId={superAdminUserId}
@@ -828,10 +829,11 @@ function PurgeButton({
 
 // ─── members.tsx ────────────────────────────────────────────────────
 function MembersTab({
-  admins, loading, onInvite, onDeleteProfile, superAdminUserId,
+  admins, loading, brandId, onInvite, onDeleteProfile, superAdminUserId,
 }: {
   admins: User[];
   loading: boolean;
+  brandId: string;
   onInvite: () => void;
   onDeleteProfile: (u: User) => void;
   superAdminUserId: string;
@@ -839,6 +841,32 @@ function MembersTab({
   const C = useCmdColors();
   const T = useT();
   const demoteProfileToUser = useStore((s) => s.demoteProfileToUser);
+
+  // Tab-local include-inactive store fetch (same shape as StoresTab) so each
+  // member's store ids can render as names. The global `stores` cache is
+  // active-only — a member assigned to an inactive store would blank out.
+  const [storeNameById, setStoreNameById] = React.useState<Map<string, string>>(() => new Map());
+  React.useEffect(() => {
+    let cancelled = false;
+    db.fetchStoresIncludingInactive()
+      .then((all) => {
+        if (cancelled) return;
+        setStoreNameById(new Map(all.filter((s) => s.brandId === brandId).map((s) => [s.id, s.name])));
+      })
+      .catch((e: any) => {
+        // Best-effort: rows fall back to the "N stores" count.
+        console.warn('[Supabase] Load member store names', e?.message || e);
+      });
+    return () => { cancelled = true; };
+  }, [brandId]);
+
+  // "Towson, Charles" once names are loaded; count fallback while loading or
+  // if any id is missing from the map (foreign/stale link).
+  const memberStoresLabel = (u: User): string => {
+    if (u.stores.length === 0) return '0 stores';
+    const names = u.stores.map((sid) => storeNameById.get(sid)).filter(Boolean) as string[];
+    return names.length === u.stores.length ? names.join(', ') : `${u.stores.length} stores`;
+  };
 
   const handleDemote = (u: User) => {
     confirmAction(
@@ -938,8 +966,10 @@ function MembersTab({
                 </View>
                 <View style={{ flex: 1, minWidth: 160, gap: 2 }}>
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{u.name || '—'}</Text>
-                  <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
-                    {u.email || '(email not loaded)'} · {u.stores.length} stores
+                  {/* No line clamp — the store-name list must stay fully
+                      readable for members assigned to many stores. */}
+                  <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                    {u.email || '(email not loaded)'} · {memberStoresLabel(u)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
