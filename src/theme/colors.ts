@@ -212,8 +212,8 @@ export const LightCmd = {
 
 export const DarkCmd: typeof LightCmd = {
   bg:           '#08090C',
-  panel:        '#0E1014',
-  panel2:       '#181B22',
+  panel:        '#12151B',
+  panel2:       '#1C2029',
   border:       'rgba(255,255,255,0.06)',
   borderStrong: 'rgba(255,255,255,0.12)',
   fg:           '#E6E8EC',
@@ -242,4 +242,4 @@ export function useCmdColors() {
   return darkMode ? DarkCmd : LightCmd;
 }
 
-export const CmdRadius = { xs: 3, sm: 4, md: 5, lg: 6, pill: 999 };
+export const CmdRadius = { xs: 3, sm: 4, md: 5, lg: 9, pill: 999 };
