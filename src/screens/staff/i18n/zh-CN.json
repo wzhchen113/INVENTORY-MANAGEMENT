@@ -164,6 +164,12 @@
       "title": "无订购计划 · {count}",
       "hint": "这些供应商未设置下单日，因此不在今天的清单中。"
     },
+    "countNotSubmitted": {
+      "groupTitle": "未提交盘点",
+      "title": "尚未提交盘点",
+      "body": "此日期未提交日终盘点，因此订货数量已隐藏。提交盘点后即可查看建议。",
+      "kpiSub": "{count} 未提交盘点"
+    },
     "warning": {
       "scheduleUnknown": "供应商\"{vendor}\"没有订货计划，使用 7 天缓冲。"
     },

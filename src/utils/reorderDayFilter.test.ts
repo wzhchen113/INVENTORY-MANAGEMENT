@@ -15,6 +15,7 @@ import {
   partitionReorderVendors,
   computeReorderKpis,
   splitReorderVendorsByNeed,
+  isReorderCountNotSubmitted,
 } from './reorderDayFilter';
 import type { OrderSchedule, ReorderVendor } from '../types';
 
@@ -257,6 +258,26 @@ describe('computeReorderKpis', () => {
       eodSourcedVendorCount: 0,
       stockFallbackVendorCount: 0,
     });
+  });
+});
+
+describe('isReorderCountNotSubmitted (spec 130)', () => {
+  it('returns true when eodSubmittedAt is null (no count submitted)', () => {
+    expect(isReorderCountNotSubmitted(vendor({ vendorId: 'v', eodSubmittedAt: null }))).toBe(true);
+  });
+
+  it('returns true when eodSubmittedAt is undefined (absent field)', () => {
+    // == null (not === null) so an absent/undefined field is also uncounted.
+    const v = vendor({ vendorId: 'v' });
+    // Force the field undefined to model an older/partial envelope.
+    (v as { eodSubmittedAt?: string | null }).eodSubmittedAt = undefined;
+    expect(isReorderCountNotSubmitted(v)).toBe(true);
+  });
+
+  it('returns false when eodSubmittedAt is an ISO string (count submitted)', () => {
+    expect(
+      isReorderCountNotSubmitted(vendor({ vendorId: 'v', eodSubmittedAt: '2026-07-17T18:00:00Z' })),
+    ).toBe(false);
   });
 });
 

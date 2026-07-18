@@ -162,7 +162,9 @@ function vendor(over: { vendorId: string; items: ReorderItem[]; onHandSource?: '
     nextDeliveryDate: '2026-06-02',
     daysUntilNextDelivery: 1,
     onHandSource: over.onHandSource ?? 'eod',
-    eodSubmittedAt: null,
+    // Spec 130 — a non-null submitted-at keeps these fixtures on the normal
+    // (counted) render path (the predicate keys off eodSubmittedAt).
+    eodSubmittedAt: '2026-06-02T00:00:00Z',
     items: over.items,
     // Server rolls case-rounded per-item cost into vendor_total_cost — mirror
     // that here (the carrier the KPI invariant rests on).

@@ -192,6 +192,19 @@ export function splitReorderVendorsByNeed(
     .filter((v) => v.items.length > 0);
 }
 
+/**
+ * Spec 130 — a vendor whose EOD count was NOT submitted for the reorder date.
+ * `eodSubmittedAt == null` is the literal "no count submitted" signal
+ * (equivalent to `onHandSource === 'stock'` per the payload contract; we key
+ * off eodSubmittedAt as the clearer intent). Its per-item order quantities are
+ * computed off a stale current_stock fallback and must not be acted on.
+ * `== null` (not `=== null`) so an absent/undefined field is also treated as
+ * uncounted. Imported by BOTH reorder screens — no inline re-derivation.
+ */
+export function isReorderCountNotSubmitted(vendor: ReorderVendor): boolean {
+  return vendor.eodSubmittedAt == null;
+}
+
 export function computeReorderKpis(vendors: ReorderVendor[]): ReorderPayload['kpis'] {
   let itemCount = 0;
   let totalEstimatedCost = 0;

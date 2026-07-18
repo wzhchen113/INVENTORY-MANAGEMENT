@@ -84,7 +84,10 @@ function vendor(over: Record<string, any> & { vendorId: string }) {
     nextDeliveryDate: '2026-06-02',
     daysUntilNextDelivery: 1,
     onHandSource: over.onHandSource ?? 'eod',
-    eodSubmittedAt: null,
+    // Spec 130 — default to a submitted count so the fixture exercises the
+    // normal (counted) render path; pass eodSubmittedAt:null to model an
+    // un-counted vendor.
+    eodSubmittedAt: over.eodSubmittedAt ?? '2026-06-02T00:00:00Z',
     items: over.items ?? [],
     vendorTotalCost: over.vendorTotalCost ?? 0,
   };

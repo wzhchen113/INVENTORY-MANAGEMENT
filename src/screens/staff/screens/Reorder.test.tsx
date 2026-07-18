@@ -89,7 +89,10 @@ function vendor(over: Partial<ReorderVendor> & { vendorId: string }): ReorderVen
     nextDeliveryDate: '2026-06-03',
     daysUntilNextDelivery: 1,
     onHandSource: 'eod',
-    eodSubmittedAt: null,
+    // Spec 130 — default to a submitted count so fixtures render the normal
+    // (counted) card path; pass eodSubmittedAt:null to model an un-counted
+    // vendor (the "Count not submitted yet" state).
+    eodSubmittedAt: '2026-06-02T00:00:00Z',
     items: [],
     vendorTotalCost: 0,
     ...over,
@@ -600,6 +603,82 @@ describe('Reorder — vendor filter chips', () => {
     const { getByTestId, queryByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy());
     expect(queryByTestId('staff-reorder-vendor-filter')).toBeNull();
+  });
+});
+
+// Spec 130 — a vendor whose EOD count was NOT submitted for the reorder date
+// (`eodSubmittedAt == null`) renders a "Count not submitted yet" state block in
+// place of its item/order rows, and is pulled out of the KPI + export inputs so
+// its stale lines can't inflate them.
+describe('Reorder — count not submitted (spec 130)', () => {
+  const uncounted = vendor({
+    vendorId: 'v-3',
+    vendorName: 'Uncounted Co',
+    onHandSource: 'stock',
+    eodSubmittedAt: null,
+    vendorTotalCost: 99,
+    items: [
+      item({
+        itemId: 'i-3',
+        itemName: 'Stale Widget',
+        suggestedQty: 9,
+        suggestedUnits: 9,
+        estimatedCost: 99,
+        needsOrder: true,
+      }),
+    ],
+  });
+
+  function bothSchedule(): OrderSchedule {
+    const entry = [
+      { vendorId: 'v-1', vendorName: 'Acme', deliveryDay: 'Wednesday' },
+      { vendorId: 'v-3', vendorName: 'Uncounted Co', deliveryDay: 'Wednesday' },
+    ];
+    return {
+      Sunday: entry, Monday: entry, Tuesday: entry, Wednesday: entry,
+      Thursday: entry, Friday: entry, Saturday: entry,
+    };
+  }
+
+  it('renders the not-submitted state block and NO item/order rows', async () => {
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([uncounted]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(everyDaySchedule('v-3'));
+
+    const { getByTestId, getByText, queryByText, queryByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-count-not-submitted-v-3')).toBeTruthy());
+    // Group header + vendor header (name) render.
+    expect(getByTestId('staff-reorder-section-count-not-submitted')).toBeTruthy();
+    // Group header carries the vendor count (parity with admin).
+    expect(getByText('Count not submitted · 1')).toBeTruthy();
+    expect(getByText('Uncounted Co')).toBeTruthy();
+    // KPI sub-stat is repurposed to the not-submitted count.
+    expect(getByText('1 count not submitted')).toBeTruthy();
+    // No item/order rows for the stale item.
+    expect(queryByText('Stale Widget')).toBeNull();
+    expect(queryByText('Order: 9 each')).toBeNull();
+    // No export offered for an un-counted-only view.
+    expect(queryByTestId('staff-reorder-export-csv')).toBeNull();
+  });
+
+  it('excludes the un-counted vendor from the KPIs + export payload', async () => {
+    // caseVendor (counted, 1 item, $144) + uncounted (2 stale items excluded).
+    mockFetchStaffReorder.mockResolvedValue(payloadOf([caseVendor, uncounted]));
+    mockFetchStaffOrderSchedule.mockResolvedValue(bothSchedule());
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('staff-reorder-count-not-submitted-v-3')).toBeTruthy());
+    // The counted vendor still renders its normal card.
+    expect(getByTestId('staff-reorder-vendor-v-1')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByTestId('staff-reorder-export-csv'));
+    });
+    const [passedPayload] = mockShareReorderCsv.mock.calls[0];
+    // Only the counted vendor rides in the export payload + KPIs.
+    expect(passedPayload.vendors).toHaveLength(1);
+    expect(passedPayload.vendors[0].vendorId).toBe('v-1');
+    expect(passedPayload.kpis.itemCount).toBe(1);
+    expect(passedPayload.kpis.totalEstimatedCost).toBe(144);
   });
 });
 

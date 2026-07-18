@@ -1020,7 +1020,11 @@
       "createPoToastBody": "Borrador para {vendor} creado — edítalo y envíalo en Órdenes de compra.",
       "poCreatedLabel": "OC CREADA",
       "poCreatedAria": "Orden de compra ya creada para {vendor}",
-      "quickOrderAria": "Lista de pedido rápido para {vendor}"
+      "quickOrderAria": "Lista de pedido rápido para {vendor}",
+      "countNotSubmittedGroupTitle": "Conteo no enviado",
+      "countNotSubmittedTitle": "Conteo aún no enviado",
+      "countNotSubmittedBody": "No se envió ningún conteo de fin de día para esta fecha, por lo que las cantidades de pedido están ocultas. Envía el conteo para ver las sugerencias.",
+      "countNotSubmittedKpiSub": "conteo no enviado"
     },
     "reconciliation": {
       "title": "Conciliación",

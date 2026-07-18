@@ -22,6 +22,7 @@ import {
   partitionReorderVendors,
   computeReorderKpis,
   splitReorderVendorsByNeed,
+  isReorderCountNotSubmitted,
 } from '../../../utils/reorderDayFilter';
 // Spec 089 (A) — the pure export formatters (formatQty / formatMoney /
 // formatSuggested / formatSuggestedPdf / slugifyStore / todayLocalIso /
@@ -469,7 +470,7 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
 // section). Mirrors the staff Reorder card.
 // `showExport` (spec 123) gates the per-vendor CSV/PDF footer buttons — web-only,
 // threaded from the parent so it matches the former global-button gating.
-function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor; needsOrder: boolean; showExport: boolean }) {
+function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor; needsOrder: boolean; showExport?: boolean }) {
   const C = useCmdColors();
   const T = useT();
   const itemTone = needsOrder ? C.danger : C.ok;
@@ -502,6 +503,83 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
         ? 'tomorrow'
         : `in ${vendor.daysUntilNextDelivery} days`;
 
+  // Spec 130 — shared header sub-blocks. The name/badges row and the
+  // next-delivery line are byte-identical between the counted branch and the
+  // not-submitted branch, so they're factored out here and rendered by BOTH
+  // (the counted branch wraps `nextDeliveryLine` in a stats row with items/qty/
+  // est-cost; the not-submitted branch renders it bare). No visual change to
+  // the counted card — same markup, just deduped.
+  const headerNameRow = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <Text style={[Type.h2, { color: C.fg }]}>{vendor.vendorName || 'unnamed vendor'}</Text>
+      {/* On-hand-source badge — always rendered (orthogonal to schedule). */}
+      {sourceBadgeEl}
+      {/* Schedule badge — only when scheduleKnown=false. */}
+      {scheduleBadgeEl}
+      {vendor.scheduleKnown ? null : <Badge label="7-DAY DEFAULT" tone="fg3" />}
+      <View style={{ flex: 1 }} />
+      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+        {shortId(vendor.vendorId)}
+      </Text>
+    </View>
+  );
+  const nextDeliveryLine = (
+    <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
+      <Text style={{ color: C.fg3 }}>next delivery:</Text>{' '}
+      <Text style={{ color: C.fg, fontWeight: '600' }}>{vendor.nextDeliveryDate || '—'}</Text>{' '}
+      <Text style={{ color: C.fg3 }}>({daysLabel})</Text>
+    </Text>
+  );
+
+  // Spec 130 — a vendor whose EOD count was NOT submitted for the reorder date.
+  // Its per-item order quantities are computed off a stale current_stock
+  // fallback, so we render the header (name + next-delivery + badges) but
+  // REPLACE the column strip / item rows / footer actions with a
+  // "Count not submitted yet" state block. This branch renders no
+  // BreakdownLine rows and none of the four per-vendor actions (Create PO /
+  // Quick-order / CSV / PDF) — they all live in the footer this branch omits.
+  if (isReorderCountNotSubmitted(vendor)) {
+    return (
+      <View
+        style={{
+          backgroundColor: C.panel,
+          borderRadius: CmdRadius.lg,
+          borderWidth: 1,
+          borderColor: C.warn,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Vendor header — name + badges + next-delivery line (shared markup). */}
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderBottomWidth: 1,
+            borderBottomColor: C.border,
+            gap: 8,
+          }}
+        >
+          {headerNameRow}
+          {nextDeliveryLine}
+        </View>
+
+        {/* Count-not-submitted state block — replaces columns/items/footer. */}
+        <View
+          testID={`reorder-count-not-submitted-${vendor.vendorId}`}
+          style={{ paddingHorizontal: 16, paddingVertical: 28, alignItems: 'center', gap: 8 }}
+        >
+          <Text style={{ fontFamily: mono(400), fontSize: 22, color: C.warn }}>⊘</Text>
+          <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.warn, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+            {T('section.reorder.countNotSubmittedTitle')}
+          </Text>
+          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 480 }}>
+            {T('section.reorder.countNotSubmittedBody')}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   // Spec 091 D1 — BASE-UNIT sum, intentionally NOT a "cases" total. This adds
   // `suggestedQty` (base units) across the vendor's items, which for case
   // items reads differently from the per-item "N cases · M units" Suggested
@@ -523,7 +601,9 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
         overflow: 'hidden',
       }}
     >
-      {/* Vendor header */}
+      {/* Vendor header — name/badges row + next-delivery line shared with the
+          not-submitted branch (spec 130); the stats row (items/qty/est-cost) is
+          counted-branch-only. */}
       <View
         style={{
           paddingHorizontal: 16,
@@ -533,28 +613,9 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
           gap: 8,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <Text style={[Type.h2, { color: C.fg }]}>{vendor.vendorName || 'unnamed vendor'}</Text>
-          {/* On-hand-source badge — always rendered (orthogonal to schedule). */}
-          {sourceBadgeEl}
-          {/* Schedule badge — only when scheduleKnown=false. */}
-          {scheduleBadgeEl}
-          {vendor.scheduleKnown ? null : (
-            <Badge label="7-DAY DEFAULT" tone="fg3" />
-          )}
-          <View style={{ flex: 1 }} />
-          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-            {shortId(vendor.vendorId)}
-          </Text>
-        </View>
+        {headerNameRow}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
-            <Text style={{ color: C.fg3 }}>next delivery:</Text>{' '}
-            <Text style={{ color: C.fg, fontWeight: '600' }}>
-              {vendor.nextDeliveryDate || '—'}
-            </Text>{' '}
-            <Text style={{ color: C.fg3 }}>({daysLabel})</Text>
-          </Text>
+          {nextDeliveryLine}
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
             <Text style={{ color: C.fg3 }}>items:</Text>{' '}
@@ -1121,16 +1182,29 @@ export default function ReorderSection() {
         : { primary: [], noSchedule: [] },
     [reorderPayload?.vendors, orderSchedule, selectedWeekday],
   );
-  // Spec (2026-07) — split the primary vendors into the two sections. Needs-
+  // Spec 130 — pull vendors with no submitted EOD count OUT of the needs/enough
+  // split BEFORE it runs, so their stale (on_hand=0 → order N) lines can't
+  // inflate the KPIs / est-cost totals and can't double-render across the
+  // needs+enough sections. They render in a dedicated "Count not submitted"
+  // group at the TOP of the list (below).
+  const countedPrimary = React.useMemo(
+    () => primary.filter((v) => !isReorderCountNotSubmitted(v)),
+    [primary],
+  );
+  const notSubmittedPrimary = React.useMemo(
+    () => primary.filter((v) => isReorderCountNotSubmitted(v)),
+    [primary],
+  );
+  // Spec (2026-07) — split the counted vendors into the two sections. Needs-
   // order (below par) items drive the KPIs + export EXACTLY as before; enough-
   // stock items (surfaced by include_stocked) render in the green section only.
   const needsOrderVendors = React.useMemo(
-    () => splitReorderVendorsByNeed(primary, true),
-    [primary],
+    () => splitReorderVendorsByNeed(countedPrimary, true),
+    [countedPrimary],
   );
   const enoughStockVendors = React.useMemo(
-    () => splitReorderVendorsByNeed(primary, false),
-    [primary],
+    () => splitReorderVendorsByNeed(countedPrimary, false),
+    [countedPrimary],
   );
   const kpis = React.useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
 
@@ -1146,7 +1220,7 @@ export default function ReorderSection() {
   const showExport =
     Platform.OS === 'web' &&
     !!reorderPayload &&
-    primary.length > 0 &&
+    countedPrimary.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
 
@@ -1231,10 +1305,14 @@ export default function ReorderSection() {
           <StatCard label="Vendors" value={String(kpis.vendorCount)} sub="suggesting today" />
           <StatCard label="Items" value={String(kpis.itemCount)} sub="below par or forecast" />
           <StatCard label="Est. total" value={formatMoney(kpis.totalEstimatedCost)} sub="at current cost" />
+          {/* Spec 130 — the "stock fallback" sub-stat is now structurally ~0
+              (un-counted vendors are pulled into the "Count not submitted"
+              group), so surface the count of not-submitted vendors instead —
+              a meaningful "N EOD-sourced / M count not submitted". */}
           <StatCard
             label="On-hand source"
             value={`${kpis.eodSourcedVendorCount} EOD`}
-            sub={`${kpis.stockFallbackVendorCount} stock fallback`}
+            sub={`${notSubmittedPrimary.length} ${T('section.reorder.countNotSubmittedKpiSub')}`}
           />
         </View>
 
@@ -1373,6 +1451,25 @@ export default function ReorderSection() {
               fetching reorder suggestions
             </Text>
           </View>
+        ) : null}
+
+        {/* Spec 130 — "Count not submitted" group, at the TOP of the list. A
+            vendor with no submitted EOD count for the date renders here (its
+            header + a "Count not submitted yet" block); its stale suppressed
+            lines never reach the KPIs or the needs/enough split. No dollar
+            total on the group. */}
+        {notSubmittedPrimary.length > 0 ? (
+          <>
+            <Text
+              testID="reorder-section-count-not-submitted"
+              style={{ fontFamily: mono(700), fontSize: 11, color: C.warn, letterSpacing: 0.5, textTransform: 'uppercase' }}
+            >
+              {T('section.reorder.countNotSubmittedGroupTitle')} · {notSubmittedPrimary.length}
+            </Text>
+            {notSubmittedPrimary.map((v) => (
+              <VendorCard key={`nosub-${v.vendorId}`} vendor={v} needsOrder />
+            ))}
+          </>
         ) : null}
 
         {/* "Needs to Order" section — below-par items, red. */}

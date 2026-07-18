@@ -164,6 +164,12 @@
       "title": "No order schedule · {count}",
       "hint": "These vendors have no order-out day set, so they're not in today's list."
     },
+    "countNotSubmitted": {
+      "groupTitle": "Count not submitted",
+      "title": "Count not submitted yet",
+      "body": "No end-of-day count was submitted for this date, so order quantities are hidden. Submit the count to see suggestions.",
+      "kpiSub": "{count} count not submitted"
+    },
     "warning": {
       "scheduleUnknown": "Vendor \"{vendor}\" has no order schedule — using 7-day buffer."
     },

@@ -132,7 +132,9 @@ function vendor(over: Record<string, any> & { vendorId: string }) {
     nextDeliveryDate: '2026-06-02',
     daysUntilNextDelivery: 1,
     onHandSource: over.onHandSource ?? 'eod',
-    eodSubmittedAt: null,
+    // Spec 130 — default to a submitted count so these fixtures render the
+    // normal (counted) card path.
+    eodSubmittedAt: over.eodSubmittedAt ?? '2026-06-02T00:00:00Z',
     items: over.items ?? [item()],
     vendorTotalCost: over.vendorTotalCost ?? 10,
     hasPo: over.hasPo ?? false,

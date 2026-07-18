@@ -1020,7 +1020,11 @@
       "createPoToastBody": "已为{vendor}创建草稿 — 请在采购单中编辑并发送。",
       "poCreatedLabel": "采购单已创建",
       "poCreatedAria": "已为{vendor}创建采购单",
-      "quickOrderAria": "{vendor}的快速订货清单"
+      "quickOrderAria": "{vendor}的快速订货清单",
+      "countNotSubmittedGroupTitle": "未提交盘点",
+      "countNotSubmittedTitle": "尚未提交盘点",
+      "countNotSubmittedBody": "此日期未提交日终盘点，因此订货数量已隐藏。提交盘点后即可查看建议。",
+      "countNotSubmittedKpiSub": "未提交盘点"
     },
     "reconciliation": {
       "title": "对账",
