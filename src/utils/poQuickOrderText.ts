@@ -34,7 +34,7 @@
 // NO `$` anywhere (spec 108 ruling, carried forward by spec 114 AC-7). A jest
 // test asserts the output contains no `$`.
 
-import { formatQty } from './reorderExport';
+import { formatQty } from './formatQty';
 
 // One PO line, reduced to exactly what the paste block needs. NOTE: no cost /
 // received field — no money enters the builder (AC-7: no `$` in the output).

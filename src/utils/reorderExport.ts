@@ -49,13 +49,12 @@ function itemDisplayName(item: ReorderItem, locale: Locale): string {
   return getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
 }
 
-export function formatQty(n: number): string {
-  if (!Number.isFinite(n)) return '0';
-  // Match the units / variance runners' shape: drop trailing zeros but
-  // keep up to 2 decimals.
-  const rounded = Math.round(n * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, '');
-}
+// Extracted to ./formatQty (dependency-free) so poQuickOrderText — and the
+// extension bundle's isolated typecheck — don't inherit this module's
+// papaparse import. Imported for local use + re-exported for the existing
+// importers.
+import { formatQty } from './formatQty';
+export { formatQty };
 
 export function formatMoney(n: number): string {
   return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
