@@ -235,12 +235,33 @@ Deno.serve(async (req) => {
 
     const summary: any = { eod: [], vendor: [], missed: [] };
 
+    // Rest-day gate for TRACK 1. A store WITH an order schedule but NO vendors
+    // on today's business weekday is a rest day — no count is expected (the
+    // EOD screen renders "REST DAY — NO INPUT" and the Reorder page shows "No
+    // vendors are ordered on <day>"), so the 22:00 reminder must not fire.
+    // Stores with NO schedule rows at all keep the legacy remind-every-day
+    // behavior, mirroring the app's "all vendors on all days" fallback.
+    // Tracks 2/3 are already weekday-scoped by their own order_schedule reads.
+    const { weekday } = businessTodayInTZ(DEFAULT_TZ);
+    const { data: schedAllRows } = await sb.from('order_schedule').select('store_id, day_of_week');
+    const storesWithSchedule = new Set((schedAllRows || []).map((r: any) => r.store_id as string));
+    const storesScheduledToday = new Set(
+      (schedAllRows || [])
+        .filter((r: any) => r.day_of_week === weekday)
+        .map((r: any) => r.store_id as string),
+    );
+
     // ─── TRACK 1: EOD count per store (store-level) ─────────────────────
     for (const store of (stores || []) as Store[]) {
       const cutoff = store.eod_deadline_time || '22:00';
       const { minutes, localDate } = minutesUntilCutoff(cutoff, DEFAULT_TZ);
       const bucket = BUCKETS.find((b) => inWindow(minutes, b));
       if (!bucket) continue;
+
+      if (storesWithSchedule.has(store.id) && !storesScheduledToday.has(store.id)) {
+        summary.eod.push({ storeName: store.name, bucket, skipped: 'rest_day' });
+        continue;
+      }
 
       const { data: submittedRows } = await sb.from('eod_submissions')
         .select('id').eq('store_id', store.id).eq('date', localDate).limit(1);
@@ -278,7 +299,7 @@ Deno.serve(async (req) => {
     }
 
     // ─── TRACK 2: Vendor order cutoff (store-level via purchase_orders) ─────────
-    const { weekday } = businessTodayInTZ(DEFAULT_TZ);
+    // (weekday hoisted above the rest-day gate — same business-day value.)
     const { data: schedRows } = await sb.from('order_schedule')
       .select('store_id, vendor_id').eq('day_of_week', weekday);
 
