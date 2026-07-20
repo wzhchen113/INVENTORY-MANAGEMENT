@@ -16,14 +16,28 @@ import { safeOrigin } from './urlGuard';
  * caller (popup) lets the human pick. On a site with no match → `[]` → the
  * extension does nothing (AC-3).
  */
+/**
+ * Registrable-site key for an https origin/URL: the last two hostname labels
+ * ("www.bjs.com" → "bjs.com"). OWNER-TUNED (live 2026-07-20): exact-origin
+ * equality was too strict — a tab on any bjs.com subdomain (or a saved
+ * order_page_url on one) failed the match and the popup claimed "not a vendor
+ * tab" with the pending PO invisible. Both club sites use flat two-label
+ * domains, so the suffix key is safe here.
+ */
+export function siteKey(originOrUrl: string | null): string | null {
+  const o = safeOrigin(originOrUrl);
+  if (!o) return null;
+  const host = new URL(o).hostname;
+  const parts = host.split('.');
+  if (parts.length < 2) return null;
+  return parts.slice(-2).join('.');
+}
+
 export function pendingOrdersForOrigin(
   pending: PendingOrder[],
   currentOrigin: string,
 ): PendingOrder[] {
-  const target = safeOrigin(currentOrigin);
+  const target = siteKey(currentOrigin);
   if (!target) return [];
-  return pending.filter((p) => {
-    const o = safeOrigin(p.orderPageUrl);
-    return o !== null && o === target;
-  });
+  return pending.filter((p) => siteKey(p.orderPageUrl) === target);
 }

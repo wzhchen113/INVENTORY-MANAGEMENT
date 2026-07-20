@@ -48,4 +48,17 @@ describe('pendingOrdersForOrigin (AC-3 / OQ-5 — vendor↔site join by order_pa
     const pending = [order({ poId: 'a' }), order({ poId: 'b' })];
     expect(pendingOrdersForOrigin(pending, 'https://www.bjs.com').map((o) => o.poId)).toEqual(['a', 'b']);
   });
+
+  // OWNER-TUNED (2026-07-20): matching is at the registrable-site level — a tab
+  // on ANY bjs.com subdomain sees the pending PO regardless of which subdomain
+  // the saved order_page_url uses.
+  it('matches across subdomains of the same site (tab on bare bjs.com, URL on www)', () => {
+    const pending = [order({ poId: 'sub' })]; // order() defaults to a www.bjs.com URL
+    expect(pendingOrdersForOrigin(pending, 'https://bjs.com').map((o) => o.poId)).toEqual(['sub']);
+  });
+
+  it('does NOT match a different site sharing no registrable domain', () => {
+    const pending = [order({ poId: 'x' })];
+    expect(pendingOrdersForOrigin(pending, 'https://www.samsclub.com')).toEqual([]);
+  });
 });

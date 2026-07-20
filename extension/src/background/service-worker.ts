@@ -76,10 +76,19 @@ async function runInPage<A extends unknown[], R>(
 ): Promise<R> {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    // The adapters' page routines are self-contained (DOM + args only).
+    // The adapters' page routines are self-contained (DOM + args only) and
+    // MUST be arrow/function-expression properties — chrome serializes via
+    // toString(), and an object-SHORTHAND method stringifies into invalid
+    // standalone source, silently yielding `undefined` results (the root
+    // cause of the 2026-07-20 live-run failures).
     func: func as (...a: unknown[]) => unknown,
     args,
   });
+  if (result === undefined || result === null) {
+    // Injected routines always return a value; undefined means the injection
+    // itself failed (serialization/CSP/page error). Fail LOUD, not silent.
+    throw new Error('page routine returned no result — injection failed (check the service-worker console)');
+  }
   return result as R;
 }
 
@@ -93,9 +102,17 @@ async function preflight(
   if (challenged) {
     return { reason: 'challenge', detail: 'A CAPTCHA / bot challenge was detected — stopping (AC-9). Please solve it, then re-run.' };
   }
+  // OWNER-TUNED (live 2026-07-20): the login check is ADVISORY, not a hard
+  // gate. The heuristic false-negatived on bjs.com for a signed-in member
+  // (greeting not under the <header> the selector probed), blocking live
+  // runs. AC-9's real guarantees are unchanged — we never log in for the
+  // user, and a genuine logged-out state surfaces immediately: the first
+  // add-to-cart fails / redirects to a login wall, which the per-item
+  // challenge check catches and hard-stops. The popup shows the warning via
+  // `loginWarning` instead of aborting.
   const loggedIn = await runInPage(tabId, adapter.pageIsLoggedIn, []);
   if (!loggedIn) {
-    return { reason: 'not-logged-in', detail: `You are not logged in to ${adapter.label} — please log in, then re-run (AC-9: the extension never logs in for you).` };
+    console.warn(`[preflight] could not confirm a ${adapter.label} session — proceeding; items will fail if signed out`);
   }
   return null;
 }
@@ -193,8 +210,15 @@ async function handleRun(req: Extract<Request, { type: 'RUN' }>): Promise<RunRes
   const toRun = actionsToExecute(plan, false);
   const results: ExecutionResult[] = [];
   for (const action of toRun) {
-    // eslint-disable-next-line no-await-in-loop -- sequential: one tab, one cart.
-    const res = await executeAction(tab.id, adapter, action);
+    let res: ExecutionResult;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential: one tab, one cart.
+      res = await executeAction(tab.id, adapter, action);
+    } catch (e) {
+      // One item's crash (injection failure, tab race) must NOT kill the run —
+      // record it as a failed line and keep going (2026-07-20 live-run lesson).
+      res = { itemId: action.itemId, outcome: 'failed', detail: `error: ${(e as Error).message}` };
+    }
     results.push(res);
     // A challenge surfacing mid-run stops everything (AC-9).
     if (res.detail.startsWith('Challenge detected')) {
@@ -205,6 +229,15 @@ async function handleRun(req: Extract<Request, { type: 'RUN' }>): Promise<RunRes
         error: null,
       };
     }
+  }
+
+  // OWNER-ASKED (2026-07-20): a finished live run parks the tab on the
+  // vendor's CART page so the review-and-pay step starts exactly where the
+  // human needs to be. Best-effort — a failed navigation never fails the run.
+  try {
+    await navigateAndWait(tab.id, adapter.cartUrl);
+  } catch {
+    /* best-effort */
   }
 
   return { report: assembleReport(plan, results, false), stopped: null, dryRun: false, error: null };

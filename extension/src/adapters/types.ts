@@ -55,7 +55,13 @@ export interface VendorAdapter {
    * add-to-cart control. Returns 'added' | 'failed'. Never proceeds to checkout
    * (AC-9). Self-contained; `qty` is the only arg.
    */
-  pageAddToCartOnProduct: (qty: number) => PageActionResult;
+  /** The vendor's cart page — the live run parks the tab here when done. */
+  cartUrl: string;
+
+  // May be async: SPA product pages render the add-to-cart button AFTER
+  // document-complete, so adapters poll for it (chrome.scripting awaits a
+  // returned Promise and resolves to its value).
+  pageAddToCartOnProduct: (qty: number) => PageActionResult | Promise<PageActionResult>;
 
   /**
    * PAGE-CONTEXT — on a search-results page, resolve the query to a single
