@@ -474,6 +474,7 @@
       "late": "late",
       "today": "today",
       "rest": "rest",
+      "uncounted": "needs count",
       "restDayLabel": "REST DAY — NO INPUT",
       "submittedLocked": "SUBMITTED · LOCKED",
       "editAria": "Edit this vendor's submitted count",

@@ -474,6 +474,7 @@
       "late": "tarde",
       "today": "hoy",
       "rest": "descanso",
+      "uncounted": "falta conteo",
       "restDayLabel": "DÍA DE DESCANSO — SIN ENTRADA",
       "submittedLocked": "ENVIADO · BLOQUEADO",
       "editAria": "Editar conteo enviado de este proveedor",

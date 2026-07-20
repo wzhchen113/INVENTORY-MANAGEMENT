@@ -7,6 +7,7 @@ import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
 import { submitEODCount, fetchCountOrder, saveCountOrder, resetCountOrder } from '../../../lib/db';
 import { applyCountOrder, firstUncounted } from '../../../lib/countOrder';
+import { deriveDayStatus, isRestWeekday, type DayStatus } from '../../../lib/eodDayStatus';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
@@ -24,8 +25,6 @@ import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorSchedul
 import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { EODEntry, EODSubmission } from '../../../types';
 import OrderScheduleSection from './OrderScheduleSection';
-
-type DayStatus = 'today' | 'submitted' | 'draft' | 'late' | 'rest';
 
 interface DayCell {
   day: DayName;      // "Saturday"
@@ -251,25 +250,25 @@ export default function EODCountSection() {
       const daySubs = eodSubmissions.filter((s) => s.storeId === currentStore.id && s.date === iso);
       const counted = daySubs.reduce((acc, s) => acc + (s.entries?.length || 0), 0);
       const total = inventory.filter((it) => it.storeId === currentStore.id).length;
-      // Day-level status:
-      //   - any draft → 'draft'
-      //   - else any submitted with counted < total → 'late' (until counted >= total)
-      //   - any submitted with counted >= total → 'submitted'
-      //   - none → 'rest' (or 'today' on today)
+      // Day-level status (spec 133): derived by the pure `deriveDayStatus`
+      // reducer. `'rest'` now comes from the schedule weekday (`isRestWeekday`)
+      // — NOT submission absence — so a past uncounted non-rest day resolves to
+      // `'uncounted'` (editable) instead of being wrongly locked. today/draft/
+      // late/submitted branches are unchanged.
       const anyDraft = daySubs.some((s) => s.status === 'draft');
       const anySubmitted = daySubs.some((s) => s.status === 'submitted');
-      let status: DayStatus = 'rest';
-      if (iso === todayIso) {
-        status = anyDraft ? 'draft' : 'today';
-      } else if (anyDraft) {
-        status = 'draft';
-      } else if (anySubmitted) {
-        status = counted >= total ? 'submitted' : 'late';
-      }
+      const status: DayStatus = deriveDayStatus({
+        isToday: iso === todayIso,
+        isRestWeekday: isRestWeekday(orderSchedule, dayName),
+        anyDraft,
+        anySubmitted,
+        counted,
+        total,
+      });
       out.push({ day: dayName, date: monthDay, iso, status, counted, total, vendors: 'all vendors' });
     }
     return out;
-  }, [eodSubmissions, currentStore.id, inventory]);
+  }, [eodSubmissions, currentStore.id, inventory, orderSchedule]);
 
   // ── Worksheet data ──────────────────────────────────────────
   const storeInventory = React.useMemo(
@@ -902,6 +901,10 @@ export default function EODCountSection() {
     if (status === 'submitted') return { fg: C.ok,     bg: C.okBg,     label: T('section.eod.submitted') };
     if (status === 'draft')     return { fg: C.info,   bg: C.infoBg,   label: T('section.eod.draft') };
     if (status === 'late')      return { fg: C.warn,   bg: C.warnBg,   label: T('section.eod.late') };
+    // Spec 133 — a past, non-rest, uncounted day. Violet = "count not
+    // submitted / needs a count", same token as spec 130's reorder gate, so
+    // the concept reads identically across the EOD and Reorder sections.
+    if (status === 'uncounted') return { fg: C.violet, bg: C.violetBg, label: T('section.eod.uncounted') };
     return { fg: C.fg3, bg: C.panel2, label: T('section.eod.rest') };
   };
 

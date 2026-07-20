@@ -474,6 +474,7 @@
       "late": "延迟",
       "today": "今天",
       "rest": "休息",
+      "uncounted": "待录入",
       "restDayLabel": "休息日 — 不可输入",
       "submittedLocked": "已提交 · 已锁定",
       "editAria": "编辑此供应商的已提交盘点",
