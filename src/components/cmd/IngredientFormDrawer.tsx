@@ -78,6 +78,9 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
           // embed (mapItem defaults NULL/absent → ''). Reopening the drawer
           // shows each card's saved code (AC-5).
           orderCode: v.orderCode || '',
+          // Spec 131 — hydrate the per-vendor product page URL from the
+          // item_vendors embed (mapItem defaults NULL/absent → '').
+          productPageUrl: v.productPageUrl || '',
         }))
       : it.vendorId
         ? [{
@@ -87,6 +90,8 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
             // Spec 114 — a legacy single-vendor item (no embed) has no code
             // until the admin types one.
             orderCode: '',
+            // Spec 131 — same: no product page URL until the admin types one.
+            productPageUrl: '',
           }]
         : [],
 });
@@ -129,7 +134,7 @@ type ItemUpdatesWithVendors = Omit<Partial<InventoryItem>, 'vendors'> & {
   // (trimmed; empty→undefined→SQL NULL in db.ts). Matches
   // vendorRowsToLinkPayload's return shape and the db create/update `vendors?`
   // payload types.
-  vendors: Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string }>;
+  vendors: Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string; productPageUrl?: string }>;
 };
 
 const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({

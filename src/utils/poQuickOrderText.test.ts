@@ -16,6 +16,7 @@
 
 import {
   buildPoQuickOrderText,
+  computePoQuickOrderLines,
   type PoQuickOrderLine,
   type CodeResolver,
   type NameResolver,
@@ -301,5 +302,84 @@ describe('buildPoQuickOrderText — order-unit conversion (W-2, AC-14)', () => {
       'case',
     );
     expect(res.text).not.toContain('$');
+  });
+});
+
+// ─── Spec 131 (D-1 / D-7) — the extracted structured-line core ────────────────
+//
+// `computePoQuickOrderLines` is the SHARED core both the text blob AND the
+// spec-132 extension derive from (one canonical case-math implementation, no
+// forked builder — 131 AC-5). These pins prove: (a) the AC-4 per-line structured
+// shape (orderCode / itemName / qty / unit / unmapped / rounded); (b) the qty is
+// case-converted IDENTICALLY to buildPoQuickOrderText (both derive from this
+// core); (c) an unmapped line is surfaced with orderCode:null, never dropped.
+describe('computePoQuickOrderLines — the shared structured core (spec 131)', () => {
+  it('emits the AC-4 per-line shape: orderCode / itemName / qty / unit / flags', () => {
+    const res = computePoQuickOrderLines(
+      [U({ itemId: 'a', itemName: 'Chicken Thigh', orderedQty: 3 })],
+      codeById({ a: 'US-1001' }),
+      nameById({ a: 'Chicken Thigh' }),
+      'unit',
+    );
+    expect(res.lines).toEqual([
+      {
+        itemId: 'a',
+        orderCode: 'US-1001',
+        itemName: 'Chicken Thigh',
+        qty: 3,
+        unit: 'unit',
+        unmapped: false,
+        rounded: false,
+      },
+    ]);
+    expect(res.unmappedCount).toBe(0);
+    expect(res.roundedCount).toBe(0);
+  });
+
+  it('surfaces an unmapped line with orderCode:null + the resolved name, never dropped (AC-4)', () => {
+    const res = computePoQuickOrderLines(
+      [U({ itemId: 'z', itemName: 'No Code', orderedQty: 4 })],
+      codeById({ z: null }),
+      nameById({ z: 'No Code' }),
+      'unit',
+    );
+    expect(res.lines).toHaveLength(1);
+    expect(res.lines[0]).toMatchObject({ itemId: 'z', orderCode: null, itemName: 'No Code', unmapped: true });
+    expect(res.unmappedCount).toBe(1);
+  });
+
+  it("case-converts qty IDENTICALLY to buildPoQuickOrderText (fractional → ceil + rounded flag)", () => {
+    const lines: PoQuickOrderLine[] = [
+      { itemId: 'a', itemName: 'Exact', orderedQty: 48, caseQty: 24 }, // 2.0
+      { itemId: 'b', itemName: 'Frac', orderedQty: 30, caseQty: 24 },  // 1.25 → 2
+    ];
+    const core = computePoQuickOrderLines(lines, codeById({ a: 'A', b: 'B' }), nameById({}), 'case');
+    // The structured qty matches the number the text blob formats.
+    expect(core.lines.map((l) => l.qty)).toEqual([2, 2]);
+    expect(core.lines.map((l) => l.rounded)).toEqual([false, true]);
+    expect(core.roundedCount).toBe(1);
+    // Cross-check: the text builder derives from this exact core.
+    const text = buildPoQuickOrderText(lines, codeById({ a: 'A', b: 'B' }), nameById({}), 'case');
+    expect(text.text).toBe(['A\t2', 'B\t2'].join('\n'));
+    expect(text.roundedCount).toBe(core.roundedCount);
+  });
+
+  it('trims a mapped code and carries unit through', () => {
+    const res = computePoQuickOrderLines(
+      [{ itemId: 'a', itemName: 'A', orderedQty: 5, caseQty: 1 }],
+      codeById({ a: '  PAD-1  ' }),
+      nameById({}),
+      'case',
+    );
+    expect(res.lines[0].orderCode).toBe('PAD-1');
+    expect(res.lines[0].unit).toBe('case');
+  });
+
+  it('returns { lines: [], unmappedCount: 0, roundedCount: 0 } for empty input', () => {
+    expect(computePoQuickOrderLines([], codeById({}), nameById({}), 'case')).toEqual({
+      lines: [],
+      unmappedCount: 0,
+      roundedCount: 0,
+    });
   });
 });

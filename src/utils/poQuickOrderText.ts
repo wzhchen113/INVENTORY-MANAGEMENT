@@ -85,6 +85,93 @@ export interface PoQuickOrderResult {
   roundedCount: number;
 }
 
+// ─── Spec 131 (D-1 / D-7) — the shared structured-line core ──────────────────
+//
+// ONE canonical case-math implementation, no forked builder (131 AC-5). The
+// per-line order-unit conversion (spec 115), code resolution, and unmapped
+// detection are computed HERE, once, by `computePoQuickOrderLines`. Both the
+// text-blob builder (`buildPoQuickOrderText`, below) AND the spec-132 browser
+// extension (which imports this exact file and calls `computePoQuickOrderLines`
+// on the raw lines returned by the `get_extension_order_payload` RPC) derive
+// from this core. The extension therefore authors NO case math of its own — it
+// delegates to spec-115's shared conversion at its entry point (131 D-1).
+
+// One structured order line — the AC-4 shape the extension consumes. `qty` is
+// the order-unit-CONVERTED quantity (already ceil-to-cases for a 'case' vendor);
+// `orderCode` is the trimmed code, or `null` when the item has no code for this
+// vendor (surfaced, NEVER dropped — AC-4). `itemName` is the resolved
+// (locale-aware) name. `unmapped` / `rounded` are the per-line fail-loud flags
+// aggregated into the result's `unmappedCount` / `roundedCount`.
+export interface StructuredOrderLine {
+  itemId: string;
+  orderCode: string | null;
+  itemName: string;
+  qty: number;
+  unit: 'case' | 'unit';
+  unmapped: boolean;
+  rounded: boolean;
+}
+
+export interface PoQuickOrderLinesResult {
+  lines: StructuredOrderLine[];
+  unmappedCount: number;
+  roundedCount: number;
+}
+
+/**
+ * Spec 131 (D-7) — the extracted structured-line core. PURE + total; returns
+ * `{ lines: [], unmappedCount: 0, roundedCount: 0 }` for empty input. This is
+ * the single implementation of the spec-115 order-unit conversion + the spec-114
+ * code/name resolution; `buildPoQuickOrderText` (the byte-identical text blob)
+ * and the spec-132 extension both derive from it.
+ */
+export function computePoQuickOrderLines(
+  lines: PoQuickOrderLine[],
+  resolveCode: CodeResolver,
+  resolveName: NameResolver,
+  orderUnit: 'case' | 'unit',
+): PoQuickOrderLinesResult {
+  const out: StructuredOrderLine[] = [];
+  let unmappedCount = 0;
+  let roundedCount = 0;
+  for (const line of lines) {
+    // ── Spec 115 (W-2) — order-unit conversion (the load-bearing correctness
+    // surface). Computed BEFORE any formatting so the emitted number matches
+    // the vendor's box unit. ──
+    let emitQty: number;
+    let rounded = false;
+    if (orderUnit === 'case') {
+      // coalesce(caseQty, 1) — never divide by 0/null; a null/0/1 case size
+      // means the item has no case, so cases == units.
+      const cq = line.caseQty && line.caseQty > 0 ? line.caseQty : 1;
+      const exact = line.orderedQty / cq;
+      emitQty = Math.ceil(exact);
+      if (emitQty !== exact) {
+        rounded = true;
+        roundedCount += 1;
+      }
+    } else {
+      emitQty = line.orderedQty; // 'unit' → counted units verbatim (spec 114).
+    }
+    const rawCode = resolveCode(line.itemId);
+    const code = (rawCode ?? '').trim();
+    const unmapped = code.length === 0;
+    if (unmapped) unmappedCount += 1;
+    out.push({
+      itemId: line.itemId,
+      orderCode: unmapped ? null : code,
+      // Resolve the name for EVERY line so the structured payload always carries
+      // it; the text blob only emits it on the unmapped path (byte-identical).
+      itemName: resolveName(line.itemId, line.itemName),
+      qty: emitQty,
+      unit: orderUnit,
+      unmapped,
+      rounded,
+    });
+  }
+  return { lines: out, unmappedCount, roundedCount };
+}
+
 // The `??? ` sentinel prefix on an unmapped line. Deliberately NOT a valid
 // vendor code, so an operator who pastes without filling the gap produces a
 // visibly-broken line the vendor box rejects rather than a silently-short
@@ -128,37 +215,23 @@ export function buildPoQuickOrderText(
   resolveName: NameResolver,
   orderUnit: 'case' | 'unit',
 ): PoQuickOrderResult {
-  const out: string[] = [];
-  let unmappedCount = 0;
-  let roundedCount = 0;
-  for (const line of lines) {
-    // ── Spec 115 (W-2) — order-unit conversion (the load-bearing correctness
-    // surface). Computed BEFORE formatQty so the emitted number matches the
-    // vendor's box unit. ──
-    let emitQty: number;
-    if (orderUnit === 'case') {
-      // coalesce(caseQty, 1) — never divide by 0/null; a null/0/1 case size
-      // means the item has no case, so cases == units.
-      const cq = line.caseQty && line.caseQty > 0 ? line.caseQty : 1;
-      const exact = line.orderedQty / cq;
-      emitQty = Math.ceil(exact);
-      // A fraction rounded up (orderedQty not an exact multiple of the case
-      // size) is the fail-loud case — count it. Exact multiples (incl. cq===1)
-      // leave roundedCount untouched.
-      if (emitQty !== exact) roundedCount += 1;
-    } else {
-      emitQty = line.orderedQty; // 'unit' → counted units verbatim (spec 114).
-    }
-    const qty = formatQty(emitQty); // SAME formatQty; still no $; still TAB delim.
-    const rawCode = resolveCode(line.itemId);
-    const code = (rawCode ?? '').trim();
-    if (code) {
-      out.push(`${code}${DELIM}${qty}`);
-    } else {
-      unmappedCount += 1;
-      const name = resolveName(line.itemId, line.itemName);
-      out.push(`${UNMAPPED_PREFIX}${name}${DELIM}${qty}`);
-    }
-  }
+  // Spec 131 (D-7) — derive the text blob from the SHARED structured core. The
+  // per-line output is byte-identical to the pre-extraction implementation:
+  //   MAPPED    → `<order code>\t<formatQty(qty)>`
+  //   UNMAPPED  → `??? <resolved item name>\t<formatQty(qty)>`
+  // `qty` is the same order-unit-converted number; `formatQty` is applied here,
+  // NOT in the core (the extension formats differently / not at all).
+  const { lines: structured, unmappedCount, roundedCount } = computePoQuickOrderLines(
+    lines,
+    resolveCode,
+    resolveName,
+    orderUnit,
+  );
+  const out = structured.map((s) => {
+    const qty = formatQty(s.qty); // SAME formatQty; still no $; still TAB delim.
+    return s.unmapped
+      ? `${UNMAPPED_PREFIX}${s.itemName}${DELIM}${qty}`
+      : `${s.orderCode}${DELIM}${qty}`;
+  });
   return { text: out.join('\n'), unmappedCount, roundedCount };
 }

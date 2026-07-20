@@ -35,7 +35,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(19);
+select plan(22);
 
 -- ─── fixtures (postgres role) ───────────────────────────────────────────────
 do $$
@@ -77,8 +77,10 @@ begin
   values (v_charles, v_cat_x, v_v1, 7.00, 84.00) returning id into v_item_charles;
 
   -- Towson: V1 primary (matching scalar) + a de-selected extra link V3.
-  insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary, order_code)
-  values (v_item_towson, v_v1, 5.00, 60.00, true,  'OLD-1');
+  -- V1 carries a STALE product_page_url so the fan-out's overwrite parity with
+  -- order_code (spec 131) is provable (submitted URL must replace it).
+  insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary, order_code, product_page_url)
+  values (v_item_towson, v_v1, 5.00, 60.00, true,  'OLD-1', 'https://old.example/v1');
   insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary, order_code)
   values (v_item_towson, v_v3, 3.00, 36.00, false, 'OLD-3');
   -- Charles: V1 primary.
@@ -133,8 +135,8 @@ begin
   r := public.apply_item_vendors_to_brand(
     current_setting('t.cat_x')::uuid,
     jsonb_build_array(
-      jsonb_build_object('vendor_id', current_setting('t.v1'), 'cost_per_unit', 99.00, 'case_price', 999.00, 'order_code', 'OC-1'),
-      jsonb_build_object('vendor_id', current_setting('t.v2'), 'cost_per_unit', 20.00, 'case_price', 240.00, 'order_code', 'OC-2')
+      jsonb_build_object('vendor_id', current_setting('t.v1'), 'cost_per_unit', 99.00, 'case_price', 999.00, 'order_code', 'OC-1', 'product_page_url', 'https://ex.example/v1'),
+      jsonb_build_object('vendor_id', current_setting('t.v2'), 'cost_per_unit', 20.00, 'case_price', 240.00, 'order_code', 'OC-2', 'product_page_url', 'https://ex.example/v2')
     ),
     current_setting('t.v2')::uuid
   );
@@ -258,6 +260,30 @@ select is(
   (select cost_per_unit from public.item_vendors where item_id = current_setting('t.item_b')::uuid),
   11.00::numeric,
   '(18) brand-B link cost_per_unit unchanged (no cross-brand write)'
+);
+
+-- product_page_url propagated identically to order_code (spec 131 KEEP fix).
+-- Preserved link (Towson V1): the stale URL is OVERWRITTEN by the submitted one
+-- (same overwrite semantics as order_code, NOT the cost/case_price preserve).
+select is(
+  (select product_page_url from public.item_vendors
+    where item_id = current_setting('t.item_towson')::uuid and vendor_id = current_setting('t.v1')::uuid),
+  'https://ex.example/v1',
+  '(19) Towson V1: product_page_url propagated (overwrites the stale value, like order_code)'
+);
+-- New link (Towson V2): product_page_url SEEDED from the submitted value.
+select is(
+  (select product_page_url from public.item_vendors
+    where item_id = current_setting('t.item_towson')::uuid and vendor_id = current_setting('t.v2')::uuid),
+  'https://ex.example/v2',
+  '(20) Towson V2: NEW link SEEDED with submitted product_page_url'
+);
+-- Fans out to a SECOND store's new link too (Charles V2).
+select is(
+  (select product_page_url from public.item_vendors
+    where item_id = current_setting('t.item_charles')::uuid and vendor_id = current_setting('t.v2')::uuid),
+  'https://ex.example/v2',
+  '(21) Charles V2: new link carries the propagated product_page_url'
 );
 
 select * from finish();

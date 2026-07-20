@@ -112,6 +112,40 @@ jobs:
       - name: Typecheck (base config — full active app graph)
         run: npm run typecheck
 
+  extension:
+    name: Track 1c — extension typecheck + unit tests
+    runs-on: ubuntu-latest
+    # Spec 132 (D-6 / OQ-4) — the Chrome MV3 cart-filler is a SEPARATE build
+    # artifact outside the Expo Metro/jest graph, with its own tsconfig + vitest
+    # runner. This arm gates its PURE logic (payload → planned actions, the
+    # origin match, the dry-run gate, the report shape, URL scheme validation —
+    # AC-12). It does NOT build the bundle (that needs the public Supabase env)
+    # and does NOT exercise the live vendor sites (manual owner verification,
+    # AC-11). Independent of the base jest/typecheck jobs because `extension/`
+    # is excluded from tsconfig.json + jest.config.js.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Typecheck (extension tsconfig)
+        run: npm run typecheck
+
+      - name: Run extension unit tests (vitest)
+        run: npm test
+
   db:
     name: Track 2 — Supabase DB tests
     runs-on: ubuntu-latest

@@ -43,6 +43,7 @@ const link = (vendorId: string, costPerUnit: number, casePrice: number, orderCod
   casePrice,
   isPrimary,
   orderCode,
+  productPageUrl: '',
 });
 
 const makeItem = (over: Partial<InventoryItem>): InventoryItem => ({

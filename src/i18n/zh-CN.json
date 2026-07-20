@@ -340,6 +340,8 @@
       "costPerUnit": "单位成本",
       "orderCodeLabel": "订货编码",
       "orderCodeHelp": "该供应商的商品/SKU 编码 — 粘贴到其快速订货框",
+      "productPageUrlLabel": "商品页面网址",
+      "productPageUrlHelp": "扩展为该商品打开的直接链接（可选）",
       "applyVendorsAllStores": "应用供应商到所有门店",
       "applyVendorsHelp": "将此供应商组合 — 已关联供应商、主供应商及订货编码 — 应用到该品牌每家门店的此原料。保留各门店现有的价格；仅为新链接填充价格。价格在保存时更改，而非此处。",
       "applyVendorsConfirmTitle": "应用供应商到所有门店？",
@@ -837,7 +839,11 @@
       "importDepartment": "部门",
       "importCustomerByStore": "各门店客户编号",
       "importCustomerHint": "各门店客户号",
-      "importFormatSysco": "SYSCO"
+      "importFormatSysco": "SYSCO",
+      "extensionOrderingLabel": "扩展下单",
+      "extensionOrderingHelp": "在浏览器扩展中拾取该供应商的草稿采购单",
+      "orderPageUrlLabel": "订货页面网址",
+      "orderPageUrlHelp": "扩展打开的 BJ's / Sam's 订货页面"
     },
     "recipes": {
       "title": "菜品 / BOM",

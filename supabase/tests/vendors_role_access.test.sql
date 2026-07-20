@@ -45,7 +45,7 @@ create extension if not exists pgtap;
 -- REJECTED — the fix's whole point (1); (5a/5b/5c) order_unit column shape
 -- + default-at-row (3); (6) CHECK rejects off-vocabulary (1); (7a/7b) privileged
 -- UPDATE allowed + persisted (2); (8) non-privileged UPDATE denied / unchanged (1).
-select plan(13);
+select plan(21);
 
 -- A throwaway SECOND brand (superuser insert, bypasses RLS) so the cross-brand
 -- negative below has a foreign brand to be rejected against. The seed ships a
@@ -210,6 +210,82 @@ select is(
   (select order_unit from vendors where id = '99999999-9999-9999-9999-999999999944'),
   'unit',
   '(8) user role CANNOT change order_unit — RLS 0-row update left the value unchanged (privileged_update_vendors gates the column)'
+);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Spec 131 (AC-1/AC-2) — the two new vendors columns + their inherited
+-- privileged UPDATE gate. Same posture as order_unit above: the columns exist
+-- with the right shape and inherit privileged_update_vendors column-agnostically
+-- (a non-privileged member cannot flip extension_ordering / set order_page_url).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ─── (9) extension_ordering is boolean NOT NULL DEFAULT false ──────────────
+select is(
+  (select column_default from information_schema.columns
+    where table_schema='public' and table_name='vendors' and column_name='extension_ordering'),
+  'false',
+  '(9a) vendors.extension_ordering default is false'
+);
+select is(
+  (select is_nullable from information_schema.columns
+    where table_schema='public' and table_name='vendors' and column_name='extension_ordering'),
+  'NO',
+  '(9b) vendors.extension_ordering is NOT NULL'
+);
+select is(
+  (select extension_ordering from vendors where id = '99999999-9999-9999-9999-999999999944'),
+  false,
+  '(9c) an existing vendor row reads false from the DEFAULT (no backfill needed)'
+);
+
+-- ─── (10) order_page_url is nullable text ─────────────────────────────────
+select is(
+  (select is_nullable from information_schema.columns
+    where table_schema='public' and table_name='vendors' and column_name='order_page_url'),
+  'YES',
+  '(10a) vendors.order_page_url is nullable'
+);
+select is(
+  (select data_type from information_schema.columns
+    where table_schema='public' and table_name='vendors' and column_name='order_page_url'),
+  'text',
+  '(10b) vendors.order_page_url is text'
+);
+
+-- ─── (11) a privileged (admin) caller CAN set both columns ────────────────
+set local role authenticated;
+set local request.jwt.claims to '{"sub": "11111111-1111-1111-1111-111111111111", "role": "authenticated", "app_metadata": {"role": "admin"}}';
+
+select lives_ok(
+  $$update vendors set extension_ordering = true, order_page_url = 'https://www.samsclub.com/orders'
+      where id = '99999999-9999-9999-9999-999999999944'$$,
+  '(11a) admin (privileged, brand-visible) can set extension_ordering + order_page_url'
+);
+
+reset role;
+
+select is(
+  (select extension_ordering::text || '|' || coalesce(order_page_url,'')
+     from vendors where id = '99999999-9999-9999-9999-999999999944'),
+  'true|https://www.samsclub.com/orders',
+  '(11b) the privileged extension_ordering + order_page_url UPDATE persisted'
+);
+
+-- ─── (12) a NON-privileged (user) caller CANNOT flip extension_ordering ────
+-- privileged_update_vendors' USING clause (auth_is_privileged false for `user`)
+-- filters the row → 0-row update, RAISES NOTHING → value unchanged.
+set local role authenticated;
+set local request.jwt.claims to '{"sub": "22222222-2222-2222-2222-222222222222", "role": "authenticated", "app_metadata": {"role": "user"}}';
+
+update vendors set extension_ordering = false, order_page_url = 'https://evil.example'
+  where id = '99999999-9999-9999-9999-999999999944';
+
+reset role;
+
+select is(
+  (select extension_ordering from vendors where id = '99999999-9999-9999-9999-999999999944'),
+  true,
+  '(12) user role CANNOT change extension_ordering — RLS 0-row update left it true (privileged_update_vendors gates the column)'
 );
 
 select * from finish();

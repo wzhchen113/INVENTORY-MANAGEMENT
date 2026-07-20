@@ -70,6 +70,7 @@ function vendorRow(id: string, orderImportFormat?: 'us_foods' | 'sysco' | ''): V
   return {
     id, brandId: 'b', name: id, contactName: '', phone: '', email: '', accountNumber: '',
     leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case', orderImportFormat,
+    extensionOrdering: false, orderPageUrl: null,
   };
 }
 function payload(vendorIds: string[]): ReorderPayload {

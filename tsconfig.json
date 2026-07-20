@@ -16,6 +16,7 @@
     "supabase/functions/**",
     "scripts/**",
     "e2e/**",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "extension/**"
   ]
 }

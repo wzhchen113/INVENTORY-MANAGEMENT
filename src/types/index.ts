@@ -211,6 +211,12 @@ export interface ItemVendorLink {
   // shape (mapItem defaults null/absent → ''), mirroring vendorName. Free-form,
   // no uniqueness. Distinct from the obsolete item-level vendorSku stub (OQ-4).
   orderCode: string;
+  // Spec 131 (D-2) — per-(item, vendor) direct product-page link (→
+  // item_vendors.product_page_url). The spec-132 extension PREFERS a non-null
+  // value (direct navigate) and falls back to per-vendor search when blank.
+  // Required string on the hydrated shape (mapItem defaults null/absent → ''),
+  // mirroring orderCode. Free-form, nullable at the DB.
+  productPageUrl: string;
 }
 
 export type ItemStatus = 'ok' | 'low' | 'out';
@@ -476,6 +482,14 @@ export interface Vendor {
   // 'case', so every fetched vendor carries it and the segmented control's
   // value type stays total.
   orderUnit: 'case' | 'unit';
+  // Spec 131 (AC-1) — per-vendor opt-in for the browser-extension cart-filler
+  // (spec 132). true → this vendor's draft POs are picked up by the extension as
+  // "pending orders". NOT optional: the DB column is NOT NULL DEFAULT false, so
+  // every fetched vendor carries a boolean.
+  extensionOrdering: boolean;
+  // Spec 131 (AC-2) — the vendor's order page URL (BJ's landing / Sam's "Reorder
+  // for Pickup using a List"). Nullable — null when the admin hasn't set one.
+  orderPageUrl: string | null;
   // 2026-07 — vendor-specific "Import Order" file export (builds on spec 114
   // order codes). `orderImportFormat` tags which vendor file template this
   // vendor uses: undefined/'' = none (generic reorder export only), 'us_foods'

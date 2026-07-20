@@ -1,0 +1,30 @@
+{
+  // Spec 132 (D-6) — the extension's OWN typecheck, kept OUT of the Expo Metro
+  // graph. The base repo tsconfig excludes `extension/**` so `npm run typecheck`
+  // never sees this tree; this config only checks the extension source + the ONE
+  // shared pure util it imports (`../src/utils/poQuickOrderText.ts`, 131 D-7).
+  //
+  // Module resolution walks UP to the repo-root node_modules for deps the shared
+  // builder's graph needs (papaparse, the app's type defs), so this tsconfig does
+  // not duplicate them. `skipLibCheck` keeps the check scoped to our own code and
+  // the shared util, not every transitive .d.ts.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["chrome", "node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "isolatedModules": true
+  },
+  "include": ["src/**/*.ts"]
+}

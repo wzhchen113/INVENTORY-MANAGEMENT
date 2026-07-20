@@ -34,6 +34,11 @@ interface FormValues {
   // rounds UP to whole cases; 'unit' → counted units verbatim. Held as the total
   // union directly (not a free-text string) since the control can only emit these.
   orderUnit: 'case' | 'unit';
+  // Spec 131 — per-vendor opt-in for the browser-extension cart-filler (spec 132)
+  // + the vendor's order page URL. The toggle emits the boolean directly; the URL
+  // is a free-text field (empty → clears to NULL on save).
+  extensionOrdering: boolean;
+  orderPageUrl: string;
   // 2026-07 — vendor-specific "Import Order" file export. '' = none (generic
   // reorder export only), 'us_foods' = US Foods CSV, 'sysco' = SYSCO H/F/P file.
   // Per-store CUSTOMER NUMBER feeds both; distributor/department are US-Foods-only.
@@ -56,6 +61,8 @@ const blank = (): FormValues => ({
   orderCutoffTime: '',
   eodDeadlineTime: '',
   orderUnit: 'case', // R-2 — 'case' is the safe default on a new vendor.
+  extensionOrdering: false, // Spec 131 — opt-in is OFF by default.
+  orderPageUrl: '',
   orderImportFormat: '',
   importDistributorNumber: '',
   importDepartment: '',
@@ -74,6 +81,8 @@ const fromVendor = (v: Vendor): FormValues => ({
   orderCutoffTime: v.orderCutoffTime || '',
   eodDeadlineTime: v.eodDeadlineTime || '',
   orderUnit: v.orderUnit ?? 'case', // defensive default for a pre-migration row.
+  extensionOrdering: v.extensionOrdering ?? false, // Spec 131 — defensive default.
+  orderPageUrl: v.orderPageUrl || '',
   orderImportFormat:
     v.orderImportFormat === 'us_foods' || v.orderImportFormat === 'sysco' ? v.orderImportFormat : '',
   importDistributorNumber: v.importDistributorNumber || '',
@@ -93,6 +102,8 @@ const toUpdates = (v: FormValues): Partial<Vendor> => ({
   orderCutoffTime: v.orderCutoffTime.trim() || undefined,
   eodDeadlineTime: v.eodDeadlineTime.trim() || undefined,
   orderUnit: v.orderUnit,
+  extensionOrdering: v.extensionOrdering, // Spec 131 — persists via createVendor / updateVendor.
+  orderPageUrl: v.orderPageUrl.trim(),
   orderImportFormat: v.orderImportFormat,
   importDistributorNumber: v.importDistributorNumber.trim(),
   importDepartment: v.importDepartment.trim(),
@@ -190,6 +201,48 @@ function SegmentField<T extends string>({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+// ─── Toggle control (boolean) ──────────────────────────────────
+// Spec 131 — the extension-ordering opt-in. Same label idiom as `Field` /
+// `SegmentField` (uppercase mono caption + hint) with a pill toggle underneath.
+function ToggleField({
+  label, hint, value, onChange, testID,
+}: {
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  testID?: string;
+}) {
+  const C = useCmdColors();
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+        <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</Text>
+        {hint ? <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>· {hint}</Text> : null}
+      </View>
+      <TouchableOpacity
+        testID={testID}
+        onPress={() => onChange(!value)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value }}
+        style={{
+          alignSelf: 'flex-start',
+          paddingVertical: 8,
+          paddingHorizontal: 14,
+          borderRadius: CmdRadius.sm,
+          borderWidth: 1,
+          borderColor: value ? C.accent : C.border,
+          backgroundColor: value ? C.accentBg : C.panel2,
+        }}
+      >
+        <Text style={{ fontFamily: mono(value ? 700 : 500), fontSize: 12, color: value ? C.accent : C.fg2 }}>
+          {value ? 'ON' : 'OFF'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -371,6 +424,25 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
           ]}
           onChange={(v) => setValues((p) => ({ ...p, orderUnit: v }))}
         />
+        {/* Spec 131 — browser-extension cart-filler opt-in (spec 132). ON → this
+            vendor's draft POs are picked up by the extension. The order page URL
+            is where the extension lands (BJ's / Sam's). */}
+        <ToggleField
+          testID="vendor-extension-ordering-toggle"
+          label={T('section.vendors.extensionOrderingLabel')}
+          hint={T('section.vendors.extensionOrderingHelp')}
+          value={values.extensionOrdering}
+          onChange={(v) => setValues((p) => ({ ...p, extensionOrdering: v }))}
+        />
+        {values.extensionOrdering ? (
+          <Field
+            label={T('section.vendors.orderPageUrlLabel')}
+            hint={T('section.vendors.orderPageUrlHelp')}
+            value={values.orderPageUrl}
+            onChange={set('orderPageUrl')}
+            placeholder="https://www.samsclub.com/orders"
+          />
+        ) : null}
         {/* 2026-07 — vendor-specific "Import Order" file export. 'US Foods' /
             'SYSCO' unlock the per-store CUSTOMER NUMBER inputs; US Foods also
             has DISTRIBUTOR / DEPARTMENT (division-level). When set, the reorder

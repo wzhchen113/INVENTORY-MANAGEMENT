@@ -127,6 +127,35 @@ describe('updateVendor — account_number + US Foods import fields persist (2026
   });
 });
 
+describe('updateVendor — spec 131 extension-ordering + order page URL threading', () => {
+  it('threads extensionOrdering → extension_ordering (boolean) into the UPDATE body', async () => {
+    await updateVendor('v1', { extensionOrdering: true });
+    expect(updateSpy).toHaveBeenCalledWith({ extension_ordering: true });
+  });
+
+  it('threads a false extensionOrdering (opt-out) — false !== undefined, so it persists', async () => {
+    await updateVendor('v1', { extensionOrdering: false });
+    expect(updateSpy).toHaveBeenCalledWith({ extension_ordering: false });
+  });
+
+  it('threads orderPageUrl → order_page_url into the UPDATE body', async () => {
+    await updateVendor('v1', { orderPageUrl: 'https://www.samsclub.com/orders' });
+    expect(updateSpy).toHaveBeenCalledWith({ order_page_url: 'https://www.samsclub.com/orders' });
+  });
+
+  it('an empty orderPageUrl clears to null', async () => {
+    await updateVendor('v1', { orderPageUrl: '' });
+    expect(updateSpy).toHaveBeenCalledWith({ order_page_url: null });
+  });
+
+  it('omit-key-to-skip: an update touching neither field writes neither key', async () => {
+    await updateVendor('v1', { phone: '555-2000' });
+    const body = updateSpy.mock.calls[0][0];
+    expect('extension_ordering' in body).toBe(false);
+    expect('order_page_url' in body).toBe(false);
+  });
+});
+
 describe('updateVendor — surfaces backend errors (optimistic-revert contract)', () => {
   it('throws when the UPDATE returns an error (previously swallowed → fake success)', async () => {
     abortSpy.mockResolvedValueOnce({ data: null, error: { message: 'permission denied' } });

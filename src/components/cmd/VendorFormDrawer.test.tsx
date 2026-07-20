@@ -96,6 +96,7 @@ describe('VendorFormDrawer — order-unit control (spec 115 W-2)', () => {
     const vendor: Vendor = {
       id: 'v1', brandId: 'b1', name: 'Existing', contactName: '', phone: '', email: '',
       accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'unit',
+      extensionOrdering: false, orderPageUrl: null,
     };
     render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
     // Prefilled to 'unit'.
@@ -106,5 +107,63 @@ describe('VendorFormDrawer — order-unit control (spec 115 W-2)', () => {
     fireEvent.press(screen.getByText('SAVE  ⌘S'));
     expect(updateVendorMock).toHaveBeenCalledTimes(1);
     expect(updateVendorMock.mock.calls[0][1]).toMatchObject({ orderUnit: 'case' });
+  });
+});
+
+describe('VendorFormDrawer — extension-ordering opt-in + order page URL (spec 131)', () => {
+  it('a NEW vendor defaults the extension-ordering toggle OFF and hides the URL field', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    // Toggle present and OFF by default (opt-in is OFF per blank()).
+    const toggle = screen.getByTestId('vendor-extension-ordering-toggle');
+    expect(toggle.props.accessibilityState).toEqual({ checked: false });
+    // The URL field is gated behind the toggle → not rendered while OFF.
+    expect(screen.queryByPlaceholderText('https://www.samsclub.com/orders')).toBeNull();
+  });
+
+  it('toggling extension-ordering ON reveals the URL field and threads both through addVendor', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    fireEvent.changeText(screen.getByPlaceholderText('BJs Wholesale'), 'Sams Vendor');
+    fireEvent.press(screen.getByTestId('vendor-extension-ordering-toggle'));
+    expect(screen.getByTestId('vendor-extension-ordering-toggle').props.accessibilityState).toEqual({ checked: true });
+    // URL field now present; fill it and save.
+    fireEvent.changeText(screen.getByPlaceholderText('https://www.samsclub.com/orders'), 'https://www.samsclub.com/orders');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addVendorMock.mock.calls[0][0]).toMatchObject({
+      name: 'Sams Vendor',
+      extensionOrdering: true,
+      orderPageUrl: 'https://www.samsclub.com/orders',
+    });
+  });
+
+  it('EDIT mode prefills the toggle ON and the saved order page URL (round-trip)', () => {
+    const vendor: Vendor = {
+      id: 'v2', brandId: 'b1', name: 'Existing Sams', contactName: '', phone: '', email: '',
+      accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case',
+      extensionOrdering: true, orderPageUrl: 'https://www.samsclub.com/orders',
+    };
+    render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
+    // Toggle prefilled ON.
+    expect(screen.getByTestId('vendor-extension-ordering-toggle').props.accessibilityState).toEqual({ checked: true });
+    // The URL field is visible (toggle ON) and shows the saved value.
+    expect(screen.getByDisplayValue('https://www.samsclub.com/orders')).toBeTruthy();
+    // Saving without touching anything writes both values back unchanged.
+    fireEvent.press(screen.getByText('SAVE  ⌘S'));
+    expect(updateVendorMock).toHaveBeenCalledTimes(1);
+    expect(updateVendorMock.mock.calls[0][1]).toMatchObject({
+      extensionOrdering: true,
+      orderPageUrl: 'https://www.samsclub.com/orders',
+    });
+  });
+
+  it('EDIT mode with the toggle OFF hides the URL field even when a URL is stored', () => {
+    const vendor: Vendor = {
+      id: 'v3', brandId: 'b1', name: 'Opted Out', contactName: '', phone: '', email: '',
+      accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case',
+      extensionOrdering: false, orderPageUrl: 'https://www.samsclub.com/orders',
+    };
+    render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
+    expect(screen.getByTestId('vendor-extension-ordering-toggle').props.accessibilityState).toEqual({ checked: false });
+    // URL field hidden while OFF, even though the stored value is non-empty.
+    expect(screen.queryByPlaceholderText('https://www.samsclub.com/orders')).toBeNull();
   });
 });

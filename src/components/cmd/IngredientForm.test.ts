@@ -392,28 +392,28 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
 
   describe('vendorAlreadyLinked — dup-guard predicate', () => {
     it('is true when the vendor is already in the rows', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       expect(vendorAlreadyLinked(rows, v1)).toBe(true);
     });
     it('is false for a vendor not in the rows', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       expect(vendorAlreadyLinked(rows, v2)).toBe(false);
     });
     it('is false for an empty vendor id (never a duplicate)', () => {
-      expect(vendorAlreadyLinked([{ vendorId: v1, costPerUnit: '', casePrice: '', orderCode: '' }], '')).toBe(false);
+      expect(vendorAlreadyLinked([{ vendorId: v1, costPerUnit: '', casePrice: '', orderCode: '', productPageUrl: '' }], '')).toBe(false);
     });
   });
 
   describe('addVendorLink — attach with dup-guard', () => {
     it('appends a new row seeded from the provided cost/case price', () => {
       const next = addVendorLink([], v1, { costPerUnit: '8', casePrice: '80' });
-      expect(next).toEqual([{ vendorId: v1, costPerUnit: '8', casePrice: '80', orderCode: '' }]);
+      expect(next).toEqual([{ vendorId: v1, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' }]);
     });
     it('defaults seeds to empty strings when no seed is given', () => {
-      expect(addVendorLink([], v1)).toEqual([{ vendorId: v1, costPerUnit: '', casePrice: '', orderCode: '' }]);
+      expect(addVendorLink([], v1)).toEqual([{ vendorId: v1, costPerUnit: '', casePrice: '', orderCode: '', productPageUrl: '' }]);
     });
     it('is a NO-OP (returns the same reference) when the vendor is already linked', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       const next = addVendorLink(rows, v1, { costPerUnit: '9', casePrice: '90' });
       // identity — lets the caller branch on "already linked" to toast.
       expect(next).toBe(rows);
@@ -426,8 +426,8 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
       const afterV1 = addVendorLink([], v1, { costPerUnit: '5', casePrice: '50' });
       const afterV2 = addVendorLink(afterV1, v2, { costPerUnit: '8', casePrice: '80' });
       expect(afterV2).toEqual([
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' },
       ]);
     });
   });
@@ -435,36 +435,36 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
   describe('removeVendorLink — detach', () => {
     it('removes only the matching row (AC-C "removing a vendor removes its link")', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' },
       ];
-      expect(removeVendorLink(rows, v1)).toEqual([{ vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' }]);
+      expect(removeVendorLink(rows, v1)).toEqual([{ vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' }]);
     });
     it('leaves the rows unchanged when the vendor is not present', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       expect(removeVendorLink(rows, v3)).toEqual(rows);
     });
     it('removing the last row yields an empty array (removes ALL links)', () => {
-      expect(removeVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }], v1)).toEqual([]);
+      expect(removeVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }], v1)).toEqual([]);
     });
   });
 
   describe('updateVendorLinkField — edit ONE link', () => {
     it('patches only the targeted row + field (AC-C "updates only that link")', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' },
       ];
       const next = updateVendorLinkField(rows, v2, 'costPerUnit', '9');
       expect(next).toEqual([
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }, // untouched
-        { vendorId: v2, costPerUnit: '9', casePrice: '80', orderCode: '' }, // only cost changed
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }, // untouched
+        { vendorId: v2, costPerUnit: '9', casePrice: '80', orderCode: '', productPageUrl: '' }, // only cost changed
       ]);
     });
     it('patches casePrice independently', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       expect(updateVendorLinkField(rows, v1, 'casePrice', '55')).toEqual([
-        { vendorId: v1, costPerUnit: '5', casePrice: '55', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '55', orderCode: '', productPageUrl: '' },
       ]);
     });
   });
@@ -472,8 +472,8 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
   describe('vendorRowsToLinkPayload — form rows → db link-set payload', () => {
     it('maps V1+V2 to two payload rows with numeric costs (AC-C persists two links)', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' },
       ];
       expect(vendorRowsToLinkPayload(rows)).toEqual([
         { vendorId: v1, costPerUnit: 5, casePrice: 50 },
@@ -481,14 +481,14 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
       ]);
     });
     it('coerces blank / unparseable costs to 0 (form convention)', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '', casePrice: 'abc', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '', casePrice: 'abc', orderCode: '', productPageUrl: '' }];
       expect(vendorRowsToLinkPayload(rows)).toEqual([{ vendorId: v1, costPerUnit: 0, casePrice: 0 }]);
     });
     it('drops rows with an empty or sentinel vendor id', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: '', costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: NEW_VENDOR_SENTINEL, costPerUnit: '5', casePrice: '50', orderCode: '' },
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' },
+        { vendorId: '', costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: NEW_VENDOR_SENTINEL, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' },
       ];
       expect(vendorRowsToLinkPayload(rows)).toEqual([{ vendorId: v1, costPerUnit: 5, casePrice: 50 }]);
     });
@@ -528,7 +528,7 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
   describe('inline-new-vendor (EDIT mode) seeds the row list, never an empty payload', () => {
     it('adds the inline-created vendor to vendors so the update payload is NOT empty (no wipe)', () => {
       // Item opened in EDIT mode already linked to V1 (its original vendor).
-      const existing: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const existing: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       // User inline-creates V2; handler seeds the new link from the form's
       // current cost/case price (mirrors the real handler call).
       const afterInline = addVendorLink(existing, v2, { costPerUnit: '9', casePrice: '90' });
@@ -555,7 +555,7 @@ describe('multi-vendor editor helpers (spec 102 AC-C)', () => {
       // The handler can fire its add path more than once (e.g. a second drawer
       // close). `addVendorLink`'s dup-guard returns the SAME reference, so the
       // row list (and thus the payload) is unchanged — no duplicate link row.
-      const once = addVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }], v2, {
+      const once = addVendorLink([{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }], v2, {
         costPerUnit: '9',
         casePrice: '90',
       });
@@ -586,39 +586,39 @@ describe('per-vendor order code helpers (spec 114 AC-4/AC-3)', () => {
   describe('updateVendorLinkField — orderCode edits ONE card', () => {
     it('patches only the targeted vendorId\'s orderCode; other rows untouched (per-card isolation)', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: '', productPageUrl: '' },
       ];
       const next = updateVendorLinkField(rows, v2, 'orderCode', 'SYS-999');
       expect(next).toEqual([
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111' }, // untouched
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: 'SYS-999' }, // only code changed
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111', productPageUrl: '' }, // untouched
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: 'SYS-999', productPageUrl: '' }, // only code changed
       ]);
     });
 
     it('editing orderCode leaves cost + case price of the SAME row untouched', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       expect(updateVendorLinkField(rows, v1, 'orderCode', 'ABC123')).toEqual([
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'ABC123' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'ABC123', productPageUrl: '' },
       ]);
     });
   });
 
   describe('vendorRowsToLinkPayload — code trims, empty→undefined (empty→NULL contract)', () => {
     it('maps a present code through to orderCode on the payload row', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'ABC123' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'ABC123', productPageUrl: '' }];
       expect(vendorRowsToLinkPayload(rows)).toEqual([
         { vendorId: v1, costPerUnit: 5, casePrice: 50, orderCode: 'ABC123' },
       ]);
     });
 
     it('trims surrounding whitespace on the code ("  X9 " → "X9")', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '  X9 ' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '  X9 ', productPageUrl: '' }];
       expect(vendorRowsToLinkPayload(rows)[0].orderCode).toBe('X9');
     });
 
     it('maps an empty code to orderCode: undefined (db coalesces to SQL NULL, not "" or "undefined")', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '', productPageUrl: '' }];
       const payload = vendorRowsToLinkPayload(rows);
       expect(payload[0].orderCode).toBeUndefined();
       // The literal string "undefined" must NEVER reach the payload.
@@ -626,14 +626,14 @@ describe('per-vendor order code helpers (spec 114 AC-4/AC-3)', () => {
     });
 
     it('maps an all-whitespace code to undefined (trim → empty → undefined)', () => {
-      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '   ' }];
+      const rows: VendorLinkRow[] = [{ vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: '   ', productPageUrl: '' }];
       expect(vendorRowsToLinkPayload(rows)[0].orderCode).toBeUndefined();
     });
 
     it('carries per-vendor codes independently across two links (AC-1 US-code ≠ Sysco-code)', () => {
       const rows: VendorLinkRow[] = [
-        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111' },
-        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: 'SYS-222' },
+        { vendorId: v1, costPerUnit: '5', casePrice: '50', orderCode: 'US-111', productPageUrl: '' },
+        { vendorId: v2, costPerUnit: '8', casePrice: '80', orderCode: 'SYS-222', productPageUrl: '' },
       ];
       expect(vendorRowsToLinkPayload(rows)).toEqual([
         { vendorId: v1, costPerUnit: 5, casePrice: 50, orderCode: 'US-111' },

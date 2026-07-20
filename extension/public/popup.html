@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>I.M.R Cart Filler</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --fg: #1a1a1a;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #7c3aed;
+        --ok: #047857;
+        --warn: #b45309;
+        --bad: #b91c1c;
+        --bg: #ffffff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        width: 380px;
+        margin: 0;
+        padding: 14px;
+        color: var(--fg);
+        background: var(--bg);
+        font-size: 13px;
+      }
+      h1 { font-size: 14px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 11px; margin: 0 0 12px; }
+      .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+      label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+      input[type='email'], input[type='password'] {
+        width: 100%; padding: 7px 8px; border: 1px solid var(--line);
+        border-radius: 7px; font-size: 13px; margin-bottom: 8px;
+      }
+      button {
+        border: 0; border-radius: 8px; padding: 8px 12px; font-size: 13px;
+        font-weight: 600; cursor: pointer; background: var(--accent); color: #fff;
+      }
+      button.secondary { background: #f3f4f6; color: var(--fg); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+      .toggle { display: flex; align-items: center; gap: 8px; }
+      .pill { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
+      .pill.added { background: #d1fae5; color: var(--ok); }
+      .pill.would-add { background: #ede9fe; color: var(--accent); }
+      .pill.unmatched { background: #fee2e2; color: var(--bad); }
+      .pill.ambiguous { background: #fef3c7; color: var(--warn); }
+      .pill.failed { background: #fee2e2; color: var(--bad); }
+      .item { border-top: 1px solid var(--line); padding: 7px 0; }
+      .item:first-child { border-top: 0; }
+      .item .name { font-weight: 600; }
+      .item .meta { color: var(--muted); font-size: 11px; }
+      .item .detail { color: var(--muted); font-size: 11px; margin-top: 2px; }
+      .msg { font-size: 12px; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.stop { color: var(--warn); font-weight: 600; }
+      .hidden { display: none; }
+      .banner {
+        background: #ede9fe; color: var(--accent); border-radius: 8px;
+        padding: 7px 9px; font-size: 11px; margin-bottom: 10px; line-height: 1.4;
+      }
+      select { width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 8px; }
+      .summary { font-size: 11px; color: var(--muted); margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>I.M.R Cart Filler</h1>
+    <p class="sub">BJ's / Sam's Club — fills your cart from a pending PO. Never checks out, never stores a vendor password.</p>
+
+    <!-- AUTH -->
+    <div class="card" id="auth-card">
+      <div id="signed-out">
+        <label for="email">I.M.R email</label>
+        <input type="email" id="email" autocomplete="username" placeholder="you@example.com" />
+        <label for="password">I.M.R password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
+        <button id="sign-in">Sign in</button>
+        <p class="msg err hidden" id="auth-error"></p>
+      </div>
+      <div id="signed-in" class="hidden">
+        <div class="row">
+          <span class="msg">Signed in as <strong id="user-email"></strong></span>
+          <button class="secondary" id="sign-out">Sign out</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN (only when signed in) -->
+    <div id="main" class="hidden">
+      <div class="banner">
+        Dry-run logs the intended actions without touching your cart or marking the PO ordered. Turn it off for a live run.
+      </div>
+
+      <div class="card">
+        <div class="row toggle">
+          <span class="toggle"><input type="checkbox" id="dry-run" checked /> <label for="dry-run" style="margin:0;">Dry-run (safe)</label></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="msg" id="site-status">Checking this tab…</p>
+        <select id="po-select" class="hidden"></select>
+        <button id="run" class="hidden">Fill cart from PO</button>
+        <p class="msg err hidden" id="run-error"></p>
+        <p class="msg stop hidden" id="run-stop"></p>
+      </div>
+
+      <div class="card hidden" id="report-card">
+        <div class="row">
+          <strong>Report</strong>
+          <span class="summary" id="report-summary"></span>
+        </div>
+        <div id="report-list"></div>
+        <button id="mark-ordered" class="hidden" style="margin-top:10px;">Mark PO ordered (I paid)</button>
+        <p class="msg hidden" id="mark-msg"></p>
+      </div>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

@@ -340,6 +340,8 @@
       "costPerUnit": "Costo por unidad",
       "orderCodeLabel": "código de pedido",
       "orderCodeHelp": "el código de artículo/SKU de este proveedor — se pega en su formulario de pedido rápido",
+      "productPageUrlLabel": "URL de la página del producto",
+      "productPageUrlHelp": "enlace directo que la extensión abre para este artículo (opcional)",
       "applyVendorsAllStores": "Aplicar proveedores a todas las tiendas",
       "applyVendorsHelp": "Propaga este conjunto de proveedores — proveedores adjuntos, principal y códigos de pedido — a este ingrediente en todas las tiendas de la marca. Se conservan los precios existentes por tienda; solo se inicializan los enlaces nuevos. Los precios se cambian al Guardar, no aquí.",
       "applyVendorsConfirmTitle": "¿Aplicar proveedores a todas las tiendas?",
@@ -837,7 +839,11 @@
       "importDepartment": "Departamento",
       "importCustomerByStore": "N.º cliente por tienda",
       "importCustomerHint": "n.º cliente por tienda",
-      "importFormatSysco": "SYSCO"
+      "importFormatSysco": "SYSCO",
+      "extensionOrderingLabel": "pedido por extensión",
+      "extensionOrderingHelp": "recoge los pedidos borrador de este proveedor en la extensión del navegador",
+      "orderPageUrlLabel": "URL de la página de pedido",
+      "orderPageUrlHelp": "página de pedido de BJ's / Sam's que abre la extensión"
     },
     "recipes": {
       "title": "Menú / BOM",

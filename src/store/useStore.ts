@@ -190,15 +190,16 @@ interface StoreActions {
   addItem: (
     item: Omit<InventoryItem, 'id' | 'vendors'> & {
       // Spec 114 — `orderCode` rides the same link-set payload straight through
-      // to db.createInventoryItem (which coalesces empty→SQL NULL).
-      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
+      // to db.createInventoryItem (which coalesces empty→SQL NULL). Spec 131 —
+      // `productPageUrl` rides the same way.
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>;
     },
   ) => void;
   updateItem: (
     id: string,
     updates: Omit<Partial<InventoryItem>, 'vendors'> & {
-      // Spec 114 — see addItem.
-      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
+      // Spec 114 / 131 — see addItem.
+      vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>;
     },
   ) => void;
   /**
@@ -223,7 +224,7 @@ interface StoreActions {
    */
   applyVendorsToAllStores: (
     catalogId: string,
-    vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>,
+    vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>,
     primaryVendorId: string | null,
   ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
   /**
@@ -1348,6 +1349,8 @@ export const useStore = create<FullStore>((set, get) => ({
           // (default '' — mirrors mapItem's hydrated default; the real value
           // lands on the next fetch/realtime).
           orderCode: l.orderCode || '',
+          // Spec 131 — carry the typed product page URL optimistically (default '').
+          productPageUrl: l.productPageUrl || '',
         }))
       : (item.vendorId
           ? [{
@@ -1358,6 +1361,8 @@ export const useStore = create<FullStore>((set, get) => ({
               isPrimary: true,
               // Spec 114 — the scalar-fallback link has no per-vendor code.
               orderCode: '',
+              // Spec 131 — nor a product page URL.
+              productPageUrl: '',
             }]
           : []);
     const newItem: InventoryItem = {
@@ -1414,6 +1419,8 @@ export const useStore = create<FullStore>((set, get) => ({
         // Spec 114 — carry the editor's typed order code optimistically
         // (default '' — mirrors mapItem; real value lands on next fetch).
         orderCode: l.orderCode || '',
+        // Spec 131 — carry the typed product page URL optimistically (default '').
+        productPageUrl: l.productPageUrl || '',
       }));
       optimisticPatch.vendors = links;
       optimisticPatch.vendorIds = links.map((l) => l.vendorId);

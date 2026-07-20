@@ -340,6 +340,8 @@
       "costPerUnit": "Cost per unit",
       "orderCodeLabel": "order code",
       "orderCodeHelp": "this vendor's item/SKU code — pasted into their quick-order box",
+      "productPageUrlLabel": "product page URL",
+      "productPageUrlHelp": "direct link the extension opens for this item (optional)",
       "applyVendorsAllStores": "Apply vendors to all stores",
       "applyVendorsHelp": "Propagates this vendor set — attached vendors, primary, and order codes — to this ingredient in every store of the brand. Existing per-store prices are kept; only new links are seeded. Prices change on Save, not here.",
       "applyVendorsConfirmTitle": "Apply vendors to all stores?",
@@ -837,7 +839,11 @@
       "importDepartment": "Department",
       "importCustomerByStore": "Customer # by store",
       "importCustomerHint": "customer # per store",
-      "importFormatSysco": "SYSCO"
+      "importFormatSysco": "SYSCO",
+      "extensionOrderingLabel": "extension ordering",
+      "extensionOrderingHelp": "pick up this vendor's draft POs in the browser extension",
+      "orderPageUrlLabel": "order page URL",
+      "orderPageUrlHelp": "BJ's / Sam's order page the extension opens"
     },
     "recipes": {
       "title": "Menu items / BOM",

@@ -237,7 +237,7 @@ export async function fetchInventory(
       .select(`*,
         vendor:vendors(name),
         item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
-                                  order_code, vendor:vendors(id, name)),
+                                  order_code, product_page_url, vendor:vendors(id, name)),
         updater:profiles!last_updated_by(name),
         catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path)`)
       .order('id', { ascending: true });
@@ -301,7 +301,7 @@ export async function createInventoryItem(
     // When omitted, a single primary link is synthesized from the scalar
     // vendorId (back-compat with the single-vendor form).
     // Spec 114 — optional per-(item,vendor) order code; empty/absent → NULL.
-    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>;
   },
 ): Promise<InventoryItem & { i18nNames: Record<string, string> }> {
   const vendorId = item.vendorId && item.vendorId.length > 10 ? item.vendorId : null;
@@ -372,6 +372,8 @@ export async function createInventoryItem(
           // '' and never the string "undefined" (AC-3 "empty round-trips as
           // NULL"). Matches the null-coalesce idiom for the link's fields.
           order_code: l.orderCode || null,
+          // Spec 131 — per-(item,vendor) product page URL; empty/absent → NULL.
+          product_page_url: l.productPageUrl || null,
         })),
         { onConflict: 'item_id,vendor_id' },
       ).abortSignal(signal);
@@ -401,7 +403,7 @@ export async function updateInventoryItem(
     // leaves the link set untouched (a form that only touched the primary
     // picker / a non-vendor field). An empty array removes ALL links.
     // Spec 114 — optional per-(item,vendor) order code; empty/absent → NULL.
-    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>;
+    vendors?: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>;
   },
 ): Promise<void> {
   if (!id || id.length < 10) return;
@@ -516,6 +518,8 @@ export async function updateInventoryItem(
             // Spec 114 — empty/blank/absent code → SQL NULL, never '' and
             // never "undefined" (AC-3). Same null-coalesce as the create path.
             order_code: v.orderCode || null,
+            // Spec 131 — per-(item,vendor) product page URL; empty/absent → NULL.
+            product_page_url: v.productPageUrl || null,
           })),
           { onConflict: 'item_id,vendor_id' },
         ).abortSignal(signal);
@@ -546,19 +550,23 @@ export async function updateInventoryItem(
 // "Apply vendors to all stores" button — Save stays per-store (AC-2).
 export async function applyItemVendorsToBrand(
   catalogId: string,
-  vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string }>,
+  vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>,
   primaryVendorId: string | null,
 ): Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] }> {
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase.rpc('apply_item_vendors_to_brand', {
       p_catalog_id: catalogId,
       // camelCase link payload → the RPC's snake_case JSONB. Same shape the
-      // update path builds; order_code empty/absent → null (spec 114).
+      // update path builds; order_code + product_page_url empty/absent → null
+      // (spec 114 / spec 131). product_page_url MUST be sent here: the RPC now
+      // overwrites it on the DO UPDATE branch (parity with order_code), so
+      // omitting it would wipe existing links' product_page_url to NULL.
       p_vendors: vendors.map((v) => ({
         vendor_id: v.vendorId,
         cost_per_unit: v.costPerUnit ?? 0,
         case_price: v.casePrice ?? 0,
         order_code: v.orderCode || null,
+        product_page_url: v.productPageUrl || null,
       })),
       p_primary_vendor_id: primaryVendorId && primaryVendorId.length > 10 ? primaryVendorId : null,
     // Spec 055 discipline — thread the inflight abort signal so the 30s
@@ -1895,6 +1903,11 @@ export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
       // guards a null defensively (e.g. a row read in a mixed window before the
       // migration applied) and matches the DB default.
       orderUnit: v.order_unit ?? 'case',
+      // Spec 131 — extension-ordering opt-in (default false) + order page URL.
+      // `?? false` / `?? null` guard a row read in a mixed window before the
+      // migration applied; matches the DB default / nullability.
+      extensionOrdering: v.extension_ordering ?? false,
+      orderPageUrl: v.order_page_url ?? null,
       // 2026-07 — vendor import-order file fields (nullable → '' / undefined).
       orderImportFormat:
         v.order_import_format === 'us_foods' || v.order_import_format === 'sysco'
@@ -1922,6 +1935,11 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> 
       // times): order_unit is NOT NULL with a value always in hand; default to
       // 'case' when a caller omits it (R-2 safe default).
       order_unit: vendor.orderUnit ?? 'case',
+      // Spec 131 — extension-ordering opt-in (NOT NULL, default false) +
+      // nullable order page URL. Unconditional for the flag (always in hand);
+      // order_page_url coalesces empty → null so a cleared field stores NULL.
+      extension_ordering: vendor.extensionOrdering ?? false,
+      order_page_url: vendor.orderPageUrl || null,
       // 2026-07 — vendor import-order file fields (nullable; omit-when-empty).
       ...(vendor.orderImportFormat ? { order_import_format: vendor.orderImportFormat } : {}),
       ...(vendor.importDistributorNumber ? { import_distributor_number: vendor.importDistributorNumber } : {}),
@@ -3177,6 +3195,10 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     if (updates.orderCutoffTime !== undefined) dbUpdates.order_cutoff_time = updates.orderCutoffTime || null;
     if (updates.eodDeadlineTime !== undefined) dbUpdates.eod_deadline_time = updates.eodDeadlineTime || null;
     if (updates.orderUnit !== undefined) dbUpdates.order_unit = updates.orderUnit;
+    // Spec 131 — extension-ordering opt-in + order page URL. The flag is a plain
+    // boolean; order_page_url empty string clears (→ null).
+    if (updates.extensionOrdering !== undefined) dbUpdates.extension_ordering = updates.extensionOrdering;
+    if (updates.orderPageUrl !== undefined) dbUpdates.order_page_url = updates.orderPageUrl || null;
     // 2026-07 — vendor import-order file fields. Empty string clears (→ null)
     // so an admin can un-set the format / header values.
     if (updates.orderImportFormat !== undefined) dbUpdates.order_import_format = updates.orderImportFormat || null;
@@ -5211,6 +5233,7 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
     casePrice: number;
     isPrimary: boolean;
     orderCode: string;
+    productPageUrl: string;
   }> = Array.isArray(row.item_vendors)
     ? row.item_vendors.map((lv: any) => ({
         vendorId: lv.vendor_id || lv.vendor?.id || '',
@@ -5222,6 +5245,9 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
         // hydrates as '' (never the string "undefined"), mirroring how
         // vendorName is a required string on ItemVendorLink.
         orderCode: lv.order_code || '',
+        // Spec 131 — per-(item,vendor) product page URL, snake→camel. Null/absent
+        // hydrates as '' (mirrors orderCode).
+        productPageUrl: lv.product_page_url || '',
       }))
     : [];
   return {

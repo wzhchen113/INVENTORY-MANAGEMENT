@@ -130,5 +130,10 @@ module.exports = {
   // modified by agents, so ignoring it here is the right place.
   modulePathIgnorePatterns: [
     '<rootDir>/.claude/worktrees/',
+    // Spec 132 — the Chrome MV3 extension is a SEPARATE build artifact with its
+    // own package.json + node_modules + vitest tests, kept OUT of the Expo jest
+    // graph (D-6). Ignore it here so jest-haste-map doesn't collide on the
+    // extension's node_modules and jest never tries to run its vitest suites.
+    '<rootDir>/extension/',
   ],
 };

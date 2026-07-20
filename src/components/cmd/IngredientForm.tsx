@@ -76,7 +76,10 @@ export interface IngredientFormValues {
   // vendor's quick-order box. Spec 115 (W-4) removed the obsolete item-level
   // `vendorSku` stub that formerly sat below — this is now the ONLY place codes
   // live.
-  vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string; orderCode: string }>;
+  // Spec 131 — each row also carries `productPageUrl`: the per-(item, vendor)
+  // direct product-page link (→ `item_vendors.product_page_url`) the spec-132
+  // extension prefers over a search. Free-form, trimmed on save; empty → NULL.
+  vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string; orderCode: string; productPageUrl: string }>;
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -184,6 +187,9 @@ export interface VendorLinkRow {
   // Spec 114 — the vendor's order/SKU code for this link (→ item_vendors.order_code).
   // Free-form string, trimmed on save; empty → SQL NULL via vendorRowsToLinkPayload.
   orderCode: string;
+  // Spec 131 — per-(item, vendor) product page URL (→ item_vendors.product_page_url).
+  // Free-form string, trimmed on save; empty → SQL NULL via vendorRowsToLinkPayload.
+  productPageUrl: string;
 }
 
 /**
@@ -214,7 +220,7 @@ export function addVendorLink(
   // cost-only — attach never carries a code.
   return [
     ...rows,
-    { vendorId, costPerUnit: seed?.costPerUnit ?? '', casePrice: seed?.casePrice ?? '', orderCode: '' },
+    { vendorId, costPerUnit: seed?.costPerUnit ?? '', casePrice: seed?.casePrice ?? '', orderCode: '', productPageUrl: '' },
   ];
 }
 
@@ -233,7 +239,7 @@ export function removeVendorLink(rows: readonly VendorLinkRow[], vendorId: strin
 export function updateVendorLinkField(
   rows: readonly VendorLinkRow[],
   vendorId: string,
-  field: 'costPerUnit' | 'casePrice' | 'orderCode',
+  field: 'costPerUnit' | 'casePrice' | 'orderCode' | 'productPageUrl',
   value: string,
 ): VendorLinkRow[] {
   return rows.map((r) => (r.vendorId === vendorId ? { ...r, [field]: value } : r));
@@ -256,7 +262,7 @@ export function updateVendorLinkField(
  */
 export function vendorRowsToLinkPayload(
   rows: readonly VendorLinkRow[],
-): Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string }> {
+): Array<{ vendorId: string; costPerUnit: number; casePrice: number; orderCode?: string; productPageUrl?: string }> {
   return rows
     .filter((r) => r.vendorId && r.vendorId !== NEW_VENDOR_SENTINEL)
     .map((r) => ({
@@ -264,6 +270,9 @@ export function vendorRowsToLinkPayload(
       costPerUnit: parseFloat(r.costPerUnit) || 0,
       casePrice: parseFloat(r.casePrice) || 0,
       orderCode: (r.orderCode || '').trim() || undefined,
+      // Spec 131 — trimmed on save; empty/whitespace → undefined → db coalesces
+      // to SQL NULL (same empty→null contract as orderCode).
+      productPageUrl: (r.productPageUrl || '').trim() || undefined,
     }));
 }
 
@@ -885,6 +894,13 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
     onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, 'orderCode', value) });
   };
 
+  // Spec 131 — the per-vendor product page URL is FREE TEXT (no numeric guard),
+  // a plain single-link patch keyed on vendorId, per-card isolated exactly like
+  // the order code above.
+  const handleVendorProductPageUrlChange = (vendorId: string, value: string) => {
+    onChange({ ...values, vendors: updateVendorLinkField(values.vendors, vendorId, 'productPageUrl', value) });
+  };
+
   // Spec 104 — the top-level case price drives the headline per-each cost/unit
   // (same formula). cost/unit is read-only; case price is the only input.
   const handleCasePriceChange = (value: string) => {
@@ -1296,6 +1312,18 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
                   monoFont
                   placeholder="—"
                   help={T('section.inventory.orderCodeHelp')}
+                />
+                {/* Spec 131 — per-vendor product page URL, keyed on row.vendorId,
+                    isolated per card. Free-form text — the direct product-page
+                    link the spec-132 extension navigates to (prefers this over a
+                    per-vendor search). */}
+                <InputLine
+                  label={T('section.inventory.productPageUrlLabel')}
+                  value={row.productPageUrl}
+                  onChangeText={(v) => handleVendorProductPageUrlChange(row.vendorId, v)}
+                  monoFont
+                  placeholder="—"
+                  help={T('section.inventory.productPageUrlHelp')}
                 />
               </View>
             );

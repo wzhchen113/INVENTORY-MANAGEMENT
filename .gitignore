@@ -29,6 +29,11 @@ ios/
 supabase/.temp/
 supabase/.branches/
 
+# Spec 132 — Chrome MV3 extension (separate build artifact). Its deps + built
+# unpacked output are generated; never commit them.
+extension/node_modules/
+extension/dist/
+
 # Playwright (spec 078) — generated artifacts + per-role storageState.
 # /e2e/.auth/ holds storageState JSON carrying live auth tokens; never commit.
 /test-results/
