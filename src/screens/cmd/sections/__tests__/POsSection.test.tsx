@@ -519,3 +519,46 @@ describe('POsSection — Quick-order builds the code+qty artifact + surfaces unm
     await waitFor(() => expect(screen.getByTestId('po-share-preview')).toBeTruthy());
   });
 });
+
+// Spec 134 — the ORDERED cell's case-edit wiring. The pure conversion contract
+// lives in poCaseDisplay.test.ts; these pin the TextInput → poResolveEdit →
+// updatePoLineQty seam (base-unit write, display-string no-op guard), which the
+// browser-automation verification pass could not reach (RN-web onEndEditing is
+// unreachable via synthetic DOM events — same limitation as the sidebar-click
+// flakiness noted throughout this repo's live-verification history).
+describe('POsSection — spec 134 case-edit wiring', () => {
+  const updatePoLineQty = state.updatePoLineQty as jest.Mock;
+
+  beforeEach(() => {
+    updatePoLineQty.mockClear();
+    state.orderSubmissions = [po({ id: 'po-1', status: 'draft' })];
+  });
+
+  it('an edit in cases writes BASE units (3 cases × 6/case → 18)', () => {
+    state.poLinesById = {
+      'po-1': [{ poItemId: 'pi-1', itemId: 'inv-1', itemName: 'Fries', unit: 'bags', orderedQty: 12, receivedQty: 0, costPerUnit: 1.93, subUnitSize: 1, caseQty: 6 }],
+    };
+    render(<POsSection />);
+    fireEvent(screen.getByTestId('po-line-qty-pi-1'), 'onEndEditing', { nativeEvent: { text: '3' } });
+    expect(updatePoLineQty).toHaveBeenCalledWith('po-1', 'pi-1', 18);
+  });
+
+  it('an untouched fractional-case line does NOT write on blur (display-string no-op guard)', () => {
+    state.poLinesById = {
+      'po-1': [{ poItemId: 'pi-2', itemId: 'inv-2', itemName: 'Seasoning', unit: 'each', orderedQty: 13, receivedQty: 0, costPerUnit: 3.4, subUnitSize: 1, caseQty: 4 }],
+    };
+    render(<POsSection />);
+    // The seed display for 13/4 is "3.25" — blurring with the same string must no-op.
+    fireEvent(screen.getByTestId('po-line-qty-pi-2'), 'onEndEditing', { nativeEvent: { text: '3.25' } });
+    expect(updatePoLineQty).not.toHaveBeenCalled();
+  });
+
+  it('a caseQty==1 line keeps unit semantics (edit 5 → writes 5)', () => {
+    state.poLinesById = {
+      'po-1': [{ poItemId: 'pi-3', itemId: 'inv-3', itemName: 'Oil', unit: 'each', orderedQty: 4, receivedQty: 0, costPerUnit: 9, subUnitSize: 1, caseQty: 1 }],
+    };
+    render(<POsSection />);
+    fireEvent(screen.getByTestId('po-line-qty-pi-3'), 'onEndEditing', { nativeEvent: { text: '5' } });
+    expect(updatePoLineQty).toHaveBeenCalledWith('po-1', 'pi-3', 5);
+  });
+});

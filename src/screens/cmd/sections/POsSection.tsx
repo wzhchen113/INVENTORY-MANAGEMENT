@@ -15,6 +15,12 @@ import { confirmAction } from '../../../utils/confirmAction';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { buildPoShareText, type NameResolver } from '../../../utils/poShareText';
 import { buildPoQuickOrderText } from '../../../utils/poQuickOrderText';
+import {
+  isCaseRow,
+  poCasePrice,
+  poOrderedDisplay,
+  poResolveEdit,
+} from '../../../utils/poCaseDisplay';
 import { sharePurchaseOrder } from '../lib/sharePo';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -603,33 +609,54 @@ export default function POsSection() {
                           {li.itemName}
                         </Text>
                         {isDraft ? (
-                          <TextInput
-                            testID={`po-line-qty-${li.poItemId}`}
-                            defaultValue={String(li.orderedQty)}
-                            keyboardType="numeric"
-                            onEndEditing={(e) => {
-                              const raw = e.nativeEvent.text.trim();
-                              const n = Number(raw);
-                              if (!Number.isFinite(n) || n < 0 || n === li.orderedQty) return;
-                              void updatePoLineQty(sel.id, li.poItemId, n);
-                            }}
-                            style={{
-                              fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 100, textAlign: 'right',
-                              borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.xs,
-                              paddingVertical: 3, paddingHorizontal: 6,
-                            }}
-                          />
+                          <View style={{ width: 100, alignItems: 'flex-end' }}>
+                            <TextInput
+                              testID={`po-line-qty-${li.poItemId}`}
+                              defaultValue={isCaseRow(li.caseQty) ? poOrderedDisplay(li.orderedQty, li.caseQty) : String(li.orderedQty)}
+                              keyboardType="numeric"
+                              onEndEditing={(e) => {
+                                const { write, base } = poResolveEdit(e.nativeEvent.text, li.orderedQty, li.caseQty);
+                                if (write) void updatePoLineQty(sel.id, li.poItemId, base);
+                              }}
+                              style={{
+                                fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 100, textAlign: 'right',
+                                borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.xs,
+                                paddingVertical: 3, paddingHorizontal: 6,
+                              }}
+                            />
+                            {isCaseRow(li.caseQty) ? (
+                              <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3, marginTop: 2 }}>
+                                {T('section.purchaseOrders.perCaseCaption', { count: li.caseQty })}
+                              </Text>
+                            ) : null}
+                          </View>
                         ) : (
-                          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 100, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                            {li.orderedQty} {li.unit}
-                          </Text>
+                          <View style={{ width: 100, alignItems: 'flex-end' }}>
+                            <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                              {isCaseRow(li.caseQty)
+                                ? `${poOrderedDisplay(li.orderedQty, li.caseQty)} ${T('section.purchaseOrders.casesUnit')}`
+                                : `${li.orderedQty} ${li.unit}`}
+                            </Text>
+                            {isCaseRow(li.caseQty) ? (
+                              <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3, marginTop: 2 }}>
+                                {T('section.purchaseOrders.perCaseCaption', { count: li.caseQty })}
+                              </Text>
+                            ) : null}
+                          </View>
                         )}
                         <Text style={{ fontFamily: mono(500), fontSize: 11.5, color: li.receivedQty > 0 ? C.fg : C.fg3, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                           {li.receivedQty > 0 ? `${li.receivedQty} ${li.unit}` : '—'}
                         </Text>
-                        <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, width: 80, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                          ${li.costPerUnit.toFixed(2)}
-                        </Text>
+                        <View style={{ width: 80, alignItems: 'flex-end' }}>
+                          <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                            ${poCasePrice(li.costPerUnit, li.caseQty).toFixed(2)}
+                          </Text>
+                          {isCaseRow(li.caseQty) ? (
+                            <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3, marginTop: 2 }}>
+                              {T('section.purchaseOrders.casePriceSuffix')}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text style={{ fontFamily: mono(600), fontSize: 11.5, color: C.fg, width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                           ${(li.orderedQty * li.costPerUnit).toFixed(2)}
                         </Text>

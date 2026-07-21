@@ -472,7 +472,29 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
 // section). Mirrors the staff Reorder card.
 // `showExport` (spec 123) gates the per-vendor CSV/PDF footer buttons — web-only,
 // threaded from the parent so it matches the former global-button gating.
-function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor; needsOrder: boolean; showExport?: boolean }) {
+// `collapsible` / `collapseKey` / `collapsed` / `onToggleCollapse` (spec 135)
+// thread the section-level per-card collapse state in. They default to
+// non-collapsible so the not-submitted early-return branch and any future
+// caller stay unaffected. When `collapsible` is true and `collapsed` is set,
+// the whole card body (column strip + item rows + footer + quick-order preview)
+// is hidden, leaving only the header block (name/badges + next-delivery + stats).
+function VendorCard({
+  vendor,
+  needsOrder,
+  showExport,
+  collapsible,
+  collapseKey,
+  collapsed,
+  onToggleCollapse,
+}: {
+  vendor: ReorderVendor;
+  needsOrder: boolean;
+  showExport?: boolean;
+  collapsible?: boolean;
+  collapseKey?: string;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   const C = useCmdColors();
   const T = useT();
   const itemTone = needsOrder ? C.danger : C.ok;
@@ -531,6 +553,40 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
       <Text style={{ color: C.fg, fontWeight: '600' }}>{vendor.nextDeliveryDate || '—'}</Text>{' '}
       <Text style={{ color: C.fg3 }}>({daysLabel})</Text>
     </Text>
+  );
+
+  // Spec 135 — the counted-branch name row, with the collapse chevron + vendor
+  // name wrapped in the ONLY touchable in the header. Badges / short id / stats
+  // stay OUTSIDE this touchable so tapping them never toggles. The chevron
+  // glyphs / style byte-match the "NO ORDER SCHEDULE" group toggle: `▾` when
+  // expanded, `▸` when collapsed. Only rendered when `collapsible` is true (the
+  // not-submitted branch returns before this and keeps the chevron-free
+  // `headerNameRow`).
+  const headerNameRowCollapsible = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <TouchableOpacity
+        testID={`reorder-vendor-toggle-${collapseKey}`}
+        onPress={onToggleCollapse}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        accessibilityLabel={T('section.reorder.collapseVendorAria', { vendor: vendor.vendorName || '' })}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+      >
+        <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>
+          {collapsed ? '▸' : '▾'}
+        </Text>
+        <Text style={[Type.h2, { color: C.fg }]}>{vendor.vendorName || 'unnamed vendor'}</Text>
+      </TouchableOpacity>
+      {/* On-hand-source badge — always rendered (orthogonal to schedule). */}
+      {sourceBadgeEl}
+      {/* Schedule badge — only when scheduleKnown=false. */}
+      {scheduleBadgeEl}
+      {vendor.scheduleKnown ? null : <Badge label="7-DAY DEFAULT" tone="fg3" />}
+      <View style={{ flex: 1 }} />
+      <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+        {shortId(vendor.vendorId)}
+      </Text>
+    </View>
   );
 
   // Spec 130 — a vendor whose EOD count was NOT submitted for the reorder date.
@@ -625,8 +681,11 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
           gap: 8,
         }}
       >
-        {headerNameRow}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+        {collapsible ? headerNameRowCollapsible : headerNameRow}
+        <View
+          testID={collapseKey ? `reorder-vendor-stats-${collapseKey}` : undefined}
+          style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}
+        >
           {nextDeliveryLine}
           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
           <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2 }}>
@@ -646,8 +705,15 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
         </View>
       </View>
 
+      {/* Spec 135 — the whole card body (column strip + item rows + footer +
+          quick-order preview) is hidden while collapsed; only the header block
+          above stays. `!collapsed` is always true for non-collapsible cards
+          (`collapsed` is undefined). */}
+      {!collapsed ? (
+      <>
       {/* Column header strip */}
       <View
+        testID={collapseKey ? `reorder-vendor-columns-${collapseKey}` : undefined}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -669,6 +735,7 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
       {vendor.items.map((item, i) => (
         <View
           key={item.itemId}
+          testID={`reorder-vendor-item-${item.itemId}`}
           style={{
             paddingVertical: 12,
             paddingHorizontal: 16,
@@ -776,6 +843,8 @@ function VendorCard({ vendor, needsOrder, showExport }: { vendor: ReorderVendor;
             {quickPreview.text}
           </Text>
         </View>
+      ) : null}
+      </>
       ) : null}
     </View>
   );
@@ -1168,6 +1237,9 @@ export default function ReorderSection() {
     if (storeChanged) {
       const today = toISODate(new Date());
       if (selectedDate !== today) setSelectedDate(today);
+      // Spec 135 — reset per-card collapse on store switch (keys are vendor-
+      // scoped to the previous store). NOT reset on a same-store date change.
+      setCollapsedKeys(new Set());
       loadReorderSuggestions(today);
       return;
     }
@@ -1222,6 +1294,23 @@ export default function ReorderSection() {
 
   // Spec 087 — secondary "no schedule" group is collapsed by default.
   const [noScheduleOpen, setNoScheduleOpen] = React.useState(false);
+
+  // Spec 135 — per-card collapse state, section-level so it survives the
+  // debounced realtime payload reloads (a re-render doesn't remount
+  // ReorderSection). Keyed on the SAME group-qualified render key used below
+  // (`need-` / `ok-` / `nosched-`), NOT the bare vendorId — a vendor can appear
+  // in both the needs and enough groups and each card collapses independently.
+  // Per-session only: no localStorage / backend persistence; resets on store
+  // switch (below) and on unmount/remount for free.
+  const [collapsedKeys, setCollapsedKeys] = React.useState<Set<string>>(() => new Set());
+  const toggleCollapsed = React.useCallback((key: string) => {
+    setCollapsedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   // Spec 025 §3.B — Export CSV / PDF buttons. Web-only. Hidden when there is
   // no usable data. Gate on the FILTERED primary length so the buttons hide
@@ -1493,9 +1582,21 @@ export default function ReorderSection() {
             >
               {T('section.reorder.needsToOrder')}
             </Text>
-            {needsOrderVendors.map((v) => (
-              <VendorCard key={`need-${v.vendorId}`} vendor={v} needsOrder showExport={showExport} />
-            ))}
+            {needsOrderVendors.map((v) => {
+              const k = `need-${v.vendorId}`;
+              return (
+                <VendorCard
+                  key={k}
+                  vendor={v}
+                  needsOrder
+                  showExport={showExport}
+                  collapsible
+                  collapseKey={k}
+                  collapsed={collapsedKeys.has(k)}
+                  onToggleCollapse={() => toggleCollapsed(k)}
+                />
+              );
+            })}
           </>
         ) : null}
 
@@ -1508,9 +1609,21 @@ export default function ReorderSection() {
             >
               {T('section.reorder.haveEnough')}
             </Text>
-            {enoughStockVendors.map((v) => (
-              <VendorCard key={`ok-${v.vendorId}`} vendor={v} needsOrder={false} showExport={showExport} />
-            ))}
+            {enoughStockVendors.map((v) => {
+              const k = `ok-${v.vendorId}`;
+              return (
+                <VendorCard
+                  key={k}
+                  vendor={v}
+                  needsOrder={false}
+                  showExport={showExport}
+                  collapsible
+                  collapseKey={k}
+                  collapsed={collapsedKeys.has(k)}
+                  onToggleCollapse={() => toggleCollapsed(k)}
+                />
+              );
+            })}
           </>
         ) : null}
 
@@ -1550,9 +1663,21 @@ export default function ReorderSection() {
               </Text>
             </TouchableOpacity>
             {noScheduleOpen
-              ? splitReorderVendorsByNeed(noSchedule, true).map((v) => (
-                  <VendorCard key={v.vendorId} vendor={v} needsOrder showExport={showExport} />
-                ))
+              ? splitReorderVendorsByNeed(noSchedule, true).map((v) => {
+                  const k = `nosched-${v.vendorId}`;
+                  return (
+                    <VendorCard
+                      key={k}
+                      vendor={v}
+                      needsOrder
+                      showExport={showExport}
+                      collapsible
+                      collapseKey={k}
+                      collapsed={collapsedKeys.has(k)}
+                      onToggleCollapse={() => toggleCollapsed(k)}
+                    />
+                  );
+                })
               : null}
           </View>
         ) : null}
