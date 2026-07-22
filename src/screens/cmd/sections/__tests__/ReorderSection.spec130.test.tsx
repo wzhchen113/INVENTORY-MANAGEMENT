@@ -92,12 +92,19 @@ jest.mock('../../../../store/useStore', () => {
 });
 
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 import { toISODate } from '../../../../utils/reportDates';
 import ReorderSection from '../ReorderSection';
 import { useStore } from '../../../../store/useStore';
 
 const mockState = (useStore as any).__state as Record<string, any>;
+
+// Spec 135 owner follow-up (2026-07-21): vendor cards start COLLAPSED, so
+// body assertions (item rows / exports / footer actions) must expand first.
+const expandAllVendorCards = () => {
+  screen.getAllByTestId(/^reorder-vendor-toggle-/).forEach((t) => fireEvent.press(t));
+};
+
 
 function item(over: Record<string, any> = {}) {
   return {
@@ -209,6 +216,7 @@ describe('Reorder — count not submitted (spec 130)', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     // The counted vendor is NOT rendered as a not-submitted card.
     expect(screen.queryByTestId('reorder-count-not-submitted-v-a')).toBeNull();

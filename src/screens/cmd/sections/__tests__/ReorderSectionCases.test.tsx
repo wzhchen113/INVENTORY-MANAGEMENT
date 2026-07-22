@@ -76,7 +76,7 @@ jest.mock('../../../../store/useStore', () => {
 });
 
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 import { toISODate } from '../../../../utils/reportDates';
 import { computeReorderKpis } from '../../../../utils/reorderDayFilter';
 import { ReorderItem, ReorderVendor } from '../../../../types';
@@ -88,6 +88,13 @@ import ReorderSection, {
 import { useStore } from '../../../../store/useStore';
 
 const mockState = (useStore as any).__state as Record<string, any>;
+
+// Spec 135 owner follow-up (2026-07-21): vendor cards start COLLAPSED, so
+// body assertions (item rows / exports / footer actions) must expand first.
+const expandAllVendorCards = () => {
+  screen.getAllByTestId(/^reorder-vendor-toggle-/).forEach((t) => fireEvent.press(t));
+};
+
 
 // Build a per-item fixture shaped like the report payload AFTER mapping. The
 // server is the source of truth for `suggestedCases` / `suggestedUnits` /
@@ -315,6 +322,7 @@ describe('Section render — per-item breakdown line', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
     // 2026-07 — the numeric columns were removed in favor of the single inline
     // "on hand | inbound | par → order" breakdown line, so the cases·units
     // string shows exactly once, inside the `order: …` figure.
@@ -330,6 +338,7 @@ describe('Section render — per-item breakdown line', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
     expect(screen.getAllByText(/8 gal/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/case/)).toBeNull();
   });

@@ -103,6 +103,13 @@ import { useStore } from '../../../../store/useStore';
 
 const mockState = (useStore as any).__state as Record<string, any>;
 
+// Spec 135 owner follow-up (2026-07-21): vendor cards start COLLAPSED, so
+// body assertions (item rows / exports / footer actions) must expand first.
+const expandAllVendorCards = () => {
+  screen.getAllByTestId(/^reorder-vendor-toggle-/).forEach((t) => fireEvent.press(t));
+};
+
+
 function item(over: Record<string, any> = {}) {
   return {
     itemId: over.itemId ?? 'i-1',
@@ -209,6 +216,7 @@ describe('per-vendor CSV/PDF export', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     // Per-vendor export buttons exist for both cards.
     expect(screen.getByTestId('reorder-export-csv-v-a')).toBeTruthy();
@@ -232,6 +240,7 @@ describe('per-vendor CSV/PDF export', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-b'));
 
@@ -253,6 +262,7 @@ describe('"PO CREATED" persistent disabled state', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     expect(screen.getByText('section.reorder.poCreatedLabel')).toBeTruthy();
     expect(screen.queryByText('section.reorder.createPoLabel')).toBeNull();
@@ -273,6 +283,7 @@ describe('"PO CREATED" persistent disabled state', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     expect(screen.getByText('section.reorder.createPoLabel')).toBeTruthy();
     expect(screen.queryByText('section.reorder.poCreatedLabel')).toBeNull();
@@ -290,6 +301,7 @@ describe('"PO CREATED" persistent disabled state', () => {
       warnings: [],
     };
     render(<ReorderSection />);
+    expandAllVendorCards();
 
     // A shows PO CREATED (disabled), B shows + CREATE PO (enabled).
     expect(screen.getByTestId('reorder-create-po-v-a').props.accessibilityState?.disabled).toBe(true);
