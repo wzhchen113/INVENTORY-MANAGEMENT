@@ -1239,7 +1239,8 @@ export default function ReorderSection() {
       if (selectedDate !== today) setSelectedDate(today);
       // Spec 135 — reset per-card collapse on store switch (keys are vendor-
       // scoped to the previous store). NOT reset on a same-store date change.
-      setCollapsedKeys(new Set());
+      // Empty set = all collapsed (the owner's default-hidden follow-up).
+      setExpandedKeys(new Set());
       loadReorderSuggestions(today);
       return;
     }
@@ -1302,9 +1303,12 @@ export default function ReorderSection() {
   // in both the needs and enough groups and each card collapses independently.
   // Per-session only: no localStorage / backend persistence; resets on store
   // switch (below) and on unmount/remount for free.
-  const [collapsedKeys, setCollapsedKeys] = React.useState<Set<string>>(() => new Set());
+  // OWNER FOLLOW-UP (2026-07-21): cards start COLLAPSED — the page opens as a
+  // scannable vendor summary. Tracked as EXPANDED keys so the empty default
+  // set means all-collapsed (and the store-switch reset re-collapses).
+  const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(() => new Set());
   const toggleCollapsed = React.useCallback((key: string) => {
-    setCollapsedKeys((prev) => {
+    setExpandedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -1592,7 +1596,7 @@ export default function ReorderSection() {
                   showExport={showExport}
                   collapsible
                   collapseKey={k}
-                  collapsed={collapsedKeys.has(k)}
+                  collapsed={!expandedKeys.has(k)}
                   onToggleCollapse={() => toggleCollapsed(k)}
                 />
               );
@@ -1619,7 +1623,7 @@ export default function ReorderSection() {
                   showExport={showExport}
                   collapsible
                   collapseKey={k}
-                  collapsed={collapsedKeys.has(k)}
+                  collapsed={!expandedKeys.has(k)}
                   onToggleCollapse={() => toggleCollapsed(k)}
                 />
               );
@@ -1673,7 +1677,7 @@ export default function ReorderSection() {
                       showExport={showExport}
                       collapsible
                       collapseKey={k}
-                      collapsed={collapsedKeys.has(k)}
+                      collapsed={!expandedKeys.has(k)}
                       onToggleCollapse={() => toggleCollapsed(k)}
                     />
                   );

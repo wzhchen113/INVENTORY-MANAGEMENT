@@ -200,47 +200,54 @@ const payloadWith = (vendors: any[]) => ({
 });
 
 describe('Reorder — collapsible vendor cards (spec 135)', () => {
-  it('renders every card expanded by default (body + header stats visible)', () => {
+  it('renders every card COLLAPSED by default (owner follow-up 2026-07-21): header stats visible, body hidden', () => {
     mockState.reorderPayload = payloadWith([counted]);
     render(<ReorderSection />);
 
+    // Header block + summary stats stay…
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
-    expect(screen.getByTestId('reorder-vendor-columns-need-v-a')).toBeTruthy();
-    expect(screen.getByTestId('reorder-vendor-item-a1')).toBeTruthy();
-    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-vendor-toggle-need-v-a')).toBeTruthy();
+    // …body starts hidden.
+    expect(screen.queryByTestId('reorder-vendor-columns-need-v-a')).toBeNull();
+    expect(screen.queryByTestId('reorder-vendor-item-a1')).toBeNull();
+    expect(screen.queryByTestId('reorder-create-po-v-a')).toBeNull();
   });
 
-  it('collapse hides the body (columns/items/footer) but keeps the header stats', () => {
+  it('expand shows the body (columns/items/footer); collapse hides it again', () => {
     mockState.reorderPayload = payloadWith([counted]);
     render(<ReorderSection />);
 
     fireEvent.press(screen.getByTestId('reorder-vendor-toggle-need-v-a'));
 
-    // Body gone.
+    // Body visible after expand.
+    expect(screen.getByTestId('reorder-vendor-columns-need-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-vendor-item-a1')).toBeTruthy();
+    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('reorder-vendor-toggle-need-v-a'));
+
+    // Collapsed again.
     expect(screen.queryByTestId('reorder-vendor-columns-need-v-a')).toBeNull();
     expect(screen.queryByTestId('reorder-vendor-item-a1')).toBeNull();
     expect(screen.queryByTestId('reorder-create-po-v-a')).toBeNull();
-    // Header stats row still present.
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
-    // Toggle itself still there (header block stays).
-    expect(screen.getByTestId('reorder-vendor-toggle-need-v-a')).toBeTruthy();
   });
 
-  it('keys collapse per group — collapsing the needs card leaves the enough card open', () => {
+  it('keys collapse per group — expanding the needs card leaves the enough card collapsed', () => {
     mockState.reorderPayload = payloadWith([both]);
     render(<ReorderSection />);
 
-    // Both cards render for the same vendor.
-    expect(screen.getByTestId('reorder-vendor-item-c1')).toBeTruthy(); // needs
-    expect(screen.getByTestId('reorder-vendor-item-c2')).toBeTruthy(); // enough
+    // Both cards start collapsed (default-hidden).
+    expect(screen.queryByTestId('reorder-vendor-item-c1')).toBeNull(); // needs
+    expect(screen.queryByTestId('reorder-vendor-item-c2')).toBeNull(); // enough
 
     fireEvent.press(screen.getByTestId('reorder-vendor-toggle-need-v-c'));
 
-    // Needs card body hidden…
-    expect(screen.queryByTestId('reorder-vendor-item-c1')).toBeNull();
-    // …enough card body untouched.
-    expect(screen.getByTestId('reorder-vendor-item-c2')).toBeTruthy();
-    expect(screen.getByTestId('reorder-create-po-v-c')).toBeTruthy();
+    // Needs card body visible…
+    expect(screen.getByTestId('reorder-vendor-item-c1')).toBeTruthy();
+    // …enough card stays collapsed (independent group key).
+    expect(screen.queryByTestId('reorder-vendor-item-c2')).toBeNull();
   });
 
   it('the count-not-submitted card has no chevron and is not collapsible', () => {
@@ -257,11 +264,11 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
     render(<ReorderSection />);
 
     const toggle = screen.getByTestId('reorder-vendor-toggle-need-v-a');
-    expect(toggle.props.accessibilityState.expanded).toBe(true);
+    expect(toggle.props.accessibilityState.expanded).toBe(false); // default-hidden
 
     fireEvent.press(toggle);
     expect(
       screen.getByTestId('reorder-vendor-toggle-need-v-a').props.accessibilityState.expanded,
-    ).toBe(false);
+    ).toBe(true);
   });
 });

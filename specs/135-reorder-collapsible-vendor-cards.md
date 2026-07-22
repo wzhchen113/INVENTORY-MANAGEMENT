@@ -375,3 +375,16 @@ payload_paths:
 Verification: `npx tsc --noEmit` clean, `npx tsc -p tsconfig.test.json --noEmit`
 clean, full `npx jest` green (125 suites / 1358 tests). Browser verification
 deferred to the main session.
+
+
+## Post-ship owner follow-up (2026-07-21)
+
+Owner: "make sure they are hided in the begining." The specced default
+(expanded, matching the pre-135 page) is REVERSED: vendor cards start
+COLLAPSED, so the Reorder page opens as a scannable per-vendor summary.
+Implementation: the per-card Set now tracks EXPANDED keys (empty default =
+all collapsed; the store-switch reset re-collapses). Toggle affordance,
+group-qualified keys, count-not-submitted exclusion, and body-hiding rules
+are unchanged. The spec135 component tests were flipped accordingly
+(default-hidden, expand-shows-body, group-key independence from the
+collapsed baseline, a11y expanded=false initially).
