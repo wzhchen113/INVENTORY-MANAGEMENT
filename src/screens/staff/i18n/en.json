@@ -386,6 +386,10 @@
       "gearAriaNotifOff": "Settings — notifications off",
       "back": "Back"
     },
+    "refreshApp": {
+      "label": "Refresh",
+      "aria": "Reload the app to get the latest version"
+    },
     "reportIssue": {
       "title": "Report an issue",
       "categoryLabel": "Category",

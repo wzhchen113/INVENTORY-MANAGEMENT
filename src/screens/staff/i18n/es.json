@@ -386,6 +386,10 @@
       "gearAriaNotifOff": "Ajustes — notificaciones desactivadas",
       "back": "Atrás"
     },
+    "refreshApp": {
+      "label": "Actualizar",
+      "aria": "Recargar la aplicación para obtener la última versión"
+    },
     "reportIssue": {
       "title": "Reportar un problema",
       "categoryLabel": "Categoría",

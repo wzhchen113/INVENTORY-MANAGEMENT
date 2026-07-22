@@ -55,6 +55,10 @@
       "darkLabel": "☾ dark",
       "aria": "Toggle theme"
     },
+    "refreshApp": {
+      "label": "⟳ refresh",
+      "aria": "Reload the app to get the latest version"
+    },
     "connected": "connected",
     "reconnecting": "reconnecting",
     "localeSwitcher": {

@@ -45,6 +45,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ListRow } from '../components/ListRow';
 import { SettingsGear } from '../components/SettingsGear';
+import { AppReloadButton } from '../components/AppReloadButton';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { confirmAction } from '../../../utils/confirmAction';
 import { notifyBackendError } from '../lib/notifyBackendError';
@@ -350,6 +351,7 @@ export function Receiving() {
             </Text>
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('receiving.title')}</Text>
           </Pressable>
+          <AppReloadButton />
           <SettingsGear />
         </View>
 

@@ -14,6 +14,7 @@ import { RailSidebar } from '../../components/cmd/RailSidebar';
 import { MobileTopAppBar } from '../../components/cmd/MobileTopAppBar';
 import { MobileNavDrawer } from '../../components/cmd/MobileNavDrawer';
 import { TitleBar } from '../../components/cmd/TitleBar';
+import { RefreshButton } from '../../components/cmd/RefreshButton';
 import { StoreSwitchOverlay } from '../../components/cmd/StoreSwitchOverlay';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
@@ -382,6 +383,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
               {brandPickerCompact}
               <NotificationToggle />
               <ThemeToggle />
+              <RefreshButton />
             </View>
           }
         />

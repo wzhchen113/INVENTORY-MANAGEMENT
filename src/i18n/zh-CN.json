@@ -55,6 +55,10 @@
       "darkLabel": "☾ 深色",
       "aria": "切换主题"
     },
+    "refreshApp": {
+      "label": "⟳ 刷新",
+      "aria": "重新加载应用以获取最新版本"
+    },
     "connected": "已连接",
     "reconnecting": "重连中",
     "localeSwitcher": {

@@ -55,6 +55,10 @@
       "darkLabel": "☾ oscuro",
       "aria": "Cambiar tema"
     },
+    "refreshApp": {
+      "label": "⟳ actualizar",
+      "aria": "Recargar la aplicación para obtener la última versión"
+    },
     "connected": "conectado",
     "reconnecting": "reconectando",
     "localeSwitcher": {

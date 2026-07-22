@@ -386,6 +386,10 @@
       "gearAriaNotifOff": "设置 — 通知已关闭",
       "back": "返回"
     },
+    "refreshApp": {
+      "label": "刷新",
+      "aria": "重新加载应用以获取最新版本"
+    },
     "reportIssue": {
       "title": "报告问题",
       "categoryLabel": "类别",

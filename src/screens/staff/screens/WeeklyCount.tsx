@@ -37,6 +37,7 @@ import { ListRow } from '../components/ListRow';
 import { IngredientThumb } from '../components/IngredientThumb';
 import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
+import { AppReloadButton } from '../components/AppReloadButton';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { supabase } from '../../../lib/supabase';
@@ -1079,6 +1080,7 @@ export function WeeklyCount() {
           <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
             {t('weekly.title')}
           </Text>
+          <AppReloadButton />
           <SettingsGear />
         </View>
         <Text style={[styles.subtitle, { color: c.textSecondary }]} numberOfLines={2}>

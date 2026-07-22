@@ -7,6 +7,7 @@ import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { ThemeToggle } from './ThemeToggle';
+import { RefreshButton } from './RefreshButton';
 import { NotificationBell } from './NotificationBell';
 import { LoadingBar } from './LoadingBar';
 
@@ -235,6 +236,9 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
       <NotificationBell />
       {/* Theme toggle — always visible, sits next to the brand picker. */}
       <ThemeToggle />
+      {/* One-press full app reload (owner request 2026-07-22) — picks up new
+          deploys + fresh data without closing/reopening the website/PWA. */}
+      <RefreshButton />
       {/* Connection indicator */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         <View

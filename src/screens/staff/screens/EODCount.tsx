@@ -35,6 +35,7 @@ import { ListRow } from '../components/ListRow';
 import { IngredientThumb } from '../components/IngredientThumb';
 import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
+import { AppReloadButton } from '../components/AppReloadButton';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
@@ -951,6 +952,7 @@ export function EODCount() {
               {todayLabel}
             </Text>
           </Pressable>
+          <AppReloadButton />
           <SettingsGear />
         </View>
         {/* Today / Yesterday count-date toggle. Yesterday lets staff catch a
