@@ -23,6 +23,33 @@ import {
 } from './notificationState';
 import { requestPermissionAndSubscribe, unsubscribeFromPush } from './webPush';
 
+// ── Module-scoped cross-instance re-probe registry (spec 136) ──────────
+// Every mounted useNotificationToggle instance shows per-device Web Push
+// state. Multiple instances stay mounted at once — the staff in-store screens
+// (EODCount / Reorder / WeeklyCount / Receiving) do NOT unmount when you
+// navigate to Settings, so a Settings toggle would otherwise leave the banner
+// / gear-dot instances stuck on their pre-toggle probe until a
+// background/reopen fires `visibilitychange`. To fix that, each instance
+// registers a re-probe listener on mount; after an enable/disable completes,
+// the acting instance broadcasts to all OTHER registered listeners so they
+// re-probe immediately. This is in-process, per-JS-bundle state — NOT Supabase
+// Realtime and unrelated to the store-{id}/brand-{id} channels.
+type ReprobeListener = () => void;
+const reprobeListeners = new Set<ReprobeListener>();
+
+// Fire every registered listener EXCEPT the acting instance's own token. The
+// acting instance is excluded so its just-set transient message survives — it
+// re-probes ITSELF via the message-preserving `refresh(false)` path (the
+// spec-118 guard). Every OTHER instance re-probes authoritatively via
+// `refresh(true)`, clearing any stale transient message it doesn't need to
+// keep. `Set` gives O(1) identity add/delete/exclude and makes a double
+// register (StrictMode dev double-invoke) idempotent.
+function broadcastReprobe(except: ReprobeListener): void {
+  for (const listener of reprobeListeners) {
+    if (listener !== except) listener();
+  }
+}
+
 export interface NotificationToggleModel {
   view: NotificationView;
   busy: boolean;
@@ -72,15 +99,37 @@ export function useNotificationToggle(
     if (clearMessage) setMessage(null);
   }, []);
 
-  useEffect(() => {
+  // Stable per-instance re-probe callback: authoritative (`refresh(true)`,
+  // clears any stale transient message). It is BOTH the registry entry and the
+  // self-exclusion token passed to `broadcastReprobe`. Stable because `refresh`
+  // is `useCallback([])`-stable, so `reprobe` is `useCallback([refresh])`-stable.
+  const reprobe = useCallback(() => {
     void refresh(true);
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
-    const onVis = () => {
-      if (document.visibilityState === 'visible') void refresh(true);
-    };
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
   }, [refresh]);
+
+  useEffect(() => {
+    // Registration is platform-neutral and MUST sit BEFORE the web-only guard:
+    // otherwise (i) native/SSR instances would register but never unregister
+    // (leak), and (ii) the node-env unit test could not exercise the registry
+    // at all (it early-returns when `document` is undefined). Only the
+    // `visibilitychange` listener stays web-guarded.
+    reprobeListeners.add(reprobe);
+    void refresh(true);
+
+    let removeVis: (() => void) | undefined;
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const onVis = () => {
+        if (document.visibilityState === 'visible') void refresh(true);
+      };
+      document.addEventListener('visibilitychange', onVis);
+      removeVis = () => document.removeEventListener('visibilitychange', onVis);
+    }
+
+    return () => {
+      reprobeListeners.delete(reprobe); // ALWAYS unregister
+      removeVis?.();
+    };
+  }, [refresh, reprobe]);
 
   const enable = useCallback(async () => {
     if (!userId) return;
@@ -90,17 +139,19 @@ export function useNotificationToggle(
     if (!res.ok) {
       setMessage(translate(`chrome.notifications.msg.${subscribeCodeToMessageKey(res.code)}`));
     }
-    await refresh(false); // preserve the just-set message
+    await refresh(false); // acting instance: preserve the just-set message
+    broadcastReprobe(reprobe); // OTHER instances: authoritative refresh(true)
     setBusy(false);
-  }, [userId, refresh, translate]);
+  }, [userId, refresh, reprobe, translate]);
 
   const disable = useCallback(async () => {
     setBusy(true);
     setMessage(null);
     await unsubscribeFromPush();
     await refresh(false);
+    broadcastReprobe(reprobe); // OTHER instances: authoritative refresh(true)
     setBusy(false);
-  }, [refresh]);
+  }, [refresh, reprobe]);
 
   const isOn = view === 'on';
   // A missing userId disables the control (fix: silent no-op → visible

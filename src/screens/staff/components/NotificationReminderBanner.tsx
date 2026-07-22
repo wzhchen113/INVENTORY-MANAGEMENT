@@ -11,10 +11,15 @@
 //
 // Each in-store screen mounts its own instance, so the banner owns its own
 // `useNotificationToggle` probe rather than threading state down from the
-// screen. Only one screen is mounted at a time via the tab navigator, so
-// this is a single live probe. It funnels the raw view through the shared
-// `notificationLevel` helper so it renders IFF level === 'off' — matching
-// the RED SettingsGear dot exactly.
+// screen. The four in-store screens stay MOUNTED simultaneously (the tab
+// navigator lazy-mounts then keeps them), so multiple `useNotificationToggle`
+// instances are live at once — this banner is NOT a single live probe.
+// Cross-instance consistency (e.g. enabling notifications in Settings clearing
+// this banner without a background/reopen) is guaranteed by the hook's
+// module-scoped re-probe broadcast (spec 136), not by single-instance
+// mounting. It funnels the raw view through the shared `notificationLevel`
+// helper so it renders IFF level === 'off' — matching the RED SettingsGear dot
+// exactly.
 
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
