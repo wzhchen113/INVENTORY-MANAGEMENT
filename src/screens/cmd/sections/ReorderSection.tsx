@@ -476,8 +476,10 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
 // thread the section-level per-card collapse state in. They default to
 // non-collapsible so the not-submitted early-return branch and any future
 // caller stay unaffected. When `collapsible` is true and `collapsed` is set,
-// the whole card body (column strip + item rows + footer + quick-order preview)
-// is hidden, leaving only the header block (name/badges + next-delivery + stats).
+// the card body (column strip + item rows + footer caption) is hidden, leaving
+// the header block (name/badges + actions + next-delivery + stats) and, when
+// open, the quick-order preview — the actions live in the header (2026-07-21)
+// so they stay clickable while collapsed.
 function VendorCard({
   vendor,
   needsOrder,
@@ -583,6 +585,12 @@ function VendorCard({
       {scheduleBadgeEl}
       {vendor.scheduleKnown ? null : <Badge label="7-DAY DEFAULT" tone="fg3" />}
       <View style={{ flex: 1 }} />
+      {/* Owner follow-up (2026-07-21): the four per-vendor actions (CSV / PDF /
+          quick-order / create-PO) moved up here from the footer so they stay
+          clickable while the card is collapsed (cards default-collapsed). */}
+      {showExport ? <ReorderVendorExportButtons vendor={vendor} /> : null}
+      <ReorderQuickOrderButton vendor={vendor} onPreview={setQuickPreview} />
+      <CreatePoButton vendor={vendor} />
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
         {shortId(vendor.vendorId)}
       </Text>
@@ -705,9 +713,10 @@ function VendorCard({
         </View>
       </View>
 
-      {/* Spec 135 — the whole card body (column strip + item rows + footer +
-          quick-order preview) is hidden while collapsed; only the header block
-          above stays. `!collapsed` is always true for non-collapsible cards
+      {/* Spec 135 — the card body (column strip + item rows + footer caption)
+          is hidden while collapsed; the header block above (which carries the
+          action buttons since 2026-07-21) and the quick-order preview below
+          stay. `!collapsed` is always true for non-collapsible cards
           (`collapsed` is undefined). */}
       {!collapsed ? (
       <>
@@ -811,15 +820,17 @@ function VendorCard({
           </>
         ) : null}
         <View style={{ flex: 1 }} />
-        {/* Spec 123 — per-vendor CSV/PDF export (web-only, showExport-gated). */}
-        {showExport ? <ReorderVendorExportButtons vendor={vendor} /> : null}
-        {/* Spec 115 (W-3) — Quick-order list export, next to Create PO. */}
-        <ReorderQuickOrderButton vendor={vendor} onPreview={setQuickPreview} />
-        <CreatePoButton vendor={vendor} />
+        {/* The per-vendor action buttons (spec 123 CSV/PDF, spec 115 quick-order,
+            create-PO) moved to the header name row (2026-07-21) so they stay
+            reachable while the card is collapsed. */}
       </View>
+      </>
+      ) : null}
 
-      {/* Spec 115 (W-3) — desktop-web quick-order preview (clipboard fallback),
-          rendered as a normal in-card block below the footer. */}
+      {/* Spec 115 (W-3) — desktop-web quick-order preview (clipboard fallback).
+          Rendered OUTSIDE the collapse guard (2026-07-21): the quick-order
+          button now lives in the always-visible header, so its preview must
+          show even while the card body is collapsed. */}
       {quickPreview.text != null ? (
         <View
           testID={`reorder-quick-order-preview-${vendor.vendorId}`}
@@ -843,8 +854,6 @@ function VendorCard({
             {quickPreview.text}
           </Text>
         </View>
-      ) : null}
-      </>
       ) : null}
     </View>
   );

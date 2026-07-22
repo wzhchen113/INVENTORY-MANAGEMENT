@@ -207,10 +207,15 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
     // Header block + summary stats stay…
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-vendor-toggle-need-v-a')).toBeTruthy();
+    // …and so do the per-vendor actions — they moved into the header
+    // (2026-07-21) so they stay clickable while collapsed.
+    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-quick-order-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-export-csv-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-export-pdf-v-a')).toBeTruthy();
     // …body starts hidden.
     expect(screen.queryByTestId('reorder-vendor-columns-need-v-a')).toBeNull();
     expect(screen.queryByTestId('reorder-vendor-item-a1')).toBeNull();
-    expect(screen.queryByTestId('reorder-create-po-v-a')).toBeNull();
   });
 
   it('expand shows the body (columns/items/footer); collapse hides it again', () => {
@@ -222,15 +227,14 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
     // Body visible after expand.
     expect(screen.getByTestId('reorder-vendor-columns-need-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-vendor-item-a1')).toBeTruthy();
-    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('reorder-vendor-toggle-need-v-a'));
 
-    // Collapsed again.
+    // Collapsed again — body hidden, header actions still present.
     expect(screen.queryByTestId('reorder-vendor-columns-need-v-a')).toBeNull();
     expect(screen.queryByTestId('reorder-vendor-item-a1')).toBeNull();
-    expect(screen.queryByTestId('reorder-create-po-v-a')).toBeNull();
+    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
   });
 

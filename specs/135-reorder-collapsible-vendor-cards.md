@@ -388,3 +388,16 @@ group-qualified keys, count-not-submitted exclusion, and body-hiding rules
 are unchanged. The spec135 component tests were flipped accordingly
 (default-hidden, expand-shows-body, group-key independence from the
 collapsed baseline, a11y expanded=false initially).
+
+
+## Post-ship owner follow-up 2 (2026-07-21)
+
+Owner: "swithc those to the top, so that even if it uncollapsed can still
+click them." The four per-vendor actions (CSV / PDF / QUICK-ORDER LIST /
++ CREATE PO) moved from the card footer into the header name row (right
+side, before the short id), so they stay clickable while the card is
+collapsed. The quick-order preview block moved OUTSIDE the collapse guard
+for the same reason — triggering it from a collapsed card shows the
+preview below the header. The footer keeps its info caption (items · $ ·
+eod counted) and remains body-only. showExport gating (spec 123) and the
+not-submitted branch (no actions) are unchanged.
