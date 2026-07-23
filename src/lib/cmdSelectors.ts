@@ -168,16 +168,15 @@ const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string; alias?: strin
   { name: 'EODCount',        labelKey: 'sidebar.items.eodCount' },
   { name: 'InventoryCount',  labelKey: 'sidebar.items.inventoryCount' },
   { name: 'WasteLog',        labelKey: 'sidebar.items.wasteLog' },
-  { name: 'Receiving',       labelKey: 'sidebar.items.receiving' },
-  // Spec 137 — three palette entries all routing to the unified 'Ordering'
-  // destination. The two legacy labels are kept so ⌘K search still matches
-  // "reorder" and "purchase orders" (the palette filter matches on `label`
-  // only). `alias` disambiguates the built `id` so the three entries don't
-  // collide on id / React key; `route` stays { name: 'Ordering' } for all
-  // three → each opens Ordering on its default Reorder tab.
+  // Spec 138 — the admin Receiving palette entry is retired (Receiving section
+  // removed from the sidebar; ordering is phone/text/cart-filler only).
+  // Spec 137/138 — two palette entries routing to the unified 'Ordering'
+  // destination (now reorder-only, no PO tab). The `reorder` label is kept so
+  // ⌘K search still matches "reorder"; the retired `pos` alias is dropped with
+  // the PO surface. `alias` disambiguates the built `id` so the entries don't
+  // collide on id / React key; `route` stays { name: 'Ordering' } for both.
   { name: 'Ordering',        labelKey: 'sidebar.items.ordering' },
   { name: 'Ordering',        labelKey: 'sidebar.items.reorder',        alias: 'reorder' },
-  { name: 'Ordering',        labelKey: 'sidebar.items.purchaseOrders', alias: 'pos' },
   { name: 'Vendors',         labelKey: 'sidebar.items.vendors' },
   // Note: deliberately reuses the menuItemsBom key so the palette entry
   // labels match the sidebar item label across all locales.
@@ -1099,7 +1098,10 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           // is unchanged; this one routes to InventoryCountSection.
           { id: 'InventoryCount',  label: T('sidebar.items.inventoryCount') },
           { id: 'WasteLog',        label: T('sidebar.items.wasteLog') },
-          { id: 'Receiving',       label: T('sidebar.items.receiving') },
+          // Spec 138 — the admin Receiving section is retired (AC-2): stock moves
+          // at EOD/weekly counts, ordering is phone/text/cart-filler, so the
+          // PO/receiving paperwork is gone. A saved custom layout referencing the
+          // old `Receiving` id resolves cleanly via remapLegacySidebarOverrideIds.
         ],
       },
       {

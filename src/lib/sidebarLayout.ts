@@ -73,11 +73,24 @@ const LEGACY_SIDEBAR_ID_ALIASES: Record<string, string> = {
 };
 
 /**
- * Spec 137 — pure remap of a saved override's entry ids through
- * LEGACY_SIDEBAR_ID_ALIASES. Dedupes by keeping the FIRST occurrence of a
- * resulting id (deterministic by array order — so `[Reorder, PurchaseOrders]`
- * collapses to a single `Ordering`); everything else passes through untouched.
- * Returns the input unchanged when empty/null. No React/DOM — unit-testable.
+ * Spec 138 — remove-only override ids. A saved spec-008 layout referencing a
+ * fully-retired sidebar item (no replacement destination) is filtered OUT of
+ * the remapped override so it leaves no dead/dangling entry and never crashes
+ * the merge (AC-4). The `applySidebarOverride` merge already silently drops ids
+ * absent from `defaultGroups`, but the explicit set makes the intent
+ * unit-testable (spec-137 precedent). `Receiving` (spec 138 AC-2/AC-3) has no
+ * `Ordering`-style alias — it is simply gone.
+ */
+const REMOVED_SIDEBAR_IDS = new Set<string>(['Receiving']);
+
+/**
+ * Spec 137/138 — pure remap of a saved override's entry ids. Retired ids in
+ * REMOVED_SIDEBAR_IDS are dropped entirely (spec 138); the rest are aliased
+ * through LEGACY_SIDEBAR_ID_ALIASES (spec 137). Dedupes by keeping the FIRST
+ * occurrence of a resulting id (deterministic by array order — so
+ * `[Reorder, PurchaseOrders]` collapses to a single `Ordering`); everything
+ * else passes through untouched. Returns the input unchanged when empty/null.
+ * No React/DOM — unit-testable.
  */
 export function remapLegacySidebarOverrideIds(
   override: SidebarLayoutOverride | null | undefined,
@@ -88,6 +101,8 @@ export function remapLegacySidebarOverrideIds(
   const seen = new Set<string>();
   const items: SidebarLayoutOverrideEntry[] = [];
   for (const entry of override.items) {
+    // Spec 138 — drop remove-only ids (Receiving) so no dangling entry remains.
+    if (REMOVED_SIDEBAR_IDS.has(entry.id)) continue;
     const mappedId = LEGACY_SIDEBAR_ID_ALIASES[entry.id] ?? entry.id;
     if (seen.has(mappedId)) continue; // dedupe — keep the first occurrence
     seen.add(mappedId);

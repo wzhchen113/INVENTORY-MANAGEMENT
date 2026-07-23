@@ -84,6 +84,12 @@ jest.mock('../../../../store/useStore', () => {
     createPoDraft: jest.fn(() => Promise.resolve('po-1')),
     vendors: [],
     inventory: [],
+    // Spec 138 — inline-edit buffer + Fill-cart slice the section now reads.
+    reorderEdits: {},
+    setReorderEditQty: jest.fn(),
+    clearReorderEdits: jest.fn(),
+    clearReorderEditsForVendor: jest.fn(),
+    fillCartForVendor: jest.fn(() => Promise.resolve('po-1')),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
@@ -201,14 +207,17 @@ describe('Reorder — count not submitted (spec 130)', () => {
     expect(screen.getByTestId('reorder-count-not-submitted-v-b')).toBeTruthy();
     expect(screen.getByText('section.reorder.countNotSubmittedTitle')).toBeTruthy();
 
-    // The four per-vendor actions are ABSENT for the un-counted vendor.
-    expect(screen.queryByTestId('reorder-create-po-v-b')).toBeNull();
+    // The per-vendor actions are ABSENT for the un-counted vendor (spec 138 —
+    // Fill cart replaced + CREATE PO).
+    expect(screen.queryByTestId('reorder-fill-cart-v-b')).toBeNull();
     expect(screen.queryByTestId('reorder-quick-order-v-b')).toBeNull();
     expect(screen.queryByTestId('reorder-export-csv-v-b')).toBeNull();
     expect(screen.queryByTestId('reorder-export-pdf-v-b')).toBeNull();
   });
 
   it('renders a counted vendor normally (breakdown + all actions present)', () => {
+    // Spec 138 — mark v-a extension-ordering so its Fill cart button renders.
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: true }];
     mockState.reorderPayload = {
       asOfDate: toISODate(new Date()),
       vendors: [counted, notSubmitted],
@@ -220,8 +229,8 @@ describe('Reorder — count not submitted (spec 130)', () => {
 
     // The counted vendor is NOT rendered as a not-submitted card.
     expect(screen.queryByTestId('reorder-count-not-submitted-v-a')).toBeNull();
-    // Its per-vendor actions all render.
-    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    // Its per-vendor actions all render (Fill cart replaced + CREATE PO, spec 138).
+    expect(screen.getByTestId('reorder-fill-cart-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-quick-order-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-export-csv-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-export-pdf-v-a')).toBeTruthy();

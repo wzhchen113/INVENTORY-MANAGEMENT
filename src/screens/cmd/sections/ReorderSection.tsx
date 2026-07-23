@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Platform } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
@@ -49,6 +49,9 @@ import { t, type Locale } from '../../../i18n';
 import { planUsFoodsExport } from '../../../utils/usFoodsImport';
 import { planSyscoExport } from '../../../utils/syscoImport';
 import { pickImportVendor, type ImportOrderPlan } from '../../../utils/vendorImportShared';
+// Spec 138 — reuse the spec-134 PURE case⇄units helpers for the inline order-qty
+// edit (no forked conversion logic; AC-5).
+import { isCaseRow, poOrderedDisplay, poResolveEdit } from '../../../utils/poCaseDisplay';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -61,34 +64,59 @@ export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 // (`report_reorder_list`). (It superseded the former store-wide-by-category
 // Restock prototype, retired in cleanup.)
 //
-// v2 contract notes (spec 107 landed the loop):
-//   - `pending_po_qty` is now a REAL open-PO aggregate server-side (both
-//     reorder engines) — an open (sent/partial) PO reduces the suggestion
-//     for its items. The "inbound" segment renders the live value.
-//   - "Create PO" is ENABLED: it creates an editable DRAFT PO from the
-//     vendor card (lines prefilled from the suggested cases, per-counted-unit
-//     cost snapshot) via `createPoDraft`, behind a confirm. The operator then
-//     edits/sends it in the Purchase Orders section (spec 107 §5/§8).
+// v2 contract notes (spec 138 made Reorder the single ordering surface):
+//   - `pending_po_qty` inbound netting was RETIRED with receiving (spec 138 §2 —
+//     the RPC now emits 0). The "inbound" segment renders that constant 0.
+//   - Each line's ORDER quantity is editable inline (spec 138 §5, cases via the
+//     spec-134 `poCaseDisplay` helpers) into a per-session `reorderEdits` buffer;
+//     the edited qty flows to every export + the Fill-cart handoff (AC-6).
+//   - "Fill cart" (spec 138) REPLACES "+ CREATE PO" on `extension_ordering`
+//     vendors only: it materialises the hidden draft the browser extension reads
+//     via `fillCartForVendor` → `db.upsertVendorDraftOrder`. Non-extension
+//     vendors get CSV / PDF / quick-order exports only (AC-9/AC-11/AC-12).
 //   - Vendors with zero suggested items are filtered out server-side;
 //     a true empty state means either no EOD has been done, every
 //     active item is at par, or the store has no active vendors at all.
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
-// Spec 137 — the ONE minimal seam for the unified "Ordering" deep-link. The
-// OrderingSection shell passes `onPoCreated` to this section; it's threaded to
-// CreatePoButton via context (no VendorCard signature churn) and fired inside
-// the existing createPoDraft `.then`. When ReorderSection is rendered STANDALONE
-// (its own jest suites, and any legacy direct mount), the context default is
-// `undefined` → the invocation is a no-op. No other behavior changes.
-const OnPoCreatedContext = React.createContext<((poId: string) => void) | undefined>(undefined);
-
-// Spec 123 — the reorder RPC emits a per-vendor `has_po` flag (mapped to `hasPo`
-// on `ReorderVendor` in src/lib/db.ts), true when a non-cancelled purchase_orders
-// row exists for (store, vendor, reorder date). Drives the persistent, disabled
-// "PO CREATED" state. Read via `?? false` so an older envelope (no field) is
-// treated as "no PO" → shows "+ CREATE PO".
-const vendorHasPo = (v: ReorderVendor): boolean => v.hasPo ?? false;
+// Spec 138 — apply the per-session inline order-qty edit overlay to one vendor
+// for DISPLAY / est-cost / KPI / exports / Fill cart (AC-6). For every item that
+// carries an edit, the buffer's base (COUNTED units) replaces the server
+// suggestion and the derived fields are recomputed:
+//   - suggestedUnits / suggestedQty = the edited base;
+//   - suggestedCases = base / caseQty for a case row (base is a whole-case
+//     product via poCasesToBase), else the untouched null;
+//   - estimatedCost = base × costPerUnit × subUnitSize — the load-bearing
+//     spec-104 per-EACH → per-COUNTED-unit bridge (§5). Do NOT drop subUnitSize.
+// Untouched items pass through verbatim (server estimated_cost preserved), so a
+// vendor with no edits returns unchanged — zero behavior change when unused.
+// `subUnitSizeFor` resolves subUnitSize from the hydrated `inventory` rows.
+export function applyReorderEdits(
+  vendor: ReorderVendor,
+  vendorEdits: Record<string, number> | undefined,
+  subUnitSizeFor: (itemId: string) => number,
+): ReorderVendor {
+  if (!vendorEdits || Object.keys(vendorEdits).length === 0) return vendor;
+  let changed = false;
+  const items = vendor.items.map((item) => {
+    if (!(item.itemId in vendorEdits)) return item;
+    changed = true;
+    const base = vendorEdits[item.itemId];
+    const caseRow = isCaseRow(item.caseQty);
+    const subUnitSize = subUnitSizeFor(item.itemId) || 1;
+    return {
+      ...item,
+      suggestedQty: base,
+      suggestedUnits: base,
+      suggestedCases: caseRow ? base / item.caseQty : item.suggestedCases,
+      estimatedCost: base * item.costPerUnit * subUnitSize,
+    };
+  });
+  if (!changed) return vendor;
+  const vendorTotalCost = items.reduce((acc, i) => acc + i.estimatedCost, 0);
+  return { ...vendor, items, vendorTotalCost };
+}
 
 // Spec 123 — narrow the full reorder payload to a SINGLE vendor for the
 // per-vendor CSV/PDF export. The KPIs are recomputed from just that vendor so
@@ -214,84 +242,58 @@ function FlagChip({ token }: { token: string }) {
   );
 }
 
-// Spec 107 §5/§8 — "+ Create PO" creates an editable DRAFT PO from the vendor
-// card behind a confirm dialog (a draft is benign, but a confirm avoids
-// accidental double-drafts). On success it toasts and points the user to the
-// Purchase Orders section to edit/send. Disabled while the create is in flight.
-function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
+// Spec 138 (AC-9/AC-10/AC-11) — the cart-filler handoff button. Rendered ONLY on
+// vendors with `vendors.extension_ordering = true` (resolved from the hydrated
+// `vendors` slice by id); non-extension vendors render NOTHING here (exports
+// only, AC-11). Pressing it hands the vendor's current (edited) order to the
+// browser extension via `fillCartForVendor` → `db.upsertVendorDraftOrder`, which
+// materialises the hidden draft the unchanged extension RPCs already read. It
+// REPLACES the retired "+ CREATE PO" button / "PO CREATED" chip (AC-12).
+// Confirm-gated (a draft is benign, but a confirm avoids an accidental push).
+function FillCartButton({ vendor }: { vendor: ReorderVendor }) {
   const C = useCmdColors();
   const T = useT();
-  const createPoDraft = useStore((s) => s.createPoDraft);
-  const onPoCreated = React.useContext(OnPoCreatedContext);
+  const vendors = useStore((s) => s.vendors);
+  const fillCartForVendor = useStore((s) => s.fillCartForVendor);
   const [busy, setBusy] = React.useState(false);
 
-  // Spec 123 — a PO already exists for (store, this vendor, the reorder date).
-  // Render a disabled, muted "PO CREATED" chip (hard duplicate-prevention) with
-  // no press handler so a second draft can't be created for the same key. The
-  // flag is server-derived + date-keyed, so it persists across REFRESH/reload
-  // and flips back to "+ CREATE PO" when the date picker points at a date with
-  // no PO for this vendor.
-  if (vendorHasPo(vendor)) {
-    return (
-      <View
-        testID={`reorder-create-po-${vendor.vendorId}`}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: true }}
-        accessibilityLabel={T('section.reorder.poCreatedAria', { vendor: vendor.vendorName || '' })}
-        style={{
-          paddingVertical: 6,
-          paddingHorizontal: 12,
-          borderRadius: CmdRadius.sm,
-          borderWidth: 1,
-          borderColor: C.border,
-          backgroundColor: C.panel2,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.3 }}>
-          {T('section.reorder.poCreatedLabel')}
-        </Text>
-      </View>
-    );
-  }
+  // AC-11 — no cart-filler button unless the vendor is extension-ordering.
+  const extensionOrdering =
+    vendors.find((v) => v.id === vendor.vendorId)?.extensionOrdering ?? false;
+  if (!extensionOrdering) return null;
 
   const onPress = () => {
     if (busy) return;
     const vendorName = vendor.vendorName || 'this vendor';
     confirmAction(
-      T('section.reorder.createPoConfirmTitle'),
-      T('section.reorder.createPoConfirmBody', { vendor: vendorName, count: vendor.items.length }),
+      T('section.reorder.fillCartConfirmTitle'),
+      T('section.reorder.fillCartConfirmBody', { vendor: vendorName, count: vendor.items.length }),
       () => {
         setBusy(true);
-        void createPoDraft(vendor)
+        void fillCartForVendor(vendor)
           .then((poId) => {
             if (poId) {
               Toast.show({
                 type: 'success',
-                text1: T('section.reorder.createPoToastTitle'),
-                text2: T('section.reorder.createPoToastBody', { vendor: vendorName }),
+                text1: T('section.reorder.fillCartToastTitle'),
+                text2: T('section.reorder.fillCartToastBody', { vendor: vendorName }),
                 visibilityTime: 4000,
               });
-              // Spec 137 — hand the new draft to the Ordering shell (if mounted):
-              // it flips to the Purchase-orders tab and preselects this PO.
-              onPoCreated?.(poId);
             }
           })
           .finally(() => setBusy(false));
       },
-      T('section.reorder.createPoConfirmCta'),
+      T('section.reorder.fillCartConfirmCta'),
     );
   };
 
   return (
     <TouchableOpacity
-      testID={`reorder-create-po-${vendor.vendorId}`}
+      testID={`reorder-fill-cart-${vendor.vendorId}`}
       onPress={onPress}
       disabled={busy}
       accessibilityRole="button"
-      accessibilityLabel={T('section.reorder.createPoAria', { vendor: vendor.vendorName || '' })}
+      accessibilityLabel={T('section.reorder.fillCartAria', { vendor: vendor.vendorName || '' })}
       style={{
         paddingVertical: 6,
         paddingHorizontal: 12,
@@ -306,17 +308,17 @@ function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
       }}
     >
       <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accent, letterSpacing: 0.3 }}>
-        {busy ? T('section.reorder.createPoBusy') : T('section.reorder.createPoLabel')}
+        {busy ? T('section.reorder.fillCartBusy') : T('section.reorder.fillCartLabel')}
       </Text>
     </TouchableOpacity>
   );
 }
 
 // Spec 115 (W-3) — the Reorder-card "Quick-order list" export handler + button.
-// Pre-PO sibling to `CreatePoButton`: reuses the SAME (W-2-extended)
-// `buildPoQuickOrderText` builder + the spec-108 `sharePurchaseOrder`
-// orchestrator, sourced from the card's suggested order
-// (`ReorderItem.suggestedUnits` + `caseQty`). AC-17 posture: NO PO exists, so NO
+// Reuses the SAME (W-2-extended) `buildPoQuickOrderText` builder + the spec-108
+// `sharePurchaseOrder` orchestrator, sourced from the card's (spec-138 buffer-
+// overridden) order (`ReorderItem.suggestedUnits` + `caseQty`). AC-17 posture:
+// NO PO exists, so NO
 // mark-sent prompt / no status change — purely a copy/paste aid. Same `???`
 // unmapped + unmapped-count + rounded-count surfacing as the PO path. The
 // desktop-web preview is lifted to `VendorCard` (rendered as a normal in-card
@@ -333,6 +335,8 @@ function ReorderQuickOrderButton({
   const locale = useLocale();
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
+  // Spec 138 (AC-7): a successful share/copy resets this vendor's inline edits.
+  const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
   const [busy, setBusy] = React.useState(false);
 
   const onShareQuickOrder = async () => {
@@ -363,10 +367,13 @@ function ReorderQuickOrderButton({
         resolveName,
         orderUnit,
       );
-      const { previewText } = await sharePurchaseOrder(text, {
+      const { shared, previewText } = await sharePurchaseOrder(text, {
         dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
         onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
       });
+      // AC-7: only a genuine share/copy (not a user-dismiss / failure) closes the
+      // edit cycle for this vendor. `shared` is false on cancel or hard failure.
+      if (shared) clearReorderEditsForVendor(vendor.vendorId);
       onPreview({
         text: previewText,
         unitNote:
@@ -429,21 +436,25 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
   const reorderPayload = useStore((s) => s.reorderPayload);
   const vendorsList = useStore((s) => s.vendors);
   const inventory = useStore((s) => s.inventory);
+  // Spec 138 (AC-7): a successful export closes this vendor's edit cycle — reset
+  // its inline-edit buffer so the next reorder cycle starts fresh from the
+  // computed suggestions. A failed/cancelled export must NOT wipe the edits.
+  const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
 
-  const onCsv = () => {
+  const onCsv = async () => {
     if (!reorderPayload || !currentStore) return;
     const narrowed = narrowReorderToVendor(reorderPayload, vendor);
     const importCfg = pickImportVendor(narrowed, vendorsList);
-    if (importCfg) {
-      handleImportExport(narrowed, currentStore, importCfg, inventory);
-      return;
-    }
-    void handleCsvExport(narrowed, currentStore, locale);
+    const ok = importCfg
+      ? handleImportExport(narrowed, currentStore, importCfg, inventory)
+      : await handleCsvExport(narrowed, currentStore, locale);
+    if (ok) clearReorderEditsForVendor(vendor.vendorId);
   };
 
-  const onPdf = () => {
+  const onPdf = async () => {
     if (!reorderPayload || !currentStore) return;
-    void handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
+    const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
+    if (ok) clearReorderEditsForVendor(vendor.vendorId);
   };
 
   const btnStyle = {
@@ -512,6 +523,11 @@ function VendorCard({
   const C = useCmdColors();
   const T = useT();
   const itemTone = needsOrder ? C.danger : C.ok;
+  // Spec 138 — write the per-item inline order-qty edit into the store buffer.
+  // The `vendor` passed to this card is ALREADY buffer-overridden at the section
+  // (applyReorderEdits), so `item.suggestedUnits` is the current base — used to
+  // seed the input AND as the no-op reference in poResolveEdit.
+  const setReorderEditQty = useStore((s) => s.setReorderEditQty);
   // Spec 115 (W-3) — desktop-web quick-order preview, lifted here so it renders
   // as a normal in-card block below the footer (the card has overflow:hidden, so
   // an overlay wouldn't work). Cleared via the × in the preview header.
@@ -597,12 +613,13 @@ function VendorCard({
       {scheduleBadgeEl}
       {vendor.scheduleKnown ? null : <Badge label="7-DAY DEFAULT" tone="fg3" />}
       <View style={{ flex: 1 }} />
-      {/* Owner follow-up (2026-07-21): the four per-vendor actions (CSV / PDF /
-          quick-order / create-PO) moved up here from the footer so they stay
-          clickable while the card is collapsed (cards default-collapsed). */}
+      {/* Owner follow-up (2026-07-21): the per-vendor actions (CSV / PDF /
+          quick-order / Fill cart) moved up here from the footer so they stay
+          clickable while the card is collapsed (cards default-collapsed). Fill
+          cart (spec 138) renders only on extension_ordering vendors. */}
       {showExport ? <ReorderVendorExportButtons vendor={vendor} /> : null}
       <ReorderQuickOrderButton vendor={vendor} onPreview={setQuickPreview} />
-      <CreatePoButton vendor={vendor} />
+      <FillCartButton vendor={vendor} />
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
         {shortId(vendor.vendorId)}
       </Text>
@@ -614,8 +631,8 @@ function VendorCard({
   // fallback, so we render the header (name + next-delivery + badges) but
   // REPLACE the column strip / item rows / footer actions with a
   // "Count not submitted yet" state block. This branch renders no
-  // BreakdownLine rows and none of the four per-vendor actions (Create PO /
-  // Quick-order / CSV / PDF) — they all live in the footer this branch omits.
+  // BreakdownLine rows and none of the per-vendor actions (Fill cart /
+  // Quick-order / CSV / PDF) — they all live in the header this branch omits.
   if (isReorderCountNotSubmitted(vendor)) {
     return (
       <View
@@ -785,6 +802,40 @@ function VendorCard({
           <View style={{ paddingLeft: 2 }}>
             <BreakdownLine item={item} tone={itemTone} />
           </View>
+          {/* Spec 138 (AC-5) — inline editable ORDER quantity, using the spec-134
+              case conventions: a `caseQty > 1` line edits in CASES with the
+              `× N / case` sub-caption; a `caseQty <= 1` line edits in units. The
+              seed + no-op reference is `item.suggestedUnits`, already
+              buffer-overridden at the section (so it shows the persisted edit).
+              `key` includes the current base so a wholesale/per-vendor reset
+              (store switch / date change / after Fill cart) re-seeds the field.
+              Lives in the card BODY (below the collapse guard) — expand to edit. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 2 }}>
+            <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+              {T('section.reorder.orderedLabel')}
+            </Text>
+            <TextInput
+              key={`reorder-ordered-${item.itemId}-${item.suggestedUnits}`}
+              testID={`reorder-ordered-${item.itemId}`}
+              defaultValue={poOrderedDisplay(item.suggestedUnits, item.caseQty)}
+              keyboardType="numeric"
+              accessibilityLabel={T('section.reorder.orderedEditAria', { item: item.itemName })}
+              onEndEditing={(e) => {
+                const { write, base } = poResolveEdit(e.nativeEvent.text, item.suggestedUnits, item.caseQty);
+                if (write) setReorderEditQty(vendor.vendorId, item.itemId, base);
+              }}
+              style={{
+                fontFamily: mono(500), fontSize: 11.5, color: C.fg, width: 88, textAlign: 'right',
+                borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.xs,
+                paddingVertical: 3, paddingHorizontal: 6,
+              }}
+            />
+            <Text style={{ fontFamily: mono(400), fontSize: 9, color: C.fg3 }}>
+              {isCaseRow(item.caseQty)
+                ? T('section.reorder.perCaseCaption', { count: item.caseQty })
+                : item.unit}
+            </Text>
+          </View>
           {/* Spec 102 (OQ-1) — coincident-schedule hint. When this shared item
               is also scheduled under other vendors today it appears under each
               of their cards; surface "also available from N" so the manager
@@ -833,8 +884,8 @@ function VendorCard({
         ) : null}
         <View style={{ flex: 1 }} />
         {/* The per-vendor action buttons (spec 123 CSV/PDF, spec 115 quick-order,
-            create-PO) moved to the header name row (2026-07-21) so they stay
-            reachable while the card is collapsed. */}
+            spec 138 Fill cart) moved to the header name row (2026-07-21) so they
+            stay reachable while the card is collapsed. */}
       </View>
       </>
       ) : null}
@@ -891,7 +942,10 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
-async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Locale): Promise<void> {
+// Spec 138 (AC-7): returns `true` only when the download actually fired, so the
+// caller can reset that vendor's inline-edit buffer ON SUCCESS ONLY (a failed
+// export must preserve the operator's edits so they can retry).
+async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Locale): Promise<boolean> {
   try {
     const csv = buildReorderCsv(payload, locale);
     const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
@@ -909,6 +963,7 @@ async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Lo
       text2: filename,
       visibilityTime: 3000,
     });
+    return true;
   } catch (e: any) {
     console.warn('[ReorderSection] CSV export failed:', e?.message || e);
     Toast.show({
@@ -917,6 +972,7 @@ async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Lo
       text2: e?.message || 'Unable to build the CSV file',
       visibilityTime: 4000,
     });
+    return false;
   }
 }
 
@@ -947,12 +1003,14 @@ function emitImportPlan(plan: ImportOrderPlan, label: string): void {
   });
 }
 
+// Spec 138 (AC-7): returns `true` only when the import file was emitted, so the
+// caller resets the vendor's inline-edit buffer on success only.
 function handleImportExport(
   payload: ReorderPayload,
   store: Store,
   cfg: Vendor,
   inventory: InventoryItem[],
-): void {
+): boolean {
   const label = cfg.orderImportFormat === 'sysco' ? 'SYSCO order' : 'US Foods import';
   try {
     const resolveCode = (item: ReorderItem): string | null | undefined =>
@@ -962,6 +1020,7 @@ function handleImportExport(
         ? planSyscoExport(payload, store.id, store.name, cfg, resolveCode)
         : planUsFoodsExport(payload, store.id, store.name, cfg, resolveCode);
     emitImportPlan(plan, label);
+    return true;
   } catch (e: any) {
     console.warn(`[ReorderSection] ${label} export failed:`, e?.message || e);
     Toast.show({
@@ -970,12 +1029,15 @@ function handleImportExport(
       text2: e?.message || 'Unable to build the import file',
       visibilityTime: 4000,
     });
+    return false;
   }
 }
 
 // Spec 025 AC5 — jsPDF + jspdf-autotable dynamic-imported per legacy
 // pattern so the bundle stays lean for users who never click "PDF".
-async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: Locale): Promise<void> {
+// Spec 138 (AC-7): returns `true` only when the PDF actually saved, so the
+// caller resets the vendor's inline-edit buffer on success only.
+async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: Locale): Promise<boolean> {
   try {
     const { default: jsPDF } = await import('jspdf');
     const autoTableMod: any = await import('jspdf-autotable');
@@ -1211,6 +1273,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: 
       text2: filename,
       visibilityTime: 3000,
     });
+    return true;
   } catch (e: any) {
     console.warn('[ReorderSection] PDF export failed:', e?.message || e);
     Toast.show({
@@ -1219,10 +1282,11 @@ async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: 
       text2: e?.message || 'Unable to build the PDF file',
       visibilityTime: 4000,
     });
+    return false;
   }
 }
 
-export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: string) => void } = {}) {
+export default function ReorderSection() {
   const C = useCmdColors();
   const T = useT();
   const currentStore = useStore((s) => s.currentStore);
@@ -1231,6 +1295,23 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
   const reorderLoading = useStore((s) => s.reorderLoading);
   const reorderError = useStore((s) => s.reorderError);
   const loadReorderSuggestions = useStore((s) => s.loadReorderSuggestions);
+  // Spec 138 — the per-session inline order-qty edit buffer + the inventory
+  // rows (for the subUnitSize bridge). `applyReorderEdits` overlays the buffer
+  // onto the rendered vendors (display / est-cost / KPI / exports / Fill cart).
+  const inventory = useStore((s) => s.inventory);
+  const reorderEdits = useStore((s) => s.reorderEdits);
+  const clearReorderEdits = useStore((s) => s.clearReorderEdits);
+  // `applyReorderEdits` already coerces a falsy result to 1, so no `|| 1` here
+  // (spec 138 code-review nit — a single fallback in the pure helper).
+  const subUnitSizeFor = React.useCallback(
+    (itemId: string) => inventory.find((i) => i.id === itemId)?.subUnitSize ?? 1,
+    [inventory],
+  );
+  const applyEdits = React.useCallback(
+    (vendors: ReorderVendor[]) =>
+      vendors.map((v) => applyReorderEdits(v, reorderEdits[v.vendorId], subUnitSizeFor)),
+    [reorderEdits, subUnitSizeFor],
+  );
 
   const [tabId, setTabId] = React.useState('reorder.tsx');
 
@@ -1262,11 +1343,16 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
       // scoped to the previous store). NOT reset on a same-store date change.
       // Empty set = all collapsed (the owner's default-hidden follow-up).
       setExpandedKeys(new Set());
+      // Spec 138 (AC-7) — reset the inline edit buffer wholesale on store switch.
+      clearReorderEdits();
       loadReorderSuggestions(today);
       return;
     }
+    // Spec 138 (AC-7) — reset the inline edit buffer on a same-store as-of-date
+    // change (the suggestions are for a different day). Harmless no-op on mount.
+    clearReorderEdits();
     loadReorderSuggestions(selectedDate);
-  }, [currentStore?.id, selectedDate, loadReorderSuggestions]);
+  }, [currentStore?.id, selectedDate, loadReorderSuggestions, clearReorderEdits]);
 
   const refresh = React.useCallback(() => {
     loadReorderSuggestions(selectedDate);
@@ -1304,13 +1390,16 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
   // Spec (2026-07) — split the counted vendors into the two sections. Needs-
   // order (below par) items drive the KPIs + export EXACTLY as before; enough-
   // stock items (surfaced by include_stocked) render in the green section only.
+  // Spec 138 (AC-6) — overlay the inline edit buffer AFTER the needs/enough
+  // split (editing an order qty never changes the below-par classification),
+  // so the cards, est-cost, exports, and the KPI strip all reflect edited qty.
   const needsOrderVendors = React.useMemo(
-    () => splitReorderVendorsByNeed(countedPrimary, true),
-    [countedPrimary],
+    () => applyEdits(splitReorderVendorsByNeed(countedPrimary, true)),
+    [countedPrimary, applyEdits],
   );
   const enoughStockVendors = React.useMemo(
-    () => splitReorderVendorsByNeed(countedPrimary, false),
-    [countedPrimary],
+    () => applyEdits(splitReorderVendorsByNeed(countedPrimary, false)),
+    [countedPrimary, applyEdits],
   );
   const kpis = React.useMemo(() => computeReorderKpis(needsOrderVendors), [needsOrderVendors]);
 
@@ -1368,7 +1457,6 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
   }
 
   return (
-    <OnPoCreatedContext.Provider value={onPoCreated}>
     <View testID="reorder-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[
@@ -1689,7 +1777,7 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
               </Text>
             </TouchableOpacity>
             {noScheduleOpen
-              ? splitReorderVendorsByNeed(noSchedule, true).map((v) => {
+              ? applyEdits(splitReorderVendorsByNeed(noSchedule, true)).map((v) => {
                   const k = `nosched-${v.vendorId}`;
                   return (
                     <VendorCard
@@ -1709,6 +1797,5 @@ export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: s
         ) : null}
       </ScrollView>
     </View>
-    </OnPoCreatedContext.Provider>
   );
 }

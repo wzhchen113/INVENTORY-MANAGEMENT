@@ -1,13 +1,14 @@
 // src/screens/cmd/sections/__tests__/ReorderSection.spec123.test.tsx — Spec 123.
 //
-// Two behaviours land in this spec:
+// Two behaviours land in this file:
 //   1. Per-vendor CSV + PDF export replaces the former GLOBAL top-of-screen
 //      CSV/PDF buttons. Each vendor card exports ONLY that vendor via a narrowed
 //      payload ({ ...payload, vendors:[v], kpis: computeReorderKpis([v]) }) fed
-//      to the SAME builders.
-//   2. "+ CREATE PO" becomes a disabled, muted "PO CREATED" chip when the
-//      vendor already has a (date-keyed) PO (`hasPo` from the RPC), preventing a
-//      duplicate draft.
+//      to the SAME builders. (spec 123)
+//   2. Fill-cart extension gating (spec 138): the retired "+ CREATE PO" / "PO
+//      CREATED" chip is gone; a "Fill cart" button renders ONLY on
+//      `extension_ordering` vendors (exports-only otherwise). The describe block
+//      below was rewritten from the spec-123 "PO CREATED chip" behaviour to this.
 //
 // Boundary mocking mirrors ReorderSection.test.tsx / ReorderSectionCases (spec
 // 087/088): mock useCmdColors / useT / TabStrip / StatCard / useStore. Two
@@ -27,6 +28,15 @@ jest.mock('react-native/Libraries/Utilities/Platform', () => ({
 jest.mock('react-native-toast-message', () => ({
   __esModule: true,
   default: { show: jest.fn(), hide: jest.fn() },
+}));
+
+// Spec 138 — Fill cart is confirm-gated; auto-confirm so the press reaches the
+// store action synchronously (mirrors OrderingSection.test).
+const mockConfirmAction = jest.fn(
+  (_t: string, _m: string, onConfirm: () => void) => { onConfirm(); },
+);
+jest.mock('../../../../utils/confirmAction', () => ({
+  confirmAction: (...args: any[]) => (mockConfirmAction as any)(...args),
 }));
 
 jest.mock('../../../../theme/colors', () => ({
@@ -86,6 +96,12 @@ jest.mock('../../../../store/useStore', () => {
     createPoDraft: jest.fn(() => Promise.resolve('po-1')),
     vendors: [],
     inventory: [],
+    // Spec 138 — inline-edit buffer + Fill-cart slice the section now reads.
+    reorderEdits: {},
+    setReorderEditQty: jest.fn(),
+    clearReorderEdits: jest.fn(),
+    clearReorderEditsForVendor: jest.fn(),
+    fillCartForVendor: jest.fn(() => Promise.resolve('po-1')),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
@@ -179,6 +195,12 @@ beforeEach(() => {
   mockState.createPoDraft = jest.fn(() => Promise.resolve('po-1'));
   mockState.vendors = [];
   mockState.inventory = [];
+  mockState.reorderEdits = {};
+  mockState.setReorderEditQty = jest.fn();
+  mockState.clearReorderEdits = jest.fn();
+  mockState.clearReorderEditsForVendor = jest.fn();
+  mockState.fillCartForVendor = jest.fn(() => Promise.resolve('po-1'));
+  mockConfirmAction.mockImplementation((_t: string, _m: string, onConfirm: () => void) => { onConfirm(); });
 });
 
 describe('narrowReorderToVendor (payload narrowing helper)', () => {
@@ -253,58 +275,59 @@ describe('per-vendor CSV/PDF export', () => {
   });
 });
 
-describe('"PO CREATED" persistent disabled state', () => {
-  it('renders a disabled "PO CREATED" chip (no createPoDraft) when the vendor hasPo', () => {
-    mockState.reorderPayload = {
-      asOfDate: toISODate(new Date()),
-      vendors: [vendor({ vendorId: 'v-a', hasPo: true })],
-      kpis: { vendorCount: 1, itemCount: 1, totalEstimatedCost: 10, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
-      warnings: [],
-    };
+// Spec 138 (AC-9/AC-11/AC-12) — the retired "+ CREATE PO" / "PO CREATED" is
+// replaced by a per-vendor "Fill cart" button that renders ONLY on
+// extension_ordering vendors.
+describe('Fill cart button (extension-ordering gating, spec 138)', () => {
+  const payloadFor = (vendorId: string) => ({
+    asOfDate: toISODate(new Date()),
+    vendors: [vendor({ vendorId })],
+    kpis: { vendorCount: 1, itemCount: 1, totalEstimatedCost: 10, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
+    warnings: [],
+  });
+
+  it('renders a Fill cart button on an extension_ordering vendor, and NO + CREATE PO / PO CREATED', () => {
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: true }];
+    mockState.reorderPayload = payloadFor('v-a');
     render(<ReorderSection />);
     expandAllVendorCards();
 
-    expect(screen.getByText('section.reorder.poCreatedLabel')).toBeTruthy();
+    expect(screen.getByTestId('reorder-fill-cart-v-a')).toBeTruthy();
+    // AC-12 — the retired PO affordances are gone.
+    expect(screen.queryByTestId('reorder-create-po-v-a')).toBeNull();
     expect(screen.queryByText('section.reorder.createPoLabel')).toBeNull();
-
-    const chip = screen.getByTestId('reorder-create-po-v-a');
-    expect(chip.props.accessibilityState?.disabled).toBe(true);
-
-    // Pressing the disabled chip must never create a draft.
-    fireEvent.press(chip);
-    expect(mockState.createPoDraft).not.toHaveBeenCalled();
-  });
-
-  it('renders a pressable "+ CREATE PO" button when the vendor has no PO', () => {
-    mockState.reorderPayload = {
-      asOfDate: toISODate(new Date()),
-      vendors: [vendor({ vendorId: 'v-a', hasPo: false })],
-      kpis: { vendorCount: 1, itemCount: 1, totalEstimatedCost: 10, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
-      warnings: [],
-    };
-    render(<ReorderSection />);
-    expandAllVendorCards();
-
-    expect(screen.getByText('section.reorder.createPoLabel')).toBeTruthy();
     expect(screen.queryByText('section.reorder.poCreatedLabel')).toBeNull();
-
-    // The button is enabled (not the disabled PO-CREATED chip).
-    const btn = screen.getByTestId('reorder-create-po-v-a');
-    expect(btn.props.accessibilityState?.disabled).not.toBe(true);
   });
 
-  it('two vendors on the same date are independent (A created, B not)', () => {
-    mockState.reorderPayload = {
-      asOfDate: toISODate(new Date()),
-      vendors: [vendor({ vendorId: 'v-a', hasPo: true }), vendor({ vendorId: 'v-b', hasPo: false })],
-      kpis: { vendorCount: 2, itemCount: 2, totalEstimatedCost: 20, eodSourcedVendorCount: 2, stockFallbackVendorCount: 0 },
-      warnings: [],
-    };
+  it('renders NO Fill cart button on a non-extension vendor (exports only, AC-11)', () => {
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: false }];
+    mockState.reorderPayload = payloadFor('v-a');
     render(<ReorderSection />);
     expandAllVendorCards();
 
-    // A shows PO CREATED (disabled), B shows + CREATE PO (enabled).
-    expect(screen.getByTestId('reorder-create-po-v-a').props.accessibilityState?.disabled).toBe(true);
-    expect(screen.getByTestId('reorder-create-po-v-b').props.accessibilityState?.disabled).not.toBe(true);
+    expect(screen.queryByTestId('reorder-fill-cart-v-a')).toBeNull();
+    // The CSV/PDF/quick-order exports remain available.
+    expect(screen.getByTestId('reorder-export-csv-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-quick-order-v-a')).toBeTruthy();
+  });
+
+  it('renders NO Fill cart button when the vendor is not in the vendors slice', () => {
+    mockState.vendors = [];
+    mockState.reorderPayload = payloadFor('v-a');
+    render(<ReorderSection />);
+    expandAllVendorCards();
+    expect(screen.queryByTestId('reorder-fill-cart-v-a')).toBeNull();
+  });
+
+  it('pressing Fill cart calls fillCartForVendor for that vendor (confirm-gated)', () => {
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: true }];
+    mockState.reorderPayload = payloadFor('v-a');
+    render(<ReorderSection />);
+    expandAllVendorCards();
+
+    fireEvent.press(screen.getByTestId('reorder-fill-cart-v-a'));
+    expect(mockConfirmAction).toHaveBeenCalledTimes(1);
+    expect(mockState.fillCartForVendor).toHaveBeenCalledTimes(1);
+    expect(mockState.fillCartForVendor.mock.calls[0][0].vendorId).toBe('v-a');
   });
 });

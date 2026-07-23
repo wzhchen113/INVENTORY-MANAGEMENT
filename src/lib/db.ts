@@ -1613,6 +1613,168 @@ export async function createPurchaseOrderDraft(params: {
 }
 
 /**
+ * Spec 138 §4 — the cart-filler handoff (B1). Materialize / refresh EXACTLY ONE
+ * `draft` purchase_orders row per `(store, vendor, referenceDate)` from the
+ * caller's buffer-overridden reorder quantities, so the unchanged extension RPCs
+ * (`get_pending_extension_orders` / `get_extension_order_payload`, spec
+ * 20260723000000) pick it up with no signature change. Idempotent per key:
+ *
+ *   - If a NON-cancelled `draft` PO exists for the key → replace its lines
+ *     (delete all `po_items`, reinsert from `lines`) and update `total_cost`.
+ *   - Else → insert a fresh `draft` header + lines (same shape as
+ *     `createPurchaseOrderDraft`).
+ *   - Only `status='draft'` is matched. A `'sent'` PO for the same key is a
+ *     PLACED order — never mutated here; a fresh draft is created instead (a
+ *     legitimate second order, safe now that the spec-138 inbound term is gone).
+ *
+ * CRITICAL (Design §2): `expected_delivery` is OMITTED (left NULL). The spec-125
+ * auto-receive cron only acts on POs with a due `expected_delivery`; omitting it
+ * keeps every cart-filled draft out of that path, so auto-receive stays inert by
+ * STARVATION without a schema drop. Do NOT add an `expected_delivery` here.
+ *
+ * `costPerUnitCounted` is the OQ-6 per-COUNTED-unit snapshot the caller computes
+ * via the spec-104 ★ bridge (`inventory_items.costPerUnit` per-each ×
+ * `subUnitSize`) — stored verbatim into `po_items.cost_per_unit`, exactly as
+ * `createPurchaseOrderDraft` does. Returns the (existing or new) po id, or
+ * `null` on empty lines / RLS denial / insert failure.
+ */
+export async function upsertVendorDraftOrder(params: {
+  storeId: string;
+  vendorId: string;
+  createdByUserId?: string;
+  referenceDate?: string;                 // YYYY-MM-DD → reference_date (spec 123 keying)
+  lines: Array<{
+    itemId: string;
+    orderedQty: number;                   // COUNTED units (= buffer-overridden suggestedUnits)
+    costPerUnitCounted: number;           // OQ-6 per-COUNTED-unit snapshot
+  }>;
+}): Promise<string | null> {
+  return useInflight.getState().track(async (signal) => {
+    if (!params.storeId || !params.vendorId || params.lines.length === 0) return null;
+
+    const totalCost = params.lines.reduce(
+      (sum, ln) => sum + (Number(ln.orderedQty) || 0) * (Number(ln.costPerUnitCounted) || 0),
+      0,
+    );
+
+    // Look for an existing NON-cancelled draft for the exact key. reference_date
+    // is nullable in the schema, so match on it explicitly (a null-dated legacy
+    // draft never collides with a dated Fill-cart key).
+    let existing = supabase
+      .from('purchase_orders')
+      .select('id')
+      .eq('store_id', params.storeId)
+      .eq('vendor_id', params.vendorId)
+      .eq('status', 'draft');
+    existing = params.referenceDate
+      ? existing.eq('reference_date', params.referenceDate)
+      : existing.is('reference_date', null);
+    const { data: found, error: findErr } = await existing
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .abortSignal(signal)
+      .maybeSingle();
+    if (findErr) { console.warn('[Supabase] upsertVendorDraftOrder (find):', findErr.message); return null; }
+
+    const lineRows = params.lines.map((ln) => ({
+      item_id: ln.itemId,
+      ordered_qty: ln.orderedQty,
+      received_qty: null,
+      cost_per_unit: ln.costPerUnitCounted,
+    }));
+
+    // ─── UPDATE path: replace the existing draft's lines + total. ───
+    //
+    // Ordering matters (spec 138 code-review fix). PostgREST has no
+    // multi-statement transaction here, so we do INSERT-new-then-DELETE-old
+    // rather than delete-then-reinsert. The old delete-first ordering left a
+    // previously-filled draft with ZERO lines if the reinsert then failed — a
+    // silent data-loss regression of a prior successful Fill cart. By capturing
+    // the old line ids first, inserting the new lines, and only THEN deleting
+    // the captured old ids, any mid-operation failure leaves the draft with at
+    // least its prior lines (never empty), and the sequence is re-runnable: a
+    // failed delete leaves old+new rows, and the next Fill cart re-captures both
+    // sets and collapses back to a single line set (idempotent upsert).
+    //
+    // FOLLOW-UP: a true all-or-nothing guarantee (no transient doubled-lines
+    // window between insert and delete) would require a single SECURITY-INVOKER
+    // RPC that replaces the lines in one statement — deferred; not built here.
+    if (found?.id) {
+      const poId = found.id as string;
+
+      // Capture the CURRENT line ids so the post-insert delete targets exactly
+      // the old rows (not the freshly-inserted ones).
+      const { data: oldRows, error: oldErr } = await supabase
+        .from('po_items')
+        .select('id')
+        .eq('po_id', poId)
+        .abortSignal(signal);
+      if (oldErr) { console.warn('[Supabase] upsertVendorDraftOrder (read old lines):', oldErr.message); return null; }
+      const oldIds = (oldRows ?? []).map((r) => r.id as string);
+
+      // Insert the new lines FIRST. On failure the prior lines are untouched.
+      const { error: insertErr } = await supabase
+        .from('po_items')
+        .insert(lineRows.map((r) => ({ ...r, po_id: poId })))
+        .abortSignal(signal);
+      if (insertErr) { console.warn('[Supabase] upsertVendorDraftOrder (insert lines):', insertErr.message); return null; }
+
+      // Now delete ONLY the captured old rows. A failure here leaves a
+      // recoverable doubled-lines state that the next Fill cart collapses.
+      if (oldIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from('po_items')
+          .delete()
+          .in('id', oldIds)
+          .abortSignal(signal);
+        if (delErr) { console.warn('[Supabase] upsertVendorDraftOrder (clear old lines):', delErr.message); return null; }
+      }
+
+      const { error: totalErr } = await supabase
+        .from('purchase_orders')
+        .update({ total_cost: totalCost })
+        .eq('id', poId)
+        .abortSignal(signal);
+      if (totalErr) { console.warn('[Supabase] upsertVendorDraftOrder (total):', totalErr.message); return null; }
+      return poId;
+    }
+
+    // ─── INSERT path: fresh draft header + lines (NO expected_delivery). ───
+    const { data: header, error: headerErr } = await supabase
+      .from('purchase_orders')
+      .insert({
+        store_id: params.storeId,
+        vendor_id: params.vendorId,
+        created_by: params.createdByUserId || null,
+        status: 'draft',
+        total_cost: totalCost,
+        ...(params.referenceDate ? { reference_date: params.referenceDate } : {}),
+        // NB: expected_delivery intentionally OMITTED — see the doc comment.
+      })
+      .select('id')
+      .abortSignal(signal)
+      .single();
+    if (headerErr || !header?.id) {
+      console.warn('[Supabase] upsertVendorDraftOrder (header):', headerErr?.message);
+      return null;
+    }
+
+    const poId = header.id as string;
+    const { error: linesErr } = await supabase
+      .from('po_items')
+      .insert(lineRows.map((r) => ({ ...r, po_id: poId })))
+      .abortSignal(signal);
+    if (linesErr) {
+      console.warn('[Supabase] upsertVendorDraftOrder (lines):', linesErr.message);
+      // Best-effort clean up the orphan header so no empty draft is left.
+      await supabase.from('purchase_orders').delete().eq('id', poId);
+      return null;
+    }
+    return poId;
+  }, { kind: 'write', label: 'upsertVendorDraftOrder' });
+}
+
+/**
  * Spec 107 §8 — read a PO's `po_items` lines (header stays in the
  * orderSubmissions list). Joined through inventory_items → catalog_ingredients
  * for the item name / unit / sub_unit_size. Drives the POsSection detail and

@@ -40,7 +40,6 @@ import { StorePicker } from '../screens/StorePicker';
 import { EODCount } from '../screens/EODCount';
 import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
-import { Receiving } from '../screens/Receiving';
 import { Settings } from '../screens/Settings';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { lockStaffViewport } from '../lib/lockViewport';
@@ -135,21 +134,10 @@ function StaffTabs() {
           ),
         }}
       />
-      {/* Spec 113 — the staff receiving tab (receive deliveries against open
-          POs). Visually distinct via the cube "receipt/delivery" icon (vs the
-          EOD clipboard / Reorder cart / Weekly calendar). */}
-      <Tab.Screen
-        name="Receiving"
-        component={Receiving}
-        options={{
-          tabBarLabel: t('receiving.tabLabel'),
-          tabBarAccessibilityLabel: t('receiving.tabLabel'),
-          tabBarTestID: 'staff-tab-receiving',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cube-outline" size={size} color={color} />
-          ),
-        }}
-      />
+      {/* Spec 138 — the staff Receiving tab is retired (AC-3): it was
+          PO/receiving-driven and becomes purposeless once receiving is gone
+          (stock moves at EOD/weekly counts only). The `receiving.*` staff i18n
+          catalog + the `Receiving` screen file stay on disk, dormant. */}
     </Tab.Navigator>
   );
 }

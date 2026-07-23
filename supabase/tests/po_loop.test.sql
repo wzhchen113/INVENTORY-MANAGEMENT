@@ -30,12 +30,14 @@
 --     (H) sent → cancelled; quantity leaves pending_po_qty; refuses from
 --         received (P0001).
 --
---   pending_po_qty in BOTH engines:
---     (P) an item with an open `sent` PO (ordered − received > 0) returns a
---         non-zero pending_po_qty AND a correspondingly REDUCED suggested_qty
---         from BOTH report_reorder_list AND report_reorder_for_counted_onhand
---         (byte-parity guard on the CTE result); a received/cancelled PO does
---         NOT count.
+--   pending_po_qty in BOTH engines (spec 138 — inbound netting RETIRED):
+--     (P) after spec 138 dropped the (4g) inbound term on BOTH engines
+--         (20260726000000_reorder_drop_inbound_term.sql, option A), an item with
+--         an open `sent` PO now returns pending_po_qty = 0 and its suggested_qty
+--         is NOT reduced by inbound — par-vs-on-hand only — from BOTH
+--         report_reorder_list AND report_reorder_for_counted_onhand. The
+--         byte-parity guard still holds, now at the un-netted baseline (both
+--         engines suggest the same 140, reduction 0 on each).
 --
 --   status CHECK:
 --     (S) an insert with status = 'submitted' (off-vocabulary) is rejected; the
@@ -399,13 +401,15 @@ begin
 end $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- pending_po_qty in BOTH engines — (P) the open sent PO reduces the suggestion.
--- PEND: par 200, on_hand 60 → baseline par_replacement 140. With 48 inbound the
--- reduction is greatest(0, 200 - 60 - 48) = 92. Engine reads current_stock (60)
--- as on_hand (no EOD today); counted engine reads the supplied 60.
+-- pending_po_qty in BOTH engines — SPEC 138 (option A): the inbound term is
+-- RETIRED, so an open sent PO NO LONGER reduces the suggestion on either engine.
+-- PEND: par 200, on_hand 60 → par_replacement = greatest(0, 200 - 60) = 140.
+-- The open PO's 48 outstanding is IGNORED (pending_po_qty = 0). The vendor engine
+-- reads current_stock (60) as on_hand (no EOD today); the counted engine reads
+-- the supplied 60. Both suggest the un-netted 140.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- (P-engine) report_reorder_list — pending_po_qty = 48, suggested_qty = 92.
+-- (P-engine) report_reorder_list — pending_po_qty = 0, suggested_qty = 140.
 create temp table _rl on commit drop as
 select public.report_reorder_list(
   current_setting('test.frederick_id', true)::uuid,
@@ -421,23 +425,22 @@ select it as item
 
 select is(
   (select (item->>'pending_po_qty')::numeric from _rl_pend),
-  48::numeric,
-  '(P) report_reorder_list: PEND pending_po_qty = 48 (open sent PO outstanding)'
+  0::numeric,
+  '(P) report_reorder_list: PEND pending_po_qty = 0 (spec 138: inbound term retired)'
 );
 select is(
   (select (item->>'suggested_qty')::numeric from _rl_pend),
-  92::numeric,
-  '(P) report_reorder_list: PEND suggested_qty = 200 - 60 - 48 = 92 (reduced by inbound)'
+  140::numeric,
+  '(P) report_reorder_list: PEND suggested_qty = 200 - 60 = 140 (open PO NOT netted)'
 );
 
--- (P-counted) report_reorder_for_counted_onhand — SAME reduction, supplied
+-- (P-counted) report_reorder_for_counted_onhand — SAME un-netted result, supplied
 -- on_hand 60. NOTE: this engine's flat item payload does NOT surface a
--- `pending_po_qty` key (it is used only INTERNALLY to reduce suggested_qty — the
--- 4m item_rows builder omits cost/pending fields, spec 105 Delta 2). So the
--- byte-parity of the CTE is pinned on the OBSERVABLE RESULT: the counted
--- engine's suggested_qty is reduced by the SAME 48 the vendor engine reported as
--- pending_po_qty. Baseline (no open PO) would be 200 − 60 = 140; with the open
--- PO it must be 92, i.e. reduced by exactly the vendor engine's pending (48).
+-- `pending_po_qty` key (it was only ever used INTERNALLY — the 4m item_rows
+-- builder omits cost/pending fields, spec 105 Delta 2). Post-138 its (4g) CTE is
+-- byte-identical to the vendor engine's (both `where false`), so the OBSERVABLE
+-- RESULT is the same un-netted 140 the vendor engine emits — the open PO's 48 is
+-- ignored on both.
 create temp table _rc on commit drop as
 select it as item
   from jsonb_array_elements(
@@ -451,18 +454,20 @@ select it as item
 
 select is(
   (select (item->>'suggested_qty')::numeric from _rc),
-  92::numeric,
-  '(P) report_reorder_for_counted_onhand: PEND suggested_qty = 92 (CTE reduces both engines identically)'
+  140::numeric,
+  '(P) report_reorder_for_counted_onhand: PEND suggested_qty = 140 (both engines drop inbound identically)'
 );
--- Explicit parity-of-result: vendor engine's reported pending (48) == the
--- reduction seen in the counted engine (140 baseline − 92 actual).
+-- Explicit parity-of-result (KEPT): both engines now apply ZERO inbound
+-- reduction — vendor pending (0) == counted-engine reduction (140 baseline − 140
+-- actual = 0). Parity holds at the un-netted baseline.
 select is(
   (select (item->>'pending_po_qty')::numeric from _rl_pend),
   140::numeric - (select (item->>'suggested_qty')::numeric from _rc),
-  '(P) byte-parity of CTE result: vendor pending (48) == counted-engine reduction (140 − 92)'
+  '(P) byte-parity of CTE result: vendor pending (0) == counted-engine reduction (140 − 140 = 0)'
 );
 
--- (P-cancelled) cancel the PO → its 48 leaves pending; suggestion rises to 140.
+-- (P-cancelled) cancel the PO — suggestion stays 140 (it was never netted post-138;
+-- cancel is a no-op for the reorder math now, still a valid lifecycle transition).
 select public.cancel_purchase_order(current_setting('test.po2_id', true)::uuid);
 
 select is(
@@ -474,7 +479,7 @@ select is(
           jsonb_array_elements(vend->'items') it
     where it->>'item_id' = current_setting('test.item_pend', true)),
   140::numeric,
-  '(H/P) cancelled PO drops out of pending_po_qty → suggested_qty back to 140'
+  '(H/P) cancelled PO: suggested_qty stays 140 (inbound already ignored post-138)'
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════

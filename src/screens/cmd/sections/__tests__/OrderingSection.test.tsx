@@ -1,19 +1,18 @@
-// src/screens/cmd/sections/__tests__/OrderingSection.test.tsx — Spec 137.
+// src/screens/cmd/sections/__tests__/OrderingSection.test.tsx — Spec 137/138.
 //
-// The unified "Ordering" destination is a thin tab shell that hosts the two
-// EXISTING sections (ReorderSection, POsSection) as tabs. These tests lock the
-// three seams that make it work:
-//   1. Shell render + landing tab — both tabs present, Reorder mounted on open.
-//   2. Deep-link — "+ CREATE PO" success flips to the Purchase-orders tab AND
-//      preselects the returned poId (via the orderingHandoff signal).
-//   3. Sidebar-override fallback — remapLegacySidebarOverrideIds resolves the
-//      removed `Reorder` / `PurchaseOrders` override ids onto `Ordering`.
+// Spec 138 collapses "Ordering" to the reorder list ONLY (the spec-137
+// Purchase-orders tab is retired) plus a small read-only past-orders History
+// panel. These tests lock:
+//   1. Shell render — the reorder pane mounts, and there is NO PO tab.
+//   2. History panel (AC-8) — a collapsed "History" affordance that, when
+//      opened, refreshes + renders date / vendor / total from orderSubmissions,
+//      filters cancelled orders, and shows an empty state; read-only.
+//   3. Sidebar-override fallback (AC-4) — remapLegacySidebarOverrideIds resolves
+//      the removed `Reorder` / `PurchaseOrders` ids onto `Ordering` and DROPS
+//      the retired `Receiving` id, with no crash / dangling entry.
 //
-// Boundary mocking mirrors ReorderSection.spec123 / POsSection.test: mock
-// useCmdColors / useT (key-echoing) / confirmAction (auto-confirm) / toast /
-// useStore (combined snapshot both sections read). TabStrip is stubbed to render
-// its tabs (as pressable, testID'd nodes) AND its rightSlot so the shell tabs
-// and the sections' action buttons are all reachable.
+// ReorderSection is stubbed to a `reorder-root` node so this suite isolates the
+// wrapper + History responsibilities (ReorderSection has its own suites).
 
 jest.mock('react-native/Libraries/Utilities/Platform', () => ({
   __esModule: true,
@@ -45,87 +44,21 @@ jest.mock('../../../../hooks/useT', () => ({
   },
 }));
 
-jest.mock('../../../../hooks/useLocale', () => ({ useLocale: () => 'en' }));
-jest.mock('../../../../i18n/localizedName', () => ({
-  getLocalizedName: (row: { name?: string }) => row?.name ?? '',
-}));
-
-const mockConfirmAction = jest.fn(
-  (_t: string, _m: string, onConfirm: () => void) => { onConfirm(); },
-);
-jest.mock('../../../../utils/confirmAction', () => ({
-  confirmAction: (...args: any[]) => (mockConfirmAction as any)(...args),
-}));
-
-jest.mock('react-native-toast-message', () => ({
-  __esModule: true,
-  default: { show: jest.fn(), hide: jest.fn() },
-}));
-
-// TabStrip — render each tab as a pressable, testID'd node AND the rightSlot,
-// so the shell's tabs and both sections' header actions are all reachable.
-jest.mock('../../../../components/cmd/TabStrip', () => {
+// Stub ReorderSection — this suite covers the shell + History, not the reorder
+// list (which has its own suites).
+jest.mock('../ReorderSection', () => {
   const ReactMod = require('react');
   const RN = require('react-native');
   return {
-    TabStrip: ({ tabs, onChange, rightSlot }: any) =>
-      ReactMod.createElement(
-        RN.View,
-        { testID: 'tabstrip' },
-        (tabs || []).map((t: any) =>
-          ReactMod.createElement(
-            RN.TouchableOpacity,
-            { key: t.id, testID: t.testID, onPress: () => onChange(t.id) },
-            ReactMod.createElement(RN.Text, null, t.label),
-          ),
-        ),
-        ReactMod.createElement(RN.View, { key: '__rs' }, rightSlot),
-      ),
+    __esModule: true,
+    default: () => ReactMod.createElement(RN.View, { testID: 'reorder-root' }),
   };
 });
-jest.mock('../../../../components/cmd/StatCard', () => ({ StatCard: () => null }));
-jest.mock('../../../../components/cmd/StatusPill', () => {
-  const ReactMod = require('react');
-  const RN = require('react-native');
-  return { StatusPill: ({ label }: { label?: string }) => ReactMod.createElement(RN.Text, null, label) };
-});
-jest.mock('../../../../components/cmd/SectionCaption', () => {
-  const ReactMod = require('react');
-  const RN = require('react-native');
-  return { SectionCaption: ({ children }: any) => ReactMod.createElement(RN.Text, null, children) };
-});
 
-// Keep the pure reorderExport helpers real; stub only the CSV builder so the
-// DOM download path never runs (unused here, but ReorderSection imports it).
-jest.mock('../../../../utils/reorderExport', () => {
-  const actual = jest.requireActual('../../../../utils/reorderExport');
-  return { ...actual, buildReorderCsv: jest.fn(() => 'csv,data') };
-});
-
-// Combined store snapshot — the union of the slices ReorderSection and
-// POsSection read. Configurable per test via `mockState`.
 jest.mock('../../../../store/useStore', () => {
   const state: any = {
-    // ReorderSection slices
-    currentStore: { id: 'store-1', name: 'Test Store' },
-    orderSchedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [] },
-    reorderPayload: null,
-    reorderLoading: false,
-    reorderError: null,
-    loadReorderSuggestions: jest.fn(),
-    createPoDraft: jest.fn(async () => 'po-123'),
-    vendors: [],
-    inventory: [],
-    // POsSection slices
     orderSubmissions: [],
-    poLinesById: {},
-    loadPurchaseOrderLines: jest.fn(async () => []),
-    updatePoLineQty: jest.fn(),
-    removePoLine: jest.fn(),
-    sendPurchaseOrderEmail: jest.fn(async () => true),
-    markPurchaseOrderSentManually: jest.fn(async () => true),
-    cancelPurchaseOrder: jest.fn(async () => 'cancelled'),
-    closeShortPurchaseOrder: jest.fn(async () => 'received'),
+    refreshPurchaseOrders: jest.fn(),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
@@ -134,12 +67,9 @@ jest.mock('../../../../store/useStore', () => {
 });
 
 import React from 'react';
-import { StyleSheet } from 'react-native';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { toISODate } from '../../../../utils/reportDates';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 import OrderingSection from '../OrderingSection';
 import { useStore } from '../../../../store/useStore';
-import { useOrderingHandoff } from '../../../../lib/orderingHandoff';
 import {
   remapLegacySidebarOverrideIds,
   applySidebarOverride,
@@ -148,149 +78,79 @@ import {
 
 const mockState = (useStore as any).__state as Record<string, any>;
 
-function reorderItem(over: Record<string, any> = {}) {
+function poRow(over: Record<string, any> = {}) {
   return {
-    itemId: over.itemId ?? 'i-1',
-    itemName: over.itemName ?? 'Item',
-    unit: over.unit ?? 'each',
-    onHand: 0,
-    pendingPoQty: 0,
-    parLevel: 10,
-    usageForecasted: 0,
-    parReplacement: 10,
-    suggestedQty: 10,
-    costPerUnit: 1,
-    estimatedCost: 10,
-    caseQty: 1,
-    suggestedCases: null,
-    suggestedUnits: 10,
-    flags: [],
+    id: over.id ?? 'po-1',
+    storeId: 'store-1',
+    vendorId: over.vendorId ?? 'v-a',
+    vendorName: over.vendorName ?? 'Acme',
+    status: over.status ?? 'draft',
+    referenceDate: over.referenceDate ?? '2026-07-03',
+    date: over.date ?? '2026-07-03',
+    totalCost: over.totalCost ?? 42,
+    submittedBy: 't',
+    submittedAt: '10:00',
+    day: 'Friday',
     ...over,
   };
 }
 
-function reorderVendor(over: Record<string, any> & { vendorId: string }) {
-  return {
-    vendorId: over.vendorId,
-    vendorName: over.vendorName ?? over.vendorId,
-    scheduleKnown: over.scheduleKnown ?? true,
-    nextDeliveryDate: '2026-06-02',
-    daysUntilNextDelivery: 1,
-    onHandSource: over.onHandSource ?? 'eod',
-    eodSubmittedAt: over.eodSubmittedAt ?? '2026-06-02T00:00:00Z',
-    items: over.items ?? [reorderItem()],
-    vendorTotalCost: over.vendorTotalCost ?? 10,
-    hasPo: over.hasPo ?? false,
-  };
-}
-
-// Schedule the vendor on EVERY weekday so it lands in the PRIMARY (day-filtered)
-// set regardless of the machine's "today".
-function everyDaySchedule(vendorIds: string[]) {
-  const entries = vendorIds.map((id) => ({ vendorId: id, vendorName: id, deliveryDay: 'Wednesday' }));
-  return {
-    Monday: entries, Tuesday: entries, Wednesday: entries, Thursday: entries,
-    Friday: entries, Saturday: entries, Sunday: entries,
-  };
-}
-
-beforeAll(() => {
-  (global as any).Blob = class {};
-  const w = (global as any).window ?? ((global as any).window = {});
-  w.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
-});
-
 beforeEach(() => {
   jest.clearAllMocks();
-  useOrderingHandoff.setState({ pendingPoId: null });
-  mockState.currentStore = { id: 'store-1', name: 'Test Store' };
-  mockState.orderSchedule = everyDaySchedule(['v-a']);
-  mockState.reorderPayload = null;
-  mockState.reorderLoading = false;
-  mockState.reorderError = null;
-  mockState.loadReorderSuggestions = jest.fn();
-  mockState.createPoDraft = jest.fn(async () => 'po-123');
-  mockState.vendors = [];
-  mockState.inventory = [];
   mockState.orderSubmissions = [];
-  mockState.poLinesById = {};
-  mockConfirmAction.mockImplementation((_t: string, _m: string, onConfirm: () => void) => { onConfirm(); });
+  mockState.refreshPurchaseOrders = jest.fn();
 });
 
-describe('OrderingSection — shell render + landing tab', () => {
-  it('renders both tabs and mounts the Reorder tab (ReorderSection) on open', () => {
+describe('OrderingSection — reorder-only shell (spec 138)', () => {
+  it('mounts the reorder pane and has NO Purchase-orders tab', () => {
     render(<OrderingSection />);
-    // Both shell tabs exist.
-    expect(screen.getByTestId('ordering-tab-reorder')).toBeTruthy();
-    expect(screen.getByTestId('ordering-tab-pos')).toBeTruthy();
-    // Reorder is the landing tab → ReorderSection is mounted (its root testID).
     expect(screen.getByTestId('reorder-root')).toBeTruthy();
-    // POsSection is NOT mounted (conditional render — only the active tab mounts).
-    expect(screen.queryByTestId('po-filter-all')).toBeNull();
+    // The spec-137 PO tab strip is gone.
+    expect(screen.queryByTestId('ordering-tab-reorder')).toBeNull();
+    expect(screen.queryByTestId('ordering-tab-pos')).toBeNull();
   });
 
-  it('switches to the Purchase-orders tab on manual tab press (ReorderSection unmounts)', () => {
+  it('renders the History toggle, collapsed by default (panel hidden)', () => {
     render(<OrderingSection />);
-    fireEvent.press(screen.getByTestId('ordering-tab-pos'));
-    expect(screen.queryByTestId('reorder-root')).toBeNull();
-    // POsSection mounted (its status-filter chip row is POsSection-only).
-    expect(screen.getByTestId('po-filter-all')).toBeTruthy();
+    expect(screen.getByTestId('ordering-history-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('ordering-history-panel')).toBeNull();
   });
 });
 
-describe('OrderingSection — deep-link create → switch → preselect', () => {
-  it('“+ CREATE PO” success flips to the PO tab and preselects the new draft', async () => {
-    mockState.reorderPayload = {
-      asOfDate: toISODate(new Date()),
-      vendors: [reorderVendor({ vendorId: 'v-a' })],
-      kpis: { vendorCount: 1, itemCount: 1, totalEstimatedCost: 10, eodSourcedVendorCount: 1, stockFallbackVendorCount: 0 },
-      warnings: [],
-    };
-    // createPoDraft resolves the new poId AND lands the draft in orderSubmissions
-    // (mirrors the real action, which awaits refreshPurchaseOrders before
-    // resolving — so the draft is present when POsSection mounts on the PO tab).
-    mockState.createPoDraft = jest.fn(async () => {
-      mockState.orderSubmissions = [
-        {
-          id: 'po-123', storeId: 'store-1', vendorId: 'v-a', vendorName: 'v-a',
-          status: 'draft', day: 'Monday', date: '2026-07-03',
-          timestamp: '2026-07-03T10:00:00Z', submittedBy: 't', submittedAt: '10:00', totalCost: 10,
-        },
-      ];
-      return 'po-123';
-    });
-
-    render(<OrderingSection />);
-    // Reorder tab is active on open.
-    expect(screen.getByTestId('reorder-root')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('reorder-create-po-v-a'));
-
-    // After the create resolves, the shell flips to the PO tab (ReorderSection
-    // unmounts) and POsSection selects po-123.
-    await waitFor(() => expect(screen.queryByTestId('reorder-root')).toBeNull());
-    const row = await screen.findByTestId('po-list-po-123');
-    expect(StyleSheet.flatten(row.props.style).borderLeftWidth).toBe(2); // isSel → 2px accent border
-  });
-
-  it('manual path still works — no signal fires when just switching tabs', () => {
+describe('OrderingSection — read-only History (AC-8)', () => {
+  it('opening History refreshes and renders date / vendor / total rows (cancelled filtered)', () => {
     mockState.orderSubmissions = [
-      {
-        id: 'po-9', storeId: 'store-1', vendorId: 'v-a', vendorName: 'Acme',
-        status: 'sent', day: 'Monday', date: '2026-07-03',
-        timestamp: '2026-07-03T10:00:00Z', submittedBy: 't', submittedAt: '10:00', totalCost: 10,
-      },
+      poRow({ id: 'po-1', vendorName: 'Acme', referenceDate: '2026-07-03', totalCost: 42, status: 'sent' }),
+      poRow({ id: 'po-2', vendorName: 'BJ’s', referenceDate: '2026-07-02', totalCost: 15, status: 'draft' }),
+      poRow({ id: 'po-3', vendorName: 'Cancelled Co', referenceDate: '2026-07-01', totalCost: 99, status: 'cancelled' }),
     ];
     render(<OrderingSection />);
-    fireEvent.press(screen.getByTestId('ordering-tab-pos'));
-    // The auto-select effect (no signal) selects the newest PO.
-    expect(StyleSheet.flatten(screen.getByTestId('po-list-po-9').props.style).borderLeftWidth).toBe(2);
-    // Signal was never armed.
-    expect(useOrderingHandoff.getState().pendingPoId).toBeNull();
+
+    fireEvent.press(screen.getByTestId('ordering-history-toggle'));
+    // Opening refreshes the PO list.
+    expect(mockState.refreshPurchaseOrders).toHaveBeenCalledTimes(1);
+
+    expect(screen.getByTestId('ordering-history-panel')).toBeTruthy();
+    // Non-cancelled rows render; the cancelled one is filtered out.
+    expect(screen.getByTestId('ordering-history-row-po-1')).toBeTruthy();
+    expect(screen.getByTestId('ordering-history-row-po-2')).toBeTruthy();
+    expect(screen.queryByTestId('ordering-history-row-po-3')).toBeNull();
+
+    // Date / vendor / total surfaced for a row.
+    expect(screen.getByText('2026-07-03')).toBeTruthy();
+    expect(screen.getByText('Acme')).toBeTruthy();
+    expect(screen.getByText('$42.00')).toBeTruthy();
+  });
+
+  it('shows an empty state when there are no (non-cancelled) past orders', () => {
+    mockState.orderSubmissions = [poRow({ id: 'po-x', status: 'cancelled' })];
+    render(<OrderingSection />);
+    fireEvent.press(screen.getByTestId('ordering-history-toggle'));
+    expect(screen.getByTestId('ordering-history-empty')).toBeTruthy();
   });
 });
 
-describe('remapLegacySidebarOverrideIds — spec-008 override fallback', () => {
+describe('remapLegacySidebarOverrideIds — spec-008 override fallback (spec 137/138)', () => {
   it('remaps a legacy Reorder override id onto Ordering', () => {
     const input = { v: 1 as const, items: [{ id: 'Reorder', group: 'Operations' }] };
     expect(remapLegacySidebarOverrideIds(input)).toEqual({
@@ -304,6 +164,20 @@ describe('remapLegacySidebarOverrideIds — spec-008 override fallback', () => {
     expect(remapLegacySidebarOverrideIds(input)).toEqual({
       v: 1,
       items: [{ id: 'Ordering', hidden: true }],
+    });
+  });
+
+  it('drops the retired Receiving override id entirely (spec 138, AC-4)', () => {
+    const input = {
+      v: 1 as const,
+      items: [
+        { id: 'Receiving', group: 'Operations' },
+        { id: 'Vendors', order: 3 },
+      ],
+    };
+    expect(remapLegacySidebarOverrideIds(input)).toEqual({
+      v: 1,
+      items: [{ id: 'Vendors', order: 3 }],
     });
   });
 
@@ -329,6 +203,20 @@ describe('remapLegacySidebarOverrideIds — spec-008 override fallback', () => {
     expect(remapLegacySidebarOverrideIds(undefined)).toBeUndefined();
     const empty = { v: 1 as const, items: [] };
     expect(remapLegacySidebarOverrideIds(empty)).toBe(empty);
+  });
+
+  it('applySidebarOverride resolves a dropped Receiving id cleanly (no dangling entry)', () => {
+    const defaultGroups: SidebarGroup[] = [
+      { label: 'Operations', items: [{ id: 'Inventory', label: 'Inventory' }] },
+      { label: 'Planning', items: [{ id: 'Ordering', label: 'Ordering' }, { id: 'Vendors', label: 'Vendors' }] },
+    ];
+    const remapped = remapLegacySidebarOverrideIds({ v: 1, items: [{ id: 'Receiving', group: 'Operations' }] });
+    const merged = applySidebarOverride(defaultGroups, remapped);
+    const allIds = merged.flatMap((g) => g.items.map((i) => i.id));
+    // Receiving is gone; nothing dangling; the defaults still render.
+    expect(allIds).not.toContain('Receiving');
+    expect(allIds).toContain('Ordering');
+    expect(allIds).toContain('Inventory');
   });
 
   it('applySidebarOverride places the remapped Ordering per the override', () => {

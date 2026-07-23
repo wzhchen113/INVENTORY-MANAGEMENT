@@ -38,7 +38,6 @@ import WasteLogSection from './sections/WasteLogSection';
 import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
 import InventoryCountSection from './sections/InventoryCountSection';
-import ReceivingSection from './sections/ReceivingSection';
 import OrderingSection from './sections/OrderingSection';
 import RecipesSection from './sections/RecipesSection';
 import PrepRecipesSection from './sections/PrepRecipesSection';
@@ -297,8 +296,6 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <EODCountSection />
         ) : section === 'InventoryCount' ? (
           <InventoryCountSection />
-        ) : section === 'Receiving' ? (
-          <ReceivingSection />
         ) : section === 'Ordering' ? (
           <OrderingSection />
         ) : section === 'Recipes' ? (

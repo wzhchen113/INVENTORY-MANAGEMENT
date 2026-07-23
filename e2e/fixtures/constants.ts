@@ -111,9 +111,10 @@ export function uniqueInviteEmail(): string {
 // navigate by `getByTestId(SIDEBAR_NAV.x)` — no label text, no i18n coupling,
 // no `.first()`. The ids are stable code constants from cmdSelectors.ts
 // (`Dashboard` / `Ordering` / `AuditLog` / `Users`), NOT the display labels.
-// Spec 137 — the former `Reorder` / `PurchaseOrders` sidebar items were unified
-// into one `Ordering` destination (nav-Ordering) with two tabs; Reorder is now
-// reached via nav-Ordering → the Reorder tab (ordering-tab-reorder).
+// Spec 137/138 — the former `Reorder` / `PurchaseOrders` sidebar items were
+// unified into one `Ordering` destination (nav-Ordering). Spec 138 retired the
+// PO tab, so Ordering is now reorder-only: selecting nav-Ordering lands directly
+// on the reorder pane (no tab strip).
 export const SIDEBAR_NAV = {
   dashboard: 'nav-Dashboard',
   ordering: 'nav-Ordering',

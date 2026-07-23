@@ -68,6 +68,14 @@ jest.mock('../../../../store/useStore', () => {
     reorderLoading: false,
     reorderError: null,
     loadReorderSuggestions: jest.fn(),
+    // Spec 138 — inline-edit buffer + Fill-cart slice the section now reads.
+    inventory: [],
+    vendors: [],
+    reorderEdits: {},
+    setReorderEditQty: jest.fn(),
+    clearReorderEdits: jest.fn(),
+    clearReorderEditsForVendor: jest.fn(),
+    fillCartForVendor: jest.fn(() => Promise.resolve('po-1')),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;

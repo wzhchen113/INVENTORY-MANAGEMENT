@@ -668,6 +668,17 @@ export interface AppState {
   reorderLoading: boolean;
   reorderError: string | null;
   /**
+   * Spec 138 §3 — per-session inline order-quantity edits on the reorder cards,
+   * keyed `vendorId → itemId → base (COUNTED) units`. A client-only overlay on
+   * top of the server suggestions: an absent entry means "use the computed
+   * suggestion" (`reorderEdits[vendorId]?.[itemId] ?? item.suggestedUnits`). NOT
+   * persisted — mirrors the spec-135 per-card collapse posture. Reset per vendor
+   * after that vendor's export / Fill cart (AC-7) and wholesale on store switch /
+   * as-of-date change. Feeds every order artifact (CSV / PDF / quick-order text /
+   * Fill-cart handoff) + the on-card est-cost/KPI recompute.
+   */
+  reorderEdits: Record<string, Record<string, number>>;
+  /**
    * Spec 060 — server-computed per-recipe capacity for the active
    * store. Keyed by `recipeId` for O(1) lookup from
    * `RecipesSection`'s inline badge. Populated as a fire-and-forget

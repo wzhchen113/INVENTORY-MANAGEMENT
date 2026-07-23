@@ -37,35 +37,39 @@ const emptyIndexArgs = {
   auditLog: [],
 } as any;
 
-describe('getCommandPaletteIndex — unified Ordering screen entries (spec 137)', () => {
+describe('getCommandPaletteIndex — unified Ordering screen entries (spec 137/138)', () => {
   const screens = () =>
     getCommandPaletteIndex(emptyIndexArgs).filter((e: any) => e.type === 'screen');
 
-  it('emits three entries routing to Ordering, labeled ordering / reorder / purchaseOrders', () => {
+  it('emits two entries routing to Ordering, labeled ordering / reorder (spec 138 dropped the pos alias)', () => {
     const ordering = screens().filter((e: any) => e.route.name === 'Ordering');
-    expect(ordering).toHaveLength(3);
+    expect(ordering).toHaveLength(2);
     // The default translate is identity over the label KEY, so searching the
-    // rendered labels for "reorder" / "purchase orders" maps to these keys.
+    // rendered labels for "reorder" maps to this key. The retired `pos` alias /
+    // purchaseOrders label is gone with the PO surface (spec 138).
     expect(ordering.map((e: any) => e.label).sort()).toEqual([
       'sidebar.items.ordering',
-      'sidebar.items.purchaseOrders',
       'sidebar.items.reorder',
     ]);
   });
 
-  it('gives the three Ordering entries unique ids via the alias discriminator', () => {
+  it('gives the two Ordering entries unique ids via the alias discriminator', () => {
     const ids = screens()
       .filter((e: any) => e.route.name === 'Ordering')
       .map((e: any) => e.id);
-    expect(new Set(ids).size).toBe(3);
+    expect(new Set(ids).size).toBe(2);
     expect(ids).toContain('screen:Ordering');
     expect(ids).toContain('screen:Ordering:reorder');
-    expect(ids).toContain('screen:Ordering:pos');
+    // Spec 138 — the pos alias entry is retired.
+    expect(ids).not.toContain('screen:Ordering:pos');
   });
 
-  it('routes NO screen entry to the retired Reorder / PurchaseOrders section names', () => {
+  it('routes NO screen entry to the retired Reorder / PurchaseOrders / Receiving section names', () => {
     const retired = screens().filter(
-      (e: any) => e.route.name === 'Reorder' || e.route.name === 'PurchaseOrders',
+      (e: any) =>
+        e.route.name === 'Reorder' ||
+        e.route.name === 'PurchaseOrders' ||
+        e.route.name === 'Receiving',
     );
     expect(retired).toEqual([]);
   });

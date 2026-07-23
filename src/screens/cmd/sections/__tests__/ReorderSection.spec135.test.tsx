@@ -85,6 +85,12 @@ jest.mock('../../../../store/useStore', () => {
     createPoDraft: jest.fn(() => Promise.resolve('po-1')),
     vendors: [],
     inventory: [],
+    // Spec 138 — inline-edit buffer + Fill-cart slice the section now reads.
+    reorderEdits: {},
+    setReorderEditQty: jest.fn(),
+    clearReorderEdits: jest.fn(),
+    clearReorderEditsForVendor: jest.fn(),
+    fillCartForVendor: jest.fn(() => Promise.resolve('po-1')),
   };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
@@ -201,6 +207,8 @@ const payloadWith = (vendors: any[]) => ({
 
 describe('Reorder — collapsible vendor cards (spec 135)', () => {
   it('renders every card COLLAPSED by default (owner follow-up 2026-07-21): header stats visible, body hidden', () => {
+    // Spec 138 — extension vendor so the header Fill cart button renders.
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: true }];
     mockState.reorderPayload = payloadWith([counted]);
     render(<ReorderSection />);
 
@@ -209,7 +217,7 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
     expect(screen.getByTestId('reorder-vendor-toggle-need-v-a')).toBeTruthy();
     // …and so do the per-vendor actions — they moved into the header
     // (2026-07-21) so they stay clickable while collapsed.
-    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-fill-cart-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-quick-order-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-export-csv-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-export-pdf-v-a')).toBeTruthy();
@@ -219,6 +227,7 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
   });
 
   it('expand shows the body (columns/items/footer); collapse hides it again', () => {
+    mockState.vendors = [{ id: 'v-a', extensionOrdering: true }];
     mockState.reorderPayload = payloadWith([counted]);
     render(<ReorderSection />);
 
@@ -234,7 +243,7 @@ describe('Reorder — collapsible vendor cards (spec 135)', () => {
     // Collapsed again — body hidden, header actions still present.
     expect(screen.queryByTestId('reorder-vendor-columns-need-v-a')).toBeNull();
     expect(screen.queryByTestId('reorder-vendor-item-a1')).toBeNull();
-    expect(screen.getByTestId('reorder-create-po-v-a')).toBeTruthy();
+    expect(screen.getByTestId('reorder-fill-cart-v-a')).toBeTruthy();
     expect(screen.getByTestId('reorder-vendor-stats-need-v-a')).toBeTruthy();
   });
 

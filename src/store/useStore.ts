@@ -511,6 +511,27 @@ interface StoreActions {
    */
   createPoDraft: (vendor: ReorderVendor) => Promise<string | null>;
   /**
+   * Spec 138 §3/§8 — set (or clear) one reorder line's inline order-qty edit.
+   * `base` is COUNTED units (the `poResolveEdit` write value). Overlays the
+   * server suggestion in `reorderEdits[vendorId][itemId]`; the card / exports /
+   * Fill cart read `reorderEdits[vendorId]?.[itemId] ?? item.suggestedUnits`.
+   */
+  setReorderEditQty: (vendorId: string, itemId: string, base: number) => void;
+  /** Spec 138 — drop one vendor's inline edits (after its export / Fill cart). */
+  clearReorderEditsForVendor: (vendorId: string) => void;
+  /** Spec 138 — drop ALL inline edits (store switch / as-of-date change). */
+  clearReorderEdits: () => void;
+  /**
+   * Spec 138 §4/§8 — the cart-filler handoff (Q1 = B1). Materialize / refresh a
+   * single hidden `draft` purchase_orders row for `vendor` from the
+   * buffer-overridden order quantities (via `db.upsertVendorDraftOrder`, which
+   * OMITS `expected_delivery` so auto-receive stays inert), then refresh the PO
+   * list so history + the unchanged extension RPCs see it, and clear this
+   * vendor's inline edits (AC-7). Returns the po id or null on failure; the
+   * buffer is kept on error so the operator can retry (optimistic-then-revert).
+   */
+  fillCartForVendor: (vendor: ReorderVendor) => Promise<string | null>;
+  /**
    * Receive against a PO (spec 107 §3). `lines` are the this-receive deltas
    * (received_qty ADDITIVE). Mints the client_uuid internally for idempotency.
    * On success the PO list + inventory + reorder are refreshed. Returns the
@@ -768,6 +789,10 @@ export const useStore = create<FullStore>((set, get) => ({
   reorderPayload: null as ReorderPayload | null,
   reorderLoading: false,
   reorderError: null as string | null,
+  // Spec 138 — per-session inline order-qty edits (vendorId → itemId → base
+  // units). Client-only overlay; not persisted, reset per vendor after export /
+  // Fill cart and wholesale on store / as-of-date change.
+  reorderEdits: {} as Record<string, Record<string, number>>,
   // Spec 060 — server-computed per-recipe capacity for the active
   // store. Empty `{}` until `loadFromSupabase` triggers the
   // fire-and-forget `loadMenuCapacity(sid)` tail. Cleared on store
@@ -1286,6 +1311,14 @@ export const useStore = create<FullStore>((set, get) => ({
         reorderPayload: null,
         reorderLoading: false,
         reorderError: null,
+        // Spec 138 — the inline reorder edit buffer is NOT reset here. This
+        // `set` runs on EVERY realtime reload (CmdNavigator handleSync →
+        // loadFromSupabase on the 400ms debounce, incl. the purchase_orders
+        // change Fill cart itself emits), so clearing it here would wipe a
+        // vendor's in-progress edits mid-session and break AC-7 ("persist until
+        // exported / sent to cart-filler"). Per design §3, the buffer is reset
+        // in the ReorderSection effect on store switch / as-of-date change —
+        // exactly mirroring the spec-135 `expandedKeys` posture.
         // Spec 060 — wipe per-recipe capacity on store switch so the
         // prior store's badges don't flash. The fire-and-forget
         // `loadMenuCapacity(sid)` below repopulates asynchronously;
@@ -2805,6 +2838,92 @@ export const useStore = create<FullStore>((set, get) => ({
       return poId;
     } catch (e: any) {
       notifyBackendError('Create PO draft', e);
+      return null;
+    }
+  },
+
+  // ─── Spec 138 — inline reorder edit buffer + cart-filler handoff ──────────
+  setReorderEditQty: (vendorId, itemId, base) => {
+    set((s) => ({
+      reorderEdits: {
+        ...s.reorderEdits,
+        [vendorId]: { ...(s.reorderEdits[vendorId] || {}), [itemId]: base },
+      },
+    }));
+  },
+
+  clearReorderEditsForVendor: (vendorId) => {
+    set((s) => {
+      if (!s.reorderEdits[vendorId]) return {} as Partial<FullStore>;
+      const next = { ...s.reorderEdits };
+      delete next[vendorId];
+      return { reorderEdits: next };
+    });
+  },
+
+  clearReorderEdits: () => set({ reorderEdits: {} }),
+
+  fillCartForVendor: async (vendor) => {
+    const storeId = get().currentStore?.id;
+    if (!storeId || storeId === '__all__') {
+      notifyBackendError('Fill cart', new Error('No active store'));
+      return null;
+    }
+    // Build lines from the vendor's items, applying the per-session inline edit
+    // overlay: base = reorderEdits[vendorId]?.[itemId] ?? suggestedUnits. The
+    // per-COUNTED-unit cost snapshot (OQ-6) = the item's per-each costPerUnit ×
+    // subUnitSize (the spec-104 ★ bridge), read from `inventory` by itemId —
+    // the same basis createPoDraft uses.
+    const edits = get().reorderEdits[vendor.vendorId] || {};
+    const inventory = get().inventory;
+    const lines = vendor.items
+      .map((it) => {
+        const inv = inventory.find((i) => i.id === it.itemId);
+        const subUnitSize = inv?.subUnitSize || 1;
+        // Re-derive the buffer overlay here (edits ?? suggestion) even though the
+        // caller passes a vendor whose items are already buffer-overlaid via
+        // `applyReorderEdits`. This is intentionally defensive: it keeps
+        // `fillCartForVendor` correct even if a future caller hands it a
+        // NON-overlaid vendor. Both paths agree, so there is no double-apply.
+        const base = edits[it.itemId] ?? (it.suggestedUnits || it.suggestedQty || 0);
+        return {
+          itemId: it.itemId,
+          orderedQty: base,
+          costPerUnitCounted: it.costPerUnit * subUnitSize,
+        };
+      })
+      .filter((ln) => ln.itemId && ln.orderedQty > 0);
+    if (lines.length === 0) {
+      notifyBackendError('Fill cart', new Error('No orderable lines'));
+      return null;
+    }
+    try {
+      // Key the draft to the currently-displayed reorder date so its
+      // reference_date equals the v_as_of_date the report_reorder_list has_po
+      // EXISTS queries against (same source string, round-trips exactly).
+      const referenceDate = get().reorderPayload?.asOfDate || undefined;
+      const poId = await db.upsertVendorDraftOrder({
+        storeId,
+        vendorId: vendor.vendorId,
+        createdByUserId: get().currentUser?.id,
+        referenceDate,
+        lines,
+      });
+      if (!poId) {
+        notifyBackendError('Fill cart', new Error('Draft not created'));
+        return null;
+      }
+      // Refresh the PO list so history + the unchanged extension RPCs
+      // (get_pending_extension_orders) see the draft, then clear THIS vendor's
+      // inline edits so the next reorder cycle starts fresh (AC-7).
+      await get().refreshPurchaseOrders();
+      get().loadReorderSuggestions();
+      get().clearReorderEditsForVendor(vendor.vendorId);
+      return poId;
+    } catch (e: any) {
+      // Keep the buffer on error so the operator can retry (optimistic-then-
+      // revert: the buffer IS the optimistic state).
+      notifyBackendError('Fill cart', e);
       return null;
     }
   },
