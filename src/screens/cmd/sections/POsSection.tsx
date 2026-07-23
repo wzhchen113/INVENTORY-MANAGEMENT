@@ -22,6 +22,7 @@ import {
   poResolveEdit,
 } from '../../../utils/poCaseDisplay';
 import { sharePurchaseOrder } from '../lib/sharePo';
+import { useOrderingHandoff } from '../../../lib/orderingHandoff';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -108,6 +109,22 @@ export default function POsSection() {
     if (selectedId && filtered.find((o) => o.id === selectedId)) return;
     setSelectedId(filtered[0]?.id || null);
   }, [filtered, selectedId]);
+
+  // Spec 137 — cross-tab deep-link: when "+ CREATE PO" on the Reorder tab
+  // resolves, the OrderingSection shell flips to this tab and writes the new
+  // draft's poId to the orderingHandoff signal. Select it (one-shot) and
+  // consume. Rendered STANDALONE (this section's own jest suites, or a legacy
+  // direct mount) the signal is null → the effect never runs. Placed AFTER the
+  // auto-select effect so this wins when both fire: the new draft is normally
+  // the newest row (so auto-select already lands on it), but if a newer PO
+  // arrived via realtime, this signal effect selects the intended draft and the
+  // auto-select effect then sees `selectedId ∈ filtered` and no-ops.
+  const pendingPoId = useOrderingHandoff((s) => s.pendingPoId);
+  React.useEffect(() => {
+    if (!pendingPoId) return;
+    setSelectedId(pendingPoId);
+    useOrderingHandoff.getState().consume();
+  }, [pendingPoId]);
 
   const sel = filtered.find((o) => o.id === selectedId);
   const selStatus = normalizeStatus(sel?.status);

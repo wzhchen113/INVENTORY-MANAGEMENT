@@ -6,7 +6,7 @@ import { Type } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { useIsPhone, useIsTablet, useIsDesktop } from '../../theme/breakpoints';
 import { useCommandPaletteIndex, useDefaultSidebarGroups } from '../../lib/cmdSelectors';
-import { applySidebarOverride, produceOverride } from '../../lib/sidebarLayout';
+import { applySidebarOverride, produceOverride, remapLegacySidebarOverrideIds } from '../../lib/sidebarLayout';
 import type { SidebarGroup } from '../../lib/sidebarLayout';
 import { usePaletteAction } from '../../lib/paletteAction';
 import { Sidebar } from '../../components/cmd/Sidebar';
@@ -95,7 +95,16 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   const brandPickerCompact = isSuperAdmin ? <BrandPicker compact /> : null;
 
   // Spec 008 — per-user sidebar layout override.
-  const sidebarLayoutOverride = useStore((s) => s.sidebarLayoutOverride);
+  // Spec 137 — normalize the raw override through the legacy id remap ONCE here
+  // (memoized) so every downstream applySidebarOverride call (render merge + the
+  // edit-mode seeds below) consumes the `Reorder`/`PurchaseOrders` → `Ordering`
+  // remapped value with no other edits. Self-heals: once merged, the next
+  // produceOverride (gear → DONE) writes `Ordering` back to profiles.sidebar_layout.
+  const rawSidebarLayoutOverride = useStore((s) => s.sidebarLayoutOverride);
+  const sidebarLayoutOverride = React.useMemo(
+    () => remapLegacySidebarOverrideIds(rawSidebarLayoutOverride ?? null),
+    [rawSidebarLayoutOverride],
+  );
   const setSidebarLayoutOverride = useStore((s) => s.setSidebarLayoutOverride);
 
   // Section state — owned by the shell.

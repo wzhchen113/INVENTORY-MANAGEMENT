@@ -14,6 +14,7 @@
       "inventoryCount": "Weekly count",
       "wasteLog": "Waste log",
       "receiving": "Receiving",
+      "ordering": "Ordering",
       "purchaseOrders": "Purchase orders",
       "vendors": "Vendors",
       "menuItemsBom": "Menu items / BOM",

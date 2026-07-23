@@ -110,10 +110,13 @@ export function uniqueInviteEmail(): string {
 // (src/components/cmd/TreeGroup.tsx — the FROZEN §6 contract), so the specs
 // navigate by `getByTestId(SIDEBAR_NAV.x)` — no label text, no i18n coupling,
 // no `.first()`. The ids are stable code constants from cmdSelectors.ts
-// (`Dashboard` / `Reorder` / `AuditLog` / `Users`), NOT the display labels.
+// (`Dashboard` / `Ordering` / `AuditLog` / `Users`), NOT the display labels.
+// Spec 137 — the former `Reorder` / `PurchaseOrders` sidebar items were unified
+// into one `Ordering` destination (nav-Ordering) with two tabs; Reorder is now
+// reached via nav-Ordering → the Reorder tab (ordering-tab-reorder).
 export const SIDEBAR_NAV = {
   dashboard: 'nav-Dashboard',
-  reorder: 'nav-Reorder',
+  ordering: 'nav-Ordering',
   auditLog: 'nav-AuditLog',
   users: 'nav-Users',
 } as const;

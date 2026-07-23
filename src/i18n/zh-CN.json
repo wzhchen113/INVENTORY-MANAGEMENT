@@ -14,6 +14,7 @@
       "inventoryCount": "每周盘点",
       "wasteLog": "损耗记录",
       "receiving": "收货",
+      "ordering": "订货",
       "purchaseOrders": "采购订单",
       "vendors": "供应商",
       "menuItemsBom": "菜品 / BOM",

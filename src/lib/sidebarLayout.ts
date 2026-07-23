@@ -60,6 +60,43 @@ export function isValidOverride(input: unknown): input is SidebarLayoutOverride 
 }
 
 /**
+ * Spec 137 — legacy sidebar-override id remap. The unified "Ordering"
+ * destination replaced the separate `Reorder` and `PurchaseOrders` sidebar
+ * items. A saved spec-008 override referencing the removed ids would be
+ * silently dropped as stale by the merge (only ids present in defaultGroups get
+ * positioned). This alias table actively remaps those ids onto `Ordering` so a
+ * user who moved/hid the old items carries that intent onto the new item.
+ */
+const LEGACY_SIDEBAR_ID_ALIASES: Record<string, string> = {
+  Reorder: 'Ordering',
+  PurchaseOrders: 'Ordering',
+};
+
+/**
+ * Spec 137 — pure remap of a saved override's entry ids through
+ * LEGACY_SIDEBAR_ID_ALIASES. Dedupes by keeping the FIRST occurrence of a
+ * resulting id (deterministic by array order — so `[Reorder, PurchaseOrders]`
+ * collapses to a single `Ordering`); everything else passes through untouched.
+ * Returns the input unchanged when empty/null. No React/DOM — unit-testable.
+ */
+export function remapLegacySidebarOverrideIds(
+  override: SidebarLayoutOverride | null | undefined,
+): SidebarLayoutOverride | null | undefined {
+  if (!override || !Array.isArray(override.items) || override.items.length === 0) {
+    return override;
+  }
+  const seen = new Set<string>();
+  const items: SidebarLayoutOverrideEntry[] = [];
+  for (const entry of override.items) {
+    const mappedId = LEGACY_SIDEBAR_ID_ALIASES[entry.id] ?? entry.id;
+    if (seen.has(mappedId)) continue; // dedupe — keep the first occurrence
+    seen.add(mappedId);
+    items.push(mappedId === entry.id ? entry : { ...entry, id: mappedId });
+  }
+  return { ...override, items };
+}
+
+/**
  * Default sortKey for an item at default position [groupIndex, itemIndex].
  * Group-major encoding so cross-group default order is preserved.
  * Spec §7 — `defaultPos` in produceOverride uses the same formula.

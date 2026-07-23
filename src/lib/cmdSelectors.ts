@@ -162,19 +162,26 @@ export type PaletteEntry = {
 // passed in by useCommandPaletteIndex. Keeps the pure function pure and
 // the static `name` keys stable across locales (they're load-bearing
 // route identifiers, not user-facing).
-const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string }> = [
+const SCREEN_ENTRIES_DEFS: Array<{ name: string; labelKey: string; alias?: string }> = [
   { name: 'Dashboard',       labelKey: 'sidebar.items.dashboard' },
   { name: 'Inventory',       labelKey: 'sidebar.items.inventory' },
   { name: 'EODCount',        labelKey: 'sidebar.items.eodCount' },
   { name: 'InventoryCount',  labelKey: 'sidebar.items.inventoryCount' },
   { name: 'WasteLog',        labelKey: 'sidebar.items.wasteLog' },
   { name: 'Receiving',       labelKey: 'sidebar.items.receiving' },
-  { name: 'PurchaseOrders',  labelKey: 'sidebar.items.purchaseOrders' },
+  // Spec 137 — three palette entries all routing to the unified 'Ordering'
+  // destination. The two legacy labels are kept so ⌘K search still matches
+  // "reorder" and "purchase orders" (the palette filter matches on `label`
+  // only). `alias` disambiguates the built `id` so the three entries don't
+  // collide on id / React key; `route` stays { name: 'Ordering' } for all
+  // three → each opens Ordering on its default Reorder tab.
+  { name: 'Ordering',        labelKey: 'sidebar.items.ordering' },
+  { name: 'Ordering',        labelKey: 'sidebar.items.reorder',        alias: 'reorder' },
+  { name: 'Ordering',        labelKey: 'sidebar.items.purchaseOrders', alias: 'pos' },
   { name: 'Vendors',         labelKey: 'sidebar.items.vendors' },
   // Note: deliberately reuses the menuItemsBom key so the palette entry
   // labels match the sidebar item label across all locales.
   { name: 'Recipes',         labelKey: 'sidebar.items.menuItemsBom' },
-  { name: 'Reorder',         labelKey: 'sidebar.items.reorder' },
   // Spec 060 — Menu impact section. First entry in the INSIGHTS sidebar
   // group; the palette entry keeps it discoverable via ⌘K.
   { name: 'MenuImpact',      labelKey: 'sidebar.items.menuImpact' },
@@ -250,7 +257,9 @@ export function getCommandPaletteIndex(args: {
     out.push({
       type: 'screen',
       label: translate(screen.labelKey),
-      id: `screen:${screen.name}`,
+      // Spec 137 — when an `alias` is present (the three Ordering entries),
+      // fold it into the id so the entries don't collide on id / React key.
+      id: screen.alias ? `screen:${screen.name}:${screen.alias}` : `screen:${screen.name}`,
       route: { name: screen.name },
       scope: 'screens',
     });
@@ -1096,13 +1105,15 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
       {
         label: T('sidebar.groups.planning'),
         items: [
-          { id: 'PurchaseOrders',  label: T('sidebar.items.purchaseOrders') },
+          // Spec 137 — unified "Ordering" destination (tab shell hosting the
+          // Reorder + Purchase-orders sections) replaces the two former items
+          // `Reorder` and `PurchaseOrders`. Placed first in the group. Saved
+          // spec-008 overrides on the old ids are remapped onto `Ordering` via
+          // remapLegacySidebarOverrideIds (src/lib/sidebarLayout.ts).
+          { id: 'Ordering',        label: T('sidebar.items.ordering') },
           { id: 'Vendors',         label: T('sidebar.items.vendors') },
           { id: 'Recipes',         label: T('sidebar.items.menuItemsBom') },
           { id: 'PrepRecipes',     label: T('sidebar.items.prepRecipes') },
-          // Spec 021 — vendor-grouped reorder list. (The former store-wide
-          // Restock prototype it superseded was retired in spec 112-era cleanup.)
-          { id: 'Reorder',         label: T('sidebar.items.reorder') },
         ],
       },
       {

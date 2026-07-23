@@ -6,6 +6,9 @@ import { mono } from '../../theme/typography';
 export interface Tab {
   id: string;
   label: string;
+  /** Spec 137 — optional stable testID for e2e (e.g. ordering tabs). Falls
+   *  back to no testID when omitted, so existing tab strips are unchanged. */
+  testID?: string;
 }
 
 interface Props {
@@ -31,6 +34,7 @@ export const TabStrip: React.FC<Props> = ({ tabs, activeId, onChange, rightSlot,
       return (
         <TouchableOpacity
           key={t.id}
+          testID={t.testID}
           onPress={() => onChange(t.id)}
           activeOpacity={0.85}
           style={{

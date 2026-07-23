@@ -39,8 +39,7 @@ import DashboardSection from './sections/DashboardSection';
 import EODCountSection from './sections/EODCountSection';
 import InventoryCountSection from './sections/InventoryCountSection';
 import ReceivingSection from './sections/ReceivingSection';
-import ReorderSection from './sections/ReorderSection';
-import POsSection from './sections/POsSection';
+import OrderingSection from './sections/OrderingSection';
 import RecipesSection from './sections/RecipesSection';
 import PrepRecipesSection from './sections/PrepRecipesSection';
 import MenuImpactSection from './sections/MenuImpactSection';
@@ -300,10 +299,8 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <InventoryCountSection />
         ) : section === 'Receiving' ? (
           <ReceivingSection />
-        ) : section === 'Reorder' ? (
-          <ReorderSection />
-        ) : section === 'PurchaseOrders' ? (
-          <POsSection />
+        ) : section === 'Ordering' ? (
+          <OrderingSection />
         ) : section === 'Recipes' ? (
           <RecipesSection />
         ) : section === 'PrepRecipes' ? (

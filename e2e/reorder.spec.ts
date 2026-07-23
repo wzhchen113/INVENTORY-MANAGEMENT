@@ -24,8 +24,9 @@
 // Navigation: stable sidebar nav testID (spec 079 flake-kill).
 //
 // Selector contract: reorder-root (078 §7); reorder-export-csv /
-// reorder-export-pdf / reorder-refresh (079 §6 — FROZEN); nav-Reorder
-// (079 §6 SIDEBAR_NAV).
+// reorder-export-pdf / reorder-refresh (079 §6 — FROZEN); nav-Ordering +
+// ordering-tab-reorder (spec 137 — Reorder now lives under the unified
+// Ordering destination's Reorder tab).
 
 import { test, expect } from '@playwright/test';
 import { SIDEBAR_NAV, STORAGE_STATE } from './fixtures/constants';
@@ -38,7 +39,10 @@ test('AC-REORD-DEPTH-1: reorder renders, Refresh round-trips, exports gate on pa
   await page.goto('/');
   await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
 
-  await page.getByTestId(SIDEBAR_NAV.reorder).click();
+  // Spec 137 — open the unified Ordering destination, then its Reorder tab
+  // (the default landing tab, but click it explicitly to be order-independent).
+  await page.getByTestId(SIDEBAR_NAV.ordering).click();
+  await page.getByTestId('ordering-tab-reorder').click();
 
   // Structural floor (spec-078 AC-REORD1): the section mounted.
   await expect(page.getByTestId('reorder-root')).toBeVisible();

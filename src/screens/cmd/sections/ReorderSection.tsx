@@ -75,6 +75,14 @@ export { formatSuggested, formatSuggestedPdf, buildReorderCsv };
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
+// Spec 137 — the ONE minimal seam for the unified "Ordering" deep-link. The
+// OrderingSection shell passes `onPoCreated` to this section; it's threaded to
+// CreatePoButton via context (no VendorCard signature churn) and fired inside
+// the existing createPoDraft `.then`. When ReorderSection is rendered STANDALONE
+// (its own jest suites, and any legacy direct mount), the context default is
+// `undefined` → the invocation is a no-op. No other behavior changes.
+const OnPoCreatedContext = React.createContext<((poId: string) => void) | undefined>(undefined);
+
 // Spec 123 — the reorder RPC emits a per-vendor `has_po` flag (mapped to `hasPo`
 // on `ReorderVendor` in src/lib/db.ts), true when a non-cancelled purchase_orders
 // row exists for (store, vendor, reorder date). Drives the persistent, disabled
@@ -214,6 +222,7 @@ function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
   const C = useCmdColors();
   const T = useT();
   const createPoDraft = useStore((s) => s.createPoDraft);
+  const onPoCreated = React.useContext(OnPoCreatedContext);
   const [busy, setBusy] = React.useState(false);
 
   // Spec 123 — a PO already exists for (store, this vendor, the reorder date).
@@ -265,6 +274,9 @@ function CreatePoButton({ vendor }: { vendor: ReorderVendor }) {
                 text2: T('section.reorder.createPoToastBody', { vendor: vendorName }),
                 visibilityTime: 4000,
               });
+              // Spec 137 — hand the new draft to the Ordering shell (if mounted):
+              // it flips to the Purchase-orders tab and preselects this PO.
+              onPoCreated?.(poId);
             }
           })
           .finally(() => setBusy(false));
@@ -1210,7 +1222,7 @@ async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: 
   }
 }
 
-export default function ReorderSection() {
+export default function ReorderSection({ onPoCreated }: { onPoCreated?: (poId: string) => void } = {}) {
   const C = useCmdColors();
   const T = useT();
   const currentStore = useStore((s) => s.currentStore);
@@ -1356,6 +1368,7 @@ export default function ReorderSection() {
   }
 
   return (
+    <OnPoCreatedContext.Provider value={onPoCreated}>
     <View testID="reorder-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
       <TabStrip
         tabs={[
@@ -1696,5 +1709,6 @@ export default function ReorderSection() {
         ) : null}
       </ScrollView>
     </View>
+    </OnPoCreatedContext.Provider>
   );
 }
