@@ -12,6 +12,7 @@ import {
   buildReorderCsv,
   buildReorderPdfHtml,
   buildReorderText,
+  csvSafeCell,
   formatMoney,
   formatQty,
   formatSuggested,
@@ -19,6 +20,7 @@ import {
   localizeUnit,
   slugifyStore,
   todayLocalIso,
+  unparseCsvSafe,
 } from './reorderExport';
 
 // Same fixture builders the admin ReorderSectionCases test uses (the server
@@ -384,5 +386,39 @@ describe('localized downloads (2026-07)', () => {
     const item = caseItem({ itemName: 'Chicken Leg', unit: 'bags', suggestedQty: 16, caseQty: 4 });
     const csv = buildReorderCsv(payloadWith([item]), 'zh-CN');
     expect(csv).toContain('Chicken Leg');
+  });
+});
+
+// Spec 139 follow-up — CSV formula-injection guard (shared by reorder + count
+// exporters). Values beginning with a spreadsheet meta-char are neutralized so
+// a hostile catalog name / note can't execute as an Excel formula.
+describe('csvSafeCell / unparseCsvSafe — CSV formula-injection guard', () => {
+  it('prefixes string cells beginning with = + - @ (and tab/CR) with an apostrophe', () => {
+    expect(csvSafeCell('=1+1')).toBe("'=1+1");
+    expect(csvSafeCell('+SUM(A1)')).toBe("'+SUM(A1)");
+    expect(csvSafeCell('-2+3')).toBe("'-2+3");
+    expect(csvSafeCell('@cmd')).toBe("'@cmd");
+    expect(csvSafeCell('\tX')).toBe("'\tX");
+    expect(csvSafeCell('\rX')).toBe("'\rX");
+  });
+
+  it('leaves ordinary strings, empty strings, and ALL numbers untouched', () => {
+    expect(csvSafeCell('Chicken Leg')).toBe('Chicken Leg');
+    expect(csvSafeCell('薯条')).toBe('薯条');
+    expect(csvSafeCell('')).toBe('');
+    // Numbers pass through so legitimate negatives keep their sign.
+    expect(csvSafeCell(-5)).toBe(-5);
+    expect(csvSafeCell(0)).toBe(0);
+    expect(csvSafeCell(12.5)).toBe(12.5);
+  });
+
+  it('unparseCsvSafe guards every cell across the row set', () => {
+    const csv = unparseCsvSafe(
+      [{ Name: '=HYPERLINK("x")', Qty: -3 }],
+      ['Name', 'Qty'],
+    );
+    // The dangerous cell is quoted+apostrophe'd; the negative number survives.
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).toContain('-3');
   });
 });

@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity, TextInput, Platform } from 'react-native';
 import Toast from 'react-native-toast-message';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useIsPhone } from '../../../theme/breakpoints';
@@ -14,6 +16,15 @@ import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { usePaletteAction } from '../../../lib/paletteAction';
 import { useT } from '../../../hooks/useT';
+import { useLocale, type Locale } from '../../../hooks/useLocale';
+import { ExportLocalePicker } from '../../../components/cmd/ExportLocalePicker';
+import { downloadCSV } from '../../../utils';
+import {
+  buildCountCsv,
+  buildCountPdfHtml,
+  countExportFilename,
+  type CountExportGroup,
+} from '../../../utils/countExport';
 import { dayOfWeekShortLabel, dayOfWeekLongLabel, type DayName } from '../../../utils/enumLabels';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { StatusDot } from '../../../components/cmd/StatusDot';
@@ -144,6 +155,12 @@ export default function EODCountSection() {
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
   // Ingredient-name search — view-only, composes with vendor + category.
   const [search, setSearch] = React.useState('');
+  // Spec 139 — EXPORT-SCOPED language, seeded from the app's active locale on
+  // first render (useState initializer runs once). Changing it re-localizes the
+  // NEXT export only; it never calls setLocale, so the app-wide UI language is
+  // untouched (AC).
+  const appLocale = useLocale();
+  const [exportLocale, setExportLocale] = React.useState<Locale>(() => appLocale);
   // Spec 020 Q4 — per-vendor draft state. Switching vendor tabs preserves
   // typed-but-unsubmitted values for the session. Keyed by vendorId →
   // itemId → text. Refresh discards (no autosave).
@@ -587,6 +604,92 @@ export default function EODCountSection() {
     if (!localHasEntry(i.id)) return s;
     return s + (itemTotal(i) - i.currentStock);
   }, 0);
+
+  // ─── Spec 139: count-export orchestration (impure, mirrors ReorderSection) ──
+  // Assemble the per-vendor grouped snapshot from the transient count maps
+  // across ALL vendor tabs shown for the selected day (not just the active
+  // vendor), for the selected date. Blank where nothing was typed → the sheet
+  // doubles as a fill-in worksheet. EOD deliberately OMITS System On-Hand
+  // (blind count). The pure builder never touches React state.
+  const parseCount = (raw: string | undefined): number | null => {
+    const s = (raw ?? '').trim();
+    if (s === '') return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  };
+  const buildExportGroups = React.useCallback((): CountExportGroup[] => {
+    return vendorTabs.map((v) => {
+      const cases = caseCountsByVendor[v.id] || {};
+      const units = unitCountsByVendor[v.id] || {};
+      const vNotes = notesByVendor[v.id] || {};
+      const items = storeInventory
+        .filter((i) => (i.vendorIds ?? (i.vendorId ? [i.vendorId] : [])).includes(v.id))
+        .map((i) => ({
+          name: i.name,
+          i18nNames: i.i18nNames,
+          category: i.category,
+          unit: i.unit,
+          caseQty: i.caseQty,
+          parLevel: i.parLevel,
+          countedCases: parseCount(cases[i.id]),
+          countedUnits: parseCount(units[i.id]),
+          note: vNotes[i.id] || '',
+        }));
+      return { label: v.name, items };
+    });
+  }, [vendorTabs, caseCountsByVendor, unitCountsByVendor, notesByVendor, storeInventory]);
+
+  const onExportCsv = React.useCallback(() => {
+    try {
+      const groups = buildExportGroups();
+      const csv = buildCountCsv({
+        screen: 'eod',
+        groups,
+        storeName: currentStore.name,
+        dateIso: selectedIso,
+        locale: exportLocale,
+      });
+      const filename = countExportFilename('eod', currentStore.name, selectedIso, exportLocale, 'csv');
+      downloadCSV(filename, csv);
+      Toast.show({ type: 'success', text1: T('section.eod.export.csvExported'), text2: filename });
+    } catch (e: any) {
+      console.warn('[EOD] CSV export failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: T('section.eod.export.exportFailed') });
+    }
+  }, [buildExportGroups, currentStore.name, selectedIso, exportLocale, T]);
+
+  const onExportPdf = React.useCallback(async () => {
+    try {
+      const groups = buildExportGroups();
+      const html = buildCountPdfHtml({
+        screen: 'eod',
+        groups,
+        storeName: currentStore.name,
+        dateIso: selectedIso,
+        locale: exportLocale,
+      });
+      const filename = countExportFilename('eod', currentStore.name, selectedIso, exportLocale, 'pdf');
+      if (Platform.OS === 'web') {
+        // expo-print on web opens the browser print dialog (its react-native-web
+        // shim) — there is no named file artifact; the user picks "Save as PDF".
+        await Print.printAsync({ html });
+        Toast.show({ type: 'info', text1: T('section.eod.export.pdfPrintDialog') });
+      } else {
+        const available = await Sharing.isAvailableAsync();
+        if (!available) throw new Error('Sharing is not available on this device');
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: filename,
+          UTI: 'com.adobe.pdf',
+        });
+        Toast.show({ type: 'success', text1: T('section.eod.export.pdfExported'), text2: filename });
+      }
+    } catch (e: any) {
+      console.warn('[EOD] PDF export failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: T('section.eod.export.exportFailed') });
+    }
+  }, [buildExportGroups, currentStore.name, selectedIso, exportLocale, T]);
 
   // Build the submission payload from current entered items. Returns null if
   // no qty was entered (avoids empty-submit DB writes).
@@ -1426,6 +1529,30 @@ export default function EODCountSection() {
                 </Text>
               </TouchableOpacity>
             ) : null}
+            {/* Spec 139 — export toolbar: export-scoped language picker, then
+                CSV + PDF. The picker localizes the NEXT export only (never the
+                app-wide UI language). */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ExportLocalePicker value={exportLocale} onChange={setExportLocale} />
+              <TouchableOpacity
+                testID="eod-export-csv"
+                onPress={onExportCsv}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.eod.export.csv')}
+                style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2 }}>{T('section.eod.export.csv')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="eod-export-pdf"
+                onPress={onExportPdf}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.eod.export.pdf')}
+                style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2 }}>{T('section.eod.export.pdf')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           {/* Category chips — phone: horizontal scroll (same rationale as
               vendor pills above). */}

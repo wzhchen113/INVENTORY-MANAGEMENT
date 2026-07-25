@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Platform } from 'react-native';
 import Toast from 'react-native-toast-message';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useIsPhone } from '../../../theme/breakpoints';
@@ -59,6 +61,16 @@ import type {
   WeeklyCountStatus,
 } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { useLocale, type Locale } from '../../../hooks/useLocale';
+import { ExportLocalePicker } from '../../../components/cmd/ExportLocalePicker';
+import { downloadCSV } from '../../../utils';
+import {
+  buildCountCsv,
+  buildCountPdfHtml,
+  countExportFilename,
+  type CountExportGroup,
+  type CountExportItem,
+} from '../../../utils/countExport';
 import {
   inventoryCountKindLabel,
   inventoryCountKindSubLabel,
@@ -164,6 +176,11 @@ export default function InventoryCountSection() {
   const [selectedCategory, setSelectedCategory] = React.useState<string | 'all'>('all');
   // Ingredient-name search — view-only, composes with the category chip.
   const [search, setSearch] = React.useState('');
+  // Spec 139 — EXPORT-SCOPED language, seeded from the app's active locale on
+  // first render (useState initializer runs once). Localizes the NEXT export
+  // only; never calls setLocale, so the app-wide UI language is untouched (AC).
+  const appLocale = useLocale();
+  const [exportLocale, setExportLocale] = React.useState<Locale>(() => appLocale);
   const [submitting, setSubmitting] = React.useState(false);
   // Spec 106 — save-draft + resume. `draftSavedAt` (ISO of the restored draft's
   // client-stamped saved_at) drives the restored-draft banner; null = no banner.
@@ -325,6 +342,100 @@ export default function InventoryCountSection() {
     }
     return false;
   }, [storeInventory, caseCounts, unitCounts]);
+
+  // ─── Spec 139: count-export orchestration (impure, mirrors ReorderSection) ──
+  // Per-category grouped snapshot of the current count across ALL items in the
+  // active store (category chip is a VIEW-only filter — the export, like
+  // submit, covers every item). Blank where nothing was typed → the sheet
+  // doubles as a fill-in worksheet. Inventory count INCLUDES System On-Hand
+  // (the reconciliation screen references currentStock). The pure builder
+  // never touches React state.
+  const parseCount = (raw: string | undefined): number | null => {
+    const s = (raw ?? '').trim();
+    if (s === '') return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  };
+  const buildExportGroups = React.useCallback((): CountExportGroup[] => {
+    const byCat = new Map<string, CountExportItem[]>();
+    for (const i of storeInventory) {
+      const arr = byCat.get(i.category) || [];
+      arr.push({
+        name: i.name,
+        i18nNames: i.i18nNames,
+        category: i.category,
+        unit: i.unit,
+        caseQty: i.caseQty,
+        parLevel: i.parLevel,
+        currentStock: i.currentStock,
+        countedCases: parseCount(caseCounts[i.id]),
+        countedUnits: parseCount(unitCounts[i.id]),
+        note: itemNotes[i.id] || '',
+      });
+      byCat.set(i.category, arr);
+    }
+    return Array.from(byCat.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([label, items]) => ({
+        label,
+        items: items.sort((x, y) => x.name.localeCompare(y.name)),
+      }));
+  }, [storeInventory, caseCounts, unitCounts, itemNotes]);
+
+  const exportDateIso = todayIso();
+  const exportStoreName = currentStore?.name || '';
+
+  const onExportCsv = React.useCallback(() => {
+    try {
+      const groups = buildExportGroups();
+      const csv = buildCountCsv({
+        screen: 'inventoryCount',
+        groups,
+        storeName: exportStoreName,
+        dateIso: exportDateIso,
+        locale: exportLocale,
+      });
+      const filename = countExportFilename('inventoryCount', exportStoreName, exportDateIso, exportLocale, 'csv');
+      downloadCSV(filename, csv);
+      Toast.show({ type: 'success', text1: T('section.inventoryCount.export.csvExported'), text2: filename });
+    } catch (e: any) {
+      console.warn('[InventoryCount] CSV export failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: T('section.inventoryCount.export.exportFailed') });
+    }
+  }, [buildExportGroups, exportStoreName, exportDateIso, exportLocale, T]);
+
+  const onExportPdf = React.useCallback(async () => {
+    try {
+      const groups = buildExportGroups();
+      const html = buildCountPdfHtml({
+        screen: 'inventoryCount',
+        groups,
+        storeName: exportStoreName,
+        dateIso: exportDateIso,
+        locale: exportLocale,
+      });
+      const filename = countExportFilename('inventoryCount', exportStoreName, exportDateIso, exportLocale, 'pdf');
+      if (Platform.OS === 'web') {
+        // expo-print on web opens the browser print dialog (its react-native-web
+        // shim) — there is no named file artifact; the user picks "Save as PDF".
+        await Print.printAsync({ html });
+        Toast.show({ type: 'info', text1: T('section.inventoryCount.export.pdfPrintDialog') });
+      } else {
+        const available = await Sharing.isAvailableAsync();
+        if (!available) throw new Error('Sharing is not available on this device');
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: filename,
+          UTI: 'com.adobe.pdf',
+        });
+        Toast.show({ type: 'success', text1: T('section.inventoryCount.export.pdfExported'), text2: filename });
+      }
+    } catch (e: any) {
+      console.warn('[InventoryCount] PDF export failed:', e?.message || e);
+      Toast.show({ type: 'error', text1: T('section.inventoryCount.export.exportFailed') });
+    }
+  }, [buildExportGroups, exportStoreName, exportDateIso, exportLocale, T]);
 
   // ─── Realtime subscription for this section ────────────────────────
   // Architect §7 Option A: own the inventory_counts subscription in the
@@ -1514,6 +1625,31 @@ export default function InventoryCountSection() {
               showKbdHint={false}
               style={{ marginBottom: 8 }}
             />
+            {/* Spec 139 — export toolbar: export-scoped language picker, then
+                CSV + PDF. The picker localizes the NEXT export only (never the
+                app-wide UI language). Snapshot of the on-screen entered counts
+                across all categories (blank where untyped). */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ExportLocalePicker value={exportLocale} onChange={setExportLocale} />
+              <TouchableOpacity
+                testID="inv-export-csv"
+                onPress={onExportCsv}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.inventoryCount.export.csv')}
+                style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2 }}>{T('section.inventoryCount.export.csv')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="inv-export-pdf"
+                onPress={onExportPdf}
+                accessibilityRole="button"
+                accessibilityLabel={T('section.inventoryCount.export.pdf')}
+                style={{ paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
+              >
+                <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2 }}>{T('section.inventoryCount.export.pdf')}</Text>
+              </TouchableOpacity>
+            </View>
             {/* Category chips — same idea as EOD's chip row, but no vendor
                 filter (counts cover every item by default per Q6). */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>

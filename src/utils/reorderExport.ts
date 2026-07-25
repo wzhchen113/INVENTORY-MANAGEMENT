@@ -160,8 +160,35 @@ export function todayLocalIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Spec 139 — OWASP CSV-injection mitigation, shared by the reorder and count
+// exporters (these files are opened in Excel/Sheets). A STRING cell whose text
+// begins with `= + - @` — or a leading tab / CR that a spreadsheet folds into a
+// formula — is prefixed with a single quote so the app treats it as literal
+// text, never an executable formula. NUMBER cells pass through untouched, so
+// legitimate negative numbers keep their sign (only free-text sinks — item /
+// vendor / category names, notes, units — are ever guarded). Applied at the
+// unparse boundary so every cell is covered without per-field wiring; normal
+// data (no leading meta-char) is byte-for-byte unchanged, preserving the
+// existing snapshots + the `en` identity contract.
+export function csvSafeCell(v: string | number): string | number {
+  return typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+}
+
+// Guard every cell then hand off to Papa.unparse with the fixed column order.
+export function unparseCsvSafe(
+  rows: Record<string, string | number>[],
+  columns: string[],
+): string {
+  const safe = rows.map((row) => {
+    const out: Record<string, string | number> = {};
+    for (const k of Object.keys(row)) out[k] = csvSafeCell(row[k]);
+    return out;
+  });
+  return Papa.unparse(safe, { columns });
+}
+
 // Spec 025 AC4 — one CSV covering all vendors. Column order is fixed
-// via `Papa.unparse(rows, { columns })` so accidental row-field changes
+// via `unparseCsvSafe(rows, { columns })` so accidental row-field changes
 // don't reshape the header.
 // Exported for jest (spec 088 — case columns).
 export function buildReorderCsv(payload: ReorderPayload, locale: Locale = 'en'): string {
@@ -230,7 +257,7 @@ export function buildReorderCsv(payload: ReorderPayload, locale: Locale = 'en'):
       });
     }
   }
-  return Papa.unparse(rows, { columns });
+  return unparseCsvSafe(rows, columns);
 }
 
 // ─── Spec 089 (C) — NEW shared plain-text + PDF-HTML builders ───────

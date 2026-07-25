@@ -111,9 +111,20 @@ let poSeq = 6;
 export const generatePONumber = (): string => `PO-${String(++poSeq).padStart(3, '0')}`;
 
 /** Export array of objects to CSV string */
-/** Download a CSV file in the browser */
+/**
+ * Download a CSV file in the browser.
+ *
+ * Spec 139 — prepends a UTF-8 BOM (`﻿`) additively so exports carrying
+ * non-ASCII text (accented es / CJK zh-CN ingredient + menu-item names) open
+ * with correct characters in Excel instead of mojibake. The BOM is a 3-byte
+ * prefix that changes NO column output; every existing caller (the catalog
+ * `ExportCsvDrawer`, the RecipesSection menu-BOM export, and the new count
+ * exports) keeps working unchanged, and Excel / Google Sheets both treat a
+ * leading BOM as the UTF-8 signal. Reorder's separate `triggerDownload` is a
+ * distinct code path and is intentionally NOT touched.
+ */
 export const downloadCSV = (filename: string, csvContent: string): void => {
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -1,0 +1,12 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`buildCountCsv — en identity + BOM-free en output is a stable plain-English snapshot (identity contract): eod-en 1`] = `
+"Vendor,Category,Item Name,Unit,Case Size,Par Level,Counted Cases,Counted Units,Counted Total,Note
+BJs,Protein,Chicken Leg,bags,4,10,2,3,11,fresh
+BJs,Pantry,Olive Oil,gal,,5,,,,"
+`;
+
+exports[`buildCountCsv — en identity + BOM-free en output is a stable plain-English snapshot (identity contract): inventory-en 1`] = `
+"Category,Item Name,Unit,Case Size,Par Level,System On-Hand,Counted Cases,Counted Units,Counted Total,Note
+Protein,Chicken Leg,bags,4,10,7,2,3,11,fresh"
+`;
