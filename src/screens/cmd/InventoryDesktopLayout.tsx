@@ -17,6 +17,8 @@ import { CmdStatusBar } from '../../components/cmd/StatusBar';
 import { TabStrip } from '../../components/cmd/TabStrip';
 import { StatCard } from '../../components/cmd/StatCard';
 import { StatusPill } from '../../components/cmd/StatusPill';
+import { statusFg, statusBg, statusLabel } from '../../theme/statusColors';
+import type { ItemStatus } from '../../types';
 import { StockHistoryChart } from '../../components/cmd/StockHistoryChart';
 import { PropertiesJson } from '../../components/cmd/PropertiesJson';
 import { ActivityRow } from '../../components/cmd/ActivityRow';
@@ -31,6 +33,7 @@ import { ListSkeleton } from '../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../utils/confirmAction';
 import { useIsDesktop } from '../../theme/breakpoints';
 import { formatCostPerEach, costPerEachLabel, formatStockValue } from './lib/itemMoney';
+import { applyInventoryStatusView } from './lib/inventoryStatusView';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
@@ -140,28 +143,40 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
     [inventory, currentStore.id],
   );
   const parsed = React.useMemo(() => parseFilter(filterText), [filterText]);
-  // Spec 040 P3 — filter consults BOTH English `name` and the
-  // current-locale label (via getLocalizedName) for bare-token search.
-  // Sort by current-locale label using localeCompare.
-  const items = React.useMemo(
-    () => storeInventory
-      .filter((i) =>
-        matchesFilter(
-          i,
-          parsed,
-          getItemStatus,
-          getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
-        ),
-      )
-      .slice()
-      .sort((a, b) =>
-        getLocalizedName({ name: a.name, i18nNames: a.i18nNames }, locale)
-          .localeCompare(
-            getLocalizedName({ name: b.name, i18nNames: b.i18nNames }, locale),
-            locale,
-          ),
+
+  // Quick stock-status filter (2026-07 owner ask — "easier to view what's out
+  // of stock"). A press-chip that ANDs with the text-filter DSL: null = all,
+  // else keep only rows whose derived status matches. Complements the
+  // `status:` DSL token; both may be set (they AND).
+  const [statusFilter, setStatusFilter] = React.useState<ItemStatus | null>(null);
+
+  // Rows passing the text-filter DSL, before the status chip narrows them. The
+  // status chip COUNTS read off this set so a count stays stable as you toggle
+  // between status chips (only the search box changes it).
+  const textFiltered = React.useMemo(
+    () => storeInventory.filter((i) =>
+      matchesFilter(
+        i,
+        parsed,
+        getItemStatus,
+        getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
       ),
+    ),
     [storeInventory, parsed, getItemStatus, locale],
+  );
+
+  // Spec 040 P3 — display name consults BOTH English `name` and the
+  // current-locale label. `applyInventoryStatusView` derives the chip counts
+  // (over textFiltered) and the status-narrowed, urgency-then-name sorted list.
+  const { counts: statusCounts, items } = React.useMemo(
+    () => applyInventoryStatusView(
+      textFiltered,
+      getItemStatus,
+      statusFilter,
+      (i) => getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
+      locale,
+    ),
+    [textFiltered, statusFilter, getItemStatus, locale],
   );
 
   // Spec 112 (AC-3) — NO auto-select on entry. The detail pane is "on demand":
@@ -393,6 +408,68 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                 </Text>
               </View>
               <FilterInput value={filterText} onChangeText={setFilterText} />
+              {/* Quick stock-status filter chips (2026-07). "All" clears the
+                  status narrow; each status chip filters to that status and is
+                  colored to match its row pill. A status chip is hidden when
+                  zero items carry it (under the current search). */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 6 }}
+                testID="inventory-status-filter"
+              >
+                <TouchableOpacity
+                  testID="inventory-status-chip-all"
+                  onPress={() => setStatusFilter(null)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: statusFilter === null }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 5,
+                    paddingHorizontal: 10, paddingVertical: 4, borderRadius: CmdRadius.pill,
+                    borderWidth: 1,
+                    borderColor: statusFilter === null ? C.accent : C.border,
+                    backgroundColor: statusFilter === null ? C.accentBg : C.panel2,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(600), fontSize: 10.5, color: statusFilter === null ? C.accent : C.fg2 }}>
+                    {T('section.inventory.filterAll')}
+                  </Text>
+                  <Text style={{ fontFamily: mono(400), fontSize: 10, color: statusFilter === null ? C.accent : C.fg3 }}>
+                    {textFiltered.length}
+                  </Text>
+                </TouchableOpacity>
+                {(['out', 'low', 'ok'] as ItemStatus[]).map((st) => {
+                  if (statusCounts[st] === 0) return null;
+                  const on = statusFilter === st;
+                  const fg = statusFg(C, st);
+                  return (
+                    <TouchableOpacity
+                      key={st}
+                      testID={`inventory-status-chip-${st}`}
+                      onPress={() => setStatusFilter(on ? null : st)}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 5,
+                        paddingHorizontal: 10, paddingVertical: 4, borderRadius: CmdRadius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? fg : C.border,
+                        backgroundColor: on ? statusBg(C, st) : C.panel2,
+                      }}
+                    >
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} />
+                      <Text style={{ fontFamily: mono(700), fontSize: 10.5, letterSpacing: 0.5, color: on ? fg : C.fg2 }}>
+                        {statusLabel(st, T)}
+                      </Text>
+                      <Text style={{ fontFamily: mono(400), fontSize: 10, color: on ? fg : C.fg3 }}>
+                        {statusCounts[st]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
 
             {isDesktop ? (
