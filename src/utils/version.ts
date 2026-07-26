@@ -9,7 +9,7 @@
 //     buildCommand. Local dev (`npm run dev`) leaves the env unset, so
 //     the SHA falls back to `'dev'` for visual disambiguation.
 //
-// Rendered shape: `v2.4.0 · ca17fbb` on prod, `v2.4.0 · dev` locally.
+// Rendered shape: `v2.5.0 · ca17fbb` on prod, `v2.5.0 · dev` locally.
 //
 // Why both: per the PM survey of modern SaaS dashboards (GitHub, GitLab,
 // Sentry, Linear), semver+SHA is the dominant production pattern because
