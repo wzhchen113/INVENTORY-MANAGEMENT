@@ -56,7 +56,19 @@
     },
     "row": {
       "caseOf": "case of {qty}",
-      "total": "total {total} {unit}"
+      "total": "total {total} {unit}",
+      "counted": "Counted",
+      "uncounted": "Not counted"
+    },
+    "sheet": {
+      "close": "Close",
+      "casesWell": "CS ×{qty}",
+      "runningTotal": "= {total} {unit} total",
+      "skip": "Skip →",
+      "nextItem": "Next item →",
+      "done": "Done ✓",
+      "backspace": "Backspace",
+      "title": "Count {item}"
     },
     "view": {
       "default": "Default",

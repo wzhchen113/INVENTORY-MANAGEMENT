@@ -2,7 +2,8 @@
 //
 // Spec 062 §B5 + §B6 + §B7. Header (store + today's date), vendor
 // switcher (only if today's order_schedule lists >1 vendor),
-// scrollable item list with decimal-pad inputs, submit button,
+// scrollable item list whose count wells open a keypad bottom sheet
+// (spec 141 — replaced the inline decimal-pad inputs), submit button,
 // pre-fill banner from any existing submission for
 // (active_store_id, today, selected_vendor_id).
 //
@@ -18,12 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
@@ -31,14 +30,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { ListRow } from '../components/ListRow';
-import { IngredientThumb } from '../components/IngredientThumb';
-import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
 import { AppReloadButton } from '../components/AppReloadButton';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
 import { CountOrderDragList } from '../components/CountOrderDragList';
+import { StaffEodCountRow } from './eod/StaffEodCountRow';
+import { StaffKeypadSheet } from './eod/StaffKeypadSheet';
 import { supabase } from '../../../lib/supabase';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import {
@@ -48,6 +46,7 @@ import {
   saveCountOrder,
   resetCountOrder,
 } from '../lib/countOrder';
+import { appendKeypadDigit, activeFieldFor, advanceUncounted } from '../lib/eodKeypad';
 import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
 import { fetchSubmittedVendorIds } from '../lib/submittedStatus';
@@ -323,12 +322,19 @@ export function EODCount() {
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
   // Spec: every item must be counted (even "0") before submit. On a blocked
-  // submit we jump to the first uncounted row — `listRef` scrolls it into
-  // view, `caseInputRefs` focuses its Cases box, and `pendingFocusId` drives
-  // the effect that does both (re-running once a searched-out target appears).
+  // submit we jump to the first uncounted row — spec 141 re-expresses the jump
+  // as OPENING the keypad sheet seated on that item (the old caseInputRefs
+  // DOM-focus path is gone; wells are not focusable inputs). `listRef` is kept
+  // for the FlatList's scroll-recovery; `pendingFocusId` drives the effect that
+  // opens the sheet once the gate resolves the target.
   const listRef = useRef<FlatList<EodItem>>(null);
-  const caseInputRefs = useRef<Record<string, TextInput | null>>({});
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  // Spec 141 — keypad-sheet state. `sheetItemId` (not the item object) is
+  // stored so a vendor switch that drops the item auto-closes the sheet
+  // (`sheetItem` derives to null → `visible` false). `activeField` is which
+  // well the digit pad writes to.
+  const [sheetItemId, setSheetItemId] = useState<string | null>(null);
+  const [activeField, setActiveField] = useState<'cases' | 'units'>('units');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
@@ -347,6 +353,88 @@ export function EODCount() {
   // Spec 129 — SUBMITTED_LOCKED: the selected vendor has an existing submission
   // and we're not editing it. The Cases/Units inputs render read-only.
   const inputsLocked = existing != null && !editing;
+
+  // ─── Spec 141: keypad-sheet derived state + handlers ──────────────
+  // The FULL on-screen order (NOT the search-narrowed `visibleItems`): default
+  // fetch order, or the saved custom order in Custom view (spec 103). NEXT ITEM
+  // / SKIP / isDone all iterate THIS full set — a deliberate divergence from the
+  // admin (which advances over its search-filtered subset) so NEXT can still
+  // reach an uncounted row hidden behind an active search and DONE ✓ only
+  // appears when the WHOLE list is counted, keeping NEXT/DONE aligned with the
+  // whole-list submit gate.
+  const orderedForAdvance = useMemo(
+    () => (viewMode === 'custom' ? orderedItems : items),
+    [viewMode, orderedItems, items],
+  );
+  // Derive the sheet's item from its id so a vendor switch that drops the item
+  // auto-closes the sheet (visible = !!sheetItem).
+  const sheetItem = useMemo(
+    () => orderedForAdvance.find((i) => i.id === sheetItemId) ?? null,
+    [orderedForAdvance, sheetItemId],
+  );
+  // Counted-once predicate (spec 102) — cases OR units non-blank. The single
+  // source feeding the row indicator, the "X of N" label, the gate, isDone, and
+  // advance.
+  const isCounted = useCallback(
+    (it: EodItem) =>
+      (caseCounts[it.id] ?? '').trim() !== '' || (unitCounts[it.id] ?? '').trim() !== '',
+    [caseCounts, unitCounts],
+  );
+  const isDone = useMemo(
+    () => firstUncounted(orderedForAdvance, isCounted) === null,
+    [orderedForAdvance, isCounted],
+  );
+  // Running total for the currently-seated sheet item (existing case/unit math).
+  const sheetTotal = useMemo(() => {
+    if (!sheetItem) return 0;
+    const casesParsed = parseFloat(caseCounts[sheetItem.id] ?? '');
+    const unitsParsed = parseFloat(unitCounts[sheetItem.id] ?? '');
+    return (
+      (Number.isNaN(casesParsed) ? 0 : casesParsed) * (sheetItem.caseQty || 1) +
+      (Number.isNaN(unitsParsed) ? 0 : unitsParsed)
+    );
+  }, [sheetItem, caseCounts, unitCounts]);
+
+  const openSheet = useCallback(
+    (item: EodItem, field: 'cases' | 'units') => {
+      if (inputsLocked) return; // AC-REG-3 — locked rows: no keypad on tap
+      setSheetItemId(item.id);
+      setActiveField(field);
+    },
+    [inputsLocked],
+  );
+  const closeSheet = useCallback(() => setSheetItemId(null), []);
+  const onKey = useCallback(
+    (key: string) => {
+      if (!sheetItem) return;
+      const id = sheetItem.id;
+      if (activeField === 'cases') {
+        setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
+      } else {
+        setUnitCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
+      }
+    },
+    [sheetItem, activeField],
+  );
+  // AC-7 — advance to the next uncounted item with wraparound over the FULL
+  // ordered set. SKIP and NEXT ITEM share this; NEXT ITEM closes when nothing
+  // uncounted remains (isDone), SKIP just moves on without recording.
+  const advance = useCallback(() => {
+    if (!sheetItem) return;
+    const idx = orderedForAdvance.findIndex((i) => i.id === sheetItem.id);
+    const res = advanceUncounted(orderedForAdvance, idx, isCounted);
+    if (!res) {
+      closeSheet();
+      return;
+    }
+    setSheetItemId(res.item.id);
+    setActiveField(activeFieldFor(res.item.caseQty));
+  }, [sheetItem, orderedForAdvance, isCounted, closeSheet]);
+  const onSkip = useCallback(() => advance(), [advance]);
+  const onNext = useCallback(() => {
+    if (isDone) closeSheet();
+    else advance();
+  }, [isDone, closeSheet, advance]);
 
   // Spec 129 — seed the Cases/Units maps from an existing submission. Shared by
   // the vendor-change load effect and the EDIT→Cancel revert so the two paths
@@ -587,32 +675,21 @@ export function EODCount() {
   }, [canSwitchStore, setActiveStore]);
 
   // ─── submit ───────────────────────────────────────────────────────
-  // Jump to the first uncounted row after a blocked submit. Re-runs when
-  // `visibleItems` changes so a target hidden behind the search resolves once
-  // the search-clear lands. Scrolls the row in, then focuses its Cases box —
-  // on web the DOM focus also pulls a partially-clipped input fully into view.
+  // Spec 141 (AC-REG-1) — jump to the first uncounted row after a blocked
+  // submit by OPENING the keypad sheet seated on that item (replacing the old
+  // scroll + DOM-focus path). Because the sheet seats the item directly (not
+  // via list scroll), the target need not be rendered/un-hidden first — we
+  // resolve it against the FULL ordered set (`orderedForAdvance`), exactly the
+  // set the gate used to pick the target.
   useEffect(() => {
     if (!pendingFocusId) return;
-    const idx = visibleItems.findIndex((it) => it.id === pendingFocusId);
-    if (idx < 0) return; // not rendered yet — wait for the search-clear re-render
-    let cancelled = false;
-    try {
-      listRef.current?.scrollToIndex({ index: idx, viewPosition: 0.3, animated: true });
-    } catch {
-      // scrollToIndex can throw before layout settles; onScrollToIndexFailed recovers
+    const target = orderedForAdvance.find((it) => it.id === pendingFocusId);
+    if (target) {
+      setSheetItemId(target.id);
+      setActiveField(activeFieldFor(target.caseQty));
     }
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        caseInputRefs.current[pendingFocusId]?.focus?.();
-        setPendingFocusId(null);
-      }),
-    );
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-    };
-  }, [pendingFocusId, visibleItems]);
+    setPendingFocusId(null);
+  }, [pendingFocusId, orderedForAdvance]);
 
   const onSubmit = useCallback(async () => {
     if (!activeStore || !selectedVendorId || submitting) return;
@@ -789,7 +866,7 @@ export function EODCount() {
       const caseRaw = caseCounts[item.id] ?? '';
       const unitRaw = unitCounts[item.id] ?? '';
       const hasPack = (item.caseQty ?? 0) > 1;
-      const entered = caseRaw.trim() !== '' || unitRaw.trim() !== '';
+      const counted = isCounted(item);
       const casesParsed = parseFloat(caseRaw);
       const unitsParsed = parseFloat(unitRaw);
       const total =
@@ -800,102 +877,20 @@ export function EODCount() {
         locale,
       );
       return (
-        <ListRow
-          testID={`eod-item-row-${item.id}`}
-          leading={
-            <View style={styles.leadingRow}>
-              {/* Spec 127 — ingredient photo (or placeholder) so staff can
-                  visually identify the physical item. View-only. */}
-              <IngredientThumb path={item.imagePath} testID={`eod-item-thumb-${item.id}`} />
-              <View style={styles.leadingText}>
-              <View style={styles.itemNameRow}>
-                <Text
-                  style={[styles.itemName, { color: entered ? c.text : c.error }]}
-                  numberOfLines={2}
-                >
-                  {displayName}
-                </Text>
-                {/* Spec 128 — subtle "Updated" pill when the item's product
-                    changed since this store last counted it. */}
-                {item.updated ? (
-                  <UpdatedBadge testID={`eod-updated-badge-${item.id}`} />
-                ) : null}
-              </View>
-              {item.unit || hasPack ? (
-                <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
-                  {item.unit}
-                  {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
-                </Text>
-              ) : null}
-              {hasPack && entered ? (
-                <Text
-                  style={[styles.itemTotal, { color: c.textSecondary }]}
-                  testID={`eod-item-total-${item.id}`}
-                >
-                  {t('eod.row.total', { total, unit: item.unit })}
-                </Text>
-              ) : null}
-              </View>
-            </View>
-          }
-          trailing={
-            <View style={styles.countInputs}>
-              <View style={styles.countCol}>
-                <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                  {t('eod.col.cases')}
-                </Text>
-                <Input
-                  ref={(r) => {
-                    caseInputRefs.current[item.id] = r;
-                  }}
-                  value={caseRaw}
-                  onChangeText={(txt) =>
-                    setCaseCounts((prev) => ({ ...prev, [item.id]: txt }))
-                  }
-                  keyboardType="decimal-pad"
-                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                  placeholder="0"
-                  // Spec 129 — read-only in SUBMITTED_LOCKED (Input forwards
-                  // `editable` to its inner TextInput; RN-web renders `readonly`).
-                  editable={!inputsLocked}
-                  testID={`eod-item-cases-${item.id}`}
-                  style={[
-                    styles.countInput,
-                    !entered && { borderColor: c.error },
-                    inputsLocked && styles.countInputLocked,
-                  ]}
-                  accessibilityLabel={t('eod.col.casesAria', { item: displayName })}
-                />
-              </View>
-              <View style={styles.countCol}>
-                <Text style={[styles.countColLabel, { color: c.textSecondary }]}>
-                  {t('eod.col.units')}
-                </Text>
-                <Input
-                  value={unitRaw}
-                  onChangeText={(txt) =>
-                    setUnitCounts((prev) => ({ ...prev, [item.id]: txt }))
-                  }
-                  keyboardType="decimal-pad"
-                  {...(Platform.OS === 'web' ? { inputMode: 'decimal' as const } : {})}
-                  placeholder="0"
-                  // Spec 129 — read-only in SUBMITTED_LOCKED (see Cases input).
-                  editable={!inputsLocked}
-                  testID={`eod-item-units-${item.id}`}
-                  style={[
-                    styles.countInput,
-                    !entered && { borderColor: c.error },
-                    inputsLocked && styles.countInputLocked,
-                  ]}
-                  accessibilityLabel={t('eod.col.unitsAria', { item: displayName })}
-                />
-              </View>
-            </View>
-          }
+        <StaffEodCountRow
+          item={item}
+          displayName={displayName}
+          counted={counted}
+          caseValue={caseRaw}
+          unitValue={unitRaw}
+          total={total}
+          hasPack={hasPack}
+          locked={inputsLocked}
+          onOpenWell={openSheet}
         />
       );
     },
-    [caseCounts, unitCounts, locale, c, t, inputsLocked],
+    [caseCounts, unitCounts, isCounted, locale, inputsLocked, openSheet],
   );
 
   if (!activeStore) {
@@ -1155,6 +1150,19 @@ export function EODCount() {
           >
             {t('eod.countedOfTotal', { counted: countedNum, total: items.length })}
           </Text>
+          {/* Spec 141 (AC-10) — touch-first progress bar; same derivation. */}
+          <View style={[styles.progressTrack, { backgroundColor: c.surfaceAlt }]}>
+            <View
+              testID="eod-progress-fill"
+              style={[
+                styles.progressFill,
+                {
+                  width: `${items.length > 0 ? Math.round((countedNum / items.length) * 100) : 0}%`,
+                  backgroundColor: countedNum === items.length ? c.primary : c.textSecondary,
+                },
+              ]}
+            />
+          </View>
         </View>
       ) : null}
 
@@ -1316,23 +1324,15 @@ export function EODCount() {
           testID="eod-item-list"
           data={visibleItems}
           keyExtractor={(i) => i.id}
-          // Count-everything gate: render the WHOLE list un-windowed so the
-          // "jump to first uncounted row" scroll (pendingFocusId effect) can
-          // reach ANY row — a windowed row that isn't mounted can't be scrolled
-          // to or focused — and so every row is countable in a single pass.
-          // Mirrors WeeklyCount; the per-vendor list is small (tens of rows).
+          // Render the WHOLE per-vendor list un-windowed (small — tens of rows,
+          // mirrors WeeklyCount) so every row's counted state + custom order
+          // render in one pass. The completeness-gate "jump to first uncounted"
+          // now OPENS THE SHEET on that item (pendingFocusId effect) rather than
+          // scrolling, so no scrollToIndex / onScrollToIndexFailed recovery is
+          // needed.
           initialNumToRender={visibleItems.length + 10}
           maxToRenderPerBatch={visibleItems.length + 10}
           windowSize={Math.max(21, visibleItems.length)}
-          // Rows are variable-height, so scrollToIndex can miss before the
-          // target is measured — approximate the offset, then the focus effect
-          // pulls it the rest of the way in.
-          onScrollToIndexFailed={(info) => {
-            listRef.current?.scrollToOffset({
-              offset: info.averageItemLength * Math.max(0, info.index - 1),
-              animated: true,
-            });
-          }}
           ListEmptyComponent={
             <View style={styles.emptyPane}>
               <Text style={[styles.emptyText, { color: c.textSecondary }]}>
@@ -1393,6 +1393,28 @@ export function EODCount() {
           )}
         </View>
       </View>
+
+      {/* Spec 141 — the keypad-entry sheet. Mounted once; `visible` tracks
+          whether a well has been tapped (sheetItem derived from sheetItemId). */}
+      <StaffKeypadSheet
+        visible={!!sheetItem}
+        item={sheetItem}
+        displayName={
+          sheetItem
+            ? getLocalizedName({ name: sheetItem.name, i18nNames: sheetItem.i18nNames }, locale)
+            : ''
+        }
+        activeField={activeField}
+        setActiveField={setActiveField}
+        caseValue={sheetItem ? caseCounts[sheetItem.id] ?? '' : ''}
+        unitValue={sheetItem ? unitCounts[sheetItem.id] ?? '' : ''}
+        runningTotal={sheetTotal}
+        isDone={isDone}
+        onKey={onKey}
+        onSkip={onSkip}
+        onNext={onNext}
+        onClose={closeSheet}
+      />
     </SafeAreaView>
   );
 }
@@ -1427,23 +1449,40 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     justifyContent: 'space-between',
     gap: T.spacing.md,
   },
-  // Today / Yesterday segmented toggle — mirrors the LocaleSwitcher pill shape.
+  // Spec 141 (AC-8) — Today / Yesterday restyled to a full-width, touch-first
+  // 2-cell day strip: still exactly two states ([1, 0] order preserved), just
+  // larger targets. NOT a 7-day strip (out of scope — a wider date range would
+  // change which dates staff may submit for).
   dateToggle: {
     flexDirection: 'row',
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
     marginTop: T.spacing.sm,
     borderRadius: T.radius.md,
     overflow: 'hidden',
+    gap: T.spacing.xs,
   },
   dateSegment: {
-    minHeight: T.touchTarget.min,
+    flex: 1,
+    minHeight: T.touchTarget.min * 1.5,
     paddingHorizontal: T.spacing.md,
     borderWidth: 1,
+    borderRadius: T.radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dateSegmentText: {
-    fontSize: T.typography.caption,
+    fontSize: T.typography.body,
+  },
+  // Spec 141 (AC-10) — thin progress bar under the "X of N counted" label.
+  progressTrack: {
+    height: Math.max(2, T.spacing.xs),
+    borderRadius: T.radius.pill,
+    marginTop: T.spacing.xs,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: T.radius.pill,
   },
   storePressable: {
     flex: 1,
@@ -1535,66 +1574,8 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   itemSeparator: {
     height: T.spacing.sm,
   },
-  // Spec 127 — leading cell is now [thumbnail | name/unit column].
-  leadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.spacing.md,
-  },
-  leadingText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  // Spec 128 — name + "Updated" badge share a row so the badge sits inline with
-  // the (possibly 2-line) ingredient name. `flexShrink` on the name lets it
-  // wrap while the badge keeps its intrinsic width (mirrors Weekly's row).
-  itemNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.spacing.sm,
-  },
-  itemName: {
-    flexShrink: 1,
-    fontSize: T.typography.bodyLarge,
-    fontWeight: T.typography.semibold,
-  },
-  itemUnit: {
-    fontSize: T.typography.caption,
-    marginTop: 2,
-  },
-  itemTotal: {
-    fontSize: T.typography.caption,
-    marginTop: 2,
-    fontWeight: T.typography.semibold,
-  },
-  // Two compact inputs side-by-side in the trailing slot. Each column
-  // stacks a caption (Cases / Units) over the input. ~44pt each + gap
-  // keeps the pair inside the row's trailing cell on a phone viewport
-  // (the leading column is flex:1, minWidth:0 so it yields).
-  countInputs: {
-    flexDirection: 'row',
-    // Tight gap so the columns can be wide enough for "Loose Units"
-    // to fit on one line.
-    gap: T.spacing.xs,
-    alignItems: 'flex-end',
-  },
-  countCol: {
-    width: 52,
-  },
-  countColLabel: {
-    fontSize: T.typography.caption,
-    marginBottom: T.spacing.xs,
-    textAlign: 'center',
-    fontWeight: T.typography.medium,
-  },
-  countInput: {
-    width: 52,
-    textAlign: 'center',
-  },
-  // Spec 129 — muted cue for read-only (SUBMITTED_LOCKED) inputs.
-  countInputLocked: {
-    opacity: 0.6,
-  },
+  // Spec 141 — the count-row body (indicator + thumb + wells) now lives in
+  // StaffEodCountRow; the row-content styles moved with it.
   footer: {
     paddingHorizontal: T.spacing.lg,
     paddingTop: T.spacing.md,

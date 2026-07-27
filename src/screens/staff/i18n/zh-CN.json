@@ -56,7 +56,19 @@
     },
     "row": {
       "caseOf": "每箱 {qty}",
-      "total": "共 {total} {unit}"
+      "total": "共 {total} {unit}",
+      "counted": "已清点",
+      "uncounted": "未清点"
+    },
+    "sheet": {
+      "close": "关闭",
+      "casesWell": "箱 ×{qty}",
+      "runningTotal": "= 共 {total} {unit}",
+      "skip": "跳过 →",
+      "nextItem": "下一项 →",
+      "done": "完成 ✓",
+      "backspace": "退格",
+      "title": "清点 {item}"
     },
     "view": {
       "default": "默认",

@@ -3,6 +3,13 @@
 // Mocks at the hook boundary per spec 062 §0 Q5: useEodSubmit replaces
 // the entire submit+queue orchestration; supabase.from() is stubbed
 // for the vendor / item / existing-submission reads.
+//
+// Spec 141 — the inline `decimal-pad` inputs were replaced by tappable count
+// "wells" + a keypad bottom-sheet (custom in-app digit pad). The stale
+// `fireEvent.changeText(...)` / `.props.value` / `.props.editable` assertions
+// are MIGRATED (not deleted) to the well+sheet flow via the `enterCount`
+// helper; value reads target the well value text (old `eod-item-<field>-<id>`
+// testIDs mapped onto it); lock reads target the well's disabled a11y state.
 
 import { FlatList } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -121,6 +128,40 @@ function itemVendorRow(args: {
   };
 }
 
+// ─── Spec 141 keypad helpers ─────────────────────────────────────────
+// Render-result shape we lean on for the keypad flow.
+type Api = ReturnType<typeof render>;
+
+function pressKeys(api: Api, value: string) {
+  for (const ch of value.split('')) {
+    fireEvent.press(api.getByTestId(ch === '.' ? 'eod-key-dot' : `eod-key-${ch}`));
+  }
+}
+
+// Open a row's field well, type a value on the in-app digit pad, then close the
+// sheet (the value persists in the count map — SKIP/close need no commit step).
+async function enterCount(
+  api: Api,
+  itemId: string,
+  field: 'cases' | 'units',
+  value: string,
+) {
+  fireEvent.press(await api.findByTestId(`eod-well-${itemId}-${field}`));
+  await api.findByTestId('eod-sheet-title');
+  pressKeys(api, value);
+  fireEvent.press(api.getByTestId('eod-sheet-close'));
+}
+
+// Read a well's displayed value (the old `eod-item-<field>-<id>` testID is kept
+// on the value text). Empty wells render the '—' placeholder.
+function wellValue(api: Api, itemId: string, field: 'cases' | 'units'): unknown {
+  return api.getByTestId(`eod-item-${field}-${itemId}`).props.children;
+}
+
+function wellDisabled(api: Api, itemId: string, field: 'cases' | 'units'): unknown {
+  return api.getByTestId(`eod-well-${itemId}-${field}`).props.accessibilityState?.disabled;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockSubmit.mockReset();
@@ -148,7 +189,7 @@ beforeEach(() => {
 });
 
 describe('EODCount', () => {
-  it('renders the store name and an item row with TWO decimal-pad inputs (Cases + Units)', async () => {
+  it('renders the store name and an item row with TWO count wells (Cases + Units)', async () => {
     // Mock the data fetch sequence: vendors, items, existing
     mockNextResultStack = [
       // vendors for today
@@ -164,15 +205,15 @@ describe('EODCount', () => {
       { data: null, error: null },
     ];
 
-    const { findByText, getByTestId, queryByTestId } = render(<EODCount />);
-    expect(await findByText('Frederick')).toBeTruthy();
-    // Item row renders after fetch with BOTH inputs.
-    await waitFor(() => expect(getByTestId('eod-item-row-item-1')).toBeTruthy());
-    expect(getByTestId('eod-item-cases-item-1')).toBeTruthy();
-    expect(getByTestId('eod-item-units-item-1')).toBeTruthy();
-    // The old single-input testID is gone.
-    expect(queryByTestId('eod-item-input-item-1')).toBeNull();
-    expect(getByTestId('eod-submit')).toBeTruthy();
+    const api = render(<EODCount />);
+    expect(await api.findByText('Frederick')).toBeTruthy();
+    // Item row renders after fetch with BOTH wells (pack item → CS well shown).
+    await waitFor(() => expect(api.getByTestId('eod-item-row-item-1')).toBeTruthy());
+    expect(api.getByTestId('eod-well-item-1-cases')).toBeTruthy();
+    expect(api.getByTestId('eod-well-item-1-units')).toBeTruthy();
+    // The old single-input testID is gone; the wells are Pressables, not inputs.
+    expect(api.queryByTestId('eod-item-input-item-1')).toBeNull();
+    expect(api.getByTestId('eod-submit')).toBeTruthy();
   });
 
   it('renders the localized item name for a non-English locale and falls back to English when the override is missing', async () => {
@@ -234,7 +275,7 @@ describe('EODCount', () => {
     expect(queryByTestId('eod-vendor-single')).toBeNull();
   });
 
-  it('shows the pre-fill banner and seeds both boxes from a split submission', async () => {
+  it('shows the pre-fill banner and seeds both wells from a split submission', async () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
@@ -259,14 +300,14 @@ describe('EODCount', () => {
         error: null,
       },
     ];
-    const { findByTestId } = render(<EODCount />);
-    expect(await findByTestId('eod-prefill-banner')).toBeTruthy();
-    // Cases box seeded from actual_remaining_cases, Units from actual_remaining_each.
-    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('2');
-    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('5');
+    const api = render(<EODCount />);
+    expect(await api.findByTestId('eod-prefill-banner')).toBeTruthy();
+    // CS well seeded from actual_remaining_cases, units well from actual_remaining_each.
+    await waitFor(() => expect(wellValue(api, 'item-1', 'cases')).toBe('2'));
+    expect(wellValue(api, 'item-1', 'units')).toBe('5');
   });
 
-  it('pre-fills a LEGACY row (null splits) as Cases blank, Units = total', async () => {
+  it('pre-fills a LEGACY row (null splits) as CS blank, units = total', async () => {
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
@@ -292,16 +333,17 @@ describe('EODCount', () => {
         error: null,
       },
     ];
-    const { findByTestId } = render(<EODCount />);
-    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('');
-    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('18');
+    const api = render(<EODCount />);
+    // CS well empty → placeholder; units well = the total.
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('18'));
+    expect(wellValue(api, 'item-1', 'cases')).toBe('—');
   });
 
-  it('pre-fills a CASES-ONLY row without doubling: Units stays blank (not the total)', async () => {
+  it('pre-fills a CASES-ONLY row without doubling: units stays blank (not the total)', async () => {
     // Regression: a manager enters 14 cases (case of 6), leaves Loose blank.
-    // Stored: cases=14, each=null, total=84 (14×6). On reload the Units box
+    // Stored: cases=14, each=null, total=84 (14×6). On reload the units well
     // must NOT seed from the total (84) — that re-adds the case amount and
-    // doubles the row to 168. Cases=14, Units blank is the correct seed.
+    // doubles the row to 168. Cases=14, units blank is the correct seed.
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
@@ -326,9 +368,9 @@ describe('EODCount', () => {
         error: null,
       },
     ];
-    const { findByTestId } = render(<EODCount />);
-    expect((await findByTestId('eod-item-cases-item-1')).props.value).toBe('14');
-    expect((await findByTestId('eod-item-units-item-1')).props.value).toBe('');
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellValue(api, 'item-1', 'cases')).toBe('14'));
+    expect(wellValue(api, 'item-1', 'units')).toBe('—');
   });
 
   it('converts Cases × caseQty + Units into the total in the submit payload', async () => {
@@ -344,10 +386,10 @@ describe('EODCount', () => {
       { data: null, error: null }, // no existing
       { data: null, error: null }, // re-fetch after submit success
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '2');
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'cases', '2');
+    await enterCount(api, 'item-1', 'units', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     // total = 2 × 12 + 3 = 27; raw splits carried alongside.
     expect(mockSubmit).toHaveBeenCalledWith(
@@ -374,9 +416,9 @@ describe('EODCount', () => {
       { data: null, error: null },
       { data: null, error: null }, // post-submit existing refetch
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -384,10 +426,10 @@ describe('EODCount', () => {
   it('round-trips a spec-093 fixed row (case_qty=20): total = cases × 20 + units', async () => {
     // Spec 093 (§11) EOD round-trip AC. After the form fix lands a
     // "1 case = 20 lbs" row as case_qty=20 (canonical units-per-case), the
-    // EOD Cases box must compute total = cases × 20 + units — i.e. the case
-    // size is no longer invisible (pre-fix it landed in sub_unit_size and
-    // case_qty stayed 1, miscounting by 20×). No EOD code change; this pins
-    // the consumer against the fixed-row shape.
+    // CS well must compute total = cases × 20 + units — i.e. the case size is
+    // no longer invisible (pre-fix it landed in sub_unit_size and case_qty
+    // stayed 1, miscounting by 20×). No EOD code change; this pins the
+    // consumer against the fixed-row shape.
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
@@ -400,10 +442,10 @@ describe('EODCount', () => {
       { data: null, error: null }, // no existing
       { data: null, error: null }, // re-fetch after submit success
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '3');
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '4');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'cases', '3');
+    await enterCount(api, 'item-1', 'units', '4');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     // total = 3 × 20 + 4 = 64.
     expect(mockSubmit.mock.calls[0][0].entries[0]).toEqual({
@@ -414,29 +456,34 @@ describe('EODCount', () => {
     });
   });
 
-  it('defaults caseQty to 1 when the catalog has no case_qty (null → ×1)', async () => {
+  it('a non-pack item (no case_qty) exposes ONLY the units well; submits with cases null (×1)', async () => {
+    // Spec 141 — the CS well shows only when (caseQty ?? 0) > 1. A 1-per-case
+    // item has no separate "cases" input; the units well is the whole count.
+    // The submit math (cases × (caseQty||1) + units) still collapses to units
+    // for such a row (cases blank → 0), so the ×1 conversion is preserved.
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
-        // No case_qty key → caseQty maps to null → conversion uses × 1.
+        // No case_qty key → caseQty maps to null → no CS well.
         data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })],
         error: null,
       },
       { data: null, error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '4');
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '5');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await api.findByTestId('eod-well-item-1-units');
+    expect(api.queryByTestId('eod-well-item-1-cases')).toBeNull();
+    await enterCount(api, 'item-1', 'units', '9');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
-    // total = 4 × 1 + 5 = 9.
+    // total = 0 × 1 + 9 = 9; cases blank → null.
     expect(mockSubmit.mock.calls[0][0].entries[0]).toEqual({
       item_id: 'item-1',
       actual_remaining: 9,
-      actual_remaining_cases: 4,
-      actual_remaining_each: 5,
+      actual_remaining_cases: null,
+      actual_remaining_each: 9,
     });
   });
 
@@ -451,16 +498,16 @@ describe('EODCount', () => {
       { data: null, error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    // Only Units filled — the "entered when either filled" predicate.
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7.5');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    // Only units filled — the "entered when either filled" predicate.
+    await enterCount(api, 'item-1', 'units', '7.5');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     expect(mockSubmit.mock.calls[0][0].entries).toEqual([
       {
         item_id: 'item-1',
         actual_remaining: 7.5, // 0 × 12 + 7.5
-        actual_remaining_cases: null, // blank Cases → null
+        actual_remaining_cases: null, // blank CS → null
         actual_remaining_each: 7.5,
       },
     ]);
@@ -477,10 +524,10 @@ describe('EODCount', () => {
       { data: null, error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
+    const api = render(<EODCount />);
     // Only Cases filled — the other half of the "entered when either filled" predicate.
-    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '3');
-    fireEvent.press(await findByTestId('eod-submit'));
+    await enterCount(api, 'item-1', 'cases', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     expect(mockSubmit.mock.calls[0][0].entries).toEqual([
       {
@@ -492,10 +539,11 @@ describe('EODCount', () => {
     ]);
   });
 
-  it('blocks submit on a fully-blank row → "count every item" gate toast (no skip)', async () => {
+  it('blocks submit on a fully-blank row → gate toast + opens the keypad on the uncounted item', async () => {
     // Completeness gate: every item must be counted (even "0") before submit.
-    // A fully-blank row no longer silently skips — it blocks the submit and the
-    // toast names how many remain (the prior blank-skip behavior is inverted).
+    // A fully-blank row no longer silently skips — it blocks the submit, names
+    // how many remain, and (spec 141) OPENS the keypad sheet seated on the
+    // first uncounted item (replacing the old DOM-focus jump).
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
       {
@@ -504,10 +552,10 @@ describe('EODCount', () => {
       },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    // Press Submit without touching either input.
-    await findByTestId('eod-item-cases-item-1');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    // Press Submit without touching either well.
+    await api.findByTestId('eod-well-item-1-units');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     // submit() never called — the completeness gate fired first.
     expect(mockSubmit).not.toHaveBeenCalled();
@@ -515,19 +563,22 @@ describe('EODCount', () => {
       text1: 'Count every item first',
       text2: '1 still need a count',
     });
+    // The jump opened the keypad sheet on the first uncounted item.
+    expect(await api.findByTestId('eod-sheet-title')).toBeTruthy();
+    expect(api.getByTestId('eod-sheet-title').props.children).toBe('Flour');
   });
 
   it('shows "Submitted" toast on success outcome', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '7');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({
       text1: 'Submitted',
@@ -541,12 +592,12 @@ describe('EODCount', () => {
     });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
-    const { findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '7');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     const calls = (Toast.show as jest.Mock).mock.calls;
     expect(calls[0][0].text1).toMatch(/Already submitted/i);
@@ -559,38 +610,38 @@ describe('EODCount', () => {
     });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
-    const { findByText, findByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
-    fireEvent.press(await findByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '7');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() =>
-      expect(findByText(/your access has changed/i)).resolves.toBeTruthy(),
+      expect(api.findByText(/your access has changed/i)).resolves.toBeTruthy(),
     );
     // Auth state still signed-in
     expect(useStaffStore.getState().authState.kind).toBe('signed-in');
   });
 
-  it('queued (offline): optimistic lock + green, inputs NOT cleared (spec 129)', async () => {
+  it('queued (offline): optimistic lock + green, wells NOT cleared (spec 129)', async () => {
     mockSubmit.mockResolvedValue({ kind: 'queued', client_uuid: 'q-1' });
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
-    const { findByTestId, getByTestId } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-cases-item-1'), '2');
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '7');
-    fireEvent.press(getByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'cases', '2');
+    await enterCount(api, 'item-1', 'units', '7');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
-    // Inputs retain their values (they are the synthesized locked/submitted
+    // Wells retain their values (they are the synthesized locked/submitted
     // values now) — the old §B7 clear is removed.
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('7'));
-    expect(getByTestId('eod-item-cases-item-1').props.value).toBe('2');
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('7'));
+    expect(wellValue(api, 'item-1', 'cases')).toBe('2');
     // Read-only lock engaged + chip optimistically green; no navigation.
-    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
-    expect(getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
+    expect(wellDisabled(api, 'item-1', 'units')).toBe(true);
+    expect(api.getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -646,7 +697,7 @@ describe('EODCount', () => {
         { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
         {
           data: [
-            itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } }),
+            itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } }),
           ],
           error: null,
         },
@@ -654,15 +705,13 @@ describe('EODCount', () => {
         { data: null, error: null }, // post-submit re-fetch
       ];
 
-      const { findByTestId } = render(<EODCount />);
-      const input = await findByTestId('eod-item-units-item-1');
-      fireEvent.changeText(input, '7');
+      const api = render(<EODCount />);
+      await enterCount(api, 'item-1', 'units', '7');
 
       // Advance the clock past midnight BEFORE pressing Submit.
       now = day2;
 
-      const submit = await findByTestId('eod-submit');
-      fireEvent.press(submit);
+      fireEvent.press(await api.findByTestId('eod-submit'));
       await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
 
       // Payload date must be day-2 (capture-at-submit), not day-1
@@ -700,7 +749,7 @@ describe('EODCount — late (yesterday) count', () => {
         error: null,
       };
       const itemsRow = {
-        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })],
+        data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })],
         error: null,
       };
       const noExisting = { data: null, error: null };
@@ -717,17 +766,17 @@ describe('EODCount — late (yesterday) count', () => {
         noExisting,
       ];
 
-      const { findByTestId, queryByTestId } = render(<EODCount />);
+      const api = render(<EODCount />);
       // No late banner on the default (today) view.
-      await findByTestId('eod-item-units-item-1');
-      expect(queryByTestId('eod-late-banner')).toBeNull();
+      await api.findByTestId('eod-well-item-1-units');
+      expect(api.queryByTestId('eod-late-banner')).toBeNull();
 
       // Step back to yesterday → late banner appears.
-      fireEvent.press(await findByTestId('eod-date-yesterday'));
-      expect(await findByTestId('eod-late-banner')).toBeTruthy();
+      fireEvent.press(await api.findByTestId('eod-date-yesterday'));
+      expect(await api.findByTestId('eod-late-banner')).toBeTruthy();
 
-      fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '5');
-      fireEvent.press(await findByTestId('eod-submit'));
+      await enterCount(api, 'item-1', 'units', '5');
+      fireEvent.press(await api.findByTestId('eod-submit'));
       await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
 
       // Submits with YESTERDAY's date (the missed count date).
@@ -741,7 +790,7 @@ describe('EODCount — late (yesterday) count', () => {
     mockYesterdayIncomplete.mockResolvedValue(true);
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
     const { findByTestId } = render(<EODCount />);
@@ -753,11 +802,11 @@ describe('EODCount — late (yesterday) count', () => {
     mockYesterdayIncomplete.mockResolvedValue(false);
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
     const { findByTestId, queryByTestId } = render(<EODCount />);
-    await findByTestId('eod-item-units-item-1');
+    await findByTestId('eod-well-item-1-units');
     expect(queryByTestId('eod-yesterday-reminder')).toBeNull();
   });
 });
@@ -771,7 +820,7 @@ describe('EODCount — spec 072 scroll-pinned-footer', () => {
     // on any vendor with more items than the viewport height.
     mockNextResultStack = [
       { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
-      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb' } })], error: null },
+      { data: [itemVendorRow({ id: 'item-1', catalog: { name: 'Flour', unit: 'lb', case_qty: 12 } })], error: null },
       { data: null, error: null },
     ];
     const { UNSAFE_getAllByType, findByTestId } = render(<EODCount />);
@@ -827,8 +876,8 @@ describe('EODCount — spec 103 custom order', () => {
     seedTwoItems();
     mockNextResultStack.push({ data: null, error: null }); // re-fetch after submit
     const first = render(<EODCount />);
-    fireEvent.changeText(await first.findByTestId('eod-item-units-item-1'), '3');
-    fireEvent.changeText(await first.findByTestId('eod-item-units-item-2'), '5');
+    await enterCount(first, 'item-1', 'units', '3');
+    await enterCount(first, 'item-2', 'units', '5');
     fireEvent.press(await first.findByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     const defaultEntries = mockSubmit.mock.calls[0][0].entries;
@@ -843,8 +892,8 @@ describe('EODCount — spec 103 custom order', () => {
     await waitFor(() =>
       expect(second.getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
     );
-    fireEvent.changeText(await second.findByTestId('eod-item-units-item-1'), '3');
-    fireEvent.changeText(await second.findByTestId('eod-item-units-item-2'), '5');
+    await enterCount(second, 'item-1', 'units', '3');
+    await enterCount(second, 'item-2', 'units', '5');
     fireEvent.press(await second.findByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     const customEntries = mockSubmit.mock.calls[0][0].entries;
@@ -854,18 +903,19 @@ describe('EODCount — spec 103 custom order', () => {
     expect(customEntries).toEqual(defaultEntries);
   });
 
-  it('AC-12: the gate jump targets the first uncounted in the CUSTOM order', async () => {
+  it('AC-12: the gate jump opens the keypad on the first uncounted in the CUSTOM order', async () => {
     // Saved order puts item-2 first. Fill item-1 only → the single uncounted is
-    // item-2, and in the custom order it is the TOP row, so the gate jumps to it.
+    // item-2, and in the custom order it is the TOP row, so the gate jumps to it
+    // (spec 141: opening the keypad seated on Banana).
     seedTwoItems();
     mockCountOrderResult = { data: { item_ids: ['item-2', 'item-1'] }, error: null };
-    const { findByTestId, getByTestId } = render(<EODCount />);
+    const api = render(<EODCount />);
     await waitFor(() =>
-      expect(getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
+      expect(api.getByTestId('eod-view-custom').props.accessibilityState?.selected).toBe(true),
     );
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '4');
+    await enterCount(api, 'item-1', 'units', '4');
     // item-2 left blank — press submit → blocked + jump.
-    fireEvent.press(getByTestId('eod-submit'));
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
     // The blocked-submit toast names exactly 1 remaining (item-2).
@@ -873,6 +923,9 @@ describe('EODCount — spec 103 custom order', () => {
       (c) => c[0]?.text1 === 'Count every item first',
     );
     expect(toastCall?.[0]).toMatchObject({ text2: '1 still need a count' });
+    // The keypad opened on the custom-top uncounted item (Banana / item-2).
+    expect(await api.findByTestId('eod-sheet-title')).toBeTruthy();
+    expect(api.getByTestId('eod-sheet-title').props.children).toBe('Banana');
   });
 
   it('Reset returns to default view (AC-4/AC-8)', async () => {
@@ -950,7 +1003,7 @@ describe('EODCount — spec 129 vendor status + edit flow', () => {
     catalog: { name: 'Flour', unit: 'lb', case_qty: 12 },
   });
 
-  // A submitted eod_submissions row for a single item (Units = `each`).
+  // A submitted eod_submissions row for a single item (units = `each`).
   function submittedRow(itemId: string, each = 3) {
     return {
       data: {
@@ -1000,75 +1053,87 @@ describe('EODCount — spec 129 vendor status + edit flow', () => {
     expect(getByTestId('vendor-chip-v-1').props.accessibilityState?.selected).toBe(true);
   });
 
-  it('UNSUBMITTED (no existing): inputs editable + primary button reads "Submit"', async () => {
+  it('UNSUBMITTED (no existing): wells editable + primary button reads "Submit"', async () => {
     seedOneVendor();
-    const { findByTestId, findByText } = render(<EODCount />);
-    expect((await findByTestId('eod-item-units-item-1')).props.editable).toBe(true);
-    expect(await findByText('Submit')).toBeTruthy();
+    const api = render(<EODCount />);
+    await api.findByTestId('eod-well-item-1-units');
+    expect(wellDisabled(api, 'item-1', 'units')).toBe(false);
+    expect(await api.findByText('Submit')).toBeTruthy();
   });
 
   it('after a successful Submit: locks read-only, button becomes "Edit", chip green, no navigate', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
     seedOneVendor();
     mockNextResultStack.push(submittedRow('item-1')); // post-submit existing refetch → non-null
-    const { findByTestId, getByTestId, findByText } = render(<EODCount />);
-    fireEvent.changeText(await findByTestId('eod-item-units-item-1'), '3');
-    fireEvent.press(getByTestId('eod-submit'));
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
-    // Primary button flips to Edit; inputs go read-only.
-    expect(await findByText('Edit')).toBeTruthy();
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
+    // Primary button flips to Edit; wells go read-only.
+    expect(await api.findByText('Edit')).toBeTruthy();
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(true));
     // Optimistic green on the lone-vendor badge; stayed on the screen.
-    expect(getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
+    expect(api.getByTestId('eod-vendor-status-v-1').props.accessibilityLabel).toBe('Submitted');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('existing on load: SUBMITTED_LOCKED (read-only + "Edit", no Cancel)', async () => {
     seedOneVendor(submittedRow('item-1'));
-    const { getByTestId, findByText, queryByTestId } = render(<EODCount />);
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
-    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
-    expect(await findByText('Edit')).toBeTruthy();
-    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('3'));
+    expect(wellDisabled(api, 'item-1', 'units')).toBe(true);
+    expect(await api.findByText('Edit')).toBeTruthy();
+    expect(api.queryByTestId('eod-cancel-edit')).toBeNull();
   });
 
-  it('EDIT tap: inputs become editable, Cancel appears', async () => {
+  it('EDIT tap: wells become editable, Cancel appears', async () => {
     seedOneVendor(submittedRow('item-1'));
-    const { getByTestId } = render(<EODCount />);
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
-    fireEvent.press(getByTestId('eod-submit')); // "Edit" in SUBMITTED_LOCKED
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
-    expect(getByTestId('eod-cancel-edit')).toBeTruthy();
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('3'));
+    fireEvent.press(api.getByTestId('eod-submit')); // "Edit" in SUBMITTED_LOCKED
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(false));
+    expect(api.getByTestId('eod-cancel-edit')).toBeTruthy();
   });
 
-  it('Cancel: reverts inputs to submitted values, re-locks, Cancel disappears', async () => {
+  it('Cancel: reverts wells to submitted values, re-locks, Cancel disappears', async () => {
     seedOneVendor(submittedRow('item-1'));
-    const { getByTestId, queryByTestId } = render(<EODCount />);
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
-    fireEvent.press(getByTestId('eod-submit')); // Edit
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
-    fireEvent.changeText(getByTestId('eod-item-units-item-1'), '99');
-    fireEvent.press(getByTestId('eod-cancel-edit'));
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('3'));
+    fireEvent.press(api.getByTestId('eod-submit')); // Edit
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(false));
+    // Change via the keypad: append '9' → '39'.
+    fireEvent.press(api.getByTestId('eod-well-item-1-units'));
+    await api.findByTestId('eod-sheet-title');
+    fireEvent.press(api.getByTestId('eod-key-9'));
+    fireEvent.press(api.getByTestId('eod-sheet-close'));
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('39'));
+    fireEvent.press(api.getByTestId('eod-cancel-edit'));
     // Reverts to the last-submitted value + re-locks.
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
-    expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false);
-    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('3'));
+    expect(wellDisabled(api, 'item-1', 'units')).toBe(true);
+    expect(api.queryByTestId('eod-cancel-edit')).toBeNull();
   });
 
   it('Submit from EDITING: re-submits and returns to read-only + "Edit"', async () => {
     mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-1' });
     seedOneVendor(submittedRow('item-1'));
     mockNextResultStack.push(submittedRow('item-1', 8)); // post-submit refetch
-    const { getByTestId, queryByTestId } = render(<EODCount />);
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.value).toBe('3'));
-    fireEvent.press(getByTestId('eod-submit')); // Edit → EDITING
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
-    fireEvent.changeText(getByTestId('eod-item-units-item-1'), '8');
-    fireEvent.press(getByTestId('eod-submit')); // now "Submit"
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('3'));
+    fireEvent.press(api.getByTestId('eod-submit')); // Edit → EDITING
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(false));
+    // Change '3' → '8' via the keypad (backspace then 8).
+    fireEvent.press(api.getByTestId('eod-well-item-1-units'));
+    await api.findByTestId('eod-sheet-title');
+    fireEvent.press(api.getByTestId('eod-key-back'));
+    fireEvent.press(api.getByTestId('eod-key-8'));
+    fireEvent.press(api.getByTestId('eod-sheet-close'));
+    await waitFor(() => expect(wellValue(api, 'item-1', 'units')).toBe('8'));
+    fireEvent.press(api.getByTestId('eod-submit')); // now "Submit"
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     // Back to read-only + Edit, Cancel gone.
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
-    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(true));
+    expect(api.queryByTestId('eod-cancel-edit')).toBeNull();
   });
 
   it('switching vendor resets the editing flag (target lands locked, not editing)', async () => {
@@ -1087,15 +1152,15 @@ describe('EODCount — spec 129 vendor status + edit flow', () => {
       { data: [itemVendorRow({ id: 'item-2', catalog: { name: 'Salt', unit: 'oz', case_qty: 1 } })], error: null },
       submittedRow('item-2'),
     ];
-    const { getByTestId, findByTestId, queryByTestId } = render(<EODCount />);
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(false));
-    fireEvent.press(getByTestId('eod-submit')); // enter EDIT on v-1
-    await waitFor(() => expect(getByTestId('eod-item-units-item-1').props.editable).toBe(true));
+    const api = render(<EODCount />);
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(true));
+    fireEvent.press(api.getByTestId('eod-submit')); // enter EDIT on v-1
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(false));
     // Switch to v-2. If editing had leaked, v-2 (existing != null) would render
     // EDITING (editable + Cancel). Reset → v-2 loads its own SUBMITTED_LOCKED.
-    fireEvent.press(getByTestId('vendor-chip-v-2'));
-    await findByTestId('eod-item-units-item-2');
-    await waitFor(() => expect(getByTestId('eod-item-units-item-2').props.editable).toBe(false));
-    expect(queryByTestId('eod-cancel-edit')).toBeNull();
+    fireEvent.press(api.getByTestId('vendor-chip-v-2'));
+    await api.findByTestId('eod-well-item-2-units');
+    await waitFor(() => expect(wellDisabled(api, 'item-2', 'units')).toBe(true));
+    expect(api.queryByTestId('eod-cancel-edit')).toBeNull();
   });
 });
