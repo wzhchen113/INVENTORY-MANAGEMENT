@@ -36,6 +36,7 @@ import { AddVendorScheduleModal } from '../../../components/cmd/AddVendorSchedul
 import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { EODEntry, EODSubmission } from '../../../types';
 import OrderScheduleSection from './OrderScheduleSection';
+import PhoneEodCount from './eod/PhoneEodCount';
 
 interface DayCell {
   day: DayName;      // "Saturday"
@@ -1040,6 +1041,52 @@ export default function EODCountSection() {
     return <ListSkeleton rows={4} />;
   }
 
+  // Spec 140 — phone tier (< 768px web + all native). Every hook / memo /
+  // handler above runs identically for all tiers (hooks precede this early
+  // return), so the desktop/tablet tree below is byte-unchanged (AC-REG). The
+  // `model` literal is allocated ONLY on the phone path.
+  if (isPhone) {
+    return (
+      <PhoneEodCount
+        model={{
+          week,
+          selectedIso,
+          setSelectedIso,
+          wkNum,
+          vendorTabs,
+          selectedVendorId,
+          setSelectedVendorId,
+          setSelectedCategory,
+          submittedVendorIds,
+          countedItemIds,
+          storeInventory,
+          filteredItems,
+          caseCounts,
+          unitCounts,
+          notes,
+          setCaseCounts,
+          setUnitCounts,
+          setNotes,
+          hasEntry,
+          localHasEntry,
+          itemTotal,
+          countedNum,
+          total,
+          isRestDay,
+          isVendorLocked,
+          isCurrentVendorEditing,
+          currentVendorSubmission,
+          submitting,
+          onSubmit,
+          onEditCurrentVendor,
+          pendingFocusItem,
+          tabId,
+          setTabId,
+        }}
+      />
+    );
+  }
+
   return (
     <>
       {/* Week sidebar — hidden on phone; replaced by horizontal day-strip
@@ -1786,7 +1833,7 @@ export default function EODCountSection() {
 // keyed on each submission's vendorId. Sort: date DESC, then vendor ASC by
 // hydrated name. Legacy rows pre-migration that arrive without a vendorId
 // still render — their VENDOR cell shows "—".
-function EODHistoryTab() {
+export function EODHistoryTab() {
   const C = useCmdColors();
   const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
@@ -1903,7 +1950,7 @@ function EODHistoryTab() {
 // today's submissions, matching the server-side variance template's anchor
 // math (architect §4 / Q3). This client view is advisory; the variance
 // report (REPORTS-3) is authoritative.
-function VarianceLogTab() {
+export function VarianceLogTab() {
   const C = useCmdColors();
   const T = useT();
   const eodSubmissions = useStore((s) => s.eodSubmissions);

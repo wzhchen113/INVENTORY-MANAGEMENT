@@ -581,6 +581,18 @@
         "pdfExported": "已导出 PDF",
         "pdfPrintDialog": "正在打开打印对话框 — 请选择“另存为 PDF”",
         "exportFailed": "导出失败"
+      },
+      "phone": {
+        "skip": "跳过 →",
+        "nextItem": "下一项 →",
+        "done": "完成 ✓",
+        "left": "还剩 {count}",
+        "ready": "就绪",
+        "sent": "已发送 ✓",
+        "counted": "已计 {counted} / {total}",
+        "casesWell": "箱 ×{qty}",
+        "runningTotal": "= {total} {unit} 合计",
+        "allCounted": "所有项目已清点 ✓"
       }
     },
     "inventoryCount": {

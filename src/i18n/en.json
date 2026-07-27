@@ -581,6 +581,18 @@
         "pdfExported": "PDF exported",
         "pdfPrintDialog": "Opening print dialog — choose Save as PDF",
         "exportFailed": "Export failed"
+      },
+      "phone": {
+        "skip": "SKIP →",
+        "nextItem": "NEXT ITEM →",
+        "done": "DONE ✓",
+        "left": "{count} LEFT",
+        "ready": "READY",
+        "sent": "SENT ✓",
+        "counted": "{counted} OF {total} COUNTED",
+        "casesWell": "CS ×{qty}",
+        "runningTotal": "= {total} {unit} total",
+        "allCounted": "All items counted ✓"
       }
     },
     "inventoryCount": {
