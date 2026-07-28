@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
-import { Type } from '../../theme/typography';
+import { Type, PhoneType } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { useIsPhone, useIsTablet, useIsDesktop } from '../../theme/breakpoints';
 import { useCommandPaletteIndex, useDefaultSidebarGroups } from '../../lib/cmdSelectors';
@@ -19,6 +19,7 @@ import { StoreSwitchOverlay } from '../../components/cmd/StoreSwitchOverlay';
 import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
 import { NotificationToggle } from '../../components/cmd/NotificationToggle';
+import { NotificationBlockedBanner } from '../../components/cmd/NotificationBlockedBanner';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
 import { useIsSuperAdmin } from '../../hooks/useRole';
 import { useT } from '../../hooks/useT';
@@ -165,6 +166,19 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
 
   // Working copy for edit-mode drag/eye-toggle mutations.
   const groupsForSidebar = sidebarEditMode ? (draftGroups ?? renderedGroups) : renderedGroups;
+
+  // Spec 142 — the phone top app bar shows a human display label ("Waste log",
+  // "Menu items / BOM"), NOT the internal section id ("WasteLog", "Recipes").
+  // Resolve it from the same sidebar item labels the drawer renders; fall back
+  // to the raw id for any section not present in the nav (e.g. deep-links).
+  const sectionLabel = React.useMemo(() => {
+    for (const g of groupsForSidebar) {
+      for (const it of g.items) {
+        if (it.id === section) return it.label;
+      }
+    }
+    return section;
+  }, [groupsForSidebar, section]);
 
   const handleToggleEditMode = React.useCallback(() => {
     setSidebarEditMode((prev) => {
@@ -386,16 +400,27 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
       <View testID="cmd-shell-root" style={{ flex: 1, backgroundColor: C.bg, overflow: 'hidden' }}>
         <MobileTopAppBar
           onHamburgerPress={() => setMobileDrawerOpen(true)}
-          title={section}
+          title={sectionLabel}
+          height={52}
+          titleType={PhoneType.screenTitle}
           trailing={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {brandPickerCompact}
-              <NotificationToggle />
-              <ThemeToggle />
-              <RefreshButton />
+              {/* Spec 142 — icon-only trailing glyphs on the phone bar (bell ◔ ·
+                  theme ◐ · refresh ↻), each a ≥44×44 hit target (AC-C1). The
+                  blocked/enable-push copy relocates to NotificationBlockedBanner
+                  below the fixed 52px bar (Hard Rule 5: the bar is never
+                  overlapped). The `bar` variants keep the tablet rail / desktop
+                  title-bar callers byte-unchanged (AC-REG). */}
+              <NotificationToggle variant="bar" />
+              <ThemeToggle variant="bar" />
+              <RefreshButton variant="bar" />
             </View>
           }
         />
+        {/* Spec 142 — dismissible blocked-push banner, BELOW the bar / ABOVE the
+            body. Renders null when there is no blocked copy or after dismiss. */}
+        <NotificationBlockedBanner />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
         <MobileNavDrawer
           visible={mobileDrawerOpen}

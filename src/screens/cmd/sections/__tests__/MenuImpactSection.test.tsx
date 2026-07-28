@@ -20,6 +20,14 @@
 // unit-level assertion lives directly against the exported
 // `compareRows` helper to lock the comparator math.
 
+// Spec 142 — MenuImpactSection now forks to a phone list under isPhone. These
+// tests pin the DESKTOP table, so force the non-phone tier (default jest
+// Platform.OS is native → useBreakpoint would otherwise return 'phone').
+jest.mock('../../../../theme/breakpoints', () => {
+  const actual = jest.requireActual('../../../../theme/breakpoints');
+  return { ...actual, useIsPhone: () => false };
+});
+
 jest.mock('../../../../theme/colors', () => ({
   useCmdColors: () => ({
     bg:           '#FFFFFF',

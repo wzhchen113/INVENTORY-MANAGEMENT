@@ -13,6 +13,8 @@ import { relativeTime } from '../../../utils/relativeTime';
 import { WasteReason } from '../../../types';
 import { useT } from '../../../hooks/useT';
 import { wasteReasonLabel, wasteReasonShortLabel } from '../../../utils/enumLabels';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneWasteLog } from './phone/PhoneWasteLog';
 
 const REASONS: WasteReason[] = ['Expired', 'Dropped/spilled', 'Over-prepped', 'Quality issue', 'Theft', 'Other'];
 
@@ -32,6 +34,7 @@ export default function WasteLogSection() {
   const logWaste = useStore((s) => s.logWaste);
   // Spec 055 — first-mount skeleton flag.
   const storeLoading = useStore((s) => s.storeLoading);
+  const isPhone = useIsPhone();
 
   const [tabId, setTabId] = React.useState('log.tsx');
   const [reasonFilter, setReasonFilter] = React.useState<WasteReason | 'all'>('all');
@@ -116,6 +119,11 @@ export default function WasteLogSection() {
     setNote('');
     setSubmitting(false);
   };
+
+  // Spec 142 (chunk c) — phone renders the event feed + two-step log sheet; the
+  // desktop/tablet list+form tree below is byte-unchanged (AC-REG1). Guard after
+  // all hooks so a live isPhone flip stays rules-of-hooks safe.
+  if (isPhone) return <PhoneWasteLog />;
 
   // Spec 055 first-mount skeleton — wasteLog slice loads as part of the
   // store's loadFromSupabase fan-out; check the global flag + slice

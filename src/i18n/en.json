@@ -183,7 +183,9 @@
     "unselected": "Unselected",
     "required": "Required",
     "optional": "Optional",
-    "adminOnly": "— admin only"
+    "adminOnly": "— admin only",
+    "editOnDesktop": "Edit on desktop",
+    "availableOnDesktop": "Available on desktop"
   },
   "toast": {
     "savedDraft": "Draft saved",
@@ -362,6 +364,7 @@
       "filterUnfinished": "unfinished",
       "noIngredients": "no ingredients defined yet",
       "noMatches": "no matches",
+      "editOnDesktop": "Edit on desktop",
       "noCost": "no cost",
       "perCase": "case",
       "inStores": "in {count} stores",

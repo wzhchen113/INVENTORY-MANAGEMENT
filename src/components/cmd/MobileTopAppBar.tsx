@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Platform, TextStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCmdColors } from '../../theme/colors';
 import { mono, sans } from '../../theme/typography';
@@ -16,24 +16,37 @@ interface Props {
   hamburgerGlyph?: string;
   /** Accessibility label for the hamburger button. Defaults to "Open menu". */
   hamburgerLabel?: string;
+  /** Inner-row height. Defaults to 44 (Spec 011). Spec 142 passes 52 from the
+   *  phone branch so the fixed bar matches the handoff Hard Rule 5 (52px, never
+   *  overlapped). A height ≥ 52 also grows the hamburger hit target to 44×44. */
+  height?: number;
+  /** Optional title text style override (e.g. PhoneType.screenTitle on phone).
+   *  Defaults to the Spec 011 sans-600 / 14 style so existing callers are
+   *  byte-unchanged. */
+  titleType?: TextStyle;
 }
 
 // Spec 011 §2 — narrow-tier app bar: hamburger + section title + slot.
-// 44 px tall, plus the device top safe-area inset on phone (notches /
-// dynamic island). Tablet renders without inset since the chrome lives
-// inside the browser viewport on web only.
+// 44 px tall by default (Spec 142 phone branch passes 52), plus the device top
+// safe-area inset on phone (notches / dynamic island). Tablet renders without
+// inset since the chrome lives inside the browser viewport on web only.
 export const MobileTopAppBar: React.FC<Props> = ({
   onHamburgerPress,
   title,
   trailing,
   hamburgerGlyph = '☰',
   hamburgerLabel = 'Open menu',
+  height = 44,
+  titleType,
 }) => {
   const C = useCmdColors();
   const insets = useSafeAreaInsets();
   // Top inset only when running outside web (native phones with notches).
   // On web the browser chrome owns the top inset.
   const topPad = Platform.OS === 'web' ? 0 : insets.top;
+  // Spec 142 — grow the hamburger hit target to the 44×44 floor once the bar is
+  // at the phone 52px height; the default 44px bar keeps the historical 32×32.
+  const hitSize = height >= 52 ? 44 : 32;
 
   return (
     <View
@@ -54,8 +67,9 @@ export const MobileTopAppBar: React.FC<Props> = ({
           positioning is unambiguous (mirrors TitleBar.tsx:119-122). */}
       <LoadingBar />
       <View
+        testID="mobile-top-app-bar-row"
         style={{
-          height: 44,
+          height,
           paddingHorizontal: 12,
           flexDirection: 'row',
           alignItems: 'center',
@@ -68,8 +82,8 @@ export const MobileTopAppBar: React.FC<Props> = ({
           accessibilityLabel={hamburgerLabel}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={{
-            width: 32,
-            height: 32,
+            width: hitSize,
+            height: hitSize,
             alignItems: 'center',
             justifyContent: 'center',
           }}
@@ -80,12 +94,10 @@ export const MobileTopAppBar: React.FC<Props> = ({
         </TouchableOpacity>
         <Text
           numberOfLines={1}
-          style={{
-            flex: 1,
-            fontFamily: sans(600),
-            fontSize: 14,
-            color: C.fg,
-          }}
+          style={[
+            { flex: 1, color: C.fg },
+            titleType ?? { fontFamily: sans(600), fontSize: 14 },
+          ]}
         >
           {title || 'im.cmd'}
         </Text>

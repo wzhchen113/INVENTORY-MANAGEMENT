@@ -28,8 +28,10 @@ import { useStore } from '../../../store/useStore';
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { useIsSuperAdmin } from '../../../hooks/useRole';
+import { useIsPhone } from '../../../theme/breakpoints';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
+import { PhoneMenuImpactList } from './phone/PhoneMenuImpactList';
 import type { MenuCapacityRow } from '../../../lib/db';
 
 type SortColumn = 'name' | 'makeable' | 'binding' | 'low' | 'brand';
@@ -103,6 +105,7 @@ export default function MenuImpactSection() {
   const T = useT();
   const locale = useLocale();
   const isSuperAdmin = useIsSuperAdmin();
+  const isPhone = useIsPhone();
 
   const recipes = useStore((s) => s.recipes);
   const menuCapacity = useStore((s) => s.menuCapacity);
@@ -165,6 +168,11 @@ export default function MenuImpactSection() {
   const sorted = React.useMemo(() => {
     return filtered.slice().sort((a, b) => compareRows(a, b, sortCol, sortDir, locale));
   }, [filtered, sortCol, sortDir, locale]);
+
+  // Spec 142 (chunk c) — phone renders the card-row Menu-impact surface; the
+  // desktop/tablet table below is byte-unchanged (AC-REG1). Guard sits after
+  // all hooks so a live isPhone flip on web resize stays rules-of-hooks safe.
+  if (isPhone) return <PhoneMenuImpactList />;
 
   // First-mount skeleton — same predicate as VendorsSection / RecipesSection.
   if (storeLoading && recipes.length === 0) {

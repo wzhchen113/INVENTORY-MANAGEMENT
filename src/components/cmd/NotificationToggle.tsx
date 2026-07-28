@@ -17,12 +17,64 @@ import { useStore } from '../../store/useStore';
 import { useT } from '../../hooks/useT';
 import { useNotificationToggle } from '../../lib/useNotificationToggle';
 
-export const NotificationToggle: React.FC = () => {
+interface Props {
+  /** Presentation variant (spec 142).
+   *  - `full` (default): the byte-identical rail/tablet pill — label + state +
+   *    the blocked/needs-install/retry copy underneath.
+   *  - `bar`: phone top-app-bar mode — a ≥44×44 bell glyph only, with a dot
+   *    badge when a blocked/needs-attention state exists. The blocked copy is
+   *    relocated to `NotificationBlockedBanner` below the 52px bar (Hard Rule 5),
+   *    so it is never rendered here. */
+  variant?: 'full' | 'bar';
+}
+
+export const NotificationToggle: React.FC<Props> = ({ variant = 'full' }) => {
   const C = useCmdColors();
   const T = useT();
   const userId = useStore((s) => s.currentUser?.id);
 
   const m = useNotificationToggle(userId, T);
+
+  if (variant === 'bar') {
+    // Phone bar: bell glyph only (handoff §257 production bell ◔). The dot
+    // badge signals a blocked / needs-attention state whose copy lives in the
+    // banner-below-bar. No m.body / m.iosSteps / retry text spills into the bar.
+    const needsAttention = !!(m.body || m.iosSteps || m.showRetry);
+    return (
+      <TouchableOpacity
+        onPress={m.onPress}
+        disabled={!m.interactive}
+        activeOpacity={0.85}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: m.isOn, disabled: !m.interactive }}
+        accessibilityLabel={m.aria}
+        style={{
+          width: 44,
+          height: 44,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: m.interactive ? 1 : 0.55,
+        }}
+      >
+        <Text style={{ fontFamily: mono(400), fontSize: 18, color: m.isOn ? C.accent : C.fg2 }}>
+          ◔
+        </Text>
+        {needsAttention ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              width: 7,
+              height: 7,
+              borderRadius: CmdRadius.pill,
+              backgroundColor: C.danger,
+            }}
+          />
+        ) : null}
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <View style={{ alignItems: 'center', gap: 3, maxWidth: 132 }}>

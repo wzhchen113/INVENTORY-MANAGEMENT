@@ -18,6 +18,8 @@ import { getConversionFactor } from '../../../utils/unitConversion';
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { getLocalizedName } from '../../../i18n/localizedName';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhonePrepRecipesList } from './phone/PhonePrepRecipesList';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -32,6 +34,7 @@ export default function PrepRecipesSection() {
   const T = useT();
   const role = useRole();
   const locale = useLocale();
+  const isPhone = useIsPhone();
   const prepRecipes = useStore((s) => s.prepRecipes);
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -112,6 +115,11 @@ export default function PrepRecipesSection() {
       };
     });
   }, [sel, inventory, prepRecipes, getIngredientLineCost, getPrepRecipe, getPrepRecipeCostPerUnit, selCost]);
+
+  // Spec 142 (chunk c) — phone renders the list + full-screen prep detail; the
+  // desktop/tablet 340px-pane tree below is byte-unchanged (AC-REG1). Guard
+  // after all hooks so a live isPhone flip stays rules-of-hooks safe.
+  if (isPhone) return <PhonePrepRecipesList />;
 
   // Spec 055 first-mount skeleton — initial load with empty slice.
   if (storeLoading && prepRecipes.length === 0) {

@@ -31,9 +31,11 @@ import { ComingSoonPanel } from '../../components/cmd/ComingSoonPanel';
 import { IngredientFormDrawer } from '../../components/cmd/IngredientFormDrawer';
 import { ListSkeleton } from '../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../utils/confirmAction';
-import { useIsDesktop } from '../../theme/breakpoints';
+import { useIsDesktop, useIsPhone } from '../../theme/breakpoints';
 import { formatCostPerEach, costPerEachLabel, formatStockValue } from './lib/itemMoney';
 import { applyInventoryStatusView } from './lib/inventoryStatusView';
+import { getLastInventoryViewMode, setLastInventoryViewMode, type InventoryViewMode } from './lib/inventoryViewMode';
+import { PhoneInventoryList } from './sections/phone/PhoneInventoryList';
 import VendorsSection from './sections/VendorsSection';
 import CategoriesSection from './sections/CategoriesSection';
 import InventoryCatalogMode from './sections/InventoryCatalogMode';
@@ -99,6 +101,10 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   const T = useT();
   const locale = useLocale();
   const isDesktop = useIsDesktop();
+  // Spec 142 §1c (AC-C3) — this host renders the section-dispatch footer status
+  // bar (synced · UTF-8 · LF · ⌘K palette · version) for EVERY section. Phone
+  // suppresses it entirely (no desktop chrome / no ⌘K hint on phone, Hard Rule 4).
+  const isPhone = useIsPhone();
   const { width: windowWidth } = useWindowDimensions();
 
   const inventory = useStore((s) => s.inventory);
@@ -119,7 +125,17 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   // names line up across rows).
   const [selectedName, setSelectedName] = React.useState<string | null>(null);
   const [tabId, setTabId]             = React.useState('detail.tsx');
-  const [viewMode, setViewMode]       = React.useState<'per-store' | 'catalog' | 'categories'>('per-store');
+  // Spec 142 — seed from the module-level memory so `viewMode` survives the
+  // tier-change REMOUNT (ResponsiveCmdShell mounts this host at a different tree
+  // position per tier, so a resize across 768/1100 unmounts + remounts us). The
+  // wrapper setter mirrors every change back to the memory. Desktop/tablet render
+  // output is unchanged — first-ever load still starts at 'per-store' (the memory
+  // default) and the setter behaves identically to the raw useState setter.
+  const [viewMode, setViewModeRaw]    = React.useState<InventoryViewMode>(getLastInventoryViewMode());
+  const setViewMode = React.useCallback((next: InventoryViewMode) => {
+    setLastInventoryViewMode(next);
+    setViewModeRaw(next);
+  }, []);
   // Spec 112 (AC-7 fix) — we DON'T measure the table's own width with onLayout,
   // because in this react-native-web setup onLayout fires only at mount: it does
   // NOT re-fire when the element reflows via CSS flex (pane sibling mounting) or
@@ -339,6 +355,20 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
               <ComingSoonPanel tabName={slugify(section)} />
             </View>
           </View>
+        ) : isPhone ? (
+          // Spec 142 — phone Inventory. Catalog mode (viewMode==='catalog',
+          // reachable by opening catalog.tsv at a wider width then resizing, or
+          // via a future palette entry) routes through InventoryCatalogMode,
+          // whose OWN isPhone guard renders PhoneCatalogList (AC-INV5). Every
+          // other viewMode collapses to the per-store phone list — the
+          // items.tsv/catalog.tsv/categories tab strip is desktop chrome (Hard
+          // Rule 4) and never renders on phone. The desktop/tablet chain below is
+          // byte-unchanged (isPhone === false there → skips this branch). AC-REG1.
+          viewMode === 'catalog' ? (
+            <InventoryCatalogMode selectedName={selectedName} onSelectName={setSelectedName} />
+          ) : (
+            <PhoneInventoryList />
+          )
         ) : viewMode === 'categories' ? (
           <View style={{ flex: 1, flexDirection: 'column', minHeight: 0 }}>
             <TabStrip
@@ -600,7 +630,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
         )}
       </View>
 
-      <CmdStatusBar
+      {!isPhone && <CmdStatusBar
         height={24}
         left={
           <>
@@ -627,7 +657,7 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
             </TouchableOpacity>
           </>
         }
-      />
+      />}
 
       {/* EDIT drawer — mounted at body root so it overlays the chrome */}
       <IngredientFormDrawer

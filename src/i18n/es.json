@@ -183,7 +183,9 @@
     "unselected": "No seleccionado",
     "required": "Requerido",
     "optional": "Opcional",
-    "adminOnly": "— solo admin"
+    "adminOnly": "— solo admin",
+    "editOnDesktop": "Editar en el escritorio",
+    "availableOnDesktop": "Disponible en el escritorio"
   },
   "toast": {
     "savedDraft": "Borrador guardado",
@@ -362,6 +364,7 @@
       "filterUnfinished": "incompletos",
       "noIngredients": "aún no hay ingredientes definidos",
       "noMatches": "sin coincidencias",
+      "editOnDesktop": "Editar en el escritorio",
       "noCost": "sin costo",
       "perCase": "caja",
       "inStores": "en {count} tiendas",

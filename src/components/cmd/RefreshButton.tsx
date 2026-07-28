@@ -11,10 +11,35 @@ import { useT } from '../../hooks/useT';
 // always picks up the latest hashed bundle AND re-fetches all data.
 // Web-only: "reload the page" has no native equivalent, so render nothing
 // there (mirrors the LoadingBar web-only pattern).
-export const RefreshButton: React.FC = () => {
+interface Props {
+  /** Presentation variant (spec 142).
+   *  - `full` (default): the byte-identical rail/title-bar text pill.
+   *  - `bar`: phone top-app-bar mode — a ≥44×44 icon-only ↻ glyph (no text),
+   *    clearing the 44×44 hit floor (AC-C1). Used ONLY from ResponsiveCmdShell's
+   *    phone branch. */
+  variant?: 'full' | 'bar';
+}
+
+export const RefreshButton: React.FC<Props> = ({ variant = 'full' }) => {
   const C = useCmdColors();
   const T = useT();
   if (Platform.OS !== 'web') return null;
+
+  if (variant === 'bar') {
+    return (
+      <TouchableOpacity
+        testID="chrome-refresh-app"
+        onPress={() => window.location.reload()}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={T('chrome.refreshApp.aria')}
+        style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Text style={{ fontFamily: mono(400), fontSize: 18, color: C.fg2 }}>↻</Text>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <TouchableOpacity
       testID="chrome-refresh-app"

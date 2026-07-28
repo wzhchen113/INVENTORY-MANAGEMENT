@@ -72,4 +72,9 @@ export const PhoneType: Record<string, TextStyle> = {
   kpiValue:       { fontFamily: mono(600), fontSize: 19,   letterSpacing: -0.3, fontVariant: TABULAR },
   keypadKey:      { fontFamily: mono(500), fontSize: 18 },
   tableNum:       { fontFamily: mono(600), fontSize: 14,   fontVariant: TABULAR },
+  // Spec 142 (chunk b) — additive detail roles. `detailTitle` is the full-screen
+  // item/vendor/menu-item name (AC-INV4 "name 22/600"); `heroValue` is the
+  // stat-panel on-hand figure (AC-INV4 "on-hand 24 mono in status color").
+  detailTitle:    { fontFamily: sans(600), fontSize: 22,   letterSpacing: -0.3 },
+  heroValue:      { fontFamily: mono(600), fontSize: 24,   fontVariant: TABULAR },
 };

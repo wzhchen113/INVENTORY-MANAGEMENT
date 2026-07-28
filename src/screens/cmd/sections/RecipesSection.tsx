@@ -24,6 +24,8 @@ import { useLocale } from '../../../hooks/useLocale';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { toCSV, downloadCSV } from '../../../utils';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneMenuItemsList } from './phone/PhoneMenuItemsList';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -59,6 +61,7 @@ export default function RecipesSection() {
   const T = useT();
   const role = useRole();
   const locale = useLocale();
+  const isPhone = useIsPhone();
   const recipes = useStore((s) => s.recipes);
   const recipeCategoriesSlice = useStore((s) => s.recipeCategories);
   const inventory = useStore((s) => s.inventory);
@@ -229,6 +232,11 @@ export default function RecipesSection() {
     : p <= 30 ? C.ok
     : p <= 50 ? C.warn
     : C.danger;
+
+  // Spec 142 (chunk c) — phone renders the grouped card list + full-screen
+  // detail; the desktop/tablet 340px-pane tree below is byte-unchanged (AC-REG1).
+  // Guard after all hooks so a live isPhone flip stays rules-of-hooks safe.
+  if (isPhone) return <PhoneMenuItemsList />;
 
   // Spec 055 first-mount skeleton — only fires on the initial load when
   // the recipes slice is still empty. After the first fetch resolves,

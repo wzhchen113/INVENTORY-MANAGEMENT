@@ -16,6 +16,8 @@ import { ListSkeleton } from '../../../components/cmd/ListSkeleton';
 import { confirmAction } from '../../../utils/confirmAction';
 import { useT } from '../../../hooks/useT';
 import { useIsSuperAdmin } from '../../../hooks/useRole';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneVendorsList } from './phone/PhoneVendorsList';
 import type { Vendor } from '../../../types';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
@@ -31,6 +33,7 @@ export default function VendorsSection() {
   const deleteVendor = useStore((s) => s.deleteVendor);
   const brand = useStore((s) => s.brand);
   const isSuperAdmin = useIsSuperAdmin();
+  const isPhone = useIsPhone();
   // Spec 055 — first-mount-with-no-cache skeleton. `storeLoading` is the
   // global "talking to Supabase about your data" flag toggled by
   // loadFromSupabase. Pair with `vendors.length === 0` so subsequent
@@ -101,6 +104,11 @@ export default function VendorsSection() {
         (i.vendors ?? []).some((v) => v.vendorId === sel.id && !(v.orderCode ?? '').trim()),
     ).length;
   }, [inventory, sel, currentStore.id]);
+
+  // Spec 142 (chunk c) — phone renders the list + full-screen vendor detail;
+  // the desktop/tablet 300px-pane tree below is byte-unchanged (AC-REG1). Guard
+  // after all hooks so a live isPhone flip stays rules-of-hooks safe.
+  if (isPhone) return <PhoneVendorsList />;
 
   // Spec 055 first-mount skeleton — only fires on the initial load with
   // an empty slice. After the first fetch resolves (success OR empty),

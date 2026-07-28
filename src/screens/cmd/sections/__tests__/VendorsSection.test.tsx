@@ -17,6 +17,14 @@
 
 // ── Mocks (must precede any import of the component) ────────────────
 
+// Spec 142 — VendorsSection now forks to a phone list under isPhone. Force the
+// non-phone tier so the desktop two-pane tree renders (default jest Platform.OS
+// is native → useBreakpoint returns 'phone').
+jest.mock('../../../../theme/breakpoints', () => {
+  const actual = jest.requireActual('../../../../theme/breakpoints');
+  return { ...actual, useIsPhone: () => false };
+});
+
 jest.mock('../../../../theme/colors', () => ({
   useCmdColors: () => ({
     bg:           '#FFFFFF',

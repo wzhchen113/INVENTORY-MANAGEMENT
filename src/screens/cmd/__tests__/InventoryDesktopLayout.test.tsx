@@ -60,6 +60,10 @@ jest.mock('react-native/Libraries/Utilities/Platform', () => ({
 const mockIsDesktop = jest.fn(() => true);
 jest.mock('../../../theme/breakpoints', () => ({
   useIsDesktop: () => mockIsDesktop(),
+  // Spec 142 — the host now reads useIsPhone to suppress CmdStatusBar on phone.
+  // These desktop-branch tests stay on the ≥1100 path, so phone is always false
+  // (CmdStatusBar still renders — desktop output byte-unchanged, AC-REG).
+  useIsPhone: () => false,
   DESKTOP_MIN_WIDTH: 1100,
 }));
 
@@ -232,6 +236,10 @@ jest.mock('../../../store/useStore', () => {
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import InventoryDesktopLayout from '../InventoryDesktopLayout';
+// Spec 142 — reset the module-level Inventory viewMode memory between cases so
+// case 8's catalog.tsv press doesn't leak 'catalog' into the later per-store
+// assertions (case 9/10).
+import { setLastInventoryViewMode } from '../lib/inventoryViewMode';
 import { useStore } from '../../../store/useStore';
 
 const mockState = (useStore as any).__state as Record<string, any>;
@@ -263,6 +271,7 @@ function renderLayout() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  setLastInventoryViewMode('per-store');
   mockWindowWidth = 1800;
   mockIsDesktop.mockReturnValue(true);
   mockState.currentStore = { id: 'store-1', name: 'Store One' };

@@ -27,6 +27,8 @@ import type { InventoryItem, ItemStatus, IngredientConversion } from '../../../t
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { useIsSuperAdmin } from '../../../hooks/useRole';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneCatalogList } from './phone/PhoneCatalogList';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { unitLabel } from '../../../utils/enumLabels';
@@ -85,6 +87,10 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const deleteItem     = useStore((s) => s.deleteItem);
   const brand          = useStore((s) => s.brand);
   const isSuperAdmin   = useIsSuperAdmin();
+  // Spec 142 (chunk b) — phone catalog: full-width list + full-screen drill-in.
+  // Read as a hook up top so the guard below all other hooks stays rules-safe
+  // when isPhone flips on web resize (AC-INV5 / §7 rules-of-hooks note).
+  const isPhone        = useIsPhone();
 
   const [filterText, setFilterText]         = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
@@ -267,6 +273,11 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   }, []);
 
   const sourceBrandId = brand?.id || '';
+
+  // Spec 142 (chunk b) — phone renders the full-width list + drill-in detail;
+  // the desktop/tablet two-pane return below is byte-unchanged (AC-REG1). Guard
+  // sits after ALL hooks above so a live isPhone flip stays rules-of-hooks safe.
+  if (isPhone) return <PhoneCatalogList />;
 
   return (
     <>
