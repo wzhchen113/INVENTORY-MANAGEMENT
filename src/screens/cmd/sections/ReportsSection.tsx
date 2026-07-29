@@ -11,6 +11,8 @@ import { ReportDefinition } from '../../../types';
 import { TEMPLATES, findTemplate, defaultReportName } from './reports/templates';
 import { ReportDetailFrame } from './reports/ReportDetailFrame';
 import { useT } from '../../../hooks/useT';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneReports } from './phone/PhoneReports';
 
 // Spec 016 (REPORTS-1) — Reports section is a real runner foundation now.
 // Catalog tiles derive from `templates.ts` (single source of truth shared with
@@ -46,6 +48,7 @@ interface OverrideState {
 export default function ReportsSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const [tabId, setTabId] = React.useState('library.tsx');
 
   // Section-local view state. `'list'` is the catalog + saved-reports grid;
@@ -254,6 +257,12 @@ export default function ReportsSection() {
   // Spec 055 first-mount skeleton — grid-shaped for saved reports tiles.
   if (storeLoading && savedReports.length === 0) {
     return <GridSkeleton rows={2} cols={3} />;
+  }
+
+  // Spec 147 — phone tier (< 768px web + all native). Additive guard after all
+  // hooks; desktop/tablet tree below is byte-unchanged (AC-REG).
+  if (isPhone) {
+    return <PhoneReports />;
   }
 
   return (

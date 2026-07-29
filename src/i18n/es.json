@@ -51,6 +51,35 @@
     "guest": "invitado",
     "store": "tienda",
     "switchStoreAria": "Cambiar tienda",
+    "phone": {
+      "login": {
+        "caption": "CONSOLA DE MANDO DEL RESTAURANTE",
+        "usernameLabel": "USUARIO O CORREO",
+        "usernamePlaceholder": "usuario o tu@correo.com",
+        "passwordLabel": "CONTRASEÑA",
+        "passwordPlaceholder": "••••••••",
+        "signIn": "INICIAR SESIÓN →",
+        "forgotPassword": "¿OLVIDASTE LA CONTRASEÑA?",
+        "forgotToast": "El restablecimiento de contraseña está por ahora en la consola de escritorio.",
+        "register": "¿Tienes invitación? Regístrate",
+        "demoTitle": "CUENTAS DEMO · DEV"
+      },
+      "notifications": {
+        "aria": "Notificaciones",
+        "push": "NOTIFICACIONES PUSH"
+      },
+      "storeSwitch": {
+        "aria": "Cambiar tienda",
+        "title": "CAMBIAR TIENDA",
+        "current": "ACTUAL",
+        "switch": "CAMBIAR →",
+        "brandSection": "MARCA · SUPER-ADMIN",
+        "allBrands": "Todas las marcas",
+        "switchedToast": "Cambiado a {name}",
+        "brandSwitchedToast": "Marca cambiada",
+        "empty": "No hay tiendas disponibles"
+      }
+    },
     "themeToggle": {
       "lightLabel": "☼ claro",
       "darkLabel": "☾ oscuro",
@@ -328,7 +357,29 @@
       "allClear": "todo en orden",
       "openDrillDown": "{text} — abrir detalle",
       "managerLabel": "gte:",
-      "syncLabel": "sync {time}"
+      "syncLabel": "sync {time}",
+      "phone": {
+        "metaLine": "{date} · {store}",
+        "kpiInvValue": "VALOR INVENTARIO",
+        "kpiInvValueSub": "A COSTO · {count} ARTÍCULOS",
+        "kpiOut": "AGOTADO",
+        "kpiOutSub": "BLOQUEA PLATOS",
+        "kpiLow": "BAJO VS PAR",
+        "kpiLowSub": "CANDIDATOS A PEDIDO",
+        "kpiWaste": "MERMA · 7 DÍAS",
+        "kpiWasteSub": "{count} EVENTOS",
+        "eodGroup": "CONTEO EOD DE HOY",
+        "eodSubmitted": "ENVIADO · SINCRONIZADO",
+        "eodProgress": "{counted} DE {total} CONTADOS",
+        "eodPillDone": "LISTO",
+        "eodPillOpen": "ABIERTO",
+        "noEod": "Sin proveedores programados hoy",
+        "attentionGroup": "REQUIERE ATENCIÓN",
+        "attentionMeta": "par {par} · {cost}/{unit} · {vendor}",
+        "noAttention": "Nada agotado",
+        "activityGroup": "ACTIVIDAD RECIENTE",
+        "noActivity": "Sin actividad reciente"
+      }
     },
     "inventory": {
       "title": "Inventario",
@@ -626,6 +677,14 @@
         "pdfExported": "PDF exportado",
         "pdfPrintDialog": "Abriendo el diálogo de impresión — elija Guardar como PDF",
         "exportFailed": "Error al exportar"
+      },
+      "phone": {
+        "weekBadge": "SEMANAL · SEM {num}",
+        "submitWeekly": "ENVIAR CONTEO SEMANAL",
+        "matchesSystem": "✓ COINCIDE CON SISTEMA",
+        "vsSystem": "{amount} {unit} VS SISTEMA",
+        "uncountedRemain": "{count} artículos sin contar — cuenta todo primero",
+        "groupItems": "{count} ARTÍCULOS"
       }
     },
     "wasteLog": {
@@ -1121,7 +1180,21 @@
       "countNotSubmittedGroupTitle": "Conteo no enviado",
       "countNotSubmittedTitle": "Conteo aún no enviado",
       "countNotSubmittedBody": "No se envió ningún conteo de fin de día para esta fecha, por lo que las cantidades de pedido están ocultas. Envía el conteo para ver las sugerencias.",
-      "countNotSubmittedKpiSub": "conteo no enviado"
+      "countNotSubmittedKpiSub": "conteo no enviado",
+      "phoneKpiVendors": "{count} PROVEEDORES",
+      "phoneKpiLines": "{count} LÍNEAS",
+      "phoneKpiEst": "est",
+      "phoneCardStats": "{lines} LÍNEAS · {cases} CJ · EST {est}",
+      "phoneItemsAffected": "{count} ARTÍCULOS AFECTADOS",
+      "phoneCartFilled": "CARRITO LLENO",
+      "phoneGoToEodCount": "IR AL CONTEO EOD",
+      "phoneSheetTitle": "{vendor} — EXPORTAR Y HERRAMIENTAS",
+      "phoneExportCsv": "EXPORTAR CSV",
+      "phoneExportPdf": "EXPORTAR PDF",
+      "phoneOrderSchedule": "CALENDARIO DE PEDIDOS",
+      "phoneOrderScheduleToast": "Calendario de pedidos — por ahora solo en escritorio",
+      "phoneDateFor": "PARA {date}",
+      "phoneDateHint": "Cambia la fecha del pedido en el escritorio"
     },
     "reconciliation": {
       "title": "Conciliación",
@@ -1178,7 +1251,17 @@
       "consecutive": "consecutivos",
       "netDollar90d": "Δ$ neto · 90d",
       "timelineDat": "timeline.dat",
-      "timelineLegend": "verde=favorable · rojo=merma · gris=faltante"
+      "timelineLegend": "verde=favorable · rojo=merma · gris=faltante",
+      "phone": {
+        "parentCaption": "RECONCILIACIÓN",
+        "detailTitle": "VARIANZA",
+        "subtitle": "{count} líneas · neto {net}",
+        "subtitleEmpty": "Sin varianzas vs período previo",
+        "linesGroup": "LÍNEAS DE VARIANZA",
+        "rowMeta": "esp {expected} · contado {counted}",
+        "noVariances": "Sin varianzas vs período previo.",
+        "noEod": "Aún no hay envíos de EOD."
+      }
     },
     "posImports": {
       "title": "Importes POS",
@@ -1191,7 +1274,26 @@
       "linksCreated": "{count} enlaces creados",
       "codesSkipped": "{count} códigos omitidos",
       "codeSkipUnmatched": "proveedor sin coincidencia \"{name}\"",
-      "codeSkipNoVendor": "sin proveedor"
+      "codeSkipNoVendor": "sin proveedor",
+      "phone": {
+        "parentCaption": "IMPORTES POS",
+        "subtitle": "{count} importes",
+        "importsGroup": "HISTORIAL DE IMPORTES",
+        "rowMeta": "{when} · {rows} filas · {matched} coincidentes",
+        "empty": "No hay importes POS para {store} — sube un CSV en escritorio para empezar.",
+        "upload": "+ SUBIR CSV",
+        "uploadToast": "Sube un CSV de POS desde la consola de escritorio.",
+        "detailCaption": "{date} · {state}",
+        "statTotal": "TOTAL",
+        "statMatched": "COINCIDEN",
+        "statUnmapped": "SIN MAPEAR",
+        "unmatchedGroup": "FILAS SIN COINCIDENCIA",
+        "allMatched": "Todas las filas coinciden con recetas.",
+        "soldQty": "{qty} vendidos",
+        "stateSuccess": "éxito",
+        "statePartial": "parcial",
+        "stateFailed": "fallido"
+      }
     },
     "auditLog": {
       "title": "Bitácora de auditoría",
@@ -1227,14 +1329,59 @@
       "runReport": "Ejecutar informe",
       "running": "Ejecutando…",
       "noRuns": "Aún no hay ejecuciones",
-      "noSavedReports": "Sin informes guardados"
+      "noSavedReports": "Sin informes guardados",
+      "phone": {
+        "parentCaption": "INFORMES",
+        "subtitle": "{count} informes guardados",
+        "savedGroup": "INFORMES GUARDADOS",
+        "empty": "Sin informes guardados — crea uno en la consola de escritorio.",
+        "newReport": "+ NUEVO INFORME",
+        "newReportToast": "Crea un nuevo informe en la consola de escritorio.",
+        "pillReady": "LISTO",
+        "pillRunning": "EJECUTANDO",
+        "pillQueued": "EN COLA",
+        "pillFailed": "FALLIDO",
+        "ranMeta": "ejecutado {when}",
+        "neverRun": "nunca ejecutado",
+        "lastRun": "Última ejecución {when}",
+        "kpisGroup": "RESUMEN",
+        "noKpis": "Ejecuta este informe para ver resultados.",
+        "runError": "La ejecución del informe falló.",
+        "desktopNote": "La tabla de resultados completa y el creador de informes están en la consola de escritorio.",
+        "runBtn": "EJECUTAR INFORME",
+        "runningBtn": "EJECUTANDO…"
+      }
     },
     "users": {
       "title": "Usuarios y acceso",
       "inviteUser": "Invitar usuario",
       "noUsers": "Sin usuarios",
       "deleteUserConfirm": "¿Eliminar usuario?",
-      "deleteUserBody": "El perfil y el acceso serán eliminados."
+      "deleteUserBody": "El perfil y el acceso serán eliminados.",
+      "phone": {
+        "parentCaption": "USUARIOS",
+        "count": "{n} USUARIOS",
+        "storesTag": "{n} TIENDAS",
+        "invited": "INVITADO",
+        "invite": "+ INVITAR",
+        "loading": "CARGANDO…",
+        "empty": "Aún no hay usuarios — invita al primero abajo.",
+        "noStores": "sin tiendas asignadas",
+        "noEmail": "(correo no cargado)",
+        "you": "TÚ",
+        "properties": "PROPIEDADES",
+        "propRole": "ROL",
+        "propStores": "TIENDAS",
+        "propStatus": "ESTADO",
+        "propUsername": "USUARIO",
+        "resetPw": "REST. CONTR.",
+        "deleteUser": "ELIMINAR USUARIO",
+        "deleteTitle": "Eliminar {name}",
+        "deleteSelfTitle": "Eliminar tu cuenta",
+        "deleteBody": "Esto eliminará permanentemente a {name}. Se eliminan el perfil y el usuario de acceso. Esto no se puede deshacer.",
+        "deleteSelfBody": "Esto eliminará permanentemente tu cuenta y cerrará tu sesión. Esto no se puede deshacer.",
+        "thisUser": "este usuario"
+      }
     },
     "brands": {
       "title": "Marcas",

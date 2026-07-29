@@ -21,6 +21,10 @@ interface Props {
   paletteResults?: React.ReactNode;
   /** "admin@towson · v2.4" style sub-line. */
   subtitle?: string;
+  /** Spec 148 — optional store chip rendered in the drawer header (phone store
+   *  & brand switcher). Drawer mode is the phone home for the store chip; dock
+   *  mode is a deferred spec. */
+  storeChip?: React.ReactNode;
   footerLeft?: React.ReactNode;
   footerRight?: React.ReactNode;
 }
@@ -38,6 +42,7 @@ export const MobileNavDrawer: React.FC<Props> = ({
   onPaletteChange,
   paletteResults,
   subtitle,
+  storeChip,
   footerLeft,
   footerRight,
 }) => {
@@ -80,6 +85,9 @@ export const MobileNavDrawer: React.FC<Props> = ({
               <Text style={{ fontFamily: mono(400), fontSize: 18, color: C.fg2 }}>✕</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Spec 148 — store & brand switch chip (phone drawer header). */}
+          {storeChip ? <View style={{ flexDirection: 'row' }}>{storeChip}</View> : null}
 
           {/* ⌘P palette field */}
           <View

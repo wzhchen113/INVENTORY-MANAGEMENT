@@ -20,6 +20,8 @@ import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
 import { NotificationToggle } from '../../components/cmd/NotificationToggle';
 import { NotificationBlockedBanner } from '../../components/cmd/NotificationBlockedBanner';
+import { PhoneNotifications } from './sections/phone/PhoneNotifications';
+import { PhoneStoreSwitch } from './sections/phone/PhoneStoreSwitch';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
 import { useIsSuperAdmin } from '../../hooks/useRole';
 import { useT } from '../../hooks/useT';
@@ -411,8 +413,12 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
                   blocked/enable-push copy relocates to NotificationBlockedBanner
                   below the fixed 52px bar (Hard Rule 5: the bar is never
                   overlapped). The `bar` variants keep the tablet rail / desktop
-                  title-bar callers byte-unchanged (AC-REG). */}
-              <NotificationToggle variant="bar" />
+                  title-bar callers byte-unchanged (AC-REG).
+                  Spec 148 — the bell now opens the notifications feed sheet
+                  (PhoneNotifications); the per-device PUSH toggle relocates into
+                  that sheet's footer, and the blocked copy stays in the banner
+                  below the bar. */}
+              <PhoneNotifications />
               <ThemeToggle variant="bar" />
               <RefreshButton variant="bar" />
             </View>
@@ -435,6 +441,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           onPaletteChange={setPaletteQuery}
           paletteResults={paletteResults}
           subtitle={`${currentUser?.email || T('chrome.guest')} · ${APP_VERSION}`}
+          storeChip={<PhoneStoreSwitch onSwitched={() => setMobileDrawerOpen(false)} />}
           footerLeft={sidebarFooterLeft}
           footerRight={sidebarFooterRight}
         />

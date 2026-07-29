@@ -8,6 +8,8 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { useStockSeries, computeVarianceLines } from '../../../lib/cmdSelectors';
 import { useT } from '../../../hooks/useT';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneReconciliation } from './phone/PhoneReconciliation';
 
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 6) : id);
 
@@ -30,6 +32,7 @@ interface VarianceRow {
 export default function ReconciliationSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const inventory = useStore((s) => s.inventory);
   const stores = useStore((s) => s.stores);
@@ -93,6 +96,23 @@ export default function ReconciliationSection() {
     if (Math.abs(r.pct) >= 10) return C.warn;
     return r.diff > 0 ? C.ok : C.fg2;
   };
+
+  // Spec 147 — phone tier (< 768px web + all native). All hooks/memos above run
+  // for every tier; only the phone path mounts the phone component with the
+  // already-computed rows + net summary, so the desktop/tablet tree below is
+  // byte-unchanged (AC-REG).
+  if (isPhone) {
+    return (
+      <PhoneReconciliation
+        model={{
+          latestDate: latest?.date ?? null,
+          rows,
+          netDollar,
+          netPctOfInv,
+        }}
+      />
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

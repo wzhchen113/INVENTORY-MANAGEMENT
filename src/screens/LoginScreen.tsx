@@ -29,6 +29,8 @@ import { USERS, STORES } from '../data/seed';
 import { useStaffStore } from './staff/store/useStaffStore';
 import { readActiveStoreId, writeActiveStoreId } from './staff/lib/eodQueue';
 import { t as tStaff } from './staff/i18n';
+import { useIsPhone } from '../theme/breakpoints';
+import { PhoneLogin, type PhoneLoginDemoUser } from './cmd/sections/phone/PhoneLogin';
 
 export default function LoginScreen() {
   // Spec 095 — single identifier field that accepts EITHER a username OR an
@@ -40,6 +42,9 @@ export default function LoginScreen() {
   const login = useStore((s) => s.login);
   const nav = useNavigation<any>();
   const C = useColors();
+  // Spec 148 — phone-tier restyle gate (README §19). Desktop/tablet render the
+  // byte-unchanged card layout below; phone gets the im.cmd▮ console restyle.
+  const isPhone = useIsPhone();
 
   // Auto-navigate to Register if ?register=true in URL
   useEffect(() => {
@@ -123,6 +128,42 @@ export default function LoginScreen() {
     const user = USERS.find((u) => u.email === demoEmail);
     if (user) login(user);
   };
+
+  // Spec 148 — phone early-return. Placed AFTER all hooks so the desktop/tablet
+  // subtree below is byte-unchanged (AC-REG). The model lifts the same auth
+  // STATE + handlers this file already owns — no forked signIn / role-branch.
+  if (isPhone) {
+    const demoUsers: PhoneLoginDemoUser[] = __DEV__
+      ? USERS.map((u) => {
+          const storeNames = u.stores
+            .map((sid) => STORES.find((s) => s.id === sid)?.name)
+            .filter(Boolean);
+          return {
+            email: u.email,
+            name: u.name,
+            initials: u.initials,
+            color: u.color,
+            roleLabel: u.role === 'admin' ? 'ADMIN' : `${storeNames.join(', ')}`,
+          };
+        })
+      : [];
+    return (
+      <PhoneLogin
+        model={{
+          identifier,
+          setIdentifier,
+          password,
+          setPassword,
+          loading,
+          error,
+          onSubmit: handleLogin,
+          onRegister: () => nav.navigate('Register'),
+          demoUsers,
+          onQuickLogin: quickLogin,
+        }}
+      />
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: C.bgTertiary }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

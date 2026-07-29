@@ -6,6 +6,7 @@ import * as Sharing from 'expo-sharing';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
 import { useIsPhone } from '../../../theme/breakpoints';
+import PhoneWeeklyCount from './phone/PhoneWeeklyCount';
 import { useStore } from '../../../store/useStore';
 import {
   fetchRecentInventoryCounts,
@@ -138,11 +139,22 @@ function localInputToIso(local: string): string {
 export default function InventoryCountSection() {
   const C = useCmdColors();
   const T = useT();
+  // Spec 144 — phone is a dedicated full-screen worksheet (PhoneWeeklyCount)
+  // reached via the `if (isPhone) return …` guard placed after all hooks. The
+  // desktop/tablet layout below is fixed-width (the old inline `isPhone ? …`
+  // squeeze is gone; these constants are the former desktop branch values).
   const isPhone = useIsPhone();
-  const cellW = isPhone ? 56 : 80;
-  const inputW = isPhone ? 48 : 70;
-  const rowGap = isPhone ? 8 : 14;
-  const rowPadH = isPhone ? 12 : 22;
+  const cellW = 80;
+  const inputW = 70;
+  const rowGap = 14;
+  const rowPadH = 22;
+  // Spec 144 — ISO week number for the phone "WEEKLY · WK n" badge (same
+  // formula as EODCountSection's day strip).
+  const wkNum = React.useMemo(() => {
+    const d = new Date();
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + yearStart.getDay() + 1) / 7);
+  }, []);
 
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
@@ -1208,7 +1220,7 @@ export default function InventoryCountSection() {
           borderStyle: 'dashed',
         }}
       >
-        <View style={{ flex: isPhone ? 2 : 1, minWidth: 0 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg, letterSpacing: -0.1 }}>
             {it.name}
           </Text>
@@ -1279,7 +1291,7 @@ export default function InventoryCountSection() {
           placeholder="Note…"
           placeholderTextColor={C.fg3}
           style={{
-            ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }),
+            width: 180,
             height: 30,
             paddingHorizontal: 10,
             fontFamily: mono(400),
@@ -1295,6 +1307,40 @@ export default function InventoryCountSection() {
       </View>
     );
   };
+
+  // ─── Spec 144: phone-tier weekly-count worksheet ───────────────────
+  // Placed AFTER all hooks (and after `renderInventoryRow`, which is a plain
+  // closure, not a hook) so hook order is stable, and BEFORE the desktop
+  // no-store guard so the phone component owns its own no-store empty state.
+  // The desktop/tablet return subtree below is byte-unchanged (AC-REG).
+  if (isPhone) {
+    return (
+      <PhoneWeeklyCount
+        model={{
+          wkNum,
+          storeInventory,
+          caseCounts,
+          unitCounts,
+          itemNotes,
+          setCaseCounts,
+          setUnitCounts,
+          setItemNotes,
+          hasEntry,
+          itemTotal,
+          nonBlankCount,
+          totalItems,
+          hasNegative,
+          submitting,
+          isAllOrEmpty,
+          onSubmit,
+          onExportCsv,
+          onExportPdf,
+          exportLocale,
+          setExportLocale,
+        }}
+      />
+    );
+  }
 
   // ─── No-store guard ────────────────────────────────────────────────
   // Spec 098: the weekly.tsx tab is all-stores, so it stays reachable even

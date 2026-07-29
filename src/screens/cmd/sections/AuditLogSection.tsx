@@ -12,6 +12,8 @@ import { useLocale, type Locale } from '../../../hooks/useLocale';
 import { formatAuditAction } from '../../../utils/formatAuditAction';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import { AuditAction, AuditEvent } from '../../../types';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneAuditLog } from './phone/PhoneAuditLog';
 
 const inferInitials = (name: string): string =>
   name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
@@ -72,6 +74,7 @@ function inferKind(e: AuditEvent): string {
 export default function AuditLogSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const auditLog = useStore((s) => s.auditLog);
   const currentStore = useStore((s) => s.currentStore);
   // Spec 055 — first-mount skeleton flag.
@@ -91,6 +94,12 @@ export default function AuditLogSection() {
   // Spec 055 first-mount skeleton — slice empty + initial fetch in flight.
   if (storeLoading && auditLog.length === 0) {
     return <ListSkeleton rows={8} />;
+  }
+
+  // Spec 147 — phone tier (< 768px web + all native). Additive guard after all
+  // hooks; desktop/tablet tree below is byte-unchanged (AC-REG).
+  if (isPhone) {
+    return <PhoneAuditLog />;
   }
 
   return (

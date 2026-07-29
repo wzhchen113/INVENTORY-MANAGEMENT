@@ -39,6 +39,14 @@ jest.mock('../../../../utils/confirmAction', () => ({
   confirmAction: (...args: any[]) => (mockConfirmAction as any)(...args),
 }));
 
+// Spec (2026-07) — force the desktop tier so the section renders its desktop
+// tree; the phone `if (isPhone) return <PhoneOrdering/>` guard is exercised by
+// the phone-tier tests, not these.
+jest.mock('../../../../theme/breakpoints', () => {
+  const actual = jest.requireActual('../../../../theme/breakpoints');
+  return { ...actual, useIsPhone: () => false, useIsTablet: () => false, useIsDesktop: () => true, useIsCompact: () => false, useBreakpoint: () => 'desktop' };
+});
+
 jest.mock('../../../../theme/colors', () => ({
   useCmdColors: () => ({
     bg: '#FFFFFF', panel: '#F4F4F4', panel2: '#EAEAEA',

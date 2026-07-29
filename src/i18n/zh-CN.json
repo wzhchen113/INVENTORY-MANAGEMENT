@@ -51,6 +51,35 @@
     "guest": "访客",
     "store": "门店",
     "switchStoreAria": "切换门店",
+    "phone": {
+      "login": {
+        "caption": "餐厅指挥控制台",
+        "usernameLabel": "用户名或邮箱",
+        "usernamePlaceholder": "用户名或 your@email.com",
+        "passwordLabel": "密码",
+        "passwordPlaceholder": "••••••••",
+        "signIn": "登录 →",
+        "forgotPassword": "忘记密码",
+        "forgotToast": "密码重置目前仅在桌面控制台可用。",
+        "register": "有邀请？前往注册",
+        "demoTitle": "演示账户 · DEV"
+      },
+      "notifications": {
+        "aria": "通知",
+        "push": "推送通知"
+      },
+      "storeSwitch": {
+        "aria": "切换门店",
+        "title": "切换门店",
+        "current": "当前",
+        "switch": "切换 →",
+        "brandSection": "品牌 · 超级管理员",
+        "allBrands": "所有品牌",
+        "switchedToast": "已切换到 {name}",
+        "brandSwitchedToast": "已切换品牌",
+        "empty": "暂无可用门店"
+      }
+    },
     "themeToggle": {
       "lightLabel": "☼ 浅色",
       "darkLabel": "☾ 深色",
@@ -328,7 +357,29 @@
       "allClear": "全部清晰",
       "openDrillDown": "{text} — 打开详情",
       "managerLabel": "经理:",
-      "syncLabel": "同步 {time}"
+      "syncLabel": "同步 {time}",
+      "phone": {
+        "metaLine": "{date} · {store}",
+        "kpiInvValue": "库存价值",
+        "kpiInvValueSub": "按成本 · {count} 项",
+        "kpiOut": "缺货",
+        "kpiOutSub": "影响菜品",
+        "kpiLow": "低于基准",
+        "kpiLowSub": "待补货",
+        "kpiWaste": "损耗 · 7 天",
+        "kpiWasteSub": "{count} 条记录",
+        "eodGroup": "今日 EOD 盘点",
+        "eodSubmitted": "已提交 · 已同步",
+        "eodProgress": "{total} 项已数 {counted} 项",
+        "eodPillDone": "完成",
+        "eodPillOpen": "待办",
+        "noEod": "今日无排程供应商",
+        "attentionGroup": "需要关注",
+        "attentionMeta": "基准 {par} · {cost}/{unit} · {vendor}",
+        "noAttention": "无缺货项",
+        "activityGroup": "最近动态",
+        "noActivity": "暂无最近动态"
+      }
     },
     "inventory": {
       "title": "库存",
@@ -626,6 +677,14 @@
         "pdfExported": "已导出 PDF",
         "pdfPrintDialog": "正在打开打印对话框 — 请选择“另存为 PDF”",
         "exportFailed": "导出失败"
+      },
+      "phone": {
+        "weekBadge": "每周 · 第{num}周",
+        "submitWeekly": "提交每周盘点",
+        "matchesSystem": "✓ 与系统一致",
+        "vsSystem": "{amount} {unit} 对比系统",
+        "uncountedRemain": "还有 {count} 项未盘点 — 请先全部盘点",
+        "groupItems": "{count} 项"
       }
     },
     "wasteLog": {
@@ -1121,7 +1180,21 @@
       "countNotSubmittedGroupTitle": "未提交盘点",
       "countNotSubmittedTitle": "尚未提交盘点",
       "countNotSubmittedBody": "此日期未提交日终盘点，因此订货数量已隐藏。提交盘点后即可查看建议。",
-      "countNotSubmittedKpiSub": "未提交盘点"
+      "countNotSubmittedKpiSub": "未提交盘点",
+      "phoneKpiVendors": "{count} 家供应商",
+      "phoneKpiLines": "{count} 项",
+      "phoneKpiEst": "预计",
+      "phoneCardStats": "{lines} 项 · {cases} 箱 · 预计 {est}",
+      "phoneItemsAffected": "{count} 项受影响",
+      "phoneCartFilled": "已填入购物车",
+      "phoneGoToEodCount": "前往日终盘点",
+      "phoneSheetTitle": "{vendor} — 导出与工具",
+      "phoneExportCsv": "导出 CSV",
+      "phoneExportPdf": "导出 PDF",
+      "phoneOrderSchedule": "订货计划",
+      "phoneOrderScheduleToast": "订货计划 — 暂时仅支持桌面端",
+      "phoneDateFor": "日期 {date}",
+      "phoneDateHint": "请在桌面端更改订货日期"
     },
     "reconciliation": {
       "title": "对账",
@@ -1178,7 +1251,17 @@
       "consecutive": "天",
       "netDollar90d": "净 Δ$ · 90 天",
       "timelineDat": "timeline.dat",
-      "timelineLegend": "绿=盈余 · 红=损耗 · 灰=缺失"
+      "timelineLegend": "绿=盈余 · 红=损耗 · 灰=缺失",
+      "phone": {
+        "parentCaption": "对账",
+        "detailTitle": "差异",
+        "subtitle": "{count} 行 · 净额 {net}",
+        "subtitleEmpty": "与上期无差异",
+        "linesGroup": "差异明细",
+        "rowMeta": "预期 {expected} · 实点 {counted}",
+        "noVariances": "与上期无差异。",
+        "noEod": "暂无 EOD 提交。"
+      }
     },
     "posImports": {
       "title": "POS 导入",
@@ -1191,7 +1274,26 @@
       "linksCreated": "已创建 {count} 个关联",
       "codesSkipped": "已跳过 {count} 个编码",
       "codeSkipUnmatched": "未匹配供应商“{name}”",
-      "codeSkipNoVendor": "无供应商"
+      "codeSkipNoVendor": "无供应商",
+      "phone": {
+        "parentCaption": "POS 导入",
+        "subtitle": "{count} 次导入",
+        "importsGroup": "导入历史",
+        "rowMeta": "{when} · {rows} 行 · {matched} 已匹配",
+        "empty": "{store} 暂无 POS 导入 — 请在桌面端上传 CSV 开始。",
+        "upload": "+ 上传 CSV",
+        "uploadToast": "请在桌面控制台上传 POS CSV。",
+        "detailCaption": "{date} · {state}",
+        "statTotal": "总计",
+        "statMatched": "已匹配",
+        "statUnmapped": "未映射",
+        "unmatchedGroup": "未匹配行",
+        "allMatched": "所有行均已匹配到配方。",
+        "soldQty": "售出 {qty}",
+        "stateSuccess": "成功",
+        "statePartial": "部分",
+        "stateFailed": "失败"
+      }
     },
     "auditLog": {
       "title": "审计日志",
@@ -1227,14 +1329,59 @@
       "runReport": "运行报表",
       "running": "运行中…",
       "noRuns": "暂无运行记录",
-      "noSavedReports": "暂无已保存的报表"
+      "noSavedReports": "暂无已保存的报表",
+      "phone": {
+        "parentCaption": "报表",
+        "subtitle": "{count} 个已保存报表",
+        "savedGroup": "已保存的报表",
+        "empty": "暂无已保存报表 — 请在桌面控制台创建。",
+        "newReport": "+ 新报表",
+        "newReportToast": "请在桌面控制台创建新报表。",
+        "pillReady": "就绪",
+        "pillRunning": "运行中",
+        "pillQueued": "排队中",
+        "pillFailed": "失败",
+        "ranMeta": "{when} 运行",
+        "neverRun": "从未运行",
+        "lastRun": "上次运行 {when}",
+        "kpisGroup": "摘要",
+        "noKpis": "运行此报表以查看结果。",
+        "runError": "报表运行失败。",
+        "desktopNote": "完整结果表和报表构建器在桌面控制台。",
+        "runBtn": "运行报表",
+        "runningBtn": "运行中…"
+      }
     },
     "users": {
       "title": "用户与权限",
       "inviteUser": "邀请用户",
       "noUsers": "暂无用户",
       "deleteUserConfirm": "删除用户?",
-      "deleteUserBody": "档案和登录账户将被移除。"
+      "deleteUserBody": "档案和登录账户将被移除。",
+      "phone": {
+        "parentCaption": "用户",
+        "count": "{n} 个用户",
+        "storesTag": "{n} 家门店",
+        "invited": "已邀请",
+        "invite": "+ 邀请",
+        "loading": "加载中…",
+        "empty": "暂无用户 — 在下方邀请第一位。",
+        "noStores": "未分配门店",
+        "noEmail": "(邮箱未加载)",
+        "you": "你",
+        "properties": "属性",
+        "propRole": "角色",
+        "propStores": "门店",
+        "propStatus": "状态",
+        "propUsername": "用户名",
+        "resetPw": "重置密码",
+        "deleteUser": "删除用户",
+        "deleteTitle": "删除 {name}",
+        "deleteSelfTitle": "删除你的账户",
+        "deleteBody": "这将永久删除 {name}。档案和登录账户都会被移除。此操作无法撤销。",
+        "deleteSelfBody": "这将永久删除你的账户并退出登录。此操作无法撤销。",
+        "thisUser": "此用户"
+      }
     },
     "brands": {
       "title": "品牌",

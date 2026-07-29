@@ -20,6 +20,8 @@ import { savePOSImport, fetchUnmappedPosImports } from '../../../lib/db';
 import { matchRecipe, MatchResult } from '../../../utils/recipeMatch';
 import { confirmAction } from '../../../utils/confirmAction';
 import { useT } from '../../../hooks/useT';
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhonePOSImports } from './phone/PhonePOSImports';
 
 // Pattern C — stream/report. Table of POS imports with state pill +
 // counts. Reads useStore.posImports for the current store. Empty state
@@ -40,6 +42,7 @@ type BreadbotPreview = {
 export default function POSImportsSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const posImports = useStore((s) => s.posImports);
   const inventory = useStore((s) => s.inventory);
   // Spec 115 (W-1) — the brand vendors feed computeDiff's vendor_name → vendorId
@@ -125,6 +128,12 @@ export default function POSImportsSection() {
   // skeleton is brief (most stores have at least one import); still safe.
   if (storeLoading && posImports.length === 0) {
     return <ListSkeleton rows={4} />;
+  }
+
+  // Spec 147 — phone tier (< 768px web + all native). Additive guard after all
+  // hooks; desktop/tablet tree below is byte-unchanged (AC-REG).
+  if (isPhone) {
+    return <PhonePOSImports />;
   }
 
   return (

@@ -52,6 +52,11 @@ import { pickImportVendor, type ImportOrderPlan } from '../../../utils/vendorImp
 // Spec 138 — reuse the spec-134 PURE case⇄units helpers for the inline order-qty
 // edit (no forked conversion logic; AC-5).
 import { isCaseRow, poOrderedDisplay, poResolveEdit } from '../../../utils/poCaseDisplay';
+// Spec (2026-07) — phone tier. The desktop/tablet return subtree below is
+// byte-unchanged; on phone the section swaps to the full-width vendor-card list
+// via the `if (isPhone) return <PhoneOrdering/>` guard placed AFTER all hooks.
+import { useIsPhone } from '../../../theme/breakpoints';
+import { PhoneOrdering } from './phone/PhoneOrdering';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -945,7 +950,7 @@ function triggerDownload(blob: Blob, filename: string): void {
 // Spec 138 (AC-7): returns `true` only when the download actually fired, so the
 // caller can reset that vendor's inline-edit buffer ON SUCCESS ONLY (a failed
 // export must preserve the operator's edits so they can retry).
-async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Locale): Promise<boolean> {
+export async function handleCsvExport(payload: ReorderPayload, store: Store, locale: Locale): Promise<boolean> {
   try {
     const csv = buildReorderCsv(payload, locale);
     const date = (payload.asOfDate && payload.asOfDate.slice(0, 10)) || todayLocalIso();
@@ -1005,7 +1010,7 @@ function emitImportPlan(plan: ImportOrderPlan, label: string): void {
 
 // Spec 138 (AC-7): returns `true` only when the import file was emitted, so the
 // caller resets the vendor's inline-edit buffer on success only.
-function handleImportExport(
+export function handleImportExport(
   payload: ReorderPayload,
   store: Store,
   cfg: Vendor,
@@ -1037,7 +1042,7 @@ function handleImportExport(
 // pattern so the bundle stays lean for users who never click "PDF".
 // Spec 138 (AC-7): returns `true` only when the PDF actually saved, so the
 // caller resets the vendor's inline-edit buffer on success only.
-async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: Locale): Promise<boolean> {
+export async function handlePdfExport(payload: ReorderPayload, store: Store, localeIn: Locale): Promise<boolean> {
   try {
     const { default: jsPDF } = await import('jspdf');
     const autoTableMod: any = await import('jspdf-autotable');
@@ -1438,6 +1443,15 @@ export default function ReorderSection() {
     countedPrimary.length > 0 &&
     !reorderError &&
     !(reorderLoading && !reorderPayload);
+
+  // Spec (2026-07) — phone tier. Placed AFTER all hooks (rules-of-hooks safe on a
+  // live isPhone flip during web resize) and BEFORE the no-store guard so the
+  // phone surface owns its own no-store / loading / empty states. The parent's
+  // data-loading effects above already ran, so `reorderPayload` / `orderSchedule`
+  // are hydrated for the phone child to read. Desktop/tablet fall through
+  // byte-unchanged (AC-REG).
+  const isPhone = useIsPhone();
+  if (isPhone) return <PhoneOrdering />;
 
   // Spec 087 (E) — no-focal-store guard. Placed AFTER all hooks so the
   // hook count stays stable across renders. Mirrors OrderScheduleSection /

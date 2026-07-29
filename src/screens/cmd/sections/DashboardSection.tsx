@@ -2,7 +2,9 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
+import { useIsPhone } from '../../../theme/breakpoints';
 import { useStore } from '../../../store/useStore';
+import { PhoneDashboard } from './phone/PhoneDashboard';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { Sparkline } from '../../../components/cmd/Sparkline';
@@ -116,7 +118,9 @@ function lastNDayLetters(n: number, T: TFn): string[] {
 export default function DashboardSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const inventory = useStore((s) => s.inventory);
+  const vendors = useStore((s) => s.vendors);
   const wasteLog = useStore((s) => s.wasteLog);
   const eodSubmissions = useStore((s) => s.eodSubmissions);
   const posImports = useStore((s) => s.posImports);
@@ -273,6 +277,65 @@ export default function DashboardSection() {
     [stores, allEod, todayISO],
   );
 
+  // ─── Spec 145 (phone-only) — derived views for PhoneDashboard's model. These
+  // memos run for every tier (hooks precede the isPhone guard) but are consumed
+  // ONLY on the phone path, so the desktop/tablet return subtree is byte-
+  // unchanged (AC-REG). They reuse the SAME selectors the desktop KPIs use
+  // (getItemStatus / wasteLog / inventory) rather than re-deriving new math.
+  const outItems = React.useMemo(
+    () => inventory.filter((i) => getItemStatus(i) === 'out'),
+    [inventory, getItemStatus],
+  );
+  const wasteEventCount = React.useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    return wasteLog.filter((w) => new Date(w.timestamp).getTime() >= cutoff).length;
+  }, [wasteLog]);
+  // Per-vendor EOD progress for the CURRENT store, today. Vendor↔item membership
+  // mirrors EODCountSection's tab derivation (junction `vendorIds`, scalar
+  // fallback); "counted" = the item is in any of today's submissions; "submitted"
+  // = the vendor has a submitted row today.
+  const eodRows = React.useMemo(() => {
+    const todaySubs = eodSubmissions.filter((s) => s.storeId === currentStore.id && s.date === todayISO);
+    const counted = new Set<string>();
+    for (const s of todaySubs) for (const e of s.entries || []) counted.add(e.itemId);
+    const submittedVendors = new Set(
+      todaySubs.filter((s) => s.status === 'submitted' && s.vendorId).map((s) => s.vendorId as string),
+    );
+    const byVendor = new Map<string, typeof focalInventory>();
+    for (const i of focalInventory) {
+      const ids = i.vendorIds ?? (i.vendorId ? [i.vendorId] : []);
+      for (const vid of ids) {
+        if (!vid) continue;
+        const arr = byVendor.get(vid);
+        if (arr) arr.push(i);
+        else byVendor.set(vid, [i]);
+      }
+    }
+    return vendors
+      .filter((v) => byVendor.has(v.id))
+      .map((v) => {
+        const items = byVendor.get(v.id)!;
+        return {
+          vendorId: v.id,
+          vendorName: v.name,
+          counted: items.filter((i) => counted.has(i.id)).length,
+          total: items.length,
+          submitted: submittedVendors.has(v.id),
+          focusItemId: items[0]?.id,
+        };
+      });
+  }, [vendors, focalInventory, eodSubmissions, currentStore.id, todayISO]);
+  // Current-store audit feed, most-recent first, capped for the phone group.
+  const recentActivity = React.useMemo(
+    () =>
+      auditLog
+        .filter((e) => e.storeId === currentStore.id)
+        .slice()
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 8),
+    [auditLog, currentStore.id],
+  );
+
   // ─── Real food-cost trend (reused from v1) for the AVG FOOD COST sparkline.
   // Other 4 KPIs use synthSeries — see SYNTHETIC_KPI_SERIES tag above.
   const foodCostTrend14 = React.useMemo<Array<number | null>>(() => {
@@ -360,6 +423,28 @@ export default function DashboardSection() {
   // Spec 055 first-mount skeleton — dashboard is grid-shaped.
   if (storeLoading && inventory.length === 0) {
     return <GridSkeleton rows={2} cols={3} />;
+  }
+
+  // Spec 145 — phone tier (< 768px web + all native). All hooks/memos above run
+  // for every tier; only the phone path allocates the model literal + mounts the
+  // phone component, so the desktop/tablet tree below is byte-unchanged (AC-REG).
+  if (isPhone) {
+    return (
+      <PhoneDashboard
+        model={{
+          storeName: currentStore.name,
+          totalInvValue,
+          itemCount,
+          outCount,
+          lowCount,
+          wasteWeek,
+          wasteEventCount,
+          outItems,
+          eodRows,
+          activity: recentActivity,
+        }}
+      />
+    );
   }
 
   return (

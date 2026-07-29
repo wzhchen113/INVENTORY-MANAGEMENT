@@ -51,6 +51,35 @@
     "guest": "guest",
     "store": "store",
     "switchStoreAria": "Switch store",
+    "phone": {
+      "login": {
+        "caption": "RESTAURANT COMMAND CONSOLE",
+        "usernameLabel": "USERNAME OR EMAIL",
+        "usernamePlaceholder": "username or your@email.com",
+        "passwordLabel": "PASSWORD",
+        "passwordPlaceholder": "••••••••",
+        "signIn": "SIGN IN →",
+        "forgotPassword": "FORGOT PASSWORD",
+        "forgotToast": "Password reset lives on the desktop console for now.",
+        "register": "Have an invitation? Register",
+        "demoTitle": "DEMO ACCOUNTS · DEV"
+      },
+      "notifications": {
+        "aria": "Notifications",
+        "push": "PUSH NOTIFICATIONS"
+      },
+      "storeSwitch": {
+        "aria": "Switch store",
+        "title": "SWITCH STORE",
+        "current": "CURRENT",
+        "switch": "SWITCH →",
+        "brandSection": "BRAND · SUPER-ADMIN",
+        "allBrands": "All brands",
+        "switchedToast": "Switched to {name}",
+        "brandSwitchedToast": "Switched brand",
+        "empty": "No stores available"
+      }
+    },
     "themeToggle": {
       "lightLabel": "☼ light",
       "darkLabel": "☾ dark",
@@ -328,7 +357,29 @@
       "allClear": "all clear",
       "openDrillDown": "{text} — open drill-down",
       "managerLabel": "mgr:",
-      "syncLabel": "sync {time}"
+      "syncLabel": "sync {time}",
+      "phone": {
+        "metaLine": "{date} · {store}",
+        "kpiInvValue": "INVENTORY VALUE",
+        "kpiInvValueSub": "AT COST · {count} ITEMS",
+        "kpiOut": "OUT OF STOCK",
+        "kpiOutSub": "BLOCKS MENU ITEMS",
+        "kpiLow": "LOW VS PAR",
+        "kpiLowSub": "REORDER CANDIDATES",
+        "kpiWaste": "WASTE · 7 DAYS",
+        "kpiWasteSub": "{count} EVENTS LOGGED",
+        "eodGroup": "TODAY'S EOD COUNT",
+        "eodSubmitted": "SUBMITTED · SYNCED",
+        "eodProgress": "{counted} OF {total} COUNTED",
+        "eodPillDone": "DONE",
+        "eodPillOpen": "OPEN",
+        "noEod": "No vendors scheduled today",
+        "attentionGroup": "NEEDS ATTENTION",
+        "attentionMeta": "par {par} · {cost}/{unit} · {vendor}",
+        "noAttention": "Nothing out of stock",
+        "activityGroup": "RECENT ACTIVITY",
+        "noActivity": "No recent activity"
+      }
     },
     "inventory": {
       "title": "Inventory",
@@ -626,6 +677,14 @@
         "pdfExported": "PDF exported",
         "pdfPrintDialog": "Opening print dialog — choose Save as PDF",
         "exportFailed": "Export failed"
+      },
+      "phone": {
+        "weekBadge": "WEEKLY · WK {num}",
+        "submitWeekly": "SUBMIT WEEKLY COUNT",
+        "matchesSystem": "✓ MATCHES SYSTEM",
+        "vsSystem": "{amount} {unit} VS SYSTEM",
+        "uncountedRemain": "{count} items still uncounted — count everything first",
+        "groupItems": "{count} ITEMS"
       }
     },
     "wasteLog": {
@@ -1121,7 +1180,21 @@
       "countNotSubmittedGroupTitle": "Count not submitted",
       "countNotSubmittedTitle": "Count not submitted yet",
       "countNotSubmittedBody": "No end-of-day count was submitted for this date, so order quantities are hidden. Submit the count to see suggestions.",
-      "countNotSubmittedKpiSub": "count not submitted"
+      "countNotSubmittedKpiSub": "count not submitted",
+      "phoneKpiVendors": "{count} VENDORS",
+      "phoneKpiLines": "{count} LINES",
+      "phoneKpiEst": "est",
+      "phoneCardStats": "{lines} LINES · {cases} CS · EST {est}",
+      "phoneItemsAffected": "{count} ITEMS AFFECTED",
+      "phoneCartFilled": "CART FILLED",
+      "phoneGoToEodCount": "GO TO EOD COUNT",
+      "phoneSheetTitle": "{vendor} — EXPORTS & TOOLS",
+      "phoneExportCsv": "EXPORT CSV",
+      "phoneExportPdf": "EXPORT PDF",
+      "phoneOrderSchedule": "ORDER SCHEDULE",
+      "phoneOrderScheduleToast": "Order schedule — desktop-first for now",
+      "phoneDateFor": "FOR {date}",
+      "phoneDateHint": "Change the reorder date on desktop"
     },
     "reconciliation": {
       "title": "Reconciliation",
@@ -1178,7 +1251,17 @@
       "consecutive": "consecutive",
       "netDollar90d": "Net Δ$ · 90d",
       "timelineDat": "timeline.dat",
-      "timelineLegend": "green=favorable · red=shrink · grey=missing"
+      "timelineLegend": "green=favorable · red=shrink · grey=missing",
+      "phone": {
+        "parentCaption": "RECONCILIATION",
+        "detailTitle": "VARIANCE",
+        "subtitle": "{count} lines · net {net}",
+        "subtitleEmpty": "No variances vs prior period",
+        "linesGroup": "VARIANCE LINES",
+        "rowMeta": "exp {expected} · counted {counted}",
+        "noVariances": "No variances vs prior period.",
+        "noEod": "No EOD submissions yet."
+      }
     },
     "posImports": {
       "title": "POS imports",
@@ -1191,7 +1274,26 @@
       "linksCreated": "{count} links created",
       "codesSkipped": "{count} codes skipped",
       "codeSkipUnmatched": "unmatched vendor \"{name}\"",
-      "codeSkipNoVendor": "no vendor"
+      "codeSkipNoVendor": "no vendor",
+      "phone": {
+        "parentCaption": "POS IMPORTS",
+        "subtitle": "{count} imports",
+        "importsGroup": "IMPORT HISTORY",
+        "rowMeta": "{when} · {rows} rows · {matched} matched",
+        "empty": "No POS imports for {store} — upload a CSV on desktop to start.",
+        "upload": "+ UPLOAD CSV",
+        "uploadToast": "Upload a POS CSV from the desktop console.",
+        "detailCaption": "{date} · {state}",
+        "statTotal": "TOTAL",
+        "statMatched": "MATCHED",
+        "statUnmapped": "UNMAPPED",
+        "unmatchedGroup": "UNMATCHED ROWS",
+        "allMatched": "All rows matched to recipes.",
+        "soldQty": "{qty} sold",
+        "stateSuccess": "success",
+        "statePartial": "partial",
+        "stateFailed": "failed"
+      }
     },
     "auditLog": {
       "title": "Audit log",
@@ -1227,14 +1329,59 @@
       "runReport": "Run report",
       "running": "Running…",
       "noRuns": "No runs yet",
-      "noSavedReports": "No saved reports"
+      "noSavedReports": "No saved reports",
+      "phone": {
+        "parentCaption": "REPORTS",
+        "subtitle": "{count} saved reports",
+        "savedGroup": "SAVED REPORTS",
+        "empty": "No saved reports — build one on the desktop console.",
+        "newReport": "+ NEW REPORT",
+        "newReportToast": "Build a new report on the desktop console.",
+        "pillReady": "READY",
+        "pillRunning": "RUNNING",
+        "pillQueued": "QUEUED",
+        "pillFailed": "FAILED",
+        "ranMeta": "ran {when}",
+        "neverRun": "never run",
+        "lastRun": "Last run {when}",
+        "kpisGroup": "SUMMARY",
+        "noKpis": "Run this report to see results.",
+        "runError": "Report run failed.",
+        "desktopNote": "Full result table + report builder are on the desktop console.",
+        "runBtn": "RUN REPORT",
+        "runningBtn": "RUNNING…"
+      }
     },
     "users": {
       "title": "Users & access",
       "inviteUser": "Invite user",
       "noUsers": "No users",
       "deleteUserConfirm": "Delete user?",
-      "deleteUserBody": "Profile and login will be removed."
+      "deleteUserBody": "Profile and login will be removed.",
+      "phone": {
+        "parentCaption": "USERS",
+        "count": "{n} USERS",
+        "storesTag": "{n} STORES",
+        "invited": "INVITED",
+        "invite": "+ INVITE",
+        "loading": "LOADING…",
+        "empty": "No users yet — invite the first one below.",
+        "noStores": "no stores assigned",
+        "noEmail": "(email not loaded)",
+        "you": "YOU",
+        "properties": "PROPERTIES",
+        "propRole": "ROLE",
+        "propStores": "STORES",
+        "propStatus": "STATUS",
+        "propUsername": "USERNAME",
+        "resetPw": "RESET PW",
+        "deleteUser": "DELETE USER",
+        "deleteTitle": "Delete {name}",
+        "deleteSelfTitle": "Delete your account",
+        "deleteBody": "This will permanently delete {name}. Both the profile row and the auth user are removed. This cannot be undone.",
+        "deleteSelfBody": "This will permanently delete your account and sign you out. This cannot be undone.",
+        "thisUser": "this user"
+      }
     },
     "brands": {
       "title": "Brands",

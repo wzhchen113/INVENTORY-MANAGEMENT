@@ -42,6 +42,15 @@ jest.mock('../../../../lib/supabase', () => ({
 // Import the section so the test pins that the Inventory section module loads +
 // composes the shared ordering helper (the section calls applyCountOrder; a
 // regression that drops the import would break this file's module graph).
+// Spec 144 — force the DESKTOP tier so these desktop-tree tests don't route
+// through the phone `if (isPhone) return <PhoneWeeklyCount/>` guard (jest's
+// non-web Platform.OS makes useIsPhone() true by default). Mirrors the
+// ReorderSection suites' desktop-forcing mock.
+jest.mock('../../../../theme/breakpoints', () => {
+  const actual = jest.requireActual('../../../../theme/breakpoints');
+  return { ...actual, useIsPhone: () => false, useIsTablet: () => false, useIsDesktop: () => true, useIsCompact: () => false, useBreakpoint: () => 'desktop' };
+});
+
 import InventoryCountSection from '../InventoryCountSection';
 import { applyCountOrder } from '../../../../lib/countOrder';
 

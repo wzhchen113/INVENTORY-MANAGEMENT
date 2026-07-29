@@ -8,6 +8,8 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { InviteUserDrawer } from '../../../components/cmd/InviteUserDrawer';
+import { PhoneUsers } from './phone/PhoneUsers';
+import { useIsPhone } from '../../../theme/breakpoints';
 import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
 import { User } from '../../../types';
 import { useIsMaster } from '../../../hooks/useRole';
@@ -29,6 +31,7 @@ function shortId(id: string): string {
 export default function UsersSection() {
   const C = useCmdColors();
   const T = useT();
+  const isPhone = useIsPhone();
   const isMaster = useIsMaster();
   const currentUser = useStore((s) => s.currentUser);
   const stores = useStore((s) => s.stores);
@@ -124,6 +127,33 @@ export default function UsersSection() {
       refresh().catch(() => {});
     }
   };
+
+  // Spec 146 — phone renders the full-width list + full-screen detail + the
+  // reused InviteUserDrawer / TypeToConfirmModal overlays; the desktop/tablet
+  // TabStrip tree below is byte-unchanged (AC-REG). Guard after ALL hooks so a
+  // live isPhone flip stays rules-of-hooks safe. Data + handlers are lifted in
+  // a model so no fetch/delete/invite orchestration forks.
+  if (isPhone) {
+    return (
+      <PhoneUsers
+        model={{
+          loading,
+          visibleUsers,
+          isMaster,
+          currentUserId: currentUser?.id || '',
+          stores,
+          lastOfRole,
+          inviteOpen,
+          setInviteOpen,
+          deleteTarget,
+          setDeleteTarget,
+          onConfirmDelete: handleConfirmDelete,
+          onResetPassword: handleSendReset,
+          onInvited: () => { refresh().catch(() => {}); },
+        }}
+      />
+    );
+  }
 
   return (
     <View testID="users-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>

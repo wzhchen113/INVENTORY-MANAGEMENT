@@ -22,7 +22,6 @@ import { firstUncounted } from '../../../../lib/countOrder';
 import { advanceUncounted, activeFieldFor, appendKeypadDigit } from '../../../../lib/eodKeypad';
 import type { DayStatus } from '../../../../lib/eodDayStatus';
 import { dayOfWeekShortLabel, type DayName } from '../../../../utils/enumLabels';
-import { TabStrip } from '../../../../components/cmd/TabStrip';
 import OrderScheduleSection from '../OrderScheduleSection';
 import { EODHistoryTab, VarianceLogTab } from '../EODCountSection';
 import type { InventoryItem, Vendor, EODSubmission } from '../../../../types';
@@ -243,17 +242,9 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
         </ScrollView>
       </View>
 
-      {/* Tab strip (shared with the non-count tabs) */}
-      <TabStrip
-        tabs={[
-          { id: 'count.tsx', label: 'count.tsx' },
-          { id: 'history.tsx', label: 'history.tsx' },
-          { id: 'variance.log', label: 'variance.log' },
-          { id: 'order-schedule', label: T('section.purchaseOrders.scheduleTitle') },
-        ]}
-        activeId={model.tabId}
-        onChange={model.setTabId}
-      />
+      {/* Hard Rule 4 (phone handoff): file-tab strips are desktop chrome —
+          phone EOD is count-only. History/variance/order-schedule remain
+          desktop/tablet surfaces; model.tabId stays 'count.tsx' on phone. */}
 
       {model.tabId === 'history.tsx' ? (
         <EODHistoryTab />
