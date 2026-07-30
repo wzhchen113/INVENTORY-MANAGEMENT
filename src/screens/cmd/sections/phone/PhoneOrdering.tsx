@@ -332,6 +332,15 @@ function VendorOrderCard({
               {lines.map((item) => {
                 const caseRow = isCaseRow(item.caseQty);
                 const qty = qtyOf(item);
+                // Fractional-suggestion precision (spec 143 review): the display
+                // shows the rounded qty, but the FIRST tap must nudge from the
+                // TRUE fractional suggestion (desktop TextInput semantics —
+                // rounds on write only). − floors, + ceils; integer values (or
+                // applied edits, which are always whole-case) step ±1 as before.
+                const trueCases = caseRow ? poOrderedToCases(item.suggestedUnits, item.caseQty) : item.suggestedUnits;
+                const isFrac = Math.abs(trueCases - Math.round(trueCases)) > 1e-9;
+                const decTarget = isFrac ? Math.floor(trueCases) : qty - 1;
+                const incTarget = isFrac ? Math.ceil(trueCases) : qty + 1;
                 const subUnitSize = subUnitSizeFor(item.itemId) || 1;
                 const perUnit = item.costPerUnit * subUnitSize;
                 const sub = caseRow
@@ -364,8 +373,8 @@ function VendorOrderCard({
                       testIDPrefix={`phone-order-step-${item.itemId}`}
                       qty={qty}
                       unitLabel={caseRow ? 'CS' : item.unit}
-                      onDec={() => setReorderEditQty(vendor.vendorId, item.itemId, poCasesToBase(Math.max(0, qty - 1), item.caseQty))}
-                      onInc={() => setReorderEditQty(vendor.vendorId, item.itemId, poCasesToBase(qty + 1, item.caseQty))}
+                      onDec={() => setReorderEditQty(vendor.vendorId, item.itemId, poCasesToBase(Math.max(0, decTarget), item.caseQty))}
+                      onInc={() => setReorderEditQty(vendor.vendorId, item.itemId, poCasesToBase(incTarget, item.caseQty))}
                     />
                     <Text
                       testID={`phone-order-line-cost-${item.itemId}`}

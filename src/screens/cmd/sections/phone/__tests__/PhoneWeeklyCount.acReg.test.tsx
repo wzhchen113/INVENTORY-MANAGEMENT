@@ -54,7 +54,7 @@ function seed() {
     currentUser: { id: 'user-1', name: 'Admin', email: 'a@b.c', role: 'admin' } as any,
     stores: [{ id: 'store-1', name: 'F' } as any],
     inventory: [],
-    weeklyCountStatus: null,
+    weeklyCountStatus: undefined,
     weeklyCountStatusLoading: false,
     loadWeeklyCountStatus: (async () => {}) as any,
     fetchStoreCountLayouts: (async () => []) as any,

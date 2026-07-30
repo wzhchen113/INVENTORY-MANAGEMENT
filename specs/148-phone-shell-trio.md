@@ -157,6 +157,11 @@ the real components against the real store slices.
 
 ## Files changed
 
+> Also shipped in the same commit (pre-batch chrome fix, claimed here for
+> traceability): `src/screens/cmd/sections/eod/PhoneEodCount.tsx` — Hard-Rule-4
+> removal of the desktop file-tab strip (count.tsx / history.tsx / variance.log)
+> on phone; regression-pinned in `eod/__tests__/EODCountSection.acReg.test.tsx`.
+
 ### New
 - src/screens/cmd/sections/phone/PhoneLogin.tsx
 - src/screens/cmd/sections/phone/PhoneNotifications.tsx

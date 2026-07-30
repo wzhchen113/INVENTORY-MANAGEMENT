@@ -34,7 +34,7 @@ jest.mock('../../../../../lib/supabase', () => ({
 const mockInviteUser = jest.fn(() => Promise.resolve({ error: null }));
 jest.mock('../../../../../lib/auth', () => ({
   __esModule: true,
-  inviteUser: (...args: unknown[]) => mockInviteUser(...args),
+  inviteUser: (...args: unknown[]) => (mockInviteUser as (...a: unknown[]) => Promise<{ error: null }>)(...args),
 }));
 
 import { PhoneUsers, rolePillTone, type PhoneUsersModel } from '../PhoneUsers';

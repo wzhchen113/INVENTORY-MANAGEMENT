@@ -138,6 +138,24 @@ describe('PhoneOrdering — spec (2026-07)', () => {
     expect(useStore.getState().reorderEdits['v-a']?.a1).toBe(0);
   });
 
+  it('first tap on a FRACTIONAL suggestion nudges from the true value (floor/ceil), not the rounded display', () => {
+    // 17 units / caseQty 5 = 3.4 cases (displays as 3). First + must go to
+    // ceil(3.4)=4 cases (base 20), NOT rounded 3+1=4-by-coincidence — so pin
+    // the dec side too: first − must go to floor(3.4)=3 cases (base 15),
+    // not 3−1=2 (base 10), preserving the fractional remainder (spec 143 review).
+    useStore.setState({
+      reorderPayload: {
+        ...useStore.getState().reorderPayload!,
+        vendors: [
+          { ...counted, items: [item({ itemId: 'a1', itemName: 'French Fries', caseQty: 5, suggestedUnits: 17, estimatedCost: 60, costPerUnit: 3 })] },
+        ],
+      } as any,
+    });
+    const { getByTestId } = render(<PhoneOrdering />);
+    fireEvent.press(getByTestId('phone-order-step-a1-dec'));
+    expect(useStore.getState().reorderEdits['v-a']?.a1).toBe(15);
+  });
+
   it('renders the spec-130 violet count-not-submitted state and deep-links to EOD', () => {
     const { getByTestId, queryByTestId } = render(<PhoneOrdering />);
     expect(getByTestId('phone-order-not-submitted-v-b')).toBeTruthy();

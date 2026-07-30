@@ -98,4 +98,13 @@ describe('EODCountSection — spec 140 AC-REG (phone early-return gate)', () => 
     // …and the desktop-only "This week" sidebar header is gone.
     expect(queryByText('This week')).toBeNull();
   });
+
+  it('phone: the desktop file-tab strip never renders (Hard Rule 4, spec 148)', () => {
+    mockIsPhone = true;
+    const { queryByText } = render(<EODCountSection />);
+    // Phone EOD is count-only — history/variance/schedule stay desktop chrome.
+    expect(queryByText('count.tsx')).toBeNull();
+    expect(queryByText('history.tsx')).toBeNull();
+    expect(queryByText('variance.log')).toBeNull();
+  });
 });

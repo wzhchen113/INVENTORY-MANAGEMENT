@@ -53,7 +53,7 @@ function seed() {
     currentStore: { id: 'store-1', brandId: 'b', name: 'F', address: '', status: 'active' } as any,
     currentUser: { id: 'user-1', name: 'Admin', email: 'a@b.c', role: 'admin' } as any,
     stores: [{ id: 'store-1', name: 'F' } as any],
-    orderSchedule: null,
+    orderSchedule: undefined,
     reorderPayload: null,
     reorderLoading: false,
     reorderError: null,

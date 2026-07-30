@@ -43,7 +43,7 @@ export function reportPillState(run: ReportRun | null | undefined): ReportPillSt
   return 'ready';
 }
 
-function StatusPill({ state }: { state: ReportPillState }) {
+function ReportStatePill({ state }: { state: ReportPillState }) {
   const C = useCmdColors();
   const T = useT();
   const map = {
@@ -92,7 +92,7 @@ function ReportDetail({ definition }: { definition: ReportDefinition }) {
     <View style={{ padding: 16, gap: 16 }}>
       <View style={{ gap: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <StatusPill state={state} />
+          <ReportStatePill state={state} />
           <Text style={[PhoneType.microCaption, { color: C.fg3 }]} numberOfLines={1}>
             {definition.templateId.toUpperCase()} · {(definition.scope || 'this_store').toUpperCase()}
           </Text>
@@ -199,7 +199,7 @@ export const PhoneReports: React.FC = () => {
           return (
             <TwoLineRow
               testID={`phone-report-row-${r.id}`}
-              pill={<StatusPill state={state} />}
+              pill={<ReportStatePill state={state} />}
               name={r.name}
               meta={
                 <Text style={[PhoneType.metaMono, { color: C.fg3 }]} numberOfLines={1}>
