@@ -112,7 +112,8 @@
         "receiving": "Entrega recibida",
         "po": "Orden de compra",
         "missed_eod": "Conteo de cierre no realizado",
-        "issue": "Problema reportado"
+        "issue": "Problema reportado",
+        "order_ready": "Pedido listo para aprobar"
       },
       "issueCategory": {
         "equipment": "Equipo",
@@ -974,7 +975,16 @@
       "extensionOrderingLabel": "pedido por extensión",
       "extensionOrderingHelp": "recoge los pedidos borrador de este proveedor en la extensión del navegador",
       "orderPageUrlLabel": "URL de la página de pedido",
-      "orderPageUrlHelp": "página de pedido de BJ's / Sam's que abre la extensión"
+      "orderPageUrlHelp": "página de pedido de BJ's / Sam's que abre la extensión",
+      "orderChannelLabel": "canal de pedido",
+      "orderChannelHint": "a dónde envía APROBAR Y PEDIR a este proveedor",
+      "orderChannelNone": "auto",
+      "orderChannelInstacart": "Instacart",
+      "orderChannelWebstaurant": "Webstaurant",
+      "orderChannelExtension": "Extensión",
+      "orderChannelManual": "Manual",
+      "instacartRetailerKeyLabel": "clave de minorista de Instacart",
+      "instacartRetailerKeyHelp": "identificador IDP del minorista, p. ej. sams_club — vacío mantiene el llenado de carrito"
     },
     "recipes": {
       "title": "Menú / BOM",
@@ -1195,6 +1205,36 @@
       "phoneOrderScheduleToast": "Calendario de pedidos — por ahora solo en escritorio",
       "phoneDateFor": "PARA {date}",
       "phoneDateHint": "Cambia la fecha del pedido en el escritorio"
+    },
+    "approveOrder": {
+      "title": "Aprobar pedido",
+      "subtitle": "{vendor} · {date}",
+      "totals": "{lines} LÍNEAS · {cases} CJ · EST {est}",
+      "loading": "Cargando el pedido sugerido…",
+      "errorTitle": "No se pudo cargar este pedido",
+      "notFound": "No se encontró este pedido. Es posible que se haya eliminado.",
+      "approveCta": "APROBAR Y PEDIR",
+      "approveBusy": "APROBANDO…",
+      "markOrderedCta": "MARCAR COMO PEDIDO",
+      "reopenLinkCta": "REABRIR ENLACE",
+      "dismissCta": "VOLVER A PEDIDOS",
+      "emptyOrder": "Ahora mismo no hay nada que pedir a este proveedor.",
+      "alreadyOrdered": "Este pedido ya está marcado como pedido.",
+      "alreadyApproved": "Este pedido ya fue aprobado. Reabre el enlace o márcalo como pedido cuando termines la compra.",
+      "countChanged": "El conteo se volvió a enviar después de esta alerta. Recarga el pedido antes de aprobarlo.",
+      "switchStore": "CAMBIAR A {store}",
+      "switchStoreBody": "Este pedido es de {store}. Cambia de tienda para revisarlo.",
+      "retailerUnavailable": "Instacart no cubre a {vendor} en el código postal de {store}. Se usará el llenado de carrito.",
+      "disclosureInstacart": "La estimación es tu costo de catálogo, no el precio de Instacart. Los precios de Instacart pueden superar los del club y se aplican cargos de entrega y servicio.",
+      "disclosureCatalog": "La estimación es tu costo de catálogo.",
+      "linkFailed": "No se pidió nada. Intenta APROBAR Y PEDIR de nuevo.",
+      "channelLabel": "se pide por",
+      "channel": {
+        "instacart": "Instacart",
+        "webstaurant": "WebstaurantStore",
+        "extension": "Llenado de carrito",
+        "manual": "Lista manual"
+      }
     },
     "reconciliation": {
       "title": "Conciliación",

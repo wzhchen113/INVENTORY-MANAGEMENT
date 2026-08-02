@@ -463,6 +463,17 @@ verify_jwt = false
 [functions.send-po-email]
 verify_jwt = true
 
+# instacart-cart-link (spec 149, §5.1) — Instacart IDP cart-link minting.
+# SAME posture as send-po-email, and explicitly pinned TRUE for the same reason:
+# it is an admin-triggered action carrying the CALLER's Supabase JWT, gated by
+# an inline requireAdminCaller() / ADMIN_ROLES set mirroring
+# public.auth_is_privileged(). It is NOT a staff-* / pwa-catalog service-token
+# function, so the gateway JWT check must stay on — a CLI redeploy that
+# silently turned it off would drop the gateway's auth in front of a function
+# that holds the INSTACART_IDP_API_KEY secret and makes outbound upstream calls.
+[functions.instacart-cart-link]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

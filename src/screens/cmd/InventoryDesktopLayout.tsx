@@ -243,7 +243,15 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
       setViewMode('per-store');
       if (pendingPaletteAction.selectedName) setSelectedName(pendingPaletteAction.selectedName);
     }
-    if (!pendingPaletteAction.eodFocusItemId) {
+    // Spec 149 (§7.3) — the deferral is now symmetric across BOTH in-flight
+    // payload carriers: an EOD focus is consumed by EODCountSection once it
+    // picks the item up, and an `orderApproval` deep link is consumed by
+    // PhoneApproveOrder on dismiss/back (which returns the phone to
+    // PhoneOrdering). Consuming here would drop either payload before its
+    // owner reads it. This is a guard-CONDITION edit, not a render edit —
+    // desktop/tablet never set `orderApproval`, so the desktop tree is
+    // byte-unchanged (AC-REG-2).
+    if (!pendingPaletteAction.eodFocusItemId && !pendingPaletteAction.orderApproval) {
       usePaletteAction.getState().consume();
     }
   }, [pendingPaletteAction]);

@@ -112,7 +112,8 @@
         "receiving": "Delivery received",
         "po": "Purchase order",
         "missed_eod": "Missed EOD count",
-        "issue": "Issue reported"
+        "issue": "Issue reported",
+        "order_ready": "Order ready to approve"
       },
       "issueCategory": {
         "equipment": "Equipment",
@@ -974,7 +975,16 @@
       "extensionOrderingLabel": "extension ordering",
       "extensionOrderingHelp": "pick up this vendor's draft POs in the browser extension",
       "orderPageUrlLabel": "order page URL",
-      "orderPageUrlHelp": "BJ's / Sam's order page the extension opens"
+      "orderPageUrlHelp": "BJ's / Sam's order page the extension opens",
+      "orderChannelLabel": "order channel",
+      "orderChannelHint": "where APPROVE & ORDER sends this vendor",
+      "orderChannelNone": "auto",
+      "orderChannelInstacart": "Instacart",
+      "orderChannelWebstaurant": "Webstaurant",
+      "orderChannelExtension": "Extension",
+      "orderChannelManual": "Manual",
+      "instacartRetailerKeyLabel": "Instacart retailer key",
+      "instacartRetailerKeyHelp": "IDP retailer slug, e.g. sams_club — blank keeps the cart-filler"
     },
     "recipes": {
       "title": "Menu items / BOM",
@@ -1195,6 +1205,36 @@
       "phoneOrderScheduleToast": "Order schedule — desktop-first for now",
       "phoneDateFor": "FOR {date}",
       "phoneDateHint": "Change the reorder date on desktop"
+    },
+    "approveOrder": {
+      "title": "Approve order",
+      "subtitle": "{vendor} · {date}",
+      "totals": "{lines} LINES · {cases} CS · EST {est}",
+      "loading": "Loading the suggested order…",
+      "errorTitle": "Could not load this order",
+      "notFound": "This order could not be found. It may have been removed.",
+      "approveCta": "APPROVE & ORDER",
+      "approveBusy": "APPROVING…",
+      "markOrderedCta": "MARK ORDERED",
+      "reopenLinkCta": "RE-OPEN LINK",
+      "dismissCta": "BACK TO ORDERING",
+      "emptyOrder": "Nothing to order from this vendor right now.",
+      "alreadyOrdered": "This order is already marked ordered.",
+      "alreadyApproved": "This order was already approved. Re-open the link or mark it ordered once you have checked out.",
+      "countChanged": "The count was re-submitted after this alert. Reload the order before approving.",
+      "switchStore": "SWITCH TO {store}",
+      "switchStoreBody": "This order is for {store}. Switch stores to review it.",
+      "retailerUnavailable": "Instacart doesn't cover {vendor} at {store}'s ZIP. Falling back to the cart-filler.",
+      "disclosureInstacart": "Estimate is your catalog cost — not the Instacart price. Instacart pricing can exceed in-club pricing, and delivery/service fees apply.",
+      "disclosureCatalog": "Estimate is your catalog cost.",
+      "linkFailed": "Nothing was ordered. Try APPROVE & ORDER again.",
+      "channelLabel": "orders via",
+      "channel": {
+        "instacart": "Instacart",
+        "webstaurant": "WebstaurantStore",
+        "extension": "Cart-filler",
+        "manual": "Manual list"
+      }
     },
     "reconciliation": {
       "title": "Reconciliation",

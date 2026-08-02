@@ -39,6 +39,10 @@ import type { CountOrderScreen } from './countOrder';
 // fallback below divides case_price by it so the fallback matches calcUnitCost
 // and the spec-104 migration. Pure util (no supabase), allowed in db.ts.
 import { piecesPerCase } from '../utils/perEachCost';
+// Spec 149 — the ORDER CHANNEL literal union + its narrowing guard live in the
+// pure util (which also owns the R-3 precedence resolver). Pure module (no
+// supabase / no React), allowed in db.ts.
+import { isOrderChannel, type OrderChannel } from '../utils/orderChannel';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -66,6 +70,9 @@ export async function fetchStores(): Promise<Store[]> {
       name: s.name, address: s.address, status: s.status,
       eodDeadlineTime: s.eod_deadline_time || undefined,
       weeklyCountDueDow: s.weekly_count_due_dow ?? null,
+      // Spec 149 — ZIP for the server-side Instacart retailer lookup. `?? null`
+      // guards a row read in a mixed window before the migration applied.
+      postalCode: s.postal_code ?? null,
     }));
   }, { kind: 'read', label: 'fetchStores' });
 }
@@ -90,6 +97,9 @@ export async function fetchStoresIncludingInactive(): Promise<Store[]> {
       name: s.name, address: s.address, status: s.status,
       eodDeadlineTime: s.eod_deadline_time || undefined,
       weeklyCountDueDow: s.weekly_count_due_dow ?? null,
+      // Spec 149 — ZIP for the server-side Instacart retailer lookup. `?? null`
+      // guards a row read in a mixed window before the migration applied.
+      postalCode: s.postal_code ?? null,
     }));
   }, { kind: 'read', label: 'fetchStoresIncludingInactive' });
 }
@@ -103,7 +113,9 @@ export async function fetchStoresIncludingInactive(): Promise<Store[]> {
 // never clobber existing values with undefined.
 export async function updateStore(
   id: string,
-  updates: Partial<Pick<Store, 'name' | 'address' | 'eodDeadlineTime' | 'status' | 'weeklyCountDueDow'>>,
+  updates: Partial<
+    Pick<Store, 'name' | 'address' | 'eodDeadlineTime' | 'status' | 'weeklyCountDueDow' | 'postalCode'>
+  >,
 ): Promise<void> {
   return useInflight.getState().track(async (signal) => {
     const dbUpdates: Record<string, any> = {};
@@ -115,6 +127,9 @@ export async function updateStore(
     // cadence (sets the store to "weekly count not scheduled"). The
     // privileged_update_stores RLS policy gates this write; no new policy.
     if (updates.weeklyCountDueDow !== undefined) dbUpdates.weekly_count_due_dow = updates.weeklyCountDueDow;
+    // Spec 149 — ZIP for the Instacart retailer lookup. Empty string clears
+    // (→ null), which puts the store back on the fallback channel (R-4).
+    if (updates.postalCode !== undefined) dbUpdates.postal_code = updates.postalCode || null;
     // No mappable fields → skip the round-trip. An empty-body PATCH is a no-op
     // that still costs a request and can behave inconsistently across PostgREST
     // versions; matches the guard in updateRecipe/updatePrepRecipe.
@@ -142,6 +157,9 @@ export async function createStore(store: Omit<Store, 'id'>): Promise<string> {
         address: store.address,
         status: store.status || 'active',
         brand_id: store.brandId || null,
+        // Spec 149 — optional ZIP for the Instacart retailer lookup (OQ-2).
+        // Empty / unset stores NULL, which resolves to the fallback channel.
+        postal_code: store.postalCode || null,
       })
       .select()
       .abortSignal(signal)
@@ -2070,6 +2088,13 @@ export async function fetchVendors(brandId?: string): Promise<Vendor[]> {
       // migration applied; matches the DB default / nullability.
       extensionOrdering: v.extension_ordering ?? false,
       orderPageUrl: v.order_page_url ?? null,
+      // Spec 149 (AC-14) — data-driven order channel + the Instacart retailer
+      // slug. NEVER read `orderChannel` directly to decide routing: pass the
+      // vendor through `resolveOrderChannel` so the R-3 precedence (which keeps
+      // extension_ordering authoritative) applies. `?? null` guards a row read
+      // in a mixed window before the migration applied.
+      orderChannel: isOrderChannel(v.order_channel) ? v.order_channel : null,
+      instacartRetailerKey: v.instacart_retailer_key ?? null,
       // 2026-07 — vendor import-order file fields (nullable → '' / undefined).
       orderImportFormat:
         v.order_import_format === 'us_foods' || v.order_import_format === 'sysco'
@@ -2102,6 +2127,10 @@ export async function createVendor(vendor: Omit<Vendor, 'id'>): Promise<Vendor> 
       // order_page_url coalesces empty → null so a cleared field stores NULL.
       extension_ordering: vendor.extensionOrdering ?? false,
       order_page_url: vendor.orderPageUrl || null,
+      // Spec 149 — nullable order channel + Instacart retailer slug; empty /
+      // unset stores NULL (⇒ the vendor resolves by the extension flag alone).
+      order_channel: isOrderChannel(vendor.orderChannel) ? vendor.orderChannel : null,
+      instacart_retailer_key: vendor.instacartRetailerKey || null,
       // 2026-07 — vendor import-order file fields (nullable; omit-when-empty).
       ...(vendor.orderImportFormat ? { order_import_format: vendor.orderImportFormat } : {}),
       ...(vendor.importDistributorNumber ? { import_distributor_number: vendor.importDistributorNumber } : {}),
@@ -2296,6 +2325,303 @@ export async function markAllNotificationsRead(): Promise<number> {
     }
     return typeof data === 'number' ? data : Number(data ?? 0);
   }, { kind: 'write', label: 'markAllNotificationsRead' });
+}
+
+// ─── ORDER APPROVALS (spec 149) ──────────────────────────────────────────
+// The APPROVE & ORDER audit trail. Deliberate split (design guidance 3):
+//   - the approval ROW is written/read through PostgREST + one RPC here, under
+//     the existing per-store RLS (`order_approvals` policies, AC-21);
+//   - the Instacart link MINT is an edge function that holds the IDP secret and
+//     only ever takes an already-persisted approval id (AC-22/AC-24).
+// A client-side `fetch` to connect.instacart.com anywhere under src/ is a
+// Critical — the key never leaves the server.
+
+export type { OrderChannel };
+export type OrderApprovalStatus = 'pending' | 'approved' | 'ordered';
+
+/** One approved order line SNAPSHOT. `qtyBase` is BASE / COUNTED units — the
+ *  same basis `fillCartForVendor` and `createPurchaseOrderDraft` persist.
+ *  `costPerCountedUnit` is the spec-104 ★ bridge (`ReorderItem.costPerUnit`,
+ *  which is per-EACH, × the item's `subUnitSize`) — the RPC does NOT re-derive
+ *  it, so the caller MUST apply the bridge. Easiest thing to get wrong here. */
+export interface OrderApprovalLine {
+  itemId: string;
+  itemName: string;
+  qtyBase: number;
+  caseQty: number;
+  unit: string;
+  costPerCountedUnit: number;
+}
+
+export interface OrderApproval {
+  id: string;
+  storeId: string;
+  vendorId: string;
+  businessDate: string;
+  approvedBy: string | null;
+  approvedAt: string;
+  channel: OrderChannel;
+  status: OrderApprovalStatus;
+  lines: OrderApprovalLine[];
+  lineCount: number;
+  estTotalCost: number;
+  externalRef: string | null;
+  externalRefExpiresAt: string | null;
+  orderedAt: string | null;
+  sourceSubmissionId: string | null;
+}
+
+/** The RLS-clipped `eod_submissions` row an `order_ready` notification's
+ *  `source_id` resolves to — the vendor + business date the Approve Order
+ *  deep link is scoped by (design §3.4). */
+export interface EodSubmissionContext {
+  id: string;
+  storeId: string;
+  vendorId: string;
+  businessDate: string;
+  status: string;
+  submittedAt: string | null;
+}
+
+function mapOrderApprovalLine(row: any): OrderApprovalLine {
+  return {
+    itemId: row?.item_id ?? '',
+    itemName: row?.item_name ?? '',
+    qtyBase: Number(row?.qty_base ?? 0),
+    caseQty: Number(row?.case_qty ?? 1),
+    unit: row?.unit ?? '',
+    costPerCountedUnit: Number(row?.cost_per_counted_unit ?? 0),
+  };
+}
+
+function toOrderApprovalLineRow(line: OrderApprovalLine): Record<string, unknown> {
+  return {
+    item_id: line.itemId,
+    item_name: line.itemName,
+    qty_base: line.qtyBase,
+    case_qty: line.caseQty,
+    unit: line.unit,
+    cost_per_counted_unit: line.costPerCountedUnit,
+  };
+}
+
+function mapOrderApproval(row: any): OrderApproval {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    vendorId: row.vendor_id,
+    businessDate: String(row.business_date ?? '').slice(0, 10),
+    approvedBy: row.approved_by ?? null,
+    approvedAt: row.approved_at,
+    // The server is authoritative for the channel (the RPC resolves it via
+    // vendor_order_channel). `manual` is the safe degradation for an
+    // unrecognized literal — it never mints a link or touches an upstream.
+    channel: isOrderChannel(row.channel) ? row.channel : 'manual',
+    status:
+      row.status === 'approved' || row.status === 'ordered' ? row.status : 'pending',
+    lines: Array.isArray(row.lines) ? row.lines.map(mapOrderApprovalLine) : [],
+    lineCount: Number(row.line_count ?? 0),
+    estTotalCost: Number(row.est_total_cost ?? 0),
+    externalRef: row.external_ref ?? null,
+    externalRefExpiresAt: row.external_ref_expires_at ?? null,
+    orderedAt: row.ordered_at ?? null,
+    sourceSubmissionId: row.source_submission_id ?? null,
+  };
+}
+
+/**
+ * RPC `create_order_approval` — the ONLY INSERT path (design §3.2). Idempotent
+ * on `(store_id, vendor_id, business_date)`: a double-tap or a retry after a
+ * network error returns the SAME row rather than creating a second one
+ * (guidance 6). An already-`approved`/`ordered` row is returned VERBATIM with
+ * no write (R-6) — the caller branches on `status` and renders the
+ * already-actioned state instead of silently re-approving.
+ *
+ * The channel is resolved SERVER-side; the client never supplies it.
+ */
+export async function createOrderApproval(params: {
+  storeId: string;
+  vendorId: string;
+  businessDate: string;
+  sourceSubmissionId?: string | null;
+  lines: OrderApprovalLine[];
+}): Promise<OrderApproval | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('create_order_approval', {
+        p_store_id: params.storeId,
+        p_vendor_id: params.vendorId,
+        p_business_date: params.businessDate,
+        p_lines: params.lines.map(toOrderApprovalLineRow),
+        p_submission_id: params.sourceSubmissionId ?? null,
+      })
+      .abortSignal(signal);
+    if (error) throw error;
+    // PostgREST returns the composite either bare or as a single-element array
+    // depending on the client's row-count negotiation — tolerate both.
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? mapOrderApproval(row) : null;
+  }, { kind: 'write', label: 'createOrderApproval' });
+}
+
+/** PostgREST read, RLS-clipped to stores the caller can see. `null` on the
+ *  normal first-visit case (no approval exists for this store/vendor/date). */
+export async function fetchOrderApproval(params: {
+  storeId: string;
+  vendorId: string;
+  businessDate: string;
+}): Promise<OrderApproval | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('order_approvals')
+      .select('*')
+      .eq('store_id', params.storeId)
+      .eq('vendor_id', params.vendorId)
+      .eq('business_date', params.businessDate)
+      .abortSignal(signal)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapOrderApproval(data) : null;
+  }, { kind: 'read', label: 'fetchOrderApproval' });
+}
+
+/**
+ * PostgREST UPDATE. The `tg_order_approvals_guard` trigger is the server-side
+ * gate: an illegal status move (`pending → ordered`, `approved → pending`, …)
+ * raises P0001 ⇒ HTTP 400 ⇒ this throws. Only the legal transitions
+ * `pending → approved → ordered` plus the external-ref writes get through.
+ */
+export async function advanceOrderApproval(
+  id: string,
+  patch: {
+    status?: OrderApprovalStatus;
+    externalRef?: string | null;
+    externalRefExpiresAt?: string | null;
+    channel?: OrderChannel;
+  },
+): Promise<OrderApproval | null> {
+  return useInflight.getState().track(async (signal) => {
+    const dbUpdates: Record<string, unknown> = {};
+    if (patch.status !== undefined) dbUpdates.status = patch.status;
+    if (patch.externalRef !== undefined) dbUpdates.external_ref = patch.externalRef || null;
+    if (patch.externalRefExpiresAt !== undefined)
+      dbUpdates.external_ref_expires_at = patch.externalRefExpiresAt || null;
+    if (patch.channel !== undefined) dbUpdates.channel = patch.channel;
+    // Empty-body PATCH guard — same idiom as updateStore / updateRecipe.
+    if (Object.keys(dbUpdates).length === 0) return null;
+    const { data, error } = await supabase
+      .from('order_approvals')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .abortSignal(signal)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapOrderApproval(data) : null;
+  }, { kind: 'write', label: 'advanceOrderApproval' });
+}
+
+/**
+ * Deep-link context (design §3.4). An `order_ready` notification carries
+ * `source_id` = the `eod_submissions` row id; the vendor id + business date are
+ * resolved with this ONE RLS-clipped read rather than by widening the
+ * `notifications` schema with a `vendor_id` column.
+ */
+export async function fetchEodSubmissionContext(
+  submissionId: string,
+): Promise<EodSubmissionContext | null> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('eod_submissions')
+      .select('id,store_id,vendor_id,date,status,submitted_at')
+      .eq('id', submissionId)
+      .abortSignal(signal)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      id: data.id,
+      storeId: data.store_id,
+      vendorId: data.vendor_id ?? '',
+      businessDate: String(data.date ?? '').slice(0, 10),
+      status: data.status ?? '',
+      submittedAt: data.submitted_at ?? null,
+    };
+  }, { kind: 'read', label: 'fetchEodSubmissionContext' });
+}
+
+/** The structured result of a cart-link mint. `ok:false` carries the edge
+ *  function's STABLE error token (`retailer_unavailable`, `wrong_channel`,
+ *  `already_ordered`, `upstream_error`, …) so the caller can branch — notably
+ *  the OQ-2 `retailer_unavailable` → `fallbackChannel` re-route. */
+export type InstacartCartLinkResult =
+  | { ok: true; url: string; expiresAt: string | null; reused: boolean }
+  | { ok: false; error: string; fallbackChannel?: OrderChannel; postalCode?: string | null };
+
+/**
+ * Mint (or re-open) the Instacart pre-filled cart link for an already-persisted
+ * approval. AC-25: this goes through the supabase functions client, NEVER a
+ * bare `fetch` — a bare fetch resolves on HTTP 4xx/5xx and would re-introduce
+ * the spec-031/032 silent-fake-success regression.
+ *
+ * `callEdgeFunction` (src/lib/auth.ts) collapses a non-2xx body to a string
+ * `error`, which loses `fallbackChannel`. This contract NEEDS that field, so we
+ * use the DOCUMENTED exception (CLAUDE.md: "when a caller needs typed data or
+ * richer error context, use supabase.functions.invoke the way fetchBreadbotSales
+ * does") — same envelope, structured body preserved. The API key lives only in
+ * the function's Supabase secret and is never returned or logged (AC-22).
+ */
+export async function mintInstacartCartLink(
+  approvalId: string,
+): Promise<InstacartCartLinkResult> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.functions.invoke('instacart-cart-link', {
+      body: { approvalId },
+      signal,
+    });
+    if (error) {
+      // supabase-js throws `FunctionsHttpError` on ANY non-2xx, and its
+      // `context` is the raw `Response` — NOT a parsed body. The documented
+      // recovery is `await error.context.json()`
+      // (@supabase/functions-js FunctionsClient.js:96). Reading it is
+      // load-bearing here: without it the 409 `retailer_unavailable` branch
+      // loses `fallbackChannel` and the OQ-2 re-route silently degrades to a
+      // raw "non-2xx status code" toast.
+      const ctx: any = (error as any).context;
+      let body: any = null;
+      if (ctx && typeof ctx.json === 'function') {
+        body = await ctx.json().catch(() => null);
+      } else if (ctx && typeof ctx === 'object') {
+        // Defensive: a plain-object context (a relay error, or a stubbed
+        // client) still yields its fields.
+        body = ctx;
+      }
+      if (body && typeof body.error === 'string') {
+        return {
+          ok: false,
+          error: body.error,
+          fallbackChannel: isOrderChannel(body.fallbackChannel) ? body.fallbackChannel : undefined,
+          postalCode: body.postalCode ?? null,
+        };
+      }
+      return { ok: false, error: (error as any)?.message || 'upstream_error' };
+    }
+    if (!data || data.ok !== true || typeof data.url !== 'string' || !data.url) {
+      // A 2xx with no usable url is NOT a success — never fake one (AC-15).
+      return {
+        ok: false,
+        error: typeof data?.error === 'string' ? data.error : 'upstream_error',
+        fallbackChannel: isOrderChannel(data?.fallbackChannel) ? data.fallbackChannel : undefined,
+        postalCode: data?.postalCode ?? null,
+      };
+    }
+    return {
+      ok: true,
+      url: data.url,
+      expiresAt: data.expiresAt ?? null,
+      reused: data.reused === true,
+    };
+  }, { kind: 'write', label: 'mintInstacartCartLink' });
 }
 
 // ─── AUDIT LOG ───────────────────────────────────────────────────────────
@@ -3361,6 +3687,14 @@ export async function updateVendor(id: string, updates: Partial<Vendor>): Promis
     // boolean; order_page_url empty string clears (→ null).
     if (updates.extensionOrdering !== undefined) dbUpdates.extension_ordering = updates.extensionOrdering;
     if (updates.orderPageUrl !== undefined) dbUpdates.order_page_url = updates.orderPageUrl || null;
+    // Spec 149 (AC-14) — order channel + Instacart retailer slug. Empty string /
+    // an unrecognized literal clears (→ null), which returns the vendor to the
+    // extension-flag-driven resolution (R-3). The DB CHECK constraint is the
+    // second belt; this guard keeps a stray form value from ever reaching it.
+    if (updates.orderChannel !== undefined)
+      dbUpdates.order_channel = isOrderChannel(updates.orderChannel) ? updates.orderChannel : null;
+    if (updates.instacartRetailerKey !== undefined)
+      dbUpdates.instacart_retailer_key = updates.instacartRetailerKey?.trim() || null;
     // 2026-07 — vendor import-order file fields. Empty string clears (→ null)
     // so an admin can un-set the format / header values.
     if (updates.orderImportFormat !== undefined) dbUpdates.order_import_format = updates.orderImportFormat || null;

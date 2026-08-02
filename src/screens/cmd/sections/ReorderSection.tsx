@@ -57,6 +57,12 @@ import { isCaseRow, poOrderedDisplay, poResolveEdit } from '../../../utils/poCas
 // via the `if (isPhone) return <PhoneOrdering/>` guard placed AFTER all hooks.
 import { useIsPhone } from '../../../theme/breakpoints';
 import { PhoneOrdering } from './phone/PhoneOrdering';
+// Spec 149 (§7.4) — the phone Approve Order review screen, reached ONLY via an
+// `order_ready` notification deep link. It rides the SAME `isPhone` guard as
+// PhoneOrdering (placed after all hooks), so desktop/tablet render output is
+// byte-unchanged and no new section id enters InventoryDesktopLayout's dispatch.
+import { PhoneApproveOrder } from './phone/PhoneApproveOrder';
+import { usePaletteAction } from '../../../lib/paletteAction';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -1318,6 +1324,13 @@ export default function ReorderSection() {
     [reorderEdits, subUnitSizeFor],
   );
 
+  // Spec 149 (§7.4 / AC-6) — the phone Approve Order deep-link payload, written
+  // by the phone notification sheet when an `order_ready` row is tapped. Read
+  // here (with the other hooks, ABOVE the isPhone guard) and consumed by
+  // PhoneApproveOrder on dismiss, which returns the phone to PhoneOrdering.
+  // Selecting the nested object keeps the reference stable, so no extra render.
+  const pendingApproval = usePaletteAction((s) => s.pending?.orderApproval ?? null);
+
   const [tabId, setTabId] = React.useState('reorder.tsx');
 
   // Spec 087 — calendar selected date. Defaults to store-local today;
@@ -1450,8 +1463,18 @@ export default function ReorderSection() {
   // data-loading effects above already ran, so `reorderPayload` / `orderSchedule`
   // are hydrated for the phone child to read. Desktop/tablet fall through
   // byte-unchanged (AC-REG).
+  // Spec 149 (§7.4) — the Approve Order deep-link payload. Read with the OTHER
+  // hooks, above the guard, so the hook count stays stable across an isPhone
+  // flip. Desktop/tablet never set `orderApproval`, so this subscription can
+  // only ever be null there — no desktop render change (AC-REG-2).
   const isPhone = useIsPhone();
-  if (isPhone) return <PhoneOrdering />;
+  if (isPhone) {
+    return pendingApproval ? (
+      <PhoneApproveOrder request={pendingApproval} />
+    ) : (
+      <PhoneOrdering />
+    );
+  }
 
   // Spec 087 (E) — no-focal-store guard. Placed AFTER all hooks so the
   // hook count stays stable across renders. Mirrors OrderScheduleSection /

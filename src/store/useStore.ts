@@ -10,7 +10,10 @@ import {
   LocalizedNames, RecipeCategory, IngredientCategory,
   WeeklyCountStatus, ItemVendorLink, AdminNotification,
 } from '../types';
-import type { PoLine } from '../lib/db';
+import type { PoLine, OrderApproval, OrderApprovalLine } from '../lib/db';
+// Spec 149 — the ORDER CHANNEL union (pure util; the R-3 precedence resolver
+// lives there too, but the SERVER is authoritative for an approval's channel).
+import type { OrderChannel } from '../utils/orderChannel';
 import { callEdgeFunction } from '../lib/auth';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
@@ -23,12 +26,27 @@ import { getConversionFactor, smartToBase } from '../utils/unitConversion';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import type { Locale } from '../i18n';
+import { t as translate, type Locale } from '../i18n';
+// Spec 149 §8 — the `manual` channel reuses the EXISTING quick-order builder
+// (AC-18: no new export builders). Pure modules; the impure share orchestrator
+// (`screens/cmd/lib/sharePo`) is pulled in via a DYNAMIC import at the call site
+// so the static store graph stays free of expo-sharing (same idiom as
+// `deleteProfile`'s dynamic `import('../lib/auth')`).
+import { buildPoQuickOrderText, type NameResolver } from '../utils/poQuickOrderText';
+// Spec 149 review round — the ONE cross-platform external-link opener (scheme
+// allowlist + native rejection handling), shared with PhoneApproveOrder.
+import { openExternalUrl } from '../utils/openExternalUrl';
+import { getLocalizedName } from '../i18n/localizedName';
 
 // Surface a backend failure to the user instead of swallowing it in
 // console.warn. Used by the recipe + prep recipe CRUD paths to revert
 // optimistic local-state mutations and tell the admin what happened.
-function notifyBackendError(action: string, e: any) {
+//
+// Spec 149 review round — `export`ed (additively; every existing in-file caller
+// is unchanged) so the phone Approve Order screen's RE-OPEN LINK can route its
+// external-link failures through the SAME reporter the store uses, instead of
+// forking a second toast surface.
+export function notifyBackendError(action: string, e: any) {
   const message = e?.message || String(e);
   console.warn(`[Supabase] ${action} failed:`, message);
   Toast.show({
@@ -37,6 +55,61 @@ function notifyBackendError(action: string, e: any) {
     text2: message,
     visibilityTime: 5000,
   });
+}
+
+// ─── Spec 149 — Approve & Order helpers (module-local, pure where possible) ──
+
+/**
+ * Open an external vendor URL on the phone. Web → a new tab (`noopener` so the
+ * opened page can't reach back through `window.opener`); native → `Linking`.
+ * The link is ALWAYS opened in the user's own session — nothing checks out for
+ * them (the spec's hard product boundary).
+ *
+ * Spec 149 review round: the platform split, the http(s) scheme ALLOWLIST
+ * (`vendors.order_page_url` is operator-writable free text) and the native
+ * rejection `.catch` all live in the shared `openExternalUrl` util, which the
+ * phone Approve Order screen's RE-OPEN LINK now shares — so the two can't drift
+ * on error handling again. Returns `false` when the stored URL was refused.
+ */
+function openExternalOrderUrl(url: string): boolean {
+  return openExternalUrl(url, 'Open order page', notifyBackendError);
+}
+
+/**
+ * Build the approved-line SNAPSHOT for one vendor. Exported for jest (AC-28):
+ * the ★ bridge below is the single easiest thing in spec 149 to get wrong.
+ *
+ * - `qtyBase` is BASE / COUNTED units, taken from the per-session inline edit
+ *   buffer when present, else the server suggestion — the SAME overlay
+ *   `fillCartForVendor` applies (`edits[itemId] ?? suggestedUnits`). Re-derived
+ *   here even though the caller passes a buffer-overlaid vendor: both paths
+ *   agree, so there is no double-apply, and the helper stays correct if a
+ *   future caller hands it a NON-overlaid vendor.
+ * - `costPerCountedUnit` = `ReorderItem.costPerUnit` (per-EACH since spec 104)
+ *   × the item's `subUnitSize` — the spec-104 ★ bridge. Do NOT drop subUnitSize.
+ * - Zero-qty and id-less lines are dropped (the RPC requires qty > 0).
+ */
+export function buildOrderApprovalLines(
+  vendor: ReorderVendor,
+  vendorEdits: Record<string, number> | undefined,
+  inventory: InventoryItem[],
+): OrderApprovalLine[] {
+  const edits = vendorEdits || {};
+  return vendor.items
+    .map((it) => {
+      const inv = inventory.find((i) => i.id === it.itemId);
+      const subUnitSize = inv?.subUnitSize || 1;
+      const base = edits[it.itemId] ?? (it.suggestedUnits || it.suggestedQty || 0);
+      return {
+        itemId: it.itemId,
+        itemName: it.itemName,
+        qtyBase: base,
+        caseQty: it.caseQty,
+        unit: it.unit,
+        costPerCountedUnit: it.costPerUnit * subUnitSize, // ★ spec-104 bridge
+      };
+    })
+    .filter((ln) => ln.itemId && ln.qtyBase > 0);
 }
 
 const DARK_MODE_KEY = 'darkMode';
@@ -531,6 +604,53 @@ interface StoreActions {
    * buffer is kept on error so the operator can retry (optimistic-then-revert).
    */
   fillCartForVendor: (vendor: ReorderVendor) => Promise<string | null>;
+
+  // ─── Spec 149 §8 — EOD → Approve & Order (phone) ─────────────────────────
+  /** The (submission, store, vendor, business date) tuple the Approve Order
+   *  screen is scoped to, resolved from the `order_ready` notification's
+   *  source_id. Null when no approval deep link is in flight. */
+  approvalContext: {
+    submissionId: string;
+    storeId: string;
+    vendorId: string;
+    businessDate: string;
+  } | null;
+  /** The persisted `order_approvals` row for that tuple — null on the normal
+   *  first visit (nothing approved yet). */
+  approval: OrderApproval | null;
+  approvalLoading: boolean;
+  /** Load errors render as an IN-SCREEN pane, not a toast (mirrors
+   *  `loadReorderSuggestions` / `reorderError`). */
+  approvalError: string | null;
+  /** Guards the whole APPROVE & ORDER sequence so a double-tap is a
+   *  client-side no-op; the unique index is the server-side belt (guidance 6). */
+  approvalBusy: boolean;
+  /**
+   * Resolve the deep link: `eod_submissions` row → context → any existing
+   * approval. PURE READ (no optimistic state); errors land in `approvalError`.
+   */
+  loadOrderApproval: (req: { submissionId: string; storeId: string }) => Promise<void>;
+  /**
+   * The ONE primary action (AC-11). Sequential and deliberately NOT optimistic —
+   * this is a multi-step server sequence with a user-visible external side
+   * effect, and faking success is exactly the spec-031/032 regression AC-15
+   * forbids. Persists the approval (server resolves the channel), then routes:
+   * instacart → mint + open the pre-filled cart; webstaurant → open Rapid
+   * Reorder (no API call, no order transmitted); extension → the UNCHANGED
+   * spec-138 `fillCartForVendor` handoff; manual → the existing quick-order-text
+   * share path. On a `retailer_unavailable` 409 it falls back ONCE to the
+   * server-supplied channel (OQ-2) instead of surfacing a raw error.
+   * Returns the channel actually used (+ the link where one exists), or null.
+   */
+  approveAndOrder: (vendor: ReorderVendor) => Promise<{ channel: OrderChannel; url?: string } | null>;
+  /**
+   * OQ-3 — the human confirms the order was actually placed. This one IS
+   * optimistic-then-revert + notifyBackendError. The app NEVER infers `ordered`
+   * from link generation (AC-20): the free IDP link API has no order webhook.
+   */
+  markOrderApprovalOrdered: () => Promise<void>;
+  /** Drop the approval slice (screen dismiss / back). */
+  clearOrderApproval: () => void;
   /**
    * Receive against a PO (spec 107 §3). `lines` are the this-receive deltas
    * (received_qty ADDITIVE). Mints the client_uuid internally for idempotency.
@@ -793,6 +913,21 @@ export const useStore = create<FullStore>((set, get) => ({
   // units). Client-only overlay; not persisted, reset per vendor after export /
   // Fill cart and wholesale on store / as-of-date change.
   reorderEdits: {} as Record<string, Record<string, number>>,
+  // Spec 149 — EOD → Approve & Order pipeline. Populated only by the phone
+  // Approve Order deep link (`loadOrderApproval`); null everywhere else, so
+  // desktop/tablet never see it (AC-REG-2). `approvalContext` is the resolved
+  // (submission, store, vendor, business date) tuple the screen is scoped to;
+  // `approval` is the persisted audit row (null on the normal first visit).
+  approvalContext: null as {
+    submissionId: string;
+    storeId: string;
+    vendorId: string;
+    businessDate: string;
+  } | null,
+  approval: null as db.OrderApproval | null,
+  approvalLoading: false,
+  approvalError: null as string | null,
+  approvalBusy: false,
   // Spec 060 — server-computed per-recipe capacity for the active
   // store. Empty `{}` until `loadFromSupabase` triggers the
   // fire-and-forget `loadMenuCapacity(sid)` tail. Cleared on store
@@ -2925,6 +3060,265 @@ export const useStore = create<FullStore>((set, get) => ({
       // revert: the buffer IS the optimistic state).
       notifyBackendError('Fill cart', e);
       return null;
+    }
+  },
+
+  // ─── Spec 149 §8 — EOD → Approve & Order (phone) ─────────────────────────
+  clearOrderApproval: () =>
+    set({
+      approvalContext: null,
+      approval: null,
+      approvalLoading: false,
+      approvalError: null,
+      approvalBusy: false,
+    }),
+
+  loadOrderApproval: async (req) => {
+    set({
+      approvalLoading: true,
+      approvalError: null,
+      approval: null,
+      approvalContext: null,
+    });
+    try {
+      // One RLS-clipped read resolves the vendor + business date the
+      // `order_ready` notification's source_id points at (design §3.4).
+      const ctx = await db.fetchEodSubmissionContext(req.submissionId);
+      if (!ctx || !ctx.vendorId) {
+        set({ approvalLoading: false, approvalError: 'Submission not found' });
+        return;
+      }
+      const approvalContext = {
+        submissionId: ctx.id,
+        storeId: ctx.storeId,
+        vendorId: ctx.vendorId,
+        businessDate: ctx.businessDate,
+      };
+      // May legitimately be null — the normal first-visit case.
+      const approval = await db.fetchOrderApproval({
+        storeId: ctx.storeId,
+        vendorId: ctx.vendorId,
+        businessDate: ctx.businessDate,
+      });
+      set({ approvalContext, approval, approvalLoading: false, approvalError: null });
+    } catch (e: any) {
+      // In-screen pane, NOT a toast — mirrors loadReorderSuggestions.
+      const message = e?.message || String(e);
+      console.warn('[Supabase] loadOrderApproval:', message);
+      set({ approvalLoading: false, approvalError: message });
+    }
+  },
+
+  approveAndOrder: async (vendor) => {
+    const ctx = get().approvalContext;
+    if (!ctx) {
+      notifyBackendError('Approve & order', new Error('No approval context'));
+      return null;
+    }
+    // Client-side double-tap guard; the unique index on
+    // (store, vendor, business_date) is the server-side belt (guidance 6).
+    if (get().approvalBusy) return null;
+    set({ approvalBusy: true });
+
+    // Route ONE approval row to its channel. `allowFallback` is the OQ-2
+    // recursion guard: the retailer_unavailable branch re-runs this exactly
+    // once, on the server-supplied fallback channel, and never again.
+    const runChannel = async (
+      row: OrderApproval,
+      channel: OrderChannel,
+      allowFallback: boolean,
+    ): Promise<{ channel: OrderChannel; url?: string } | null> => {
+      if (channel === 'instacart') {
+        const res = await db.mintInstacartCartLink(row.id);
+        if (res.ok) {
+          openExternalOrderUrl(res.url);
+          // The edge function already advanced the row to `approved` and wrote
+          // external_ref through the caller's token — re-read rather than
+          // guessing at the resulting state.
+          const fresh = await db
+            .fetchOrderApproval({
+              storeId: row.storeId,
+              vendorId: row.vendorId,
+              businessDate: row.businessDate,
+            })
+            .catch(() => null);
+          if (fresh) set({ approval: fresh });
+          return { channel: 'instacart', url: res.url };
+        }
+        if (res.error === 'retailer_unavailable' && allowFallback) {
+          // OQ-2 / §5.5 — Instacart does not cover this vendor at the store's
+          // ZIP. This is NOT an error the operator can act on, so it is an
+          // INFO toast + a silent re-route to the server-chosen fallback
+          // (extension ⇒ the tuned cart-filler; manual ⇒ quick-order text).
+          // We never open a link that lands on an empty retailer.
+          const fallback: OrderChannel = res.fallbackChannel ?? 'manual';
+          const locale = get().locale;
+          Toast.show({
+            type: 'info',
+            text1: translate(locale, 'section.approveOrder.retailerUnavailable', {
+              vendor: vendor.vendorName || '',
+              store: get().currentStore?.name || '',
+            }),
+            visibilityTime: 5000,
+          });
+          // Legal while status = 'pending' (the §1.2 trigger freezes `channel`
+          // only once the row leaves pending).
+          const updated = await db
+            .advanceOrderApproval(row.id, { channel: fallback })
+            .catch((e: any) => {
+              notifyBackendError('Approve & order', e);
+              return null;
+            });
+          const next = updated ?? { ...row, channel: fallback };
+          set({ approval: next });
+          return runChannel(next, fallback, false);
+        }
+        // Any other refusal: a REAL error toast, and the row stays `pending`
+        // so the operator can retry (AC-15 — never a silent fake success).
+        notifyBackendError('Approve & order', new Error(res.error));
+        return null;
+      }
+
+      if (channel === 'webstaurant') {
+        // AC-16 — record the approval and open Rapid Reorder. No API call is
+        // made and no order is transmitted.
+        const orderPageUrl =
+          get().vendors.find((v) => v.id === row.vendorId)?.orderPageUrl || '';
+        if (!orderPageUrl) {
+          notifyBackendError('Approve & order', new Error('No order page configured'));
+          return null;
+        }
+        // Refused by the http(s) allowlist (a planted/mistyped
+        // `javascript:` / app-scheme value) ⇒ the same posture as a missing
+        // URL: toast (raised inside the helper) and NO approval row advance,
+        // rather than recording an order for a page that never opened.
+        if (!openExternalOrderUrl(orderPageUrl)) return null;
+        const updated = await db
+          .advanceOrderApproval(row.id, { status: 'approved', externalRef: orderPageUrl })
+          .catch((e: any) => {
+            notifyBackendError('Approve & order', e);
+            return null;
+          });
+        if (updated) set({ approval: updated });
+        return { channel: 'webstaurant', url: orderPageUrl };
+      }
+
+      if (channel === 'extension') {
+        // AC-17 / AC-REG-3 — the EXISTING spec-138 handoff, called unchanged.
+        // The extension RPCs and the extension build are frozen.
+        const poId = await get().fillCartForVendor(vendor);
+        if (!poId) return null; // fillCartForVendor already toasted.
+        const updated = await db
+          .advanceOrderApproval(row.id, { status: 'approved', externalRef: poId })
+          .catch((e: any) => {
+            notifyBackendError('Approve & order', e);
+            return null;
+          });
+        if (updated) set({ approval: updated });
+        return { channel: 'extension' };
+      }
+
+      // AC-18 (manual) — the EXISTING quick-order-text path; no new builders.
+      // Same shape as PhoneOrdering's OverflowSheet.runQuickOrder.
+      const locale = get().locale;
+      const inventory = get().inventory;
+      const orderUnit = get().vendors.find((v) => v.id === row.vendorId)?.orderUnit ?? 'case';
+      const resolveCode = (itemId: string): string | null | undefined =>
+        inventory
+          .find((i) => i.id === itemId)
+          ?.vendors?.find((v) => v.vendorId === row.vendorId)?.orderCode;
+      const resolveName: NameResolver = (itemId, fallbackName) => {
+        const inv = inventory.find((i) => i.id === itemId);
+        return inv
+          ? getLocalizedName({ name: inv.name, i18nNames: inv.i18nNames }, locale)
+          : fallbackName;
+      };
+      const { text } = buildPoQuickOrderText(
+        row.lines.map((ln) => ({
+          itemId: ln.itemId,
+          itemName: ln.itemName,
+          orderedQty: ln.qtyBase,
+          caseQty: ln.caseQty,
+        })),
+        resolveCode,
+        resolveName,
+        orderUnit,
+      );
+      // Dynamic import keeps expo-sharing out of the store's static graph.
+      const { sharePurchaseOrder } = await import('../screens/cmd/lib/sharePo');
+      const { shared } = await sharePurchaseOrder(text, {
+        dialogTitle: translate(locale, 'section.purchaseOrders.quickOrderDialogTitle'),
+        onCopyToast: () =>
+          Toast.show({
+            type: 'success',
+            text1: translate(locale, 'section.purchaseOrders.quickOrderCopiedToast'),
+          }),
+      });
+      // A dismissed share is a no-op — do NOT advance the approval on it.
+      if (!shared) return null;
+      const updated = await db
+        .advanceOrderApproval(row.id, { status: 'approved' })
+        .catch((e: any) => {
+          notifyBackendError('Approve & order', e);
+          return null;
+        });
+      if (updated) set({ approval: updated });
+      return { channel: 'manual' };
+    };
+
+    try {
+      const lines = buildOrderApprovalLines(
+        vendor,
+        get().reorderEdits[vendor.vendorId],
+        get().inventory,
+      );
+      if (lines.length === 0) {
+        notifyBackendError('Approve & order', new Error('No orderable lines'));
+        return null;
+      }
+      let row: OrderApproval | null = null;
+      try {
+        row = await db.createOrderApproval({
+          storeId: ctx.storeId,
+          vendorId: ctx.vendorId,
+          businessDate: ctx.businessDate,
+          sourceSubmissionId: ctx.submissionId,
+          lines,
+        });
+      } catch (e: any) {
+        notifyBackendError('Approve & order', e);
+        return null;
+      }
+      if (!row) {
+        notifyBackendError('Approve & order', new Error('Approval not created'));
+        return null;
+      }
+      set({ approval: row });
+      // R-6 — an already-approved/ordered row comes back VERBATIM with no
+      // write. Stop here and let the screen render the already-actioned state
+      // (AC-13); re-approving is refused, not silently overwritten.
+      if (row.status !== 'pending') return { channel: row.channel };
+      return await runChannel(row, row.channel, true);
+    } catch (e: any) {
+      notifyBackendError('Approve & order', e);
+      return null;
+    } finally {
+      set({ approvalBusy: false });
+    }
+  },
+
+  markOrderApprovalOrdered: async () => {
+    const prev = get().approval;
+    if (!prev || prev.status === 'ordered') return;
+    // Optimistic-then-revert (the one action in this slice that is optimistic:
+    // it is a single local status flip with no external side effect).
+    set({ approval: { ...prev, status: 'ordered' } });
+    try {
+      const updated = await db.advanceOrderApproval(prev.id, { status: 'ordered' });
+      if (updated) set({ approval: updated });
+    } catch (e: any) {
+      set({ approval: prev });
+      notifyBackendError('Mark ordered', e);
     }
   },
 

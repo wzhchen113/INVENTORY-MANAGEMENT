@@ -79,9 +79,12 @@ describe('fetchStoresIncludingInactive — spec 083', () => {
 
     // Spec 098 — the store projection now carries weeklyCountDueDow
     // (snake weekly_count_due_dow → camel; null when no cadence set).
+    // Spec 149 — and `postalCode` (snake postal_code → camel), null when the
+    // column is absent/unset, which is what puts the store on the fallback
+    // order channel rather than the Instacart one.
     expect(result).toEqual([
-      { id: 's1', brandId: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eodDeadlineTime: '23:00', weeklyCountDueDow: 5 },
-      { id: 's2', brandId: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eodDeadlineTime: undefined, weeklyCountDueDow: null },
+      { id: 's1', brandId: 'b1', name: 'Active Store', address: '1 Main', status: 'active', eodDeadlineTime: '23:00', weeklyCountDueDow: 5, postalCode: null },
+      { id: 's2', brandId: 'b1', name: 'Closed Store', address: '2 Oak', status: 'inactive', eodDeadlineTime: undefined, weeklyCountDueDow: null, postalCode: null },
     ]);
   });
 

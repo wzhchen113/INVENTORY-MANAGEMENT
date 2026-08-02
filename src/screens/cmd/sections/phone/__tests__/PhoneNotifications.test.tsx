@@ -83,6 +83,12 @@ describe('sectionForNotification (deep-link map)', () => {
     expect(sectionForNotification('receiving')).toBe('Ordering');
     expect(sectionForNotification('issue')).toBeNull();
   });
+
+  // Spec 149 (AC-6) — an order_ready row opens Ordering; the vendor/date scope
+  // rides the additive `orderApproval` payload, asserted below.
+  it('routes order_ready to Ordering', () => {
+    expect(sectionForNotification('order_ready')).toBe('Ordering');
+  });
 });
 
 describe('badge-color rule (spec 121)', () => {
@@ -96,6 +102,28 @@ describe('badge-color rule (spec 121)', () => {
     seed([notif({ id: 'e1', type: 'eod', read: false })], 1);
     const { getByTestId } = render(<PhoneNotifications />);
     expect(getByTestId('phone-notif-badge').props.style.backgroundColor).toBe(LightCmd.accent);
+  });
+
+  // Spec 149 AC-4 / AC-REG-4 — the new type must NOT recolor anything. Red is
+  // reserved for missed_eod; a badge-color change here is a Critical.
+  it('an unread order_ready keeps the accent badge and an accent row dot', () => {
+    seed([notif({ id: 'o1', type: 'order_ready', body: 'BJ’s', read: false })], 1);
+    const { getByTestId } = render(<PhoneNotifications />);
+    expect(getByTestId('phone-notif-badge').props.style.backgroundColor).toBe(LightCmd.accent);
+    fireEvent.press(getByTestId('phone-notif-bell'));
+    expect(getByTestId('phone-notif-dot-o1').props.style.backgroundColor).toBe(LightCmd.accent);
+  });
+
+  it('an unread missed_eod alongside an order_ready still wins the red badge', () => {
+    seed(
+      [
+        notif({ id: 'o1', type: 'order_ready', read: false }),
+        notif({ id: 'm1', type: 'missed_eod', read: false }),
+      ],
+      2,
+    );
+    const { getByTestId } = render(<PhoneNotifications />);
+    expect(getByTestId('phone-notif-badge').props.style.backgroundColor).toBe(LightCmd.danger);
   });
 
   it('stays accent once the missed row is read', () => {
@@ -130,6 +158,32 @@ describe('feed sheet', () => {
     expect(queryByTestId('phone-notif-badge')).toBeNull();
     fireEvent.press(getByTestId('phone-notif-bell'));
     expect(getByText('No submissions yet.')).toBeTruthy();
+  });
+
+  // Spec 149 AC-5 / AC-6 — the row reads "Order ready to approve · <store>"
+  // with the VENDOR on the secondary line (carried in `body`), and the tap
+  // carries the vendor/date-scoped payload, not just the section.
+  it('an order_ready row shows the vendor and deep-links with the approval payload', () => {
+    seed(
+      [notif({ id: 'o1', type: 'order_ready', body: 'BJ’s', storeName: 'Frederick', sourceId: 'sub-9', storeId: 'store-7', read: false })],
+      1,
+    );
+    const { getByTestId, getByText } = render(<PhoneNotifications />);
+    fireEvent.press(getByTestId('phone-notif-bell'));
+    expect(getByText('Order ready to approve · Frederick')).toBeTruthy();
+    fireEvent.press(getByTestId('phone-notif-row-o1'));
+    expect(markRead).toHaveBeenCalledWith('o1');
+    const pending = usePaletteAction.getState().pending;
+    expect(pending?.section).toBe('Ordering');
+    expect(pending?.orderApproval).toEqual({ submissionId: 'sub-9', storeId: 'store-7' });
+  });
+
+  it('a non-order_ready row carries NO approval payload (additive-only bridge)', () => {
+    seed([notif({ id: 'e1', type: 'eod', read: false })], 1);
+    const { getByTestId } = render(<PhoneNotifications />);
+    fireEvent.press(getByTestId('phone-notif-bell'));
+    fireEvent.press(getByTestId('phone-notif-row-e1'));
+    expect(usePaletteAction.getState().pending?.orderApproval).toBeUndefined();
   });
 
   it('an issue row does not deep-link (mark-read only)', () => {

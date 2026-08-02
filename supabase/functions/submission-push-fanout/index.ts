@@ -27,6 +27,10 @@ const TYPE_LABEL: Record<string, string> = {
   po: 'Purchase order',
   missed_eod: 'Missed EOD count',
   issue: 'Issue reported',
+  // Spec 149 (AC-7) — the review ASK, not a "… submitted" FYI. The default
+  // branch below renders `${label} submitted`, which is exactly the copy AC-7
+  // forbids for this type, so order_ready gets its own branch too.
+  order_ready: 'Order ready to approve',
 };
 
 // Spec 126 — short human labels for the issue category badge in the push body.
@@ -38,6 +42,65 @@ const ISSUE_CATEGORY_LABEL: Record<string, string> = {
   app_tech: 'App/Tech',
   other: 'Other',
 };
+
+// ─── derivePushCopy — the PURE title/body derivation (spec 149 AC-7) ──────
+// Extracted out of the handler so it is testable. Jest cannot run Deno code, so
+// the body below is duplicated at the source level in the TS mirror at
+// src/utils/pushNotificationCopy.ts, which the jest track exercises. Same
+// posture as src/utils/escapeHtml.ts vs the send-*-email functions (CLAUDE.md,
+// spec 028): the mirror is NOT imported here — different bundle, and shared
+// `_shared/` modules are invisible drift surface because the supabase CLI
+// deploys one function at a time — and identity is enforced at code-review
+// time. If you change this function, change the mirror in the same commit.
+//
+// Branch contract:
+//   issue        (spec 126) → "<store> · <category> · <message preview ≤100c>"
+//   missed_eod   (spec 121) → no submitter, so NOT "… submitted";
+//                             actor_name carries the vendor name.
+//   order_ready  (spec 149) → the review ASK, not an FYI: title "Order ready to
+//                             approve", body "<store> · <vendor>" (notif.body
+//                             carries the vendor name, the spec-126 free-text
+//                             slot reused by emit_order_ready). The copy must
+//                             NOT contain the word "submitted" (AC-7).
+//   everything else (spec 120) → "<label> submitted" / "<actor> · <store>".
+export type PushCopyNotification = {
+  type?: string | null;
+  actor_name?: string | null;
+  store_name?: string | null;
+  category?: string | null;
+  body?: string | null;
+};
+
+export function derivePushCopy(
+  notif: PushCopyNotification,
+): { title: string; body: string } {
+  const label = TYPE_LABEL[notif.type as string] ?? 'Submission';
+  if (notif.type === 'issue') {
+    const categoryLabel = ISSUE_CATEGORY_LABEL[notif.category as string] ?? (notif.category ?? '');
+    const rawMsg = (notif.body ?? '') as string;
+    const preview = rawMsg.length > 100 ? `${rawMsg.slice(0, 100)}…` : rawMsg;
+    return {
+      title: 'Issue reported',
+      body: [notif.store_name ?? '', categoryLabel, preview].filter(Boolean).join(' · '),
+    };
+  }
+  if (notif.type === 'missed_eod') {
+    return {
+      title: 'Missed EOD count',
+      body: `${notif.store_name ?? ''} · ${notif.actor_name ?? ''}`.trim(),
+    };
+  }
+  if (notif.type === 'order_ready') {
+    return {
+      title: 'Order ready to approve',
+      body: [notif.store_name ?? '', notif.body ?? ''].filter(Boolean).join(' · '),
+    };
+  }
+  return {
+    title: `${label} submitted`,
+    body: `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim(),
+  };
+}
 
 // ─── sendPushAll — copied VERBATIM from eod-reminder-cron/index.ts:57 ──
 // 404/410 → prune the dead subscription. Do not diverge from the reference.
@@ -158,31 +221,10 @@ Deno.serve(async (req) => {
       subsByUser.get(s.user_id)!.push(s);
     }
 
-    const label = TYPE_LABEL[notif.type as string] ?? 'Submission';
-    // A miss has no submitter — its copy must NOT read "... submitted". For a
-    // missed_eod row, actor_name carries the vendor name (spec 121 §4 slot reuse),
-    // so the body reads "<store> · <vendor>".
-    const isMiss = notif.type === 'missed_eod';
-    // Spec 126 — an issue report carries free text: body reads
-    // "<store> · <category> · <message preview>" (preview truncated to ~100c).
-    const isIssue = notif.type === 'issue';
-
-    let title: string;
-    let bodyText: string;
-    if (isIssue) {
-      const categoryLabel = ISSUE_CATEGORY_LABEL[notif.category as string] ?? (notif.category ?? '');
-      const rawMsg = (notif.body ?? '') as string;
-      const preview = rawMsg.length > 100 ? `${rawMsg.slice(0, 100)}…` : rawMsg;
-      title = 'Issue reported';
-      bodyText = [notif.store_name ?? '', categoryLabel, preview]
-        .filter(Boolean).join(' · ');
-    } else if (isMiss) {
-      title = 'Missed EOD count';
-      bodyText = `${notif.store_name ?? ''} · ${notif.actor_name ?? ''}`.trim();
-    } else {
-      title = `${label} submitted`;
-      bodyText = `${notif.actor_name ?? 'A user'} · ${notif.store_name ?? ''}`.trim();
-    }
+    // Title/body copy — including spec 149's order_ready branch (AC-7).
+    // Recipients, brand scoping, actor exclusion and the VAPID path are
+    // inherited from spec 120 and are untouched by that branch.
+    const { title, body: bodyText } = derivePushCopy(notif as PushCopyNotification);
 
     const payload = JSON.stringify({
       title,

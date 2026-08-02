@@ -51,6 +51,11 @@ export function sectionForNotification(type: SubmissionNotificationType): string
       return 'WasteLog';
     case 'po':
     case 'receiving':
+    // Spec 149 (AC-6) — an `order_ready` row opens the Ordering section, where
+    // ReorderSection's phone fork swaps in the Approve Order screen because the
+    // tap ALSO carries an `orderApproval` payload (see onRowPress). Desktop
+    // never imports this map, so the desktop bell is untouched.
+    case 'order_ready':
       return 'Ordering';
     case 'issue':
     default:
@@ -157,7 +162,17 @@ export const PhoneNotifications: React.FC = () => {
       markRead(n.id);
       const section = sectionForNotification(n.type);
       if (section) {
-        usePaletteAction.getState().request({ section, selectedName: null });
+        usePaletteAction.getState().request({
+          section,
+          selectedName: null,
+          // Spec 149 (AC-6) — scope the Ordering deep link to THIS vendor +
+          // business date rather than dropping the admin on the vendor list.
+          // `sourceId` is the eod_submissions id; PhoneApproveOrder resolves the
+          // vendor + date from it with one RLS-clipped read (design §3.4).
+          ...(n.type === 'order_ready'
+            ? { orderApproval: { submissionId: n.sourceId, storeId: n.storeId } }
+            : {}),
+        });
       }
       setOpen(false);
     },
@@ -297,7 +312,13 @@ export const PhoneNotifications: React.FC = () => {
                       {title}
                     </Text>
                     <Text numberOfLines={1} style={[PhoneType.metaMono, { color: C.fg2 }]}>
-                      {n.actorName ?? T('chrome.submissionBell.unknownActor')}
+                      {/* Spec 149 (AC-5) — an `order_ready` row's secondary line
+                          names the VENDOR (carried in `body`, the spec-126
+                          general-purpose free-text column) instead of the
+                          submitter; every other type is unchanged. */}
+                      {n.type === 'order_ready'
+                        ? (n.body || T('chrome.submissionBell.unknownActor'))
+                        : (n.actorName ?? T('chrome.submissionBell.unknownActor'))}
                       {' · '}
                       {T(rt.key, rt.vars)}
                     </Text>

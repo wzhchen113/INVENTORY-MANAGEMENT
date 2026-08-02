@@ -112,7 +112,8 @@
         "receiving": "已收货",
         "po": "采购订单",
         "missed_eod": "未完成的日结盘点",
-        "issue": "问题反馈"
+        "issue": "问题反馈",
+        "order_ready": "订单待审批"
       },
       "issueCategory": {
         "equipment": "设备",
@@ -974,7 +975,16 @@
       "extensionOrderingLabel": "扩展下单",
       "extensionOrderingHelp": "在浏览器扩展中拾取该供应商的草稿采购单",
       "orderPageUrlLabel": "订货页面网址",
-      "orderPageUrlHelp": "扩展打开的 BJ's / Sam's 订货页面"
+      "orderPageUrlHelp": "扩展打开的 BJ's / Sam's 订货页面",
+      "orderChannelLabel": "订货渠道",
+      "orderChannelHint": "“批准并下单”把该供应商发往何处",
+      "orderChannelNone": "自动",
+      "orderChannelInstacart": "Instacart",
+      "orderChannelWebstaurant": "Webstaurant",
+      "orderChannelExtension": "扩展程序",
+      "orderChannelManual": "手动",
+      "instacartRetailerKeyLabel": "Instacart 零售商标识",
+      "instacartRetailerKeyHelp": "IDP 零售商标识，例如 sams_club；留空则继续使用购物车填充"
     },
     "recipes": {
       "title": "菜品 / BOM",
@@ -1195,6 +1205,36 @@
       "phoneOrderScheduleToast": "订货计划 — 暂时仅支持桌面端",
       "phoneDateFor": "日期 {date}",
       "phoneDateHint": "请在桌面端更改订货日期"
+    },
+    "approveOrder": {
+      "title": "审批订单",
+      "subtitle": "{vendor} · {date}",
+      "totals": "{lines} 行 · {cases} 箱 · 预估 {est}",
+      "loading": "正在加载建议订单…",
+      "errorTitle": "无法加载此订单",
+      "notFound": "未找到此订单，可能已被删除。",
+      "approveCta": "批准并下单",
+      "approveBusy": "批准中…",
+      "markOrderedCta": "标记为已下单",
+      "reopenLinkCta": "重新打开链接",
+      "dismissCta": "返回订货",
+      "emptyOrder": "该供应商目前没有需要订购的商品。",
+      "alreadyOrdered": "此订单已标记为已下单。",
+      "alreadyApproved": "此订单已批准。结账后可重新打开链接或标记为已下单。",
+      "countChanged": "此提醒之后又重新提交了盘点。请先重新加载订单再批准。",
+      "switchStore": "切换到 {store}",
+      "switchStoreBody": "此订单属于 {store}。请切换门店后查看。",
+      "retailerUnavailable": "Instacart 未覆盖 {store} 邮编下的 {vendor}，将改用购物车填充。",
+      "disclosureInstacart": "预估金额为你的目录成本，并非 Instacart 价格。Instacart 价格可能高于会员店价格，且需支付配送和服务费。",
+      "disclosureCatalog": "预估金额为你的目录成本。",
+      "linkFailed": "未下单。请再次点击“批准并下单”。",
+      "channelLabel": "下单方式",
+      "channel": {
+        "instacart": "Instacart",
+        "webstaurant": "WebstaurantStore",
+        "extension": "购物车填充",
+        "manual": "手动清单"
+      }
     },
     "reconciliation": {
       "title": "对账",

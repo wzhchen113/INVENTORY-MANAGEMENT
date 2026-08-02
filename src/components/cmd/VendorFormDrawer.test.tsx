@@ -167,3 +167,101 @@ describe('VendorFormDrawer — extension-ordering opt-in + order page URL (spec 
     expect(screen.queryByPlaceholderText('https://www.samsclub.com/orders')).toBeNull();
   });
 });
+
+// ─── Spec 149 (§7.6 / AC-14) — ORDER CHANNEL + INSTACART RETAILER KEY ────────
+//
+// Added in the spec-149 review round (test-engineer Should-fix 2): the drawer is
+// the ONLY surface an operator has to set the two columns AC-14's server-side
+// resolution reads, so a field-wiring typo (wrong key in `toUpdates`, wrong
+// prefill in `fromVendor`) would ship silently. These pin the wiring in both
+// directions, plus the R-3 safe default.
+describe('VendorFormDrawer — order channel + Instacart retailer key (spec 149)', () => {
+  it('a NEW vendor renders all five channel options and defaults to auto (R-3 safe default)', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    // Its own testID prefix — must NOT collide with the order-unit / import-format segments.
+    expect(screen.getByTestId('vendor-order-channel-').props.accessibilityState).toEqual({ selected: true });
+    for (const v of ['instacart', 'webstaurant', 'extension', 'manual']) {
+      expect(screen.getByTestId(`vendor-order-channel-${v}`).props.accessibilityState).toEqual({ selected: false });
+    }
+    // The retailer key field is Instacart-only → hidden while unset.
+    expect(screen.queryByPlaceholderText('sams_club')).toBeNull();
+  });
+
+  it('a NEW vendor saved on auto passes orderChannel:null through addVendor (clears the column)', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    fireEvent.changeText(screen.getByPlaceholderText('BJs Wholesale'), 'Auto Vendor');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addVendorMock.mock.calls[0][0]).toMatchObject({
+      name: 'Auto Vendor',
+      orderChannel: null,
+      instacartRetailerKey: '',
+    });
+  });
+
+  it('choosing Instacart reveals the retailer key field and threads both through addVendor (trimmed)', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    fireEvent.changeText(screen.getByPlaceholderText('BJs Wholesale'), 'Instacart Vendor');
+    fireEvent.press(screen.getByTestId('vendor-order-channel-instacart'));
+    expect(screen.getByTestId('vendor-order-channel-instacart').props.accessibilityState).toEqual({ selected: true });
+    // Field revealed only now.
+    fireEvent.changeText(screen.getByPlaceholderText('sams_club'), '  sams_club  ');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addVendorMock.mock.calls[0][0]).toMatchObject({
+      name: 'Instacart Vendor',
+      orderChannel: 'instacart',
+      instacartRetailerKey: 'sams_club',
+    });
+  });
+
+  it('a non-Instacart channel keeps the retailer key field hidden and still persists the channel', () => {
+    render(<VendorFormDrawer visible mode="new" onClose={() => {}} />);
+    fireEvent.changeText(screen.getByPlaceholderText('BJs Wholesale'), 'Webstaurant Vendor');
+    fireEvent.press(screen.getByTestId('vendor-order-channel-webstaurant'));
+    expect(screen.queryByPlaceholderText('sams_club')).toBeNull();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addVendorMock.mock.calls[0][0]).toMatchObject({ orderChannel: 'webstaurant' });
+  });
+
+  it('EDIT mode prefills a stored instacart channel + key and round-trips them through updateVendor', () => {
+    const vendor: Vendor = {
+      id: 'v4', brandId: 'b1', name: 'Stored Instacart', contactName: '', phone: '', email: '',
+      accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case',
+      extensionOrdering: false, orderPageUrl: null,
+      orderChannel: 'instacart', instacartRetailerKey: 'sams_club',
+    };
+    render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
+    expect(screen.getByTestId('vendor-order-channel-instacart').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByDisplayValue('sams_club')).toBeTruthy();
+    fireEvent.press(screen.getByText('SAVE  ⌘S'));
+    expect(updateVendorMock.mock.calls[0][1]).toMatchObject({
+      orderChannel: 'instacart',
+      instacartRetailerKey: 'sams_club',
+    });
+  });
+
+  it('EDIT mode: switching back to auto clears the channel to null and hides the key field', () => {
+    const vendor: Vendor = {
+      id: 'v5', brandId: 'b1', name: 'Stored Instacart', contactName: '', phone: '', email: '',
+      accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case',
+      extensionOrdering: false, orderPageUrl: null,
+      orderChannel: 'instacart', instacartRetailerKey: 'sams_club',
+    };
+    render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
+    fireEvent.press(screen.getByTestId('vendor-order-channel-'));
+    expect(screen.queryByPlaceholderText('sams_club')).toBeNull();
+    fireEvent.press(screen.getByText('SAVE  ⌘S'));
+    // '' → null: db.ts writes NULL, returning the vendor to extension-flag resolution.
+    expect(updateVendorMock.mock.calls[0][1]).toMatchObject({ orderChannel: null });
+  });
+
+  it('EDIT mode falls back to auto for an unrecognized stored channel literal', () => {
+    const vendor = {
+      id: 'v6', brandId: 'b1', name: 'Bogus', contactName: '', phone: '', email: '',
+      accountNumber: '', leadTimeDays: 1, deliveryDays: [], categories: [], orderUnit: 'case',
+      extensionOrdering: false, orderPageUrl: null,
+      orderChannel: 'carrier_pigeon',
+    } as unknown as Vendor;
+    render(<VendorFormDrawer visible mode="edit" vendor={vendor} onClose={() => {}} />);
+    expect(screen.getByTestId('vendor-order-channel-').props.accessibilityState).toEqual({ selected: true });
+  });
+});

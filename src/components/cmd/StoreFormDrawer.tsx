@@ -26,12 +26,19 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
   const addStore = useStore((s) => s.addStore);
   const [name, setName] = React.useState('');
   const [address, setAddress] = React.useState('');
+  // Spec 149 (§7.6) — the store's ZIP, used SERVER-SIDE by the
+  // `instacart-cart-link` edge function for the IDP retailer-availability
+  // lookup (OQ-2). `address` is free text and is deliberately never parsed for
+  // it. Blank ⇒ NULL ⇒ the Instacart channel is unavailable for this store and
+  // approvals fall back to the cart-filler / manual path (R-4).
+  const [postalCode, setPostalCode] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (visible) {
       setName('');
       setAddress('');
+      setPostalCode('');
       setSubmitting(false);
     }
   }, [visible]);
@@ -45,6 +52,7 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
       addStore({
         name: name.trim(),
         address: address.trim(),
+        postalCode: postalCode.trim() || null,
         brandId,
         status: 'active',
       });
@@ -226,6 +234,42 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
             value={address}
             onChangeText={setAddress}
             placeholder="e.g. 1234 York Rd, Towson MD 21204"
+            placeholderTextColor={C.fg3}
+            style={{
+              fontFamily: sans(400),
+              fontSize: 14,
+              color: C.fg,
+              backgroundColor: C.panel2,
+              borderWidth: 1,
+              borderColor: C.border,
+              borderRadius: CmdRadius.sm,
+              paddingHorizontal: 10,
+              paddingVertical: 9,
+              ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+            }}
+          />
+        </View>
+
+        {/* Spec 149 — ZIP for the Instacart retailer-availability lookup. Kept
+            separate from `address` (free text, never parsed). Blank is fine:
+            the store simply has no Instacart channel. */}
+        <View style={{ gap: 4 }}>
+          <Text
+            style={{
+              fontFamily: mono(700),
+              fontSize: 9.5,
+              color: C.fg3,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+            }}
+          >
+            Postal code (optional)
+          </Text>
+          <TextInput
+            testID="store-postal-code"
+            value={postalCode}
+            onChangeText={setPostalCode}
+            placeholder="e.g. 21204"
             placeholderTextColor={C.fg3}
             style={{
               fontFamily: sans(400),

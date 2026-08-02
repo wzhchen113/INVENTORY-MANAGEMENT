@@ -1,6 +1,11 @@
 // src/types/index.ts
 
 import type { Locale } from '../i18n';
+// Spec 149 — the ORDER CHANNEL union is defined once in the pure util (which
+// also owns the R-3 precedence resolver) and re-exported here so `Vendor` and
+// every consumer of `src/types` see the same literal set.
+import type { OrderChannel } from '../utils/orderChannel';
+export type { OrderChannel };
 
 export type UserRole = 'super_admin' | 'master' | 'admin' | 'user';
 
@@ -505,6 +510,15 @@ export interface Vendor {
   // the export resolves `importCustomerNumbers[storeId]` and falls back to
   // `accountNumber`. Distributor/department stay vendor-level (division-scoped).
   importCustomerNumbers?: Record<string, string>;
+  // Spec 149 (AC-14) — data-driven ORDER CHANNEL for the phone Approve Order
+  // screen's single primary action. NULL/undefined = unset. The effective
+  // channel is NEVER read from this field alone: it is resolved through
+  // `resolveOrderChannel` (src/utils/orderChannel.ts), which enforces the R-3
+  // precedence so this column can never contradict `extensionOrdering`.
+  orderChannel?: OrderChannel | null;
+  // Spec 149 — the Instacart Developer Platform retailer slug (e.g. 'sams_club').
+  // Nullable; the `instacart` channel only engages when this is non-blank.
+  instacartRetailerKey?: string | null;
 }
 
 export interface POSSaleItem {
@@ -593,6 +607,11 @@ export interface Store {
   // no cadence configured = weekly count not scheduled (excluded from
   // reminders and overdue status).
   weeklyCountDueDow?: number | null;
+  // Spec 149 — ZIP / postal code used SERVER-SIDE by the `instacart-cart-link`
+  // edge function for the IDP retailer-availability lookup (OQ-2). `address` is
+  // free text and is deliberately NOT parsed. null/undefined ⇒ the Instacart
+  // channel is unavailable for this store and falls back (R-4).
+  postalCode?: string | null;
 }
 
 export interface OrderDayVendor {
@@ -1137,7 +1156,16 @@ export type SubmissionNotificationType =
   // Spec 126 — a staff-filed problem report. `actor_name` carries the reporter,
   // `body` the free-text message, `category` the badge token (one of
   // equipment/inventory/app_tech/other). source_id = the staff_reports row id.
-  | 'issue';
+  | 'issue'
+  // Spec 149 — an EOD count landed for an order-configured vendor with at least
+  // one below-par item, so a suggested order is ready to review. Emitted
+  // INSTEAD of the routine `eod` row for that submission (AC-3), so there is
+  // never a double ping. `actor_name` carries the submitter, `body` the VENDOR
+  // NAME (the spec-126 general-purpose free-text column), source_id the
+  // eod_submissions row id — which is what the phone sheet's deep link resolves
+  // the vendor + business date from. Badge/dot color is UNCHANGED accent
+  // (AC-4): red stays reserved for `missed_eod`.
+  | 'order_ready';
 
 export interface AdminNotification {
   id: string;

@@ -76,7 +76,12 @@ interface StatusBadge { label: string; tone: BadgeTone; }
 // ── Stepper ──────────────────────────────────────────────────────────────────
 // 44px-tall group, ± ≥40px wide, center well 46px. Writes BASE units through
 // `setReorderEditQty` (clamped ≥0) so cost/qty recompute exactly like desktop.
-function LineStepper({
+//
+// Spec 149 §9 — EXPORTED (not forked) so PhoneApproveOrder reuses the identical
+// stepper. Adding an export changes no rendered output, so PhoneOrdering's
+// existing suites stay green (AC-REG-1). Copy-pasting this component instead is
+// a Should-fix at review.
+export function LineStepper({
   qty,
   unitLabel,
   onDec,
@@ -132,20 +137,28 @@ function LineStepper({
 }
 
 // ── Vendor card ──────────────────────────────────────────────────────────────
-function VendorOrderCard({
+// Spec 149 §9 — EXPORTED (not forked) so PhoneApproveOrder renders the identical
+// card. The `footer` prop is ADDITIVE and defaults to `'default'`, so the
+// PhoneOrdering path below renders byte-identically (AC-REG-1); the Approve
+// Order screen passes `'none'` because AC-11 forbids a competing primary next
+// to APPROVE & ORDER (the ··· overflow goes with it — the approve screen has no
+// export sheet). `onMore` is likewise optional and unused when footer='none'.
+export function VendorOrderCard({
   vendor,
   vendorEdits,
   subUnitSizeFor,
   collapsed,
   onToggle,
   onMore,
+  footer = 'default',
 }: {
   vendor: ReorderVendor;
   vendorEdits: Record<string, number> | undefined;
   subUnitSizeFor: (itemId: string) => number;
   collapsed: boolean;
   onToggle: () => void;
-  onMore: () => void;
+  onMore?: () => void;
+  footer?: 'default' | 'none';
 }) {
   const C = useCmdColors();
   const T = useT();
@@ -388,7 +401,9 @@ function VendorOrderCard({
             </View>
           ) : null}
 
-          {/* Footer — ··· overflow + one primary button. */}
+          {/* Footer — ··· overflow + one primary button. Suppressed entirely
+              when the host screen owns the primary action (spec 149 AC-11). */}
+          {footer === 'none' ? null : (
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 }}>
             <TouchableOpacity
               testID={`phone-order-more-${vendor.vendorId}`}
@@ -453,6 +468,7 @@ function VendorOrderCard({
               </TouchableOpacity>
             )}
           </View>
+          )}
         </>
       )}
     </View>

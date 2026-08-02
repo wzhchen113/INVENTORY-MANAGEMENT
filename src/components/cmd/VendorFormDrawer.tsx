@@ -8,6 +8,7 @@ import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
 import { useT } from '../../hooks/useT';
 import { Vendor } from '../../types';
+import { isOrderChannel, type OrderChannel } from '../../utils/orderChannel';
 
 type Mode = 'edit' | 'new';
 
@@ -39,6 +40,14 @@ interface FormValues {
   // is a free-text field (empty → clears to NULL on save).
   extensionOrdering: boolean;
   orderPageUrl: string;
+  // Spec 149 (§7.6 / AC-14) — data-driven ORDER CHANNEL. '' = unset, which
+  // resolves by the extension flag alone. The channel is only ever EFFECTIVE
+  // through `resolveOrderChannel`'s R-3 precedence: this field can never
+  // contradict `extensionOrdering`. The retailer key is Instacart-only and is
+  // what actually arms the Instacart path (blank ⇒ the vendor stays on the
+  // live-tuned spec-131/132 cart-filler).
+  orderChannel: '' | OrderChannel;
+  instacartRetailerKey: string;
   // 2026-07 — vendor-specific "Import Order" file export. '' = none (generic
   // reorder export only), 'us_foods' = US Foods CSV, 'sysco' = SYSCO H/F/P file.
   // Per-store CUSTOMER NUMBER feeds both; distributor/department are US-Foods-only.
@@ -63,6 +72,10 @@ const blank = (): FormValues => ({
   orderUnit: 'case', // R-2 — 'case' is the safe default on a new vendor.
   extensionOrdering: false, // Spec 131 — opt-in is OFF by default.
   orderPageUrl: '',
+  // Spec 149 — unset by default (R-3 safe default: the vendor resolves by the
+  // extension flag, i.e. today's behavior, until the operator opts in).
+  orderChannel: '',
+  instacartRetailerKey: '',
   orderImportFormat: '',
   importDistributorNumber: '',
   importDepartment: '',
@@ -83,6 +96,8 @@ const fromVendor = (v: Vendor): FormValues => ({
   orderUnit: v.orderUnit ?? 'case', // defensive default for a pre-migration row.
   extensionOrdering: v.extensionOrdering ?? false, // Spec 131 — defensive default.
   orderPageUrl: v.orderPageUrl || '',
+  orderChannel: isOrderChannel(v.orderChannel) ? v.orderChannel : '', // Spec 149.
+  instacartRetailerKey: v.instacartRetailerKey || '',
   orderImportFormat:
     v.orderImportFormat === 'us_foods' || v.orderImportFormat === 'sysco' ? v.orderImportFormat : '',
   importDistributorNumber: v.importDistributorNumber || '',
@@ -104,6 +119,10 @@ const toUpdates = (v: FormValues): Partial<Vendor> => ({
   orderUnit: v.orderUnit,
   extensionOrdering: v.extensionOrdering, // Spec 131 — persists via createVendor / updateVendor.
   orderPageUrl: v.orderPageUrl.trim(),
+  // Spec 149 — '' clears both columns to NULL (db.ts maps empty → null), which
+  // returns the vendor to extension-flag-driven resolution.
+  orderChannel: v.orderChannel === '' ? null : v.orderChannel,
+  instacartRetailerKey: v.instacartRetailerKey.trim(),
   orderImportFormat: v.orderImportFormat,
   importDistributorNumber: v.importDistributorNumber.trim(),
   importDepartment: v.importDepartment.trim(),
@@ -160,14 +179,21 @@ function Field({
 // Spec 115 (W-2) — the order-unit control. Same label idiom as `Field` (uppercase
 // mono caption + hint) with a two-button segment underneath; the selected option
 // gets the accent treatment. Generic over a two-value union.
+// Spec 149 — `testIDPrefix` is ADDITIVE and defaults to the historical
+// `vendor-order-unit` literal, so the two pre-existing call sites (and their
+// jest assertions) keep their exact testIDs. The new ORDER CHANNEL segment
+// passes its own prefix so its options can't collide with the import-format
+// segment's (both would otherwise mint `vendor-order-unit-` for their empty
+// option).
 function SegmentField<T extends string>({
-  label, hint, value, options, onChange,
+  label, hint, value, options, onChange, testIDPrefix = 'vendor-order-unit',
 }: {
   label: string;
   hint?: string;
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (v: T) => void;
+  testIDPrefix?: string;
 }) {
   const C = useCmdColors();
   return (
@@ -182,7 +208,7 @@ function SegmentField<T extends string>({
           return (
             <TouchableOpacity
               key={o.value}
-              testID={`vendor-order-unit-${o.value}`}
+              testID={`${testIDPrefix}-${o.value}`}
               onPress={() => onChange(o.value)}
               accessibilityRole="radio"
               accessibilityState={{ selected: on }}
@@ -441,6 +467,37 @@ export const VendorFormDrawer: React.FC<Props> = ({ visible, mode, vendor, onClo
             value={values.orderPageUrl}
             onChange={set('orderPageUrl')}
             placeholder="https://www.samsclub.com/orders"
+          />
+        ) : null}
+        {/* Spec 149 (§7.6 / AC-14) — the ORDER CHANNEL the phone Approve Order
+            screen's single primary button routes to. Data-driven, NOT a
+            vendor-name match. Precedence (R-3, enforced in
+            `resolveOrderChannel` + the SQL mirror): 'instacart' only wins when
+            a retailer key is set, otherwise `extension ordering` above wins —
+            so this control can never reroute BJ's away from the tuned
+            cart-filler by accident. Leave it on `auto` unless the operator has
+            verified a live retailer key for the store's ZIP. */}
+        <SegmentField<'' | OrderChannel>
+          testIDPrefix="vendor-order-channel"
+          label={T('section.vendors.orderChannelLabel')}
+          hint={T('section.vendors.orderChannelHint')}
+          value={values.orderChannel}
+          options={[
+            { value: '', label: T('section.vendors.orderChannelNone') },
+            { value: 'instacart', label: T('section.vendors.orderChannelInstacart') },
+            { value: 'webstaurant', label: T('section.vendors.orderChannelWebstaurant') },
+            { value: 'extension', label: T('section.vendors.orderChannelExtension') },
+            { value: 'manual', label: T('section.vendors.orderChannelManual') },
+          ]}
+          onChange={(v) => setValues((p) => ({ ...p, orderChannel: v }))}
+        />
+        {values.orderChannel === 'instacart' ? (
+          <Field
+            label={T('section.vendors.instacartRetailerKeyLabel')}
+            hint={T('section.vendors.instacartRetailerKeyHelp')}
+            value={values.instacartRetailerKey}
+            onChange={set('instacartRetailerKey')}
+            placeholder="sams_club"
           />
         ) : null}
         {/* 2026-07 — vendor-specific "Import Order" file export. 'US Foods' /

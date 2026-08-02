@@ -3,7 +3,7 @@
 -- Spec 120 — pgTAP coverage for the brand-scoped submission notification bell
 -- shipped in supabase/migrations/20260715000000_submission_notifications.sql.
 --
--- Eleven arms (plan(11)):
+-- Twelve arms (plan(12)):
 --   RLS scoping (arms 1-4):
 --     (1) brand-A admin SEES a brand-A notification.
 --     (2) brand-A admin gets ZERO rows for a brand-B notification (RLS denies,
@@ -11,9 +11,16 @@
 --     (3) a same-brand `user` (submitter, not recipient) sees ZERO — the
 --         auth_is_privileged() conjunct is load-bearing.
 --     (4) super_admin sees BOTH brands.
---   Trigger generation (arms 5-9) — one notification per submission, right
+--   Trigger generation (arms 5a-9) — one notification per submission, right
 --     type / brand (via store→brand) / actor / store_name:
---     (5) eod_submissions INSERT (status='submitted').
+--     (5a) eod_submissions INSERT (status='submitted') for a vendor with NO
+--          suggested order → the routine 'eod' notification, unchanged.
+--     (5b) SPEC 149 (R-1 / AC-3) — the same INSERT for a vendor WITH a
+--          suggested order (below-par linked item) → exactly one 'order_ready'
+--          and ZERO 'eod'. The pre-149 single arm picked an arbitrary seeded
+--          vendor that happened to have below-par Towson inventory, so it
+--          pinned behavior spec 149 deliberately changed; both branches are now
+--          pinned against DEDICATED fixture vendors instead of seed state.
 --     (6) inventory_counts INSERT kind='weekly' fires; a kind='spot' INSERT
 --         does NOT (the shared-table filter).
 --     (7) waste_log INSERT.
@@ -30,7 +37,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(11);
+select plan(12);
 
 -- ─── fixtures ─────────────────────────────────────────────────
 do $$
@@ -144,18 +151,74 @@ select is(
 reset role;
 select set_config('request.jwt.claims', null, true);
 
--- (5) eod_submissions INSERT → one 'eod' notification.
+-- (5) eod_submissions INSERT → exactly ONE notification, whose TYPE now depends
+--     on the spec-149 branch in tg_notify_eod_submission (R-1 / AC-3):
+--       vendor has below-par items ⇒ 'order_ready' (REPLACES the routine 'eod')
+--       otherwise                  ⇒ 'eod', unchanged spec-120 behavior.
+--     The original single arm used `(select id from public.vendors limit 1)`,
+--     which resolved to a seeded vendor that HAS below-par Towson inventory —
+--     so it silently pinned pre-149 behavior and went red when spec 149 landed.
+--     Both branches are now pinned explicitly, with DEDICATED vendors so neither
+--     arm depends on seed inventory state.
+insert into public.vendors (id, name, brand_id)
+values
+  ('eeee0000-0000-0000-0000-0000000005a0',   -- no item_vendors links at all
+   '__sn_vendor_no_order__', current_setting('test.brand_a', true)::uuid),
+  ('eeee0000-0000-0000-0000-0000000005b0',   -- one linked, below-par item
+   '__sn_vendor_below_par__', current_setting('test.brand_a', true)::uuid);
+
+do $$
+declare v_cat uuid; v_item uuid;
+begin
+  insert into public.catalog_ingredients (brand_id, name, unit, case_qty, sub_unit_size, default_cost)
+  values (current_setting('test.brand_a', true)::uuid,
+          'SPEC120-BELOW-'||gen_random_uuid()::text, 'each', 1, 1, 1.00)
+  returning id into v_cat;
+
+  -- par 10, on hand 1 ⇒ eod_vendor_has_below_par() is true for this vendor.
+  insert into public.inventory_items (store_id, catalog_id, vendor_id, cost_per_unit, current_stock, par_level)
+  values (current_setting('test.store_a', true)::uuid, v_cat,
+          'eeee0000-0000-0000-0000-0000000005b0', 1.00, 1, 10)
+  returning id into v_item;
+
+  insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
+  values (v_item, 'eeee0000-0000-0000-0000-0000000005b0', 1.00, 1.00, true);
+end $$;
+
+-- (5a) NO below-par item ⇒ the routine 'eod' notification, unchanged.
 insert into public.eod_submissions (id, store_id, date, submitted_by, status, vendor_id)
 values ('eeee0000-0000-0000-0000-000000000005',
         current_setting('test.store_a', true)::uuid, current_date,
         current_setting('test.admin_id', true)::uuid, 'submitted',
-        (select id from public.vendors limit 1));
+        'eeee0000-0000-0000-0000-0000000005a0');
 
 select is(
-  (select count(*)::int from public.notifications
-    where type = 'eod' and source_id = 'eeee0000-0000-0000-0000-000000000005'),
-  1,
-  'arm (5): eod_submissions INSERT generates exactly one eod notification'
+  (select format('%s|%s',
+     (select count(*)::int from public.notifications
+       where source_id = 'eeee0000-0000-0000-0000-000000000005'),
+     (select count(*)::int from public.notifications
+       where type = 'eod' and source_id = 'eeee0000-0000-0000-0000-000000000005'))),
+  '1|1',
+  'arm (5a): eod_submissions INSERT for a vendor with NO suggested order still generates exactly one eod notification'
+);
+
+-- (5b) below-par item ⇒ spec 149 'order_ready' REPLACES the 'eod' (AC-3).
+insert into public.eod_submissions (id, store_id, date, submitted_by, status, vendor_id)
+values ('eeee0000-0000-0000-0000-00000000005b',
+        current_setting('test.store_a', true)::uuid, current_date,
+        current_setting('test.admin_id', true)::uuid, 'submitted',
+        'eeee0000-0000-0000-0000-0000000005b0');
+
+select is(
+  (select format('%s|%s|%s',
+     (select count(*)::int from public.notifications
+       where source_id = 'eeee0000-0000-0000-0000-00000000005b'),
+     (select count(*)::int from public.notifications
+       where type = 'order_ready' and source_id = 'eeee0000-0000-0000-0000-00000000005b'),
+     (select count(*)::int from public.notifications
+       where type = 'eod' and source_id = 'eeee0000-0000-0000-0000-00000000005b'))),
+  '1|1|0',
+  'arm (5b): spec 149 — a vendor WITH a suggested order emits exactly one order_ready and ZERO eod (AC-3, no double ping)'
 );
 
 -- (6) inventory_counts: kind='weekly' fires; kind='spot' does NOT.
