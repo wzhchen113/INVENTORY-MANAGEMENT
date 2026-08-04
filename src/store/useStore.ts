@@ -7,6 +7,7 @@ import {
   OrderDayVendor, OrderSubmission, ReportDefinition, ReportRun,
   IngredientConversion, SidebarLayoutOverride, CatalogIngredient,
   Brand, InventoryCountKind, ReorderPayload, ReorderVendor, MenuCapacityRow,
+  LastOrderContext,
   LocalizedNames, RecipeCategory, IngredientCategory,
   WeeklyCountStatus, ItemVendorLink, AdminNotification,
 } from '../types';
@@ -37,6 +38,9 @@ import { buildPoQuickOrderText, type NameResolver } from '../utils/poQuickOrderT
 // allowlist + native rejection handling), shared with PhoneApproveOrder.
 import { openExternalUrl } from '../utils/openExternalUrl';
 import { getLocalizedName } from '../i18n/localizedName';
+// Spec 150 — the ONE store-visibility predicate, shared with TitleBar's
+// desktop store switcher and the phone PhoneStoreSwitch sheet.
+import { visibleStoresFor } from '../lib/storeVisibility';
 
 // Surface a backend failure to the user instead of swallowing it in
 // console.warn. Used by the recipe + prep recipe CRUD paths to revert
@@ -159,6 +163,12 @@ function clearActiveBrandLocal() {
   } catch { /* best-effort */ }
 }
 
+// Spec 150 — the store-visibility predicate now lives in one place
+// (`lib/storeVisibility.ts`) and is shared with the two store switchers that
+// used to carry byte-identical copies of it (TitleBar + PhoneStoreSwitch).
+// The store needs it to answer "does this brand have anything this user can
+// actually open?" when validating a restored / picked active brand.
+
 // Spec 038 — local cache for the chrome language so the boot-time
 // hydrator in App.tsx can restore the locale before first paint
 // without waiting on Supabase. Mirrors persistDarkModeLocal.
@@ -186,8 +196,33 @@ interface StoreActions {
    * empty state and the consumer can navigate to BrandsSection). Non-null
    * picks the first store in that brand and triggers loadFromSupabase
    * via setCurrentStore.
+   *
+   * Spec 150 — returns the brand id that is ACTUALLY in effect afterwards.
+   * It differs from the argument only when the requested brand had no
+   * role-visible store and the call was diverted to "All brands" (`null`),
+   * which lets a caller report the diversion honestly instead of claiming a
+   * switch that didn't happen. The return value is additive: callers that
+   * ignore it are unaffected.
    */
-  setCurrentBrandId: (brandId: string | null) => void;
+  setCurrentBrandId: (brandId: string | null) => string | null;
+  /**
+   * Spec 150 — validate the active brand against a KNOWN store set.
+   *
+   * A `currentBrandId` whose brand has no role-visible active store strands
+   * the user: every store-scoped surface (including the store switcher
+   * itself) renders empty, and the value is persisted per device, so the
+   * state survives reloads. When that is detected, the brand drops back to
+   * "All brands" (`null`) and the persisted key is rewritten, which is what
+   * rescues a device already stuck in the bad state.
+   *
+   * No-op (returns the current value) when the store set is EMPTY — a cold
+   * boot before `fetchStores` resolves must never clear a valid cached
+   * brand. Does NOT touch `currentStore`; callers own store selection.
+   *
+   * @param knownStores stores to validate against; defaults to the slice.
+   * @returns the brand id that is in effect AFTER validation.
+   */
+  reconcileActiveBrand: (knownStores?: Store[]) => string | null;
   /** Spec 012b — load the full brands list (super-admin only). Called
    *  after login when currentUser.role === 'super_admin'. Idempotent. */
   loadBrandsList: () => Promise<void>;
@@ -799,6 +834,21 @@ interface StoreActions {
   loadReorderSuggestions: (asOfDate?: string) => Promise<void>;
 
   /**
+   * Spec 151 — load the "last time" context for the vendors currently on the
+   * ordering screen. Fires the `report_last_order_context` RPC through
+   * `db.fetchLastOrderContext`. ONE call covers every visible vendor (AC-23).
+   *
+   * DELIBERATELY SILENT on failure (AC-17): no toast, no error slice, no
+   * loading flag. The context is decoration; the order list must never be
+   * unusable because a nice-to-have annotation failed. On error the slice goes
+   * back to `null`, which the renderers read as "render nothing" (R-G).
+   * `notifyBackendError` does NOT apply — there is no write to revert and the
+   * spec forbids the toast. Precedent: `loadLatestRun`'s console-warn-only
+   * read.
+   */
+  loadLastOrderContext: (vendorIds: string[], asOfDate?: string) => Promise<void>;
+
+  /**
    * Spec 060 — server-computed per-recipe capacity for the active
    * store. Fires `compute_menu_capacity` via `db.fetchMenuCapacity`
    * and reduces the array → `Record<recipeId, MenuCapacityRow>` for
@@ -909,6 +959,11 @@ export const useStore = create<FullStore>((set, get) => ({
   reorderPayload: null as ReorderPayload | null,
   reorderLoading: false,
   reorderError: null as string | null,
+  // Spec 151 (R-G) — last-order context, keyed by vendorId. `null` = NOT
+  // LOADED / failed (render nothing); `{}` = loaded with no anchors (AC-9's
+  // card-level empty line). Lazy-loaded by ReorderSection's effect; cleared to
+  // `null` on store switch below.
+  lastOrderContext: null as LastOrderContext | null,
   // Spec 138 — per-session inline order-qty edits (vendorId → itemId → base
   // units). Client-only overlay; not persisted, reset per vendor after export /
   // Fill cart and wholesale on store / as-of-date change.
@@ -957,8 +1012,23 @@ export const useStore = create<FullStore>((set, get) => ({
     // Fetch stores from Supabase, then set current store and load data
     db.fetchStores().then((cloudStores) => {
       const allStores = cloudStores.length > 0 ? cloudStores : get().stores;
-      const userStore = allStores.find((s) => user.stores.includes(s.id)) || allStores[0];
       if (allStores.length > 0) set({ stores: allStores });
+      // Spec 150 — this is the FIRST moment both halves are known. On the
+      // session-restore path App.tsx re-applies the cached active brand
+      // SYNCHRONOUSLY right after login() returns — i.e. before this fetch
+      // resolves — so validating here (a) rescues a device already stuck on
+      // a store-less brand and (b) makes the landing store belong to the
+      // brand that is actually in effect instead of `allStores[0]`, which
+      // could sit in a different brand entirely.
+      const activeBrandId = get().reconcileActiveBrand(allStores);
+      const visible = visibleStoresFor(allStores, user, activeBrandId);
+      const userStore =
+        visible.find((s) => user.stores.includes(s.id)) ||
+        visible[0] ||
+        // Defensive tail: preserves the pre-spec-150 pick when the predicate
+        // yields nothing (e.g. a user with grants the RLS read didn't return).
+        allStores.find((s) => user.stores.includes(s.id)) ||
+        allStores[0];
       if (userStore) {
         set({ currentStore: userStore });
         get().loadFromSupabase(userStore.id);
@@ -988,6 +1058,14 @@ export const useStore = create<FullStore>((set, get) => ({
     // readCachedLocaleSync (security-auditor Low).
     set({ locale: 'en' });
     persistLocaleLocal('en');
+    // Spec 151 (security-auditor Low) — drop the last-order context on logout,
+    // same treatment `loadFromSupabase` gives it beside `reorderPayload` on a
+    // store switch. It is in-memory only (never persisted), but on a shared
+    // machine the next sign-in can reach the Ordering section before
+    // `loadFromSupabase` resolves, which would annotate their lines with the
+    // previous user's order quantities. Back to `null` (NOT LOADED), so
+    // nothing renders until the section's effect refetches.
+    set({ lastOrderContext: null });
     import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
     // Drop web-push subscription for this browser so the user doesn't keep
     // getting reminders for a store they no longer have access to.
@@ -1032,12 +1110,48 @@ export const useStore = create<FullStore>((set, get) => ({
   // Spec 012b — super-admin brand context.
   setCurrentBrandId: (brandId) => {
     const prev = get().currentBrandId;
-    if (prev === brandId) return;
 
-    persistActiveBrandLocal(brandId);
-    set({ currentBrandId: brandId });
+    // Spec 150 — a brand with no role-visible active store is a dead end:
+    // every store-scoped surface (the store switcher included) renders
+    // empty and the choice is persisted per device, so the state survives
+    // reloads. Refuse to enter it; fall back to "All brands" and land on a
+    // real store below. Skipped while `stores` is empty (cold boot, set not
+    // yet known) — the login tail re-validates once fetchStores resolves.
+    // Store creation for an empty brand does NOT go through here: the
+    // BrandsSection Stores tab is scoped by its own selected-row brandId.
+    const knownStores = get().stores;
+    const knownUser = get().currentUser;
+    const stranded =
+      brandId !== null &&
+      knownStores.length > 0 &&
+      // Visibility is role-dependent, so an unknown user means the question
+      // can't be answered — don't second-guess the caller in that window.
+      knownUser !== null &&
+      visibleStoresFor(knownStores, knownUser, brandId).length === 0;
+    const target = stranded ? null : brandId;
 
-    if (brandId === null) {
+    if (prev === target && !stranded) return target;
+
+    persistActiveBrandLocal(target);
+    set({ currentBrandId: target });
+
+    if (target === null) {
+      if (stranded) {
+        // Spec 150 fallback — do NOT clear currentStore here (that is the
+        // stranding this fix exists to prevent). Keep the current store if
+        // it is still visible under "All brands"; otherwise land on the
+        // first store the user can open. setCurrentStore owns the
+        // loadFromSupabase + spec-111 overlay decision.
+        const fallback = visibleStoresFor(knownStores, get().currentUser, null);
+        const cur = get().currentStore;
+        if (cur?.id && fallback.some((s) => s.id === cur.id)) return target;
+        const next =
+          fallback.find((s) => get().currentUser?.stores?.includes(s.id)) || fallback[0];
+        if (next) {
+          get().setCurrentStore(next);
+          return target;
+        }
+      }
       // "All brands" mode — clear currentStore so per-store sections
       // don't render stale data. The consumer (ResponsiveCmdShell)
       // forces section to "Brands" via a paletteAction request.
@@ -1045,7 +1159,7 @@ export const useStore = create<FullStore>((set, get) => ({
         currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' },
         brand: null,
       });
-      return;
+      return target;
     }
 
     // Brand-switch — re-derive currentStore for the new brand. Pick the
@@ -1053,7 +1167,13 @@ export const useStore = create<FullStore>((set, get) => ({
     // every store via 012a's RLS. setCurrentStore triggers
     // loadFromSupabase as a side-effect; that fetcher writes the `brand`
     // slice from fetchBrandForStore.
-    const newStore = get().stores.find((s) => s.brandId === brandId);
+    // Spec 150 — same visibility predicate the chrome renders, so a
+    // non-privileged user can never land on a store they can't open. With an
+    // unknown user the question can't be answered, so keep the legacy
+    // first-store-in-brand pick rather than resolving to nothing.
+    const newStore = knownUser
+      ? visibleStoresFor(knownStores, knownUser, target)[0]
+      : knownStores.find((s) => s.brandId === target);
     if (newStore) {
       // Spec 111 — set 'brand' BEFORE delegating. setCurrentStore only
       // escalates switching from null → 'store', so this 'brand' value
@@ -1066,13 +1186,35 @@ export const useStore = create<FullStore>((set, get) => ({
       // Fresh brand with no stores yet — clear currentStore. Sections
       // will render empty states; the operator's first task is to add
       // a store inside the brand.
-      const placeholder: Store = { id: '', brandId, name: '', address: '', status: 'active' };
-      const matchingBrand = get().brandsList.find((b) => b.id === brandId);
+      // Spec 150 — only reachable while the store set is UNKNOWN (empty
+      // slice on a cold boot); once it is known, the `stranded` guard above
+      // diverts to "All brands" instead of entering this state.
+      const placeholder: Store = { id: '', brandId: target, name: '', address: '', status: 'active' };
+      const matchingBrand = get().brandsList.find((b) => b.id === target);
       set({
         currentStore: placeholder,
         brand: matchingBrand ? { id: matchingBrand.id, name: matchingBrand.name } : null,
       });
     }
+    return target;
+  },
+
+  // Spec 150 — see the StoreActions doc comment. Pure validation: rewrites
+  // `currentBrandId` (+ the persisted key) and nothing else.
+  reconcileActiveBrand: (knownStores) => {
+    const stores = knownStores ?? get().stores;
+    const brandId = get().currentBrandId;
+    const user = get().currentUser;
+    // Nothing to validate, or the inputs aren't known yet — never clear a
+    // valid cached brand just because fetchStores (or the profile read)
+    // hasn't resolved.
+    if (brandId === null || stores.length === 0 || user === null) return brandId;
+    if (visibleStoresFor(stores, user, brandId).length > 0) return brandId;
+    // Stuck-device rescue: drop to "All brands" and rewrite the persisted
+    // key so the next cold start doesn't restore the dead brand again.
+    persistActiveBrandLocal(null);
+    set({ currentBrandId: null });
+    return null;
   },
 
   loadBrandsList: async () => {
@@ -1446,6 +1588,12 @@ export const useStore = create<FullStore>((set, get) => ({
         reorderPayload: null,
         reorderLoading: false,
         reorderError: null,
+        // Spec 151 — clear the last-order context on store switch. Load-bearing,
+        // not cosmetic: the context is keyed by vendorId ONLY, so a vendor
+        // shared across stores would otherwise render the PREVIOUS store's
+        // order quantities against this store's lines. Back to `null` (NOT
+        // LOADED) so nothing renders until the section's effect refetches.
+        lastOrderContext: null,
         // Spec 138 — the inline reorder edit buffer is NOT reset here. This
         // `set` runs on EVERY realtime reload (CmdNavigator handleSync →
         // loadFromSupabase on the 400ms debounce, incl. the purchase_orders
@@ -3707,6 +3855,34 @@ export const useStore = create<FullStore>((set, get) => ({
       const message = e?.message || String(e);
       console.warn('[Supabase] loadReorderSuggestions:', message);
       set({ reorderLoading: false, reorderError: message });
+    }
+  },
+
+  // Spec 151 — lazy-load the last-order context for the vendors on screen.
+  // Separate from `loadReorderSuggestions` (which is NOT modified) so the
+  // annotation has its OWN failure domain: a slow or broken context read can
+  // never take the order list with it (AC-17).
+  //
+  // No loading flag by design — a boolean the UI never reads is dead state;
+  // `null` already means "nothing to render". No toast and no error slice by
+  // design either (AC-17): failure degrades to `null`, and the screen renders
+  // exactly as it did before this spec.
+  loadLastOrderContext: async (vendorIds, asOfDate) => {
+    const storeId = get().currentStore?.id;
+    if (!storeId || storeId === '__all__' || !vendorIds.length) {
+      // Loaded-and-empty, not "unloaded": there is genuinely nothing to
+      // annotate, so the cards may honestly show AC-9's empty state.
+      set({ lastOrderContext: {} });
+      return;
+    }
+    try {
+      const context = await db.fetchLastOrderContext(storeId, vendorIds, asOfDate);
+      set({ lastOrderContext: context });
+    } catch (e: any) {
+      console.warn('[Supabase] loadLastOrderContext:', e?.message || e);
+      // Back to NOT LOADED — the surfaces render no context at all rather than
+      // claiming "no prior order on record" (which would be a lie).
+      set({ lastOrderContext: null });
     }
   },
 

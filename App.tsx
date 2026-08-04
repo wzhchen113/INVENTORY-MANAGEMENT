@@ -321,6 +321,14 @@ export default function App() {
       // Spec 012b — re-apply the cached active brand. setCurrentBrandId
       // re-persists, so the localStorage stays in sync with the active
       // state.
+      // Spec 150 — the cached value is VALIDATED, not trusted: a brand with
+      // no role-visible store would strand the session in a store-less
+      // context. Both orderings are covered without a call here — the store
+      // set is usually still empty at this point (login()'s fetchStores is
+      // in flight), so its login tail runs `reconcileActiveBrand` once the
+      // set is known; and if the fetch already resolved, setCurrentBrandId's
+      // own guard fires. Do NOT add a reconcile call here — it would be a
+      // guaranteed no-op against an empty `stores` slice.
       if (cachedActiveBrand) {
         useStore.getState().setCurrentBrandId(cachedActiveBrand);
       }

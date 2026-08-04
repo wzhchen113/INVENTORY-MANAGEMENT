@@ -253,6 +253,11 @@ describe('setCurrentBrandId — no-load branches never set switching (Spec 111 A
     expect(useStore.getState().currentStore.id).toBe('');
   });
 
+  // Spec 150 note: this case keeps `currentUser: null` (the suite's neutral
+  // state), which is the UNKNOWN-user window where the new store-less-brand
+  // guard deliberately stands down, so the placeholder branch still runs. The
+  // signed-in behavior — fall back to "All brands" rather than strand — is
+  // pinned in useStore.activeBrand.test.ts.
   it('T8b: a fresh brand with no stores leaves switching null', () => {
     useStore.setState({
       currentBrandId: 'brand-1',

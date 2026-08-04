@@ -82,6 +82,11 @@ jest.mock('../../../../store/useStore', () => {
     reorderLoading: false,
     reorderError: null,
     loadReorderSuggestions: jest.fn(),
+    // Spec 151 — the section's context-fetch effect runs above the isPhone
+    // guard on every mount; this mocked store must carry the action (the
+    // context itself stays null, so no context line renders here — AC-17).
+    lastOrderContext: null,
+    loadLastOrderContext: jest.fn(),
     inventory: [],
     vendors: [],
     reorderEdits: {},

@@ -37,6 +37,15 @@ import {
   isReorderCountNotSubmitted,
 } from '../../../../utils/reorderDayFilter';
 import { isCaseRow, poOrderedToCases, poCasesToBase } from '../../../../utils/poCaseDisplay';
+// Spec 151 — the PURE last-order-context formatter, shared byte-for-byte with
+// the desktop ReorderSection row so the two tiers cannot drift.
+import {
+  buildLastOrderContext,
+  lastOrderCardState,
+  lastOrderSentence,
+  lastOrderDeltaText,
+  formatLastOrderDate,
+} from '../../../../utils/lastOrderContext';
 import { buildPoQuickOrderText, type NameResolver } from '../../../../utils/poQuickOrderText';
 import { getLocalizedName } from '../../../../i18n/localizedName';
 import { pickImportVendor } from '../../../../utils/vendorImportShared';
@@ -165,6 +174,14 @@ export function VendorOrderCard({
   const setReorderEditQty = useStore((s) => s.setReorderEditQty);
   const fillCartForVendor = useStore((s) => s.fillCartForVendor);
   const vendorsSlice = useStore((s) => s.vendors);
+  // Spec 151 (AC-14) — subscribed IN-COMPONENT, not passed as a prop, so this
+  // ONE insertion point serves BOTH PhoneOrdering and PhoneApproveOrder (which
+  // renders this same exported card) with no edit to the approve screen.
+  // Tri-state (R-G): `null` = not loaded / failed ⇒ 'hidden' ⇒ nothing renders,
+  // which is AC-17's graceful degradation.
+  const lastOrderContext = useStore((s) => s.lastOrderContext);
+  const lastOrderState = lastOrderCardState(lastOrderContext, vendor.vendorId);
+  const vendorLastOrder = lastOrderContext?.[vendor.vendorId] ?? null;
   const [filled, setFilled] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -291,6 +308,18 @@ export function VendorOrderCard({
                 est: formatMoney(est),
               })}
         </Text>
+        {/* Spec 151 (AC-9) — no anchor order for this vendor: state the empty
+            case ONCE at card level, never per row. Only when the context has
+            actually LOADED (R-G); `'hidden'` renders nothing at all. */}
+        {lastOrderState === 'empty' ? (
+          <Text
+            testID={`phone-order-last-order-none-${vendor.vendorId}`}
+            style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}
+            numberOfLines={1}
+          >
+            {T('section.reorder.lastOrderNone')}
+          </Text>
+        ) : null}
       </View>
 
       {/* Count-not-submitted (spec 130) — violet block replaces body + footer. */}
@@ -359,6 +388,20 @@ export function VendorOrderCard({
                 const sub = caseRow
                   ? `case of ${formatQty(item.caseQty)} ${item.unit} · ${formatMoney(perUnit)}/${item.unit}`
                   : `${formatMoney(perUnit)}/${item.unit}`;
+                // Spec 151 — the "last time" context for this row. `'none'`
+                // whenever the vendor has no anchor or the context has not
+                // loaded, in which case NOTHING renders (AC-17).
+                const lastOrder = buildLastOrderContext({
+                  item,
+                  vendorContext: lastOrderState === 'present' ? vendorLastOrder : null,
+                  onHandSource: vendor.onHandSource,
+                });
+                const lastOrderCopy =
+                  lastOrder.kind === 'line'
+                    ? lastOrderSentence(lastOrder, formatLastOrderDate, formatQty)
+                    : null;
+                const lastOrderDelta =
+                  lastOrder.kind === 'line' ? lastOrderDeltaText(lastOrder.delta, formatQty) : null;
                 return (
                   <View
                     key={item.itemId}
@@ -381,6 +424,35 @@ export function VendorOrderCard({
                       <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }} numberOfLines={1}>
                         {sub}
                       </Text>
+                      {/* Spec 151 (AC-1/3/11/13/16) — the muted last-order
+                          context. One interpolated template per variant (never
+                          `+`-joined fragments, AC-26); NOT CONFIRMED and the
+                          trend marker are SIBLING <Text> nodes at C.fg3 —
+                          never danger/ok tones, and carrying no "order
+                          less/more" instruction (AC-13). Non-interactive, one
+                          line, flex-boxed by the parent (AC-16). */}
+                      {lastOrderCopy ? (
+                        <Text
+                          testID={`phone-order-last-order-${item.itemId}`}
+                          style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }}
+                          numberOfLines={1}
+                        >
+                          {T(lastOrderCopy.key, lastOrderCopy.vars)}
+                          {lastOrder.kind === 'line' && lastOrder.notConfirmed ? (
+                            <Text style={{ color: C.fg3 }}>
+                              {`  ${T('section.reorder.lastOrderNotConfirmed')}`}
+                            </Text>
+                          ) : null}
+                          {lastOrderDelta ? (
+                            <Text
+                              testID={`phone-order-last-order-delta-${item.itemId}`}
+                              style={{ color: C.fg3 }}
+                            >
+                              {`  ${T(lastOrderDelta.key, lastOrderDelta.vars)}`}
+                            </Text>
+                          ) : null}
+                        </Text>
+                      ) : null}
                     </View>
                     <LineStepper
                       testIDPrefix={`phone-order-step-${item.itemId}`}

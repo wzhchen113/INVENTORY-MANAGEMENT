@@ -77,7 +77,10 @@
         "allBrands": "All brands",
         "switchedToast": "Switched to {name}",
         "brandSwitchedToast": "Switched brand",
-        "empty": "No stores available"
+        "brandNoStoresToast": "{brand} has no stores",
+        "brandNoStoresDetail": "Showing all brands",
+        "empty": "No stores available",
+        "emptyInBrand": "No stores in {brand} — pick another brand below"
       }
     },
     "themeToggle": {
@@ -1204,7 +1207,16 @@
       "phoneOrderSchedule": "ORDER SCHEDULE",
       "phoneOrderScheduleToast": "Order schedule — desktop-first for now",
       "phoneDateFor": "FOR {date}",
-      "phoneDateHint": "Change the reorder date on desktop"
+      "phoneDateHint": "Change the reorder date on desktop",
+      "lastOrderFull": "LAST {date} · COUNTED {counted} · ORDERED {ordered}",
+      "lastOrderNoCounted": "LAST {date} · ORDERED {ordered}",
+      "lastOrderNotOrdered": "LAST {date} · COUNTED {counted} · NOT ORDERED",
+      "lastOrderNotOrderedNoCounted": "LAST {date} · NOT ORDERED",
+      "lastOrderNotConfirmed": "NOT CONFIRMED",
+      "lastOrderNone": "NO PRIOR ORDER ON RECORD",
+      "lastOrderDeltaUp": "▲ +{qty}",
+      "lastOrderDeltaDown": "▼ −{qty}",
+      "lastOrderDeltaSame": "SAME AS LAST COUNT"
     },
     "approveOrder": {
       "title": "Approve order",

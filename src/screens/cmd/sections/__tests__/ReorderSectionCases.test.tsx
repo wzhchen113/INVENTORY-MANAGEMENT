@@ -76,6 +76,11 @@ jest.mock('../../../../store/useStore', () => {
     reorderLoading: false,
     reorderError: null,
     loadReorderSuggestions: jest.fn(),
+    // Spec 151 — the section's context-fetch effect runs above the isPhone
+    // guard on every mount; this mocked store must carry the action (the
+    // context itself stays null, so no context line renders here — AC-17).
+    lastOrderContext: null,
+    loadLastOrderContext: jest.fn(),
     // Spec 138 — inline-edit buffer + Fill-cart slice the section now reads.
     inventory: [],
     vendors: [],

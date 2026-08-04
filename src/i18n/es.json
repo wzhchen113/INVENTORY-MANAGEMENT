@@ -77,7 +77,10 @@
         "allBrands": "Todas las marcas",
         "switchedToast": "Cambiado a {name}",
         "brandSwitchedToast": "Marca cambiada",
-        "empty": "No hay tiendas disponibles"
+        "brandNoStoresToast": "{brand} no tiene tiendas",
+        "brandNoStoresDetail": "Mostrando todas las marcas",
+        "empty": "No hay tiendas disponibles",
+        "emptyInBrand": "No hay tiendas en {brand} — elige otra marca abajo"
       }
     },
     "themeToggle": {
@@ -1204,7 +1207,16 @@
       "phoneOrderSchedule": "CALENDARIO DE PEDIDOS",
       "phoneOrderScheduleToast": "Calendario de pedidos — por ahora solo en escritorio",
       "phoneDateFor": "PARA {date}",
-      "phoneDateHint": "Cambia la fecha del pedido en el escritorio"
+      "phoneDateHint": "Cambia la fecha del pedido en el escritorio",
+      "lastOrderFull": "ÚLTIMO {date} · CONTADO {counted} · PEDIDO {ordered}",
+      "lastOrderNoCounted": "ÚLTIMO {date} · PEDIDO {ordered}",
+      "lastOrderNotOrdered": "ÚLTIMO {date} · CONTADO {counted} · NO SE PIDIÓ",
+      "lastOrderNotOrderedNoCounted": "ÚLTIMO {date} · NO SE PIDIÓ",
+      "lastOrderNotConfirmed": "SIN CONFIRMAR",
+      "lastOrderNone": "SIN PEDIDO ANTERIOR REGISTRADO",
+      "lastOrderDeltaUp": "▲ +{qty}",
+      "lastOrderDeltaDown": "▼ −{qty}",
+      "lastOrderDeltaSame": "IGUAL QUE EL ÚLTIMO CONTEO"
     },
     "approveOrder": {
       "title": "Aprobar pedido",

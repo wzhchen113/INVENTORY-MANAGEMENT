@@ -687,6 +687,20 @@ export interface AppState {
   reorderLoading: boolean;
   reorderError: string | null;
   /**
+   * Spec 151 (R-G) — the "last time" annotation for the ordering surfaces,
+   * keyed by vendorId. TRI-STATE, and the distinction is load-bearing:
+   *  - `null`  ⇒ NOT LOADED (or the read failed) — render NOTHING (AC-17: no
+   *    context line, no card-level line, no toast, no spinner).
+   *  - `{}`    ⇒ loaded, no vendor has an anchor — every card renders AC-9's
+   *    "NO PRIOR ORDER ON RECORD".
+   *  - populated ⇒ per-line context for the vendors present.
+   * Without the tri-state every card would claim NO PRIOR ORDER ON RECORD for
+   * the whole load window, which the spec's honesty rule forbids. Cleared to
+   * `null` on store switch (stale cross-store context would be a correctness
+   * bug, not a cosmetic one).
+   */
+  lastOrderContext: LastOrderContext | null;
+  /**
    * Spec 138 §3 — per-session inline order-quantity edits on the reorder cards,
    * keyed `vendorId → itemId → base (COUNTED) units`. A client-only overlay on
    * top of the server suggestions: an absent entry means "use the computed
@@ -1033,6 +1047,66 @@ export interface CountedReorderItem {
   scheduleKnown: boolean;
   flags: string[];
 }
+
+/**
+ * Spec 151 — "last time" context for the ordering surfaces, returned by the
+ * `report_last_order_context(uuid, uuid[], date)` RPC and mapped in
+ * `db.fetchLastOrderContext`.
+ *
+ * `confidence`:
+ *  - `'placed'`   — a `sent`/`partial`/`received` purchase order, or an
+ *    `ordered` approval. Renders with no qualifier.
+ *  - `'recorded'` — a `draft` purchase order (e.g. a cart-filled BJ's order
+ *    nobody marked sent) or an `approved`-but-not-ordered approval. Renders
+ *    the muted NOT CONFIRMED qualifier (AC-3) — a real decision we will not
+ *    overstate as placed.
+ */
+export type LastOrderConfidence = 'placed' | 'recorded';
+export type LastOrderSource = 'purchase_order' | 'order_approval';
+
+/**
+ * One item's figures on the anchoring order/count, in BASE (counted) units —
+ * the same basis `po_items.ordered_qty` / `order_approvals.lines[].qty_base` /
+ * `eod_entries.actual_remaining` persist. The client converts to cases for
+ * display via `poCaseDisplay` (spec 151 design guidance 4).
+ *
+ * `null` and `0` are SEMANTICALLY DIFFERENT and must never be collapsed
+ * (spec 151 R-10):
+ *  - `orderedQtyBase === null` ⇒ the item was not on the anchor order (AC-8 →
+ *    "NOT ORDERED"); `0` ⇒ it was on the order for zero.
+ *  - `countedQtyBase === null` ⇒ no matching entry on the anchoring count
+ *    (AC-7 → the COUNTED clause is omitted entirely); `0` ⇒ counted zero.
+ */
+export interface LastOrderContextItem {
+  itemId: string;
+  orderedQtyBase: number | null;
+  countedQtyBase: number | null;
+}
+
+/**
+ * One vendor's anchor. A vendor with NO anchor is OMITTED from the RPC's
+ * `vendors[]` (spec 151 R-D) — structurally, so no unanchored "NOT ORDERED"
+ * claim is expressible.
+ */
+export interface LastOrderContextVendor {
+  vendorId: string;
+  lastOrderDate: string;                       // YYYY-MM-DD, never ''
+  confidence: LastOrderConfidence;
+  source: LastOrderSource;
+  sourceId: string;
+  countedDate: string | null;
+  itemsTruncated: boolean;
+  items: Record<string, LastOrderContextItem>; // keyed by itemId
+}
+
+/**
+ * Keyed by vendorId. At the store-slice level the type is
+ * `LastOrderContext | null`, where `null` means NOT LOADED (or the read
+ * failed) and renders NOTHING — the tri-state of spec 151 R-G. An empty
+ * object means "loaded, no vendor has an anchor" and renders AC-9's
+ * card-level empty line.
+ */
+export type LastOrderContext = Record<string, LastOrderContextVendor>;
 
 /**
  * Spec 060 — one row per recipe from `compute_menu_capacity` RPC.

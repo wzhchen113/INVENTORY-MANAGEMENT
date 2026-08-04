@@ -52,6 +52,15 @@ import { pickImportVendor, type ImportOrderPlan } from '../../../utils/vendorImp
 // Spec 138 — reuse the spec-134 PURE case⇄units helpers for the inline order-qty
 // edit (no forked conversion logic; AC-5).
 import { isCaseRow, poOrderedDisplay, poResolveEdit } from '../../../utils/poCaseDisplay';
+// Spec 151 — the PURE last-order-context formatter, shared byte-for-byte with
+// the phone VendorOrderCard so the two tiers cannot drift.
+import {
+  buildLastOrderContext,
+  lastOrderCardState,
+  lastOrderSentence,
+  lastOrderDeltaText,
+  formatLastOrderDate,
+} from '../../../utils/lastOrderContext';
 // Spec (2026-07) — phone tier. The desktop/tablet return subtree below is
 // byte-unchanged; on phone the section swaps to the full-width vendor-card list
 // via the `if (isPhone) return <PhoneOrdering/>` guard placed AFTER all hooks.
@@ -539,6 +548,13 @@ function VendorCard({
   // (applyReorderEdits), so `item.suggestedUnits` is the current base — used to
   // seed the input AND as the no-op reference in poResolveEdit.
   const setReorderEditQty = useStore((s) => s.setReorderEditQty);
+  // Spec 151 (AC-15) — the last-order context, subscribed here (this is a
+  // component; it already calls hooks) exactly as the phone VendorOrderCard
+  // does, so both tiers read the SAME slice through the SAME pure formatter.
+  // Tri-state (R-G): `null` ⇒ 'hidden' ⇒ nothing renders at all (AC-17).
+  const lastOrderContext = useStore((s) => s.lastOrderContext);
+  const lastOrderState = lastOrderCardState(lastOrderContext, vendor.vendorId);
+  const vendorLastOrder = lastOrderContext?.[vendor.vendorId] ?? null;
   // Spec 115 (W-3) — desktop-web quick-order preview, lifted here so it renders
   // as a normal in-card block below the footer (the card has overflow:hidden, so
   // an overlay wouldn't work). Cleared via the × in the preview header.
@@ -750,6 +766,25 @@ function VendorCard({
             <Text style={{ color: C.fg3 }}>est cost:</Text>{' '}
             <Text style={{ color: C.fg, fontWeight: '600' }}>{formatMoney(vendor.vendorTotalCost)}</Text>
           </Text>
+          {/* Spec 151 (AC-9) — no anchor order for this vendor: state it ONCE
+              per card, never per row. It lives in this ALWAYS-VISIBLE stats
+              row rather than in the card footer (spec-151 code review): desktop
+              cards default to COLLAPSED, and the footer sits inside the
+              `!collapsed` guard below, so a footer placement hid the fact
+              behind an expand tap. Mirrors the phone tier, which renders the
+              same line in its unconditional header block. Only once the
+              context has actually LOADED (R-G) — `'hidden'` renders nothing. */}
+          {lastOrderState === 'empty' ? (
+            <>
+              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>·</Text>
+              <Text
+                testID={`reorder-last-order-none-${vendor.vendorId}`}
+                style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg3 }}
+              >
+                {T('section.reorder.lastOrderNone')}
+              </Text>
+            </>
+          ) : null}
         </View>
       </View>
 
@@ -781,7 +816,23 @@ function VendorCard({
       </View>
 
       {/* Items */}
-      {vendor.items.map((item, i) => (
+      {vendor.items.map((item, i) => {
+        // Spec 151 — the "last time" context for this row, through the SAME
+        // pure formatter the phone card uses. `'none'` (and therefore no
+        // rendered line) whenever the vendor has no anchor OR the context has
+        // not loaded / failed — AC-17's graceful degradation.
+        const lastOrder = buildLastOrderContext({
+          item,
+          vendorContext: lastOrderState === 'present' ? vendorLastOrder : null,
+          onHandSource: vendor.onHandSource,
+        });
+        const lastOrderCopy =
+          lastOrder.kind === 'line'
+            ? lastOrderSentence(lastOrder, formatLastOrderDate, formatQty)
+            : null;
+        const lastOrderDelta =
+          lastOrder.kind === 'line' ? lastOrderDeltaText(lastOrder.delta, formatQty) : null;
+        return (
         <View
           key={item.itemId}
           testID={`reorder-vendor-item-${item.itemId}`}
@@ -813,6 +864,33 @@ function VendorCard({
           <View style={{ paddingLeft: 2 }}>
             <BreakdownLine item={item} tone={itemTone} />
           </View>
+          {/* Spec 151 (AC-1/3/11/13/15) — the muted last-order context, placed
+              directly below the breakdown and above the inline ORDER input,
+              following the spec-102 "also available from …" advisory sub-line
+              for tone/size/placement. NOT italic: italic there marks an
+              advisory, this is a fact. One interpolated template per variant
+              (AC-26); NOT CONFIRMED and the trend marker are sibling <Text>
+              nodes at C.fg3 — never danger/ok tones (AC-13). */}
+          {lastOrderCopy ? (
+            <View style={{ paddingLeft: 2 }}>
+              <Text
+                testID={`reorder-last-order-${item.itemId}`}
+                style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}
+              >
+                {T(lastOrderCopy.key, lastOrderCopy.vars)}
+                {lastOrder.kind === 'line' && lastOrder.notConfirmed ? (
+                  <Text style={{ color: C.fg3 }}>
+                    {`  ${T('section.reorder.lastOrderNotConfirmed')}`}
+                  </Text>
+                ) : null}
+                {lastOrderDelta ? (
+                  <Text testID={`reorder-last-order-delta-${item.itemId}`} style={{ color: C.fg3 }}>
+                    {`  ${T(lastOrderDelta.key, lastOrderDelta.vars)}`}
+                  </Text>
+                ) : null}
+              </Text>
+            </View>
+          ) : null}
           {/* Spec 138 (AC-5) — inline editable ORDER quantity, using the spec-134
               case conventions: a `caseQty > 1` line edits in CASES with the
               `× N / case` sub-caption; a `caseQty <= 1` line edits in units. The
@@ -867,7 +945,8 @@ function VendorCard({
             </View>
           ) : null}
         </View>
-      ))}
+        );
+      })}
 
       {/* Footer */}
       <View
@@ -893,6 +972,10 @@ function VendorCard({
             </Text>
           </>
         ) : null}
+        {/* Spec 151 (AC-9) — the card-level "NO PRIOR ORDER ON RECORD" line is
+            NOT here: it lives in the always-visible stats row above, because
+            this footer is inside the collapse guard and desktop cards default
+            to collapsed. */}
         <View style={{ flex: 1 }} />
         {/* The per-vendor action buttons (spec 123 CSV/PDF, spec 115 quick-order,
             spec 138 Fill cart) moved to the header name row (2026-07-21) so they
@@ -1375,6 +1458,47 @@ export default function ReorderSection() {
   const refresh = React.useCallback(() => {
     loadReorderSuggestions(selectedDate);
   }, [loadReorderSuggestions, selectedDate]);
+
+  // Spec 151 (§7.1) — the ONE fetch trigger for the last-order context, for
+  // ALL THREE surfaces. It lives here, with the other hooks and ABOVE the
+  // isPhone guard (AC-REG-3's guard-after-hooks discipline), because this
+  // component's hooks run before the phone fork — so PhoneOrdering AND
+  // PhoneApproveOrder are both hydrated by it, exactly as they already are for
+  // `reorderPayload`. That is why `PhoneApproveOrder.tsx` needs NO edit
+  // (AC-14 / AC-REG-4): the approve screen re-runs `loadReorderSuggestions`
+  // for its own business date, `asOfDate` changes, this effect re-fires, and
+  // the approve screen gets its context for free.
+  //
+  // ONE RPC call covers every visible vendor (AC-23) — never one per vendor,
+  // never one per line. Deliberately NOT chained inside
+  // `loadReorderSuggestions`: keeping it a separate effect is what makes
+  // AC-17's independent failure structural rather than asserted, and leaves
+  // the shipped loader byte-unchanged (AC-REG-1).
+  const loadLastOrderContext = useStore((s) => s.loadLastOrderContext);
+  // Depend on the DERIVED STRING KEY, not the array identity, so a re-render
+  // that hands back a fresh array of the SAME vendor ids (any in-place payload
+  // patch) does not refetch.
+  //
+  // Honest scope note (spec-151 architect review M-1): this does NOT make a
+  // realtime replay free. `loadFromSupabase` nulls `reorderPayload` in the same
+  // `set` that nulls `lastOrderContext` (useStore.ts:1580/1588) and that block
+  // runs on EVERY 400 ms-debounced realtime reload, so the key transitions
+  // 'a,b' → '' → 'a,b' and the effect DOES fire again — one extra RPC per
+  // replay. That behaviour is correct (the context blanks and comes back, which
+  // AC-17 permits); do not "optimize" against the opposite claim. Staleness
+  // cost either way is nil — the anchor is strictly BEFORE the as-of date, so
+  // nothing that happens today can change it.
+  const lastOrderContextVendors = reorderPayload?.vendors;
+  const vendorIdsKey = React.useMemo(
+    () => (lastOrderContextVendors ?? []).map((v) => v.vendorId).sort().join(','),
+    [lastOrderContextVendors],
+  );
+  const reorderAsOfDate = reorderPayload?.asOfDate;
+  React.useEffect(() => {
+    if (!currentStore?.id || currentStore.id === '__all__') return;
+    if (!vendorIdsKey) return;  // nothing to annotate
+    void loadLastOrderContext(vendorIdsKey.split(','), reorderAsOfDate?.slice(0, 10));
+  }, [currentStore?.id, vendorIdsKey, reorderAsOfDate, loadLastOrderContext]);
 
   // Spec 087 — derive the order-out filter + active-days highlight + the
   // client-recomputed KPIs from the pure util. The `orderSchedule` slice is

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
+import { visibleStoresFor } from '../../lib/storeVisibility';
 import { useT } from '../../hooks/useT';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 import { ThemeToggle } from './ThemeToggle';
@@ -80,15 +81,14 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
 
   if (Platform.OS !== 'web') return null;
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'master' || currentUser?.role === 'super_admin';
   // First filter by per-user access, then narrow to the active brand if
   // one is selected. Super-admins set currentBrandId via the brand
   // picker; clearing it (null) means "All brands" so the brand filter
   // is skipped.
-  const accessibleStores = (isAdmin
-    ? stores
-    : stores.filter((s) => currentUser?.stores?.includes(s.id))
-  ).filter((s) => currentBrandId === null || s.brandId === currentBrandId);
+  // Spec 150 — this rule used to be inlined here AND copy-pasted into the
+  // phone PhoneStoreSwitch sheet. Both now call the shared predicate, so the
+  // two switchers can no longer drift. Behaviour is unchanged.
+  const accessibleStores = visibleStoresFor(stores, currentUser, currentBrandId);
 
   const tail = [section.toLowerCase(), itemSlug ? slugify(itemSlug) : null]
     .filter(Boolean)

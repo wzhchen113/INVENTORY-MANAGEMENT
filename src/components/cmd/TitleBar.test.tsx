@@ -107,9 +107,12 @@ jest.mock('react-dom', () => ({
 }));
 
 import React from 'react';
-import { act, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { TitleBar } from './TitleBar';
 import { useInflight } from '../../lib/inflight';
+// Spec 150 — the REAL shared predicate (deliberately not mocked): the test
+// asserts the rendered dropdown equals this function's output.
+import { visibleStoresFor } from '../../lib/storeVisibility';
 
 beforeEach(() => {
   useInflight.setState({
@@ -150,5 +153,65 @@ describe('TitleBar — LoadingBar integration (Spec 055)', () => {
     // Still rendered, still labelled "Loading" — the slow state is a
     // color shift only (verified in LoadingBar.test.tsx).
     expect(screen.getByLabelText('Loading')).toBeTruthy();
+  });
+});
+
+// ── Spec 150 — shared store-visibility predicate ─────────────────────
+// The desktop store dropdown and the phone PhoneStoreSwitch sheet used to
+// carry byte-identical copies of the access filter. Both now render
+// `visibleStoresFor(...)`. This case pins the desktop half against the SAME
+// fixture the phone half is pinned against in
+// src/screens/cmd/sections/phone/__tests__/PhoneStoreSwitch.test.tsx
+// ("renders exactly the shared predicate's output"), so a divergence between
+// the two surfaces fails one of the two suites.
+describe('TitleBar — store switcher uses the shared predicate (Spec 150)', () => {
+  const FIXTURE_STORES = [
+    { id: 's1', brandId: 'b1', name: 'Frederick', address: '', status: 'active' as const },
+    { id: 's2', brandId: 'b1', name: 'Towson', address: '', status: 'active' as const },
+    { id: 's3', brandId: 'b2', name: 'Harbor', address: '', status: 'active' as const },
+  ];
+
+  const seed = (over: Record<string, unknown>) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('../../store/useStore') as { useStore: { __state: Record<string, unknown> } };
+    Object.assign(mod.useStore.__state, over);
+  };
+
+  const openMenuAndReadRows = () => {
+    // useT is mocked to identity, so the trigger's a11y label is the raw key.
+    fireEvent.press(screen.getByLabelText('chrome.switchStoreAria'));
+    // createPortal is mocked to render inline, so the rows are in-tree.
+    return screen
+      .getAllByText(/:\/\//)
+      .map((n) => n.props.children.join(''))
+      // Drop the breadcrumb trigger itself; keep the dropdown rows.
+      .slice(1);
+  };
+
+  test.each([
+    ['admin sees every store under "All brands"', 'admin', [], null],
+    ['admin narrowed to a brand', 'admin', [], 'b1'],
+    ['super-admin with no grants sees every store', 'super_admin', [], null],
+    ['non-privileged user sees only grants', 'user', ['s2'], null],
+    ['non-privileged user, brand with no granted store', 'user', ['s3'], 'b1'],
+  ] as const)('%s', (_label, role, grants, brandId) => {
+    const currentUser = { id: 'u1', role, stores: [...grants] };
+    seed({
+      stores: FIXTURE_STORES,
+      currentUser,
+      currentBrandId: brandId,
+      currentStore: FIXTURE_STORES[0],
+      brandsList: [{ id: 'b1', name: '2AM PROJECT' }, { id: 'b2', name: 'BALTIMORE SEAFOOD' }],
+      brand: { id: 'b1', name: '2AM PROJECT' },
+    });
+    const expected = visibleStoresFor(FIXTURE_STORES, currentUser as any, brandId);
+
+    render(<TitleBar storeName="Frederick" section="inventory" />);
+    const rows = openMenuAndReadRows();
+
+    expect(rows).toHaveLength(expected.length);
+    for (const s of expected) {
+      expect(rows.some((r) => r.endsWith(`://${s.name.toLowerCase()}`))).toBe(true);
+    }
   });
 });

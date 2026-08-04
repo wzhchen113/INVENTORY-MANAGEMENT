@@ -50,6 +50,8 @@ import {
   InventoryCount, InventoryCountKind, InventoryCountSummary,
   ReorderPayload, ReorderVendor, ReorderItem, OnHandSource,
   CountedReorderItem,
+  LastOrderContext, LastOrderContextVendor, LastOrderContextItem,
+  LastOrderConfidence, LastOrderSource,
   MenuCapacityRow, OrderSchedule, OrderSubmission,
   WeeklyCountStatus, WeeklyCountStatusValue,
   AdminNotification,
@@ -4642,6 +4644,114 @@ function mapCountedReorderItem(it: any): CountedReorderItem {
     nextDeliveryDate: String(it?.next_delivery_date ?? ''),
     scheduleKnown: Boolean(it?.schedule_known ?? false),
     flags: Array.isArray(it?.flags) ? it.flags.map((f: any) => String(f)) : [],
+  };
+}
+
+// ─── LAST-ORDER CONTEXT (Spec 151) ───────────────────────────────────────
+/**
+ * Spec 151 — the "last time" annotation for the three ordering surfaces
+ * (desktop ReorderSection, phone Ordering, phone Approve Order). Calls the
+ * store-scoped `report_last_order_context(p_store_id, p_vendor_ids,
+ * p_as_of_date)` RPC (migration 20260803000000), which resolves ONE anchor
+ * order per vendor — most recent non-cancelled record strictly BEFORE the
+ * as-of date, by the AC-2 tier precedence (sent/partial/received PO →
+ * `ordered` approval → `approved` approval → `draft` PO) — and returns that
+ * order's per-item quantities plus the count that anchored it.
+ *
+ * Deliberately SEPARATE from `report_reorder_list` (design §0.1 R-A): the
+ * reorder list is the screen's load-bearing payload and this is decoration.
+ * One RPC = one failure domain, so a slow or broken annotation query can never
+ * take the order list with it (AC-17).
+ *
+ * ONE call covers every visible vendor for the screen — never one per vendor
+ * and never one per line (AC-23).
+ *
+ * `asOfDate` — optional YYYY-MM-DD; the FE passes the reorder payload's own
+ * as-of date so the anchor is "before the day being ordered for". When omitted
+ * the RPC defaults to the server's `current_date` (UTC) — same caveat the
+ * reorder engines carry.
+ *
+ * Errors bubble up (matching `fetchReorderSuggestions`); the store slice
+ * swallows them to a silent `null` (= "no context"), because AC-17 forbids a
+ * toast, a spinner, or an error pane for a nice-to-have annotation.
+ *
+ * Returns a `Record<vendorId, LastOrderContextVendor>` (each with its own
+ * `Record<itemId, …>`) — NOT arrays — so the render loop does
+ * `ctx.items[itemId]` per row without an O(lines × items) scan, mirroring
+ * `fetchReorderForCountedOnHand`.
+ */
+export async function fetchLastOrderContext(
+  storeId: string,
+  vendorIds: string[],
+  asOfDate?: string,
+): Promise<LastOrderContext> {
+  // AC-22 client complement to the server's hard 0..100 bound: take the first
+  // 100 in the order given (the reorder payload is already ordered by next
+  // delivery date) rather than fanning out into chunked calls, which AC-23
+  // forbids. The excess vendors simply render AC-9's honest empty state.
+  let ids = vendorIds;
+  if (ids.length > 100) {
+    console.warn(
+      `[Supabase] fetchLastOrderContext: ${ids.length} vendors requested; ` +
+      'sending the first 100 (server bound). The remainder render no context.',
+    );
+    ids = ids.slice(0, 100);
+  }
+
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('report_last_order_context', {
+      p_store_id: storeId,
+      p_vendor_ids: ids,
+      p_as_of_date: asOfDate ?? null,
+    }).abortSignal(signal);
+
+    if (error) {
+      // Don't swallow — the caller (the store slice) decides. Per AC-17 it
+      // degrades to `null` (no context) with no toast.
+      throw error;
+    }
+
+    const envelope = (data || {}) as any;
+    const byVendor: LastOrderContext = {};
+    if (Array.isArray(envelope.vendors)) {
+      for (const v of envelope.vendors) {
+        const mapped = mapLastOrderVendor(v);
+        if (mapped.vendorId) byVendor[mapped.vendorId] = mapped;
+      }
+    }
+    return byVendor;
+  }, { kind: 'read', label: 'fetchLastOrderContext' });
+}
+
+function mapLastOrderVendor(v: any): LastOrderContextVendor {
+  const items: Record<string, LastOrderContextItem> = {};
+  if (Array.isArray(v?.items)) {
+    for (const it of v.items) {
+      const itemId = String(it?.item_id ?? '');
+      if (!itemId) continue;
+      items[itemId] = {
+        itemId,
+        // ⚠ NEVER `?? 0` on these two (spec 151 R-10). `null` and `0` are
+        // semantically different: `null` = "not on that order" / "no count
+        // entry" (AC-8 / AC-7), `0` = "ordered zero" / "counted zero".
+        // A `?? 0` here silently converts NOT ORDERED into "ORDERED 0" and is
+        // a Critical at review.
+        orderedQtyBase: it?.ordered_qty_base == null ? null : Number(it.ordered_qty_base),
+        countedQtyBase: it?.counted_qty_base == null ? null : Number(it.counted_qty_base),
+      };
+    }
+  }
+  const confidence: LastOrderConfidence = v?.confidence === 'recorded' ? 'recorded' : 'placed';
+  const source: LastOrderSource = v?.source === 'order_approval' ? 'order_approval' : 'purchase_order';
+  return {
+    vendorId: String(v?.vendor_id ?? ''),
+    lastOrderDate: String(v?.last_order_date ?? ''),
+    confidence,
+    source,
+    sourceId: String(v?.source_id ?? ''),
+    countedDate: v?.counted_date ? String(v.counted_date) : null,
+    itemsTruncated: Boolean(v?.items_truncated ?? false),
+    items,
   };
 }
 
