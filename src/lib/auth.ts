@@ -159,6 +159,34 @@ export async function getSession(): Promise<AuthResult> {
   return await fetchProfile(session.user.id);
 }
 
+/**
+ * Spec 152 — "is there still a user session?" probe, WITHOUT the profile
+ * round-trip `getSession()` does.
+ *
+ * Why this exists: RLS-denied table reads come back as `200 []`, not as an
+ * error, so an unauthenticated `loadFromSupabase` cheerfully REPLACES every
+ * slice with nothing and the app renders a blank-but-signed-in shell (the
+ * 2026-08-03 prod incident). The store calls this before it fetches and bails
+ * instead of blanking.
+ *
+ * Returns `true` on any probe failure — fail OPEN. A probe that can't answer
+ * must never be the reason a load is skipped; the pre-spec-152 behaviour (just
+ * fetch) is the correct degradation.
+ *
+ * Side-effect worth knowing: `supabase.auth.getSession()` drives supabase-js's
+ * token refresh, so calling this on a just-expired token either mints a fresh
+ * one (returns true) or fails the refresh and emits `SIGNED_OUT`, which the
+ * `sessionWatch` subscription turns into an honest sign-in bounce.
+ */
+export async function hasActiveSession(): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return !!session?.user;
+  } catch {
+    return true;
+  }
+}
+
 /** Fetch user profile + store access from DB */
 async function fetchProfile(userId: string): Promise<AuthResult> {
   // Spec 044 — embed brands(id, name) via the profiles.brand_id FK so the

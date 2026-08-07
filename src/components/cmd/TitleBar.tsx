@@ -44,6 +44,8 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
   const currentBrandId = useStore((s) => s.currentBrandId);
   const brand = useStore((s) => s.brand);
   const brandsList = useStore((s) => s.brandsList);
+  // Spec 152 — auth half of the connection indicator (see its render site).
+  const sessionLost = useStore((s) => s.sessionLost);
   const setCurrentStore = useStore((s) => s.setCurrentStore);
   const [storeMenuOpen, setStoreMenuOpen] = React.useState(false);
 
@@ -239,18 +241,29 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
       {/* One-press full app reload (owner request 2026-07-22) — picks up new
           deploys + fresh data without closing/reopening the website/PWA. */}
       <RefreshButton />
-      {/* Connection indicator */}
+      {/* Connection indicator.
+          Spec 152 — the websocket is NOT the whole truth: it stays open on a
+          stale token, so during the 2026-08-03 incident this read a green
+          "connected" while every REST call was running as `anon`. `sessionLost`
+          (raised by loadFromSupabase's session probe) takes precedence over the
+          socket state. `useConnectionStatus` itself is unchanged — it remains
+          the spec-059 websocket oracle for its other consumer,
+          InventoryCountSection's offline queue. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         <View
           style={{
             width: 6,
             height: 6,
             borderRadius: 3,
-            backgroundColor: connected ? C.ok : C.warn,
+            backgroundColor: sessionLost ? C.danger : connected ? C.ok : C.warn,
           }}
         />
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-          {connected ? T('chrome.connected') : T('chrome.reconnecting')}
+          {sessionLost
+            ? T('chrome.signedOutIndicator')
+            : connected
+              ? T('chrome.connected')
+              : T('chrome.reconnecting')}
         </Text>
       </View>
     </View>

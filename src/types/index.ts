@@ -760,6 +760,20 @@ export interface AppState {
    */
   storeLoading: boolean;
   /**
+   * Spec 152 — "the last data load found no user session".
+   *
+   * `loadFromSupabase` probes `hasActiveSession()` before it fetches and, when
+   * the session is gone, RETURNS EARLY with this flag raised instead of
+   * replacing every slice with anon-empty reads (an RLS-denied read is a
+   * `200 []`, indistinguishable from "no data" — the 2026-08-03 incident).
+   * Drives `SessionLostBanner` and the TitleBar indicator's signed-out state.
+   *
+   * Self-healing: the next successful load clears it. `dismissSessionLost`
+   * hides the banner without asserting the session came back, and
+   * `handleSessionLost` / `logout` clear it on the way to the sign-in screen.
+   */
+  sessionLost: boolean;
+  /**
    * Spec 111 — full-screen "Switching stores…/brands…" takeover flag.
    * `null` = no switch in flight (overlay hidden). Set to `'store'` by
    * `setCurrentStore` on a real store change (target id differs AND the

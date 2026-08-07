@@ -186,6 +186,36 @@ interface StoreActions {
   // Auth
   login: (user: User) => void;
   logout: () => void;
+  /**
+   * Spec 152 — tear down the in-memory admin session after an INVOLUNTARY
+   * session loss (expired token whose refresh failed, revoked refresh token,
+   * storage cleared elsewhere, or another tab signing in as a DIFFERENT user).
+   *
+   * Two callers, both deliberate:
+   *   1. the `admin` surface's `tearDown` registered with `lib/sessionWatch`
+   *      from App.tsx — the auth-event path;
+   *   2. `SessionLostBanner`'s "Sign in" button — the manual escape hatch for
+   *      the window where a load bailed but no auth event ever arrives.
+   *
+   * Also drops the loaded data slices (`SIGNED_OUT_DATA_RESET`) so the next
+   * sign-in never renders the previous identity's rows.
+   *
+   * Resets exactly the user/brand context `logout()` does, MINUS the network
+   * side-effects: no `signOut()` (the session is already gone — calling it
+   * would just emit a second auth event) and no `unsubscribeFromPush()` (there
+   * is no authenticated context left for the RLS-owner-scoped delete, and the
+   * device's subscription is still legitimately theirs for the next sign-in).
+   *
+   * Deliberately does NOT reset `locale` the way `logout()` does: that reset
+   * exists so a SHARED machine doesn't flash the previous user's language at
+   * the next sign-in, and an involuntary loss is overwhelmingly the same person
+   * about to sign back in.
+   */
+  handleSessionLost: () => void;
+  /** Spec 152 — hide the session banner without pretending the session came
+   *  back. Purely presentational; the next successful load clears the flag for
+   *  real, and a failed one re-raises it. */
+  dismissSessionLost: () => void;
   setCurrentStore: (store: Store) => void;
   loadFromSupabase: (storeId?: string) => Promise<void>;
 
@@ -888,6 +918,85 @@ let userCounter = USERS.length + 1;
 
 const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
 
+// Spec 152 (security-auditor Medium) — the in-memory data every signed-out
+// path must drop.
+//
+// Both exits from a session (`logout()` and `handleSessionLost()`) used to
+// reset only the user/brand context, leaving `inventory`, `recipes`, `users`,
+// the notification feeds and friends sitting in the store. On a shared
+// terminal the NEXT user's `login()` mounts the shell before its own
+// `loadFromSupabase` resolves, so the previous user's rows render underneath
+// their name for that window. Same class as the spec-038 `locale` reset and
+// the spec-151 `lastOrderContext` reset — this is the larger remainder.
+//
+// Values mirror the `create()` initial-state literal (the seed arrays are
+// permanently empty — see src/data/seed.ts), so a signed-out store is
+// byte-identical to a cold boot. Preferences (darkMode, locale,
+// sidebarLayoutOverride, timezone) are deliberately NOT here: `logout()` owns
+// the locale reset, and the rest are device-level, not session data.
+const SIGNED_OUT_DATA_RESET = {
+  currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' as const },
+  brand: null,
+  stores: [],
+  users: [],
+  inventory: [],
+  catalogIngredients: [],
+  recipes: [],
+  prepRecipes: [],
+  vendors: [],
+  wasteLog: [],
+  auditLog: [],
+  eodSubmissions: [],
+  orderSubmissions: [],
+  posImports: [],
+  posRecipeAliases: [],
+  poLinesById: {},
+  savedReports: [],
+  reportRuns: {},
+  reorderPayload: null,
+  reorderLoading: false,
+  reorderError: null,
+  lastOrderContext: null,
+  menuCapacity: {},
+  weeklyCountStatus: [],
+  weeklyCountStatusLoading: false,
+  notifications: [],
+  submissionNotifications: [],
+  submissionUnreadCount: 0,
+  orderSchedule: {
+    Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
+  },
+  // `Partial<FullStore>`, not `Partial<AppState>`: a few data slices
+  // (`poLinesById`) are declared on the StoreActions half of the store type.
+} satisfies Partial<FullStore>;
+
+/** Spec 152 — how long `loadFromSupabase` waits on the session probe before
+ *  giving up on it and loading anyway (the documented fail-open outcome). */
+export const SESSION_PROBE_TIMEOUT_MS = 4000;
+
+/**
+ * Spec 152 (code-reviewer Should-fix) — bound the session probe's latency.
+ *
+ * `hasActiveSession()` can drive a token refresh, i.e. a network round-trip,
+ * and it now sits in front of EVERY load (store switch, brand switch, each
+ * 400 ms-debounced realtime reload). A hung auth endpoint would otherwise
+ * freeze the entire load pipeline behind a check whose whole failure policy is
+ * "assume yes and carry on".
+ *
+ * Resolves `true` (fail open) if the probe hasn't answered in time. The timer
+ * is always cleared, so a pending handle can never keep a jest worker — or a
+ * native app's event loop — alive.
+ */
+function withProbeTimeout(probe: Promise<boolean>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(true), SESSION_PROBE_TIMEOUT_MS);
+  });
+  return Promise.race([probe, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 export const useStore = create<FullStore>((set, get) => ({
   // Initial state — start logged out, all data loaded from Supabase after login
   currentUser: null,
@@ -942,6 +1051,12 @@ export const useStore = create<FullStore>((set, get) => ({
   submissionNotifications: [],
   submissionUnreadCount: 0,
   storeLoading: false,
+  // Spec 152 — "the last data load found no session". Raised by
+  // loadFromSupabase's pre-fetch probe INSTEAD of blanking every slice with
+  // anon-empty reads; drives the SessionLostBanner + the TitleBar indicator's
+  // third state. Cleared by the next successful load (self-healing) or by the
+  // user dismissing the banner.
+  sessionLost: false,
   // Spec 111 — full-screen switch takeover. null = no switch in flight
   // (overlay hidden). Set by setCurrentStore ('store') / setCurrentBrandId
   // ('brand'); reset in loadFromSupabase's finally alongside storeLoading.
@@ -1008,7 +1123,23 @@ export const useStore = create<FullStore>((set, get) => ({
     // login so a fresh session always starts in "All brands" mode.
     // localStorage value persists across tab reloads but not across logins.
     clearActiveBrandLocal();
-    set({ currentBrandId: null, brandsList: [] });
+    // Spec 152 (security-auditor Medium) — a fresh session starts with a clean
+    // banner. The bail below runs after two awaits, so a load that was already
+    // in flight when the PREVIOUS session ended can land after its teardown
+    // already cleared the flag; without this reset the new user's shell would
+    // mount wearing the old session's red "signed out" dot and a banner whose
+    // primary button force-ejects them. (The bail is identity-guarded too —
+    // belt and braces, because this reset alone can't help a login() whose
+    // fetchStores REJECTS: that branch never reaches loadFromSupabase's
+    // self-heal.)
+    set({ currentBrandId: null, brandsList: [], sessionLost: false });
+    // Spec 152 — a new sign-in also retires any armed intentional-sign-out
+    // marker: a `signOut()` that failed without emitting SIGNED_OUT would
+    // otherwise leave it set for the tab's lifetime and swallow this session's
+    // eventual real loss.
+    import('../lib/sessionWatch')
+      .then(({ clearIntentionalSignOut }) => clearIntentionalSignOut())
+      .catch(() => { /* watcher not installed — nothing to disarm */ });
     // Fetch stores from Supabase, then set current store and load data
     db.fetchStores().then((cloudStores) => {
       const allStores = cloudStores.length > 0 ? cloudStores : get().stores;
@@ -1066,11 +1197,66 @@ export const useStore = create<FullStore>((set, get) => ({
     // previous user's order quantities. Back to `null` (NOT LOADED), so
     // nothing renders until the section's effect refetches.
     set({ lastOrderContext: null });
-    import('../lib/auth').then(({ signOut }) => signOut()).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+    // Spec 152 — the session banner belongs to the PREVIOUS session; a
+    // deliberate sign-out must not leave it armed over the login screen. The
+    // shared reset also drops the loaded rows so the next sign-in on a shared
+    // terminal can't render this user's data under the next user's name
+    // (security-auditor Medium).
+    set({ ...SIGNED_OUT_DATA_RESET, sessionLost: false });
+    // Spec 152 — tell the auth watcher this null-session event is the user's
+    // own doing, so it doesn't report a deliberate sign-out as "session
+    // expired". Raised BEFORE signOut() so the flag is up before the event can
+    // fire. Dynamic import (not static) for the same reason the signOut import
+    // below is: it keeps `lib/supabase` out of this module's static graph.
+    import('../lib/sessionWatch')
+      .then(({ markIntentionalSignOut }) => markIntentionalSignOut())
+      .catch(() => { /* watcher not installed — the had-user guard covers it */ })
+      .finally(() => {
+        import('../lib/auth')
+          .then(({ signOut }) => signOut())
+          .catch((e: any) => {
+            console.warn('[Supabase]', e?.message || e);
+            // Spec 152 (security-auditor Low) — auth-js skips the SIGNED_OUT
+            // emission when signOut() fails on anything but 401/404/403 (a
+            // network error, say). Leaving the marker armed would swallow the
+            // NEXT genuine session loss for the rest of this tab's life, which
+            // is the incident state all over again. Disarm it.
+            import('../lib/sessionWatch')
+              .then(({ clearIntentionalSignOut }) => clearIntentionalSignOut())
+              .catch(() => { /* nothing to disarm */ });
+          });
+      });
     // Drop web-push subscription for this browser so the user doesn't keep
     // getting reminders for a store they no longer have access to.
     import('../lib/webPush').then(({ unsubscribeFromPush }) => unsubscribeFromPush()).catch(() => {});
   },
+
+  // Spec 152 — see the StoreActions doc comment. In-memory teardown only.
+  handleSessionLost: () => {
+    set({ currentUser: null });
+    clearActiveBrandLocal();
+    set({
+      // Drop the loaded rows too (security-auditor Medium): this is the second
+      // entrance to the signed-out state, and the next sign-in must never
+      // render the previous identity's data — including the case where the
+      // "loss" is actually a SWITCH to a different user in another tab.
+      ...SIGNED_OUT_DATA_RESET,
+      currentBrandId: null,
+      brandsList: [],
+      brandStats: [],
+      brandAdminsByBrandId: {},
+      brandDeletionLog: {},
+      // The banner's job is done the moment we bounce to the sign-in screen —
+      // leaving it raised would render it over the login form.
+      sessionLost: false,
+      // A load that was in flight when the session died must not strand the
+      // spec-111 overlay or the spec-055 skeleton.
+      storeLoading: false,
+      switching: null,
+    });
+  },
+
+  dismissSessionLost: () => set({ sessionLost: false }),
   setCurrentStore: (store) => {
     // Spec 111 — capture the prior store BEFORE any set() so both the
     // normal path and the __all__ redirect can decide whether this is a
@@ -1511,6 +1697,59 @@ export const useStore = create<FullStore>((set, get) => ({
   loadFromSupabase: async (storeId?: string) => {
     const sid = storeId || get().currentStore?.id;
     if (!sid) return;
+
+    // ── Spec 152 — never let an unauthenticated read blank the app ────────
+    // RLS-denied table reads return `200 []`, NOT an error, and the `set()`
+    // below is documented as "cloud is the source of truth — always replace,
+    // even if empty". Together that means one anon-shaped load wipes every
+    // slice and the user stares at `0 items` under a green "connected" dot
+    // (the 2026-08-03 incident). So: probe first, and if the session is gone,
+    // keep what we have and raise the banner instead of fetching.
+    //
+    // FAILS OPEN by construction. The probe lives behind a dynamic import
+    // (the `logout()` idiom) because `lib/supabase` throws at import time
+    // without EXPO_PUBLIC_* config; if the module can't be resolved or the
+    // probe rejects, `sessionOk` stays true and this action behaves exactly as
+    // it did before this spec. A probe that cannot answer must never be the
+    // reason a load is skipped. (The outer try/catch exists ONLY for a failed
+    // module resolution — `hasActiveSession` already swallows everything it
+    // can throw internally and returns `true` itself.)
+    //
+    // It is also TIME-BOUNDED (code-reviewer Should-fix): `hasActiveSession`
+    // can drive a token refresh, and every load — including each 400ms-debounced
+    // realtime reload — now waits on it. A hung auth endpoint must degrade to
+    // the documented fail-open outcome, not freeze the whole load pipeline
+    // behind it.
+    const owner = get().currentUser?.id ?? null;
+    let sessionOk = true;
+    try {
+      const { hasActiveSession } = await import('../lib/auth');
+      sessionOk = await withProbeTimeout(hasActiveSession());
+    } catch {
+      sessionOk = true;
+    }
+    if (!sessionOk) {
+      // Spec 152 (security-auditor Medium) — the probe crossed two awaits, so
+      // this result may describe a session that has ALREADY been torn down and
+      // replaced. Arming the banner for a stale identity would put the red
+      // "signed out" dot (and a button that force-ejects) over the NEXT user's
+      // legitimate session, and would clear their in-flight load's progress
+      // gates out from under them. If the identity moved, this result is not
+      // ours to report.
+      if ((get().currentUser?.id ?? null) !== owner) return;
+      set({
+        sessionLost: true,
+        // Clear both progress gates — this load is over. Without this a store
+        // switch that bails here would strand the spec-111 overlay forever
+        // (that reset normally lives in the `finally` we never reach).
+        storeLoading: false,
+        switching: null,
+      });
+      return;
+    }
+    // Session is live — retire a banner raised by an earlier bail.
+    if (get().sessionLost) set({ sessionLost: false });
+
     set({ storeLoading: true });
     try {
       // Always fetch stores from Supabase

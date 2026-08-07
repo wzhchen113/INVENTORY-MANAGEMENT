@@ -20,6 +20,10 @@ import { ThemeToggle } from '../../components/cmd/ThemeToggle';
 import { LocaleSwitcher } from '../../components/cmd/LocaleSwitcher';
 import { NotificationToggle } from '../../components/cmd/NotificationToggle';
 import { NotificationBlockedBanner } from '../../components/cmd/NotificationBlockedBanner';
+// Spec 152 — renders only when a data load bailed on a missing session, in all
+// three breakpoint branches (the phone bar has no connection indicator, so on
+// phone this row is the ONLY honest signal).
+import { SessionLostBanner } from '../../components/cmd/SessionLostBanner';
 import { PhoneNotifications } from './sections/phone/PhoneNotifications';
 import { PhoneStoreSwitch } from './sections/phone/PhoneStoreSwitch';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
@@ -427,6 +431,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         {/* Spec 142 — dismissible blocked-push banner, BELOW the bar / ABOVE the
             body. Renders null when there is no blocked copy or after dismiss. */}
         <NotificationBlockedBanner />
+        <SessionLostBanner />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
         <MobileNavDrawer
           visible={mobileDrawerOpen}
@@ -463,6 +468,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           section={section}
           brandPicker={brandPickerSlot}
         />
+        <SessionLostBanner />
         <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
           {tabletCollapsed ? (
             <RailSidebar
@@ -522,6 +528,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         section={section}
         brandPicker={brandPickerSlot}
       />
+      <SessionLostBanner />
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar
           groups={groupsForSidebar}

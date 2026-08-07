@@ -150,6 +150,20 @@
         "generic": "No se pudieron activar las notificaciones. Inténtalo de nuevo."
       },
       "retry": "Intentar de nuevo"
+    },
+    "sessionExpired": {
+      "title": "Sesión expirada",
+      "body": "Inicia sesión de nuevo para continuar."
+    },
+    "signedOutIndicator": "sesión cerrada",
+    "sessionBanner": {
+      "title": "Sesión cerrada — se muestran los últimos datos cargados",
+      "body": "Tu sesión terminó, así que no se puede cargar nada nuevo. Inicia sesión de nuevo para continuar.",
+      "action": "Iniciar sesión"
+    },
+    "sessionSwitched": {
+      "title": "Sesión iniciada con otro usuario",
+      "body": "Esta ventana se cerró. Inicia sesión de nuevo para continuar."
     }
   },
   "common": {

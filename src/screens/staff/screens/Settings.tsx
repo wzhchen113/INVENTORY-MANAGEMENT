@@ -25,6 +25,10 @@ import { NotificationSwitcher } from '../components/NotificationSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
 import { confirmAction } from '../../../utils/confirmAction';
 import { supabase } from '../../../lib/supabase';
+// Spec 152 — `lib/sessionWatch` imports NO store (surfaces register themselves
+// from App.tsx), so this import does not drag the admin store into the staff
+// bundle. Spec 063's "staff code never imports useStore" contract holds.
+import { clearIntentionalSignOut, markIntentionalSignOut } from '../../../lib/sessionWatch';
 import { unsubscribeFromPush } from '../../../lib/webPush';
 import { notifyBackendError } from '../lib/notifyBackendError';
 import { submitStaffReport, type StaffReportCategory } from '../lib/reports';
@@ -84,9 +88,19 @@ export function Settings() {
         // owner-scopes it). Best-effort — unsubscribeFromPush swallows its own
         // errors.
         await unsubscribeFromPush();
+        // Spec 152 — flag this null-session event as user-initiated BEFORE it
+        // can fire, so the auth watcher doesn't report a deliberate sign-out as
+        // "Session expired". (The watcher's had-a-session guard would not help
+        // here: authState is still 'signed-in' until the setAuthState below.)
+        markIntentionalSignOut();
         try {
           await supabase.auth.signOut();
         } catch (err) {
+          // Spec 152 — auth-js skips the SIGNED_OUT emission when signOut()
+          // fails on anything but 401/404/403 (a network error, say), so the
+          // marker would stay armed for this app session and swallow the next
+          // GENUINE loss — silently, since staff has no banner. Disarm it.
+          clearIntentionalSignOut();
           notifyBackendError('signOut', err);
         }
         setActiveStore(null);

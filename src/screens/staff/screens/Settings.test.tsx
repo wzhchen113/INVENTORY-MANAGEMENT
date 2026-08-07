@@ -23,6 +23,27 @@ jest.mock('../lib/reports', () => ({
   submitStaffReport: (...a: unknown[]) => mockSubmitStaffReport(...a),
 }));
 
+// ── Spec 152 sign-out boundaries ─────────────────────────────────────────
+// confirmAction is the cross-platform confirm; run its callback immediately so
+// the sign-out body is exercised without a dialog.
+jest.mock('../../../utils/confirmAction', () => ({
+  confirmAction: (_t: string, _m: string, onConfirm: () => void) => onConfirm(),
+}));
+
+const mockMarkIntentionalSignOut = jest.fn();
+const mockClearIntentionalSignOut = jest.fn();
+jest.mock('../../../lib/sessionWatch', () => ({
+  markIntentionalSignOut: () => mockMarkIntentionalSignOut(),
+  clearIntentionalSignOut: () => mockClearIntentionalSignOut(),
+}));
+
+const mockUnsubscribeFromPush = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../lib/webPush', () => ({
+  unsubscribeFromPush: () => mockUnsubscribeFromPush(),
+  subscribeToPush: jest.fn(),
+  getPushPermissionState: jest.fn(() => 'default'),
+}));
+
 // Settings uses useNavigation().goBack; the gear (tested separately) uses
 // navigate. Provide both (no NavigationContainer in these unit renders).
 const mockGoBack = jest.fn();
@@ -108,5 +129,52 @@ describe('Settings — report form', () => {
     expect(queryByTestId('staff-report-success')).toBeNull();
     // The message is preserved so the user can retry.
     expect(getByTestId('staff-report-message').props.value).toBe('Something broke');
+  });
+});
+
+// ── Spec 152 (test-engineer coverage gap) ────────────────────────────────
+// sessionWatch.test.ts pins the MECHANISM (an armed marker suppresses the
+// "session expired" toast). What was missing is that this call site actually
+// raises the marker BEFORE `signOut()` — the ordering the suppression depends
+// on, because auth-js can emit SIGNED_OUT as soon as signOut() resolves. A
+// refactor that moved the call after signOut() would have gone unnoticed.
+describe('Settings — sign out marks the intentional path (Spec 152)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { supabase } = require('../../../lib/supabase') as {
+    supabase: { auth: { signOut: jest.Mock } };
+  };
+
+  beforeEach(() => {
+    mockMarkIntentionalSignOut.mockClear();
+    mockClearIntentionalSignOut.mockClear();
+    supabase.auth.signOut.mockReset().mockResolvedValue({ error: null });
+  });
+
+  it('calls markIntentionalSignOut() BEFORE supabase.auth.signOut()', async () => {
+    const { getByTestId } = render(<Settings />);
+
+    fireEvent.press(getByTestId('staff-settings-sign-out'));
+
+    await waitFor(() => expect(supabase.auth.signOut).toHaveBeenCalledTimes(1));
+    expect(mockMarkIntentionalSignOut).toHaveBeenCalledTimes(1);
+    expect(mockMarkIntentionalSignOut.mock.invocationCallOrder[0])
+      .toBeLessThan(supabase.auth.signOut.mock.invocationCallOrder[0]);
+    // A clean sign-out leaves the marker armed for the auth event to consume.
+    expect(mockClearIntentionalSignOut).not.toHaveBeenCalled();
+    expect(useStaffStore.getState().authState.kind).toBe('signed-out');
+  });
+
+  it('un-arms the marker when signOut() rejects', async () => {
+    // auth-js skips the SIGNED_OUT emission on a network failure; a marker left
+    // armed would silently eat the next GENUINE loss (staff has no banner).
+    supabase.auth.signOut.mockRejectedValueOnce(new Error('network down'));
+    const { getByTestId } = render(<Settings />);
+
+    fireEvent.press(getByTestId('staff-settings-sign-out'));
+
+    await waitFor(() => expect(mockClearIntentionalSignOut).toHaveBeenCalledTimes(1));
+    expect(mockMarkIntentionalSignOut).toHaveBeenCalledTimes(1);
+    // The local sign-out still completes — the session is unusable either way.
+    expect(useStaffStore.getState().authState.kind).toBe('signed-out');
   });
 });

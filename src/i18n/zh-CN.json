@@ -150,6 +150,20 @@
         "generic": "无法启用通知。请重试。"
       },
       "retry": "重试"
+    },
+    "sessionExpired": {
+      "title": "登录已过期",
+      "body": "请重新登录以继续。"
+    },
+    "signedOutIndicator": "已退出",
+    "sessionBanner": {
+      "title": "已退出登录 — 显示的是最后加载的数据",
+      "body": "登录已结束，无法加载新数据。请重新登录以继续。",
+      "action": "登录"
+    },
+    "sessionSwitched": {
+      "title": "已切换为其他用户",
+      "body": "此窗口已退出登录。请重新登录以继续。"
     }
   },
   "common": {

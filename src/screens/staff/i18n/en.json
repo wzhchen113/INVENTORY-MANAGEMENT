@@ -438,6 +438,14 @@
         "generic": "Couldn't enable notifications. Try again."
       },
       "retry": "Try again"
+    },
+    "sessionExpired": {
+      "title": "Session expired",
+      "body": "Sign in again to continue."
+    },
+    "sessionSwitched": {
+      "title": "Signed in as a different user",
+      "body": "This device has been signed out. Sign in again to continue."
     }
   }
 }

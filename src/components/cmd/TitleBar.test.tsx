@@ -75,6 +75,8 @@ jest.mock('../../store/useStore', () => {
     currentBrandId: null,
     brand: { id: 'brand-1', name: '2AM PROJECT' },
     brandsList: [],
+    // Spec 152 — auth half of the connection indicator.
+    sessionLost: false,
     setCurrentStore: jest.fn(),
     // Spec 120/121 — TitleBar mounts NotificationBell, which selects these.
     // The bell now derives `hasUnreadMissed` from the feed on every render, so
@@ -213,5 +215,35 @@ describe('TitleBar — store switcher uses the shared predicate (Spec 150)', () 
     for (const s of expected) {
       expect(rows.some((r) => r.endsWith(`://${s.name.toLowerCase()}`))).toBe(true);
     }
+  });
+});
+
+// ── Spec 152 — the indicator tells the truth about AUTH, not just the socket ──
+// During the 2026-08-03 incident the realtime websocket stayed open on a stale
+// token, so this indicator asserted a green "connected" while every REST call
+// ran as `anon` and came back empty. `sessionLost` now takes precedence.
+// `useConnectionStatus` is mocked to `true` at the top of this file, so these
+// two cases isolate the auth term exactly.
+describe('TitleBar — connection indicator reflects auth state (Spec 152)', () => {
+  const seedSession = (sessionLost: boolean) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('../../store/useStore') as { useStore: { __state: Record<string, unknown> } };
+    Object.assign(mod.useStore.__state, { sessionLost });
+  };
+
+  afterEach(() => seedSession(false));
+
+  test('shows the signed-out copy when the session is gone, despite a live socket', () => {
+    seedSession(true);
+    render(<TitleBar storeName="Frederick" section="inventory" />);
+    expect(screen.getByText('chrome.signedOutIndicator')).toBeTruthy();
+    expect(screen.queryByText('chrome.connected')).toBeNull();
+  });
+
+  test('AC-REG — with a session it still reads "connected" off the socket', () => {
+    seedSession(false);
+    render(<TitleBar storeName="Frederick" section="inventory" />);
+    expect(screen.getByText('chrome.connected')).toBeTruthy();
+    expect(screen.queryByText('chrome.signedOutIndicator')).toBeNull();
   });
 });

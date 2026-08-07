@@ -438,6 +438,14 @@
         "generic": "No se pudieron activar las notificaciones. Inténtalo de nuevo."
       },
       "retry": "Intentar de nuevo"
+    },
+    "sessionExpired": {
+      "title": "Sesión expirada",
+      "body": "Inicia sesión de nuevo para continuar."
+    },
+    "sessionSwitched": {
+      "title": "Sesión iniciada con otro usuario",
+      "body": "Este dispositivo cerró sesión. Inicia sesión de nuevo para continuar."
     }
   }
 }

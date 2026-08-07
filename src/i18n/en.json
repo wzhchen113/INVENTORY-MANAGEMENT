@@ -150,6 +150,20 @@
         "generic": "Couldn't enable notifications. Try again."
       },
       "retry": "Try again"
+    },
+    "sessionExpired": {
+      "title": "Session expired",
+      "body": "Sign in again to continue."
+    },
+    "signedOutIndicator": "signed out",
+    "sessionBanner": {
+      "title": "Signed out — showing the last data loaded",
+      "body": "Your session ended, so nothing new can load. Sign in again to continue.",
+      "action": "Sign in"
+    },
+    "sessionSwitched": {
+      "title": "Signed in as a different user",
+      "body": "This window has been signed out. Sign in again to continue."
     }
   },
   "common": {

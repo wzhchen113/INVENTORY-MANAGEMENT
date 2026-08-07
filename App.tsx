@@ -15,6 +15,8 @@ import RoleRouter from './src/navigation/RoleRouter';
 import RecoveryGate from './src/navigation/RecoveryGate';
 import { useStaffStore } from './src/screens/staff/store/useStaffStore';
 import { checkAuthGate } from './src/lib/authGate';
+import { registerSessionSurface, watchSessionLoss } from './src/lib/sessionWatch';
+import { t } from './src/i18n';
 import { hydrateQueue, migrateQueueIfNeeded, readActiveStoreId, readCachedLocale as readStaffCachedLocale, writeActiveStoreId } from './src/screens/staff/lib/eodQueue';
 import { notifyBackendError as notifyStaffBackendError } from './src/screens/staff/lib/notifyBackendError';
 import { t as tStaff } from './src/screens/staff/i18n';
@@ -333,6 +335,76 @@ export default function App() {
         useStore.getState().setCurrentBrandId(cachedActiveBrand);
       }
     })();
+  }, []);
+
+  // Spec 152 — THE auth-state subscription (there was none before this spec).
+  // A session that dies mid-session — expired access token whose refresh
+  // failed, revoked refresh token, storage cleared in another tab — used to
+  // leave a signed-in-LOOKING shell whose every read came back empty, because
+  // RLS denies rows silently (`200 []`) and RoleRouter gates on the in-memory
+  // `currentUser`. The watcher clears the affected surface(s) and toasts once,
+  // which lands the user on the sign-in portal instead. It also catches an
+  // IDENTITY CHANGE (another tab signs in as someone else; auth-js replays that
+  // event here with a non-null session), so this window can never keep
+  // rendering user A while issuing requests with user B's JWT.
+  //
+  // App.tsx is where BOTH stores are wired into the watcher, because it is
+  // already the root bridge that owns both (the role `RoleRouter` plays for
+  // rendering). `lib/sessionWatch` itself imports neither store — that is what
+  // keeps spec 063's "staff code never imports useStore" contract intact even
+  // though the staff Settings sheet imports `markIntentionalSignOut` from it.
+  //
+  // Own effect, mounted once for the app's lifetime and independent of the
+  // restore effect above: it must be listening BEFORE any await in that async
+  // IIFE can resolve, and it must survive every branch that returns early.
+  // Admin registers FIRST — registration order is announcement priority, the
+  // same precedence RoleRouter applies when both stores hold a session.
+  useEffect(() => {
+    const unregisterAdmin = registerSessionSurface({
+      id: 'admin',
+      getUserId: () => useStore.getState().currentUser?.id ?? null,
+      tearDown: () => useStore.getState().handleSessionLost(),
+      announce: (reason) => {
+        const locale = useStore.getState().locale;
+        const key = reason === 'switched' ? 'chrome.sessionSwitched' : 'chrome.sessionExpired';
+        Toast.show({
+          type: 'error',
+          text1: t(locale, `${key}.title`),
+          text2: t(locale, `${key}.body`),
+          visibilityTime: 6000,
+        });
+      },
+    });
+    const unregisterStaff = registerSessionSurface({
+      id: 'staff',
+      getUserId: () => {
+        const s = useStaffStore.getState().authState;
+        return s.kind === 'signed-in' ? s.userId : null;
+      },
+      tearDown: () => {
+        // Same teardown the staff Settings sign-out performs, minus the network
+        // calls (the session is already gone — there is nothing to sign out of
+        // and no authenticated context to unsubscribe push under).
+        useStaffStore.getState().setActiveStore(null);
+        useStaffStore.getState().setAuthState({ kind: 'signed-out' });
+      },
+      announce: (reason) => {
+        const key = reason === 'switched' ? 'chrome.sessionSwitched' : 'chrome.sessionExpired';
+        Toast.show({
+          type: 'error',
+          text1: tStaff(`${key}.title`),
+          text2: tStaff(`${key}.body`),
+          position: 'bottom',
+          visibilityTime: 6000,
+        });
+      },
+    });
+    const stopWatching = watchSessionLoss();
+    return () => {
+      stopWatching();
+      unregisterAdmin();
+      unregisterStaff();
+    };
   }, []);
 
   useEffect(() => {

@@ -438,6 +438,14 @@
         "generic": "无法启用通知。请重试。"
       },
       "retry": "重试"
+    },
+    "sessionExpired": {
+      "title": "登录已过期",
+      "body": "请重新登录以继续。"
+    },
+    "sessionSwitched": {
+      "title": "已切换为其他用户",
+      "body": "此设备已退出登录。请重新登录以继续。"
     }
   }
 }
