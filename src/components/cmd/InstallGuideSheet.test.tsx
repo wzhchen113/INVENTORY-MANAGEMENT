@@ -18,6 +18,9 @@ jest.mock('../../theme/colors', () => ({
     border: '#CCCCCC',
     borderStrong: '#888888',
     accent: '#3F7C20',
+    // Spec 154 — the step illustrations map `accentBg` into their highlight
+    // fill, so the stub needs it too.
+    accentBg: '#E0EFC9',
     accentFg: '#FFFFFF',
     fg: '#000000',
     fg2: '#444444',
@@ -148,6 +151,47 @@ describe('InstallGuideSheet — platform tabs (AC-4)', () => {
     // useT is identity-mocked, so the key IS the rendered string.
     expect(screen.getByText('chrome.installGuide.steps.android.step1')).toBeTruthy();
     expect(screen.getByText('⋮')).toBeTruthy();
+  });
+});
+
+// ── Spec 154 ────────────────────────────────────────────────────────
+describe('InstallGuideSheet — step illustrations (spec 154 AC-3)', () => {
+  // The pictures are aria-hidden by design, so RNTL needs telling.
+  const HIDDEN = { includeHiddenElements: true } as const;
+
+  test('every step of the active tab renders its own picture', () => {
+    mockPlatform = 'ios';
+    renderSheet();
+    for (const key of ['ios.step1', 'ios.step2', 'ios.step3', 'ios.step4']) {
+      expect(screen.getByTestId(`install-guide-art-${key}`, HIDDEN)).toBeTruthy();
+    }
+    expect(screen.queryByTestId('install-guide-art-android.step1', HIDDEN)).toBeNull();
+  });
+
+  test('switching tabs swaps the whole illustration set', () => {
+    mockPlatform = 'ios';
+    renderSheet();
+    fireEvent.press(screen.getByTestId('install-guide-tab-desktop'));
+
+    expect(screen.getByTestId('install-guide-art-desktop.step1', HIDDEN)).toBeTruthy();
+    expect(screen.getByTestId('install-guide-art-desktop.step2', HIDDEN)).toBeTruthy();
+    expect(screen.queryByTestId('install-guide-art-ios.step1', HIDDEN)).toBeNull();
+  });
+
+  test('the pictures carry the localized OS labels (useT is identity-mocked)', () => {
+    mockPlatform = 'android';
+    renderSheet();
+    // Drawn inside android.step2's menu picture.
+    expect(screen.getByText('chrome.installGuide.art.installApp', HIDDEN)).toBeTruthy();
+    // Drawn inside android.step3's confirm dialog.
+    expect(screen.getByText('chrome.installGuide.art.install', HIDDEN)).toBeTruthy();
+  });
+
+  test('the "already added" state renders no pictures at all', () => {
+    mockStandalone = true;
+    mockPlatform = 'ios';
+    renderSheet();
+    expect(screen.queryByTestId('install-guide-art-ios.step1', HIDDEN)).toBeNull();
   });
 });
 

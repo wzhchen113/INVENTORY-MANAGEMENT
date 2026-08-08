@@ -457,6 +457,13 @@
         "android": "Android",
         "desktop": "Desktop"
       },
+      "art": {
+        "appName": "I.M.R",
+        "addToHomeScreen": "Add to Home Screen",
+        "add": "Add",
+        "installApp": "Install app",
+        "install": "Install"
+      },
       "steps": {
         "ios": {
           "step1": "Open this page in Safari.",

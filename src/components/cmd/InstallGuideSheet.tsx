@@ -20,7 +20,14 @@
 //     reachable by a direct `visible` prop and must not be a dead end.
 
 import React from 'react';
-import { Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Platform,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useCmdColors, CmdRadius } from '../../theme/colors';
 import { mono, Type } from '../../theme/typography';
 import { useT } from '../../hooks/useT';
@@ -31,6 +38,11 @@ import {
   useInstallPrompt,
   type InstallPlatform,
 } from '../../lib/installGuide';
+import {
+  StepIllustration,
+  type StepIllustrationLabels,
+  type StepIllustrationPalette,
+} from '../illustrations/StepIllustration';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { TabStrip } from './TabStrip';
 
@@ -42,6 +54,7 @@ interface InstallGuideSheetProps {
 export const InstallGuideSheet: React.FC<InstallGuideSheetProps> = ({ visible, onClose }) => {
   const C = useCmdColors();
   const T = useT();
+  const { width: windowWidth } = useWindowDimensions();
   // Seeded once from the live probe; the user owns it from then on (AC-4).
   const [activeId, setActiveId] = React.useState<InstallPlatform>(() => detectInstallPlatform());
   const { available, promptInstall } = useInstallPrompt();
@@ -54,6 +67,38 @@ export const InstallGuideSheet: React.FC<InstallGuideSheetProps> = ({ visible, o
     ],
     [T],
   );
+
+  // Spec 154 — the drawn step pictures. The component is surface-neutral, so
+  // the Cmd tokens and the Cmd catalog are mapped into it here (it may not read
+  // a theme hook or a catalog of its own; see StepIllustration's header).
+  const artPalette = React.useMemo<StepIllustrationPalette>(
+    () => ({
+      frame: C.panel2,
+      screen: C.panel,
+      chrome: C.panel2,
+      line: C.fg3,
+      border: C.borderStrong,
+      ink: C.fg,
+      ink2: C.fg2,
+      highlight: C.accent,
+      highlightBg: C.accentBg,
+      highlightInk: C.accentFg,
+    }),
+    [C],
+  );
+  const artLabels = React.useMemo<StepIllustrationLabels>(
+    () => ({
+      appName: T('chrome.installGuide.art.appName'),
+      addToHomeScreen: T('chrome.installGuide.art.addToHomeScreen'),
+      add: T('chrome.installGuide.art.add'),
+      installApp: T('chrome.installGuide.art.installApp'),
+      install: T('chrome.installGuide.art.install'),
+    }),
+    [T],
+  );
+  // Scales to the surface: the drawer is 480 wide on desktop, fullscreen on a
+  // phone. Clamped so it never dominates a narrow card or shrinks illegibly.
+  const artWidth = Math.max(140, Math.min(280, windowWidth - 96));
 
   const standalone = detectStandalone();
   const steps = installSteps(activeId);
@@ -122,8 +167,6 @@ export const InstallGuideSheet: React.FC<InstallGuideSheetProps> = ({ visible, o
                   key={step.key}
                   testID={`install-guide-step-${step.key}`}
                   style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
                     gap: 12,
                     padding: 12,
                     borderWidth: 1,
@@ -132,43 +175,55 @@ export const InstallGuideSheet: React.FC<InstallGuideSheetProps> = ({ visible, o
                     backgroundColor: C.panel,
                   }}
                 >
-                  {/* Numbered marker */}
-                  <View
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: CmdRadius.pill,
-                      backgroundColor: C.accent,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.accentFg }}>
-                      {step.n}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    {/* Numbered marker */}
+                    <View
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: CmdRadius.pill,
+                        backgroundColor: C.accent,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.accentFg }}>
+                        {step.n}
+                      </Text>
+                    </View>
+                    {/* Glyph tile — the OS's real control mark, not translated */}
+                    <View
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: CmdRadius.sm,
+                        borderWidth: 1,
+                        borderColor: C.borderStrong,
+                        backgroundColor: C.panel2,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Text style={{ fontFamily: mono(500), fontSize: 18, color: C.fg }}>
+                        {step.glyph}
+                      </Text>
+                    </View>
+                    <Text style={[Type.body, { color: C.fg, flex: 1 }]}>
+                      {T(`chrome.installGuide.steps.${step.key}`)}
                     </Text>
                   </View>
-                  {/* Glyph tile — the OS's real control mark, not translated */}
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: CmdRadius.sm,
-                      borderWidth: 1,
-                      borderColor: C.borderStrong,
-                      backgroundColor: C.panel2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Text style={{ fontFamily: mono(500), fontSize: 18, color: C.fg }}>
-                      {step.glyph}
-                    </Text>
+                  {/* Spec 154 — the picture of the phone at this step. */}
+                  <View style={{ alignItems: 'center' }}>
+                    <StepIllustration
+                      testID={`install-guide-art-${step.key}`}
+                      art={step.art}
+                      width={artWidth}
+                      palette={artPalette}
+                      labels={artLabels}
+                    />
                   </View>
-                  <Text style={[Type.body, { color: C.fg, flex: 1 }]}>
-                    {T(`chrome.installGuide.steps.${step.key}`)}
-                  </Text>
                 </View>
               ))}
 

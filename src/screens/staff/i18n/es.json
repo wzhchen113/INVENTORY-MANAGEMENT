@@ -457,6 +457,13 @@
         "android": "Android",
         "desktop": "Escritorio"
       },
+      "art": {
+        "appName": "I.M.R",
+        "addToHomeScreen": "Añadir a pantalla de inicio",
+        "add": "Añadir",
+        "installApp": "Instalar aplicación",
+        "install": "Instalar"
+      },
       "steps": {
         "ios": {
           "step1": "Abre esta página en Safari.",

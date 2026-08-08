@@ -149,6 +149,36 @@ describe('Settings — Add to Home Screen card (Spec 153)', () => {
   });
 });
 
+// ── Spec 154 (AC-4) ──────────────────────────────────────────────────────
+describe('Settings — Add to Home Screen illustrations (Spec 154)', () => {
+  // The pictures are aria-hidden by design, so RNTL needs telling.
+  const HIDDEN = { includeHiddenElements: true } as const;
+
+  it('AC-4: every step of the detected platform carries its own picture', () => {
+    mockInstallPlatform = 'ios';
+    const { getByTestId, queryByTestId } = render(<Settings />);
+
+    for (const key of ['ios.step1', 'ios.step2', 'ios.step3', 'ios.step4']) {
+      expect(getByTestId(`staff-install-guide-art-${key}`, HIDDEN)).toBeTruthy();
+    }
+    // No tabs on staff — only the detected platform's pictures exist (spec 153).
+    expect(queryByTestId('staff-install-guide-art-android.step1', HIDDEN)).toBeNull();
+  });
+
+  it('AC-4: follows the detected platform', () => {
+    mockInstallPlatform = 'android';
+    const { getByTestId, queryByTestId } = render(<Settings />);
+    expect(getByTestId('staff-install-guide-art-android.step2', HIDDEN)).toBeTruthy();
+    expect(queryByTestId('staff-install-guide-art-ios.step1', HIDDEN)).toBeNull();
+  });
+
+  it('AC-4: the "already added" state renders no pictures', () => {
+    mockStandalone = true;
+    const { queryByTestId } = render(<Settings />);
+    expect(queryByTestId('staff-install-guide-art-ios.step1', HIDDEN)).toBeNull();
+  });
+});
+
 describe('Settings — report form', () => {
   it('submit is disabled with an empty message', () => {
     const { getByTestId } = render(<Settings />);

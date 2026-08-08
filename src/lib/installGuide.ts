@@ -34,6 +34,24 @@ import { detectIos } from './notificationState';
 // ── Pure model (the jest target) ─────────────────────────────────────
 export type InstallPlatform = 'ios' | 'android' | 'desktop';
 
+/**
+ * Spec 154 — which stylized phone/browser picture a step shows. The drawings
+ * live in `src/components/illustrations/StepIllustration.tsx`, keyed by this
+ * union, so the model stays view-free (and node-testable) while the registry
+ * on the other side is `Record<InstallArt, ArtSpec>` — a new member here fails
+ * compilation until it is drawn.
+ */
+export type InstallArt =
+  | 'ios-safari'
+  | 'ios-share'
+  | 'ios-share-sheet'
+  | 'ios-add-confirm'
+  | 'android-toolbar'
+  | 'android-menu'
+  | 'android-confirm'
+  | 'desktop-omnibox'
+  | 'desktop-confirm';
+
 /** One tutorial step. `key` is a catalog-RELATIVE suffix; each surface
  *  prefixes it with its own catalog root. */
 export interface InstallStep {
@@ -44,6 +62,8 @@ export interface InstallStep {
   glyph: string;
   /** e.g. 'ios.step1' → `chrome.installGuide.steps.ios.step1`. */
   key: string;
+  /** Spec 154 — the picture of the phone at this step. */
+  art: InstallArt;
 }
 
 /** Pure, total, exhaustive switch with a `never` guard (AC-3). */
@@ -51,21 +71,21 @@ export function installSteps(p: InstallPlatform): InstallStep[] {
   switch (p) {
     case 'ios':
       return [
-        { n: 1, glyph: '◉', key: 'ios.step1' },
-        { n: 2, glyph: '↑', key: 'ios.step2' },
-        { n: 3, glyph: '⊞', key: 'ios.step3' },
-        { n: 4, glyph: '✓', key: 'ios.step4' },
+        { n: 1, glyph: '◉', key: 'ios.step1', art: 'ios-safari' },
+        { n: 2, glyph: '↑', key: 'ios.step2', art: 'ios-share' },
+        { n: 3, glyph: '⊞', key: 'ios.step3', art: 'ios-share-sheet' },
+        { n: 4, glyph: '✓', key: 'ios.step4', art: 'ios-add-confirm' },
       ];
     case 'android':
       return [
-        { n: 1, glyph: '⋮', key: 'android.step1' },
-        { n: 2, glyph: '⊞', key: 'android.step2' },
-        { n: 3, glyph: '✓', key: 'android.step3' },
+        { n: 1, glyph: '⋮', key: 'android.step1', art: 'android-toolbar' },
+        { n: 2, glyph: '⊞', key: 'android.step2', art: 'android-menu' },
+        { n: 3, glyph: '✓', key: 'android.step3', art: 'android-confirm' },
       ];
     case 'desktop':
       return [
-        { n: 1, glyph: '⊕', key: 'desktop.step1' },
-        { n: 2, glyph: '✓', key: 'desktop.step2' },
+        { n: 1, glyph: '⊕', key: 'desktop.step1', art: 'desktop-omnibox' },
+        { n: 2, glyph: '✓', key: 'desktop.step2', art: 'desktop-confirm' },
       ];
     default: {
       // Exhaustiveness guard — a new InstallPlatform member surfaces here at

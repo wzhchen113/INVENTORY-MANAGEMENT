@@ -136,6 +136,60 @@ describe('installSteps() — pure, total (AC-3)', () => {
   });
 });
 
+// ── Spec 154 AC-1: one illustration key per step ────────────────────
+describe('installSteps() — illustration keys (spec 154 AC-1)', () => {
+  const ALL: InstallPlatform[] = ['ios', 'android', 'desktop'];
+  const arts = () => ALL.flatMap((p) => installSteps(p).map((s) => s.art));
+
+  it('every step on every platform carries a non-empty art key', () => {
+    for (const p of ALL) {
+      for (const s of installSteps(p)) {
+        expect(typeof s.art).toBe('string');
+        expect(s.art.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('the nine arts are used exactly once each — no step shares a picture', () => {
+    const all = arts();
+    expect(all).toHaveLength(9);
+    expect(new Set(all).size).toBe(9);
+  });
+
+  it('each art is prefixed with its own platform family', () => {
+    // Keeps a copy/paste slip (an android picture on an iOS step) a test
+    // failure rather than a wrong screenshot in front of a manager.
+    const family: Record<InstallPlatform, string> = {
+      ios: 'ios-',
+      android: 'android-',
+      desktop: 'desktop-',
+    };
+    for (const p of ALL) {
+      for (const s of installSteps(p)) {
+        expect(s.art.startsWith(family[p])).toBe(true);
+      }
+    }
+  });
+
+  it('pins the step → art assignment', () => {
+    expect(installSteps('ios').map((s) => s.art)).toEqual([
+      'ios-safari',
+      'ios-share',
+      'ios-share-sheet',
+      'ios-add-confirm',
+    ]);
+    expect(installSteps('android').map((s) => s.art)).toEqual([
+      'android-toolbar',
+      'android-menu',
+      'android-confirm',
+    ]);
+    expect(installSteps('desktop').map((s) => s.art)).toEqual([
+      'desktop-omnibox',
+      'desktop-confirm',
+    ]);
+  });
+});
+
 // ── AC-4: default tab resolution ────────────────────────────────────
 describe('detectInstallPlatform() truth table', () => {
   it('iPhone UA → ios', () => {

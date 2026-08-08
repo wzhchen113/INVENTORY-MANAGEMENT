@@ -175,6 +175,13 @@
         "android": "Android",
         "desktop": "桌面"
       },
+      "art": {
+        "appName": "I.M.R",
+        "addToHomeScreen": "添加到主屏幕",
+        "add": "添加",
+        "installApp": "安装应用",
+        "install": "安装"
+      },
       "steps": {
         "ios": {
           "step1": "用 Safari 打开此页面。",
