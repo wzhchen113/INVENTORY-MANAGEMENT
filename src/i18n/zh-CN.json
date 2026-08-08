@@ -164,6 +164,40 @@
     "sessionSwitched": {
       "title": "已切换为其他用户",
       "body": "此窗口已退出登录。请重新登录以继续。"
+    },
+    "installGuide": {
+      "title": "添加到主屏幕",
+      "chip": "安装应用",
+      "chipAria": "查看如何将此应用添加到主屏幕",
+      "intro": "将 I.M.R 添加到主屏幕，即可一键打开；在 iPhone 上还能接收通知。",
+      "tabs": {
+        "ios": "iPhone",
+        "android": "Android",
+        "desktop": "桌面"
+      },
+      "steps": {
+        "ios": {
+          "step1": "用 Safari 打开此页面。",
+          "step2": "点按工具栏中的“共享”按钮。",
+          "step3": "向下滚动并点按“添加到主屏幕”。",
+          "step4": "点按“添加”。I.M.R 将出现在主屏幕上。"
+        },
+        "android": {
+          "step1": "点按右上角的菜单按钮。",
+          "step2": "点按“安装应用”或“添加到主屏幕”。",
+          "step3": "点按“安装”确认。"
+        },
+        "desktop": {
+          "step1": "点击地址栏右侧的安装图标（或菜单 → 投放、保存和共享 → 将页面安装为应用）。",
+          "step2": "点击“安装”。I.M.R 将在独立窗口中打开。"
+        }
+      },
+      "installButton": "立即安装",
+      "installButtonAria": "在此设备上安装 I.M.R",
+      "installed": {
+        "title": "已添加",
+        "body": "I.M.R 已安装在此设备上。可从主屏幕打开。"
+      }
     }
   },
   "common": {

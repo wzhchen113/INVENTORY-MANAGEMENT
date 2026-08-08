@@ -24,6 +24,12 @@ import { NotificationBlockedBanner } from '../../components/cmd/NotificationBloc
 // three breakpoint branches (the phone bar has no connection indicator, so on
 // phone this row is the ONLY honest signal).
 import { SessionLostBanner } from '../../components/cmd/SessionLostBanner';
+// Spec 153 — additive "Add to Home Screen" entry in the shared sidebar/drawer
+// footer (renders at all three breakpoints) plus a glyph twin in the collapsed
+// tablet rail, which does not receive `sidebarFooterLeft`. NOT a sidebar
+// section: no new section id, so no spec-008 override machinery is involved.
+import { InstallGuideSheet } from '../../components/cmd/InstallGuideSheet';
+import { detectStandalone } from '../../lib/installGuide';
 import { PhoneNotifications } from './sections/phone/PhoneNotifications';
 import { PhoneStoreSwitch } from './sections/phone/PhoneStoreSwitch';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
@@ -123,6 +129,10 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
 
   // Mobile drawer (phone hamburger).
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
+
+  // Spec 153 — install-tutorial sheet. Plain component state, not a store
+  // slice (per-device UI with nothing to persist).
+  const [installGuideOpen, setInstallGuideOpen] = React.useState(false);
   const [paletteQuery, setPaletteQuery] = React.useState('');
 
   // Tablet sidebar collapsed pref (rail vs full Sidebar).
@@ -268,6 +278,20 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     eodSubmissions.filter((s) => s.date === todayStr).map((s) => s.storeId),
   ).size;
 
+  // Spec 153 — the install entry is web-only and disappears once the app is
+  // already installed (AC-7 / AC-8). `detectStandalone()` is read at render:
+  // a cheap synchronous read whose answer cannot change without a reload, so
+  // no effect + state pair is warranted.
+  const showInstallEntry = Platform.OS === 'web' && !detectStandalone();
+
+  // Opening the tutorial ALWAYS closes the phone drawer first: MobileNavDrawer
+  // is itself a Modal and ResponsiveSheet is another one — the two must never
+  // coexist. Harmless no-op on tablet/desktop, where the drawer is never open.
+  const openInstallGuide = React.useCallback(() => {
+    setMobileDrawerOpen(false);
+    setInstallGuideOpen(true);
+  }, []);
+
   const sidebarFooterLeft = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}>
       <Text
@@ -292,6 +316,29 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
       >
         <Text style={[Type.statusBar, { color: C.fg3 }]}>{T('chrome.signOut')}</Text>
       </TouchableOpacity>
+      {showInstallEntry ? (
+        <TouchableOpacity
+          testID="cmd-install-guide-entry"
+          onPress={openInstallGuide}
+          accessibilityRole="button"
+          accessibilityLabel={T('chrome.installGuide.chipAria')}
+          style={{
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: CmdRadius.xs,
+            borderWidth: 1,
+            borderColor: C.border,
+            flexShrink: 0,
+          }}
+        >
+          {/* numberOfLines={1} + flexShrink:0 — the footer is already tight
+              (● name + sign out inside a minWidth:0 row) and the es/zh labels
+              are longer than the English one. */}
+          <Text style={[Type.statusBar, { color: C.fg3 }]} numberOfLines={1}>
+            {T('chrome.installGuide.chip')}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 
@@ -310,6 +357,22 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     <View style={{ alignItems: 'center', gap: 6 }}>
       <NotificationToggle />
       <LocaleSwitcher />
+      {/* Spec 153 — glyph-only twin of the footer chip for the COLLAPSED tablet
+          rail, which never receives `sidebarFooterLeft`. Same testID: the two
+          are mutually exclusive at render time (rail XOR sidebar, and the three
+          breakpoint branches are separate returns), so no tree ever contains
+          both. */}
+      {showInstallEntry ? (
+        <TouchableOpacity
+          testID="cmd-install-guide-entry"
+          onPress={openInstallGuide}
+          accessibilityRole="button"
+          accessibilityLabel={T('chrome.installGuide.chipAria')}
+          hitSlop={6}
+        >
+          <Text style={[Type.statusBar, { color: C.fg3 }]}>⊕</Text>
+        </TouchableOpacity>
+      ) : null}
       <TouchableOpacity
         onPress={() => confirmAction(T('chrome.signOutConfirm'), T('chrome.signOutBody'), logout)}
         accessibilityRole="button"
@@ -399,6 +462,13 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   // Gated on `switching !== null`; passes the narrowed value as `mode`.
   const switchOverlay = switching !== null ? <StoreSwitchOverlay mode={switching} /> : null;
 
+  // Spec 153 — same per-branch insertion rule as `switchOverlay` above (RN has
+  // no shared parent across the three `return`s). Mounted as a SIBLING of the
+  // phone drawer, never inside it (nested Modals).
+  const installGuideSheet = (
+    <InstallGuideSheet visible={installGuideOpen} onClose={() => setInstallGuideOpen(false)} />
+  );
+
   if (isPhone) {
     // Phone: top app-bar + body. Sidebar is the hamburger-driven
     // MobileNavDrawer. TitleBar is replaced with MobileTopAppBar (per §2).
@@ -450,6 +520,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           footerLeft={sidebarFooterLeft}
           footerRight={sidebarFooterRight}
         />
+        {installGuideSheet}
         {switchOverlay}
       </View>
     );
@@ -514,6 +585,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           )}
           <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>{Body}</View>
         </View>
+        {installGuideSheet}
         {switchOverlay}
       </View>
     );
@@ -545,6 +617,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         />
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
       </View>
+      {installGuideSheet}
       {switchOverlay}
     </View>
   );

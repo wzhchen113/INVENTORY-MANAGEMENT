@@ -114,6 +114,30 @@ export function detectIos(): boolean {
   return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1;
 }
 
+// Standalone (installed-PWA) detection. Spec 153 §1 extracted this VERBATIM
+// from the inline expression that used to live inside probeNotificationState,
+// so "already installed" has exactly one definition. Behavior-identical —
+// same `Platform.OS === 'web'` + `typeof window !== 'undefined'` guards and
+// the same `navigator.standalone` / `matchMedia` OR.
+//
+// This module is the CANONICAL home (spec 153 backend design §1): defining it
+// in `installGuide.ts` — which imports `detectIos()` from here — would create a
+// module cycle. `installGuide.ts` re-exports it instead, keeping the dependency
+// strictly one-directional (installGuide → notificationState).
+export function detectStandalone(): boolean {
+  return (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    (
+      // iOS Safari exposes navigator.standalone; other browsers use the
+      // display-mode media query.
+      (navigator as unknown as { standalone?: boolean }).standalone === true ||
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(display-mode: standalone)').matches)
+    )
+  );
+}
+
 // ── Impure collector (NOT unit-tested in isolation) ──────────────────
 // Reads the live browser state into a plain DeriveInput for the pure
 // reducer. Off-web resolves to a `capable: false` snapshot.
@@ -126,16 +150,7 @@ export async function probeNotificationState(): Promise<DeriveInput> {
     typeof Notification !== 'undefined';
 
   const isIos = detectIos();
-  const isStandalone =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    (
-      // iOS Safari exposes navigator.standalone; other browsers use the
-      // display-mode media query.
-      (navigator as unknown as { standalone?: boolean }).standalone === true ||
-      (typeof window.matchMedia === 'function' &&
-        window.matchMedia('(display-mode: standalone)').matches)
-    );
+  const isStandalone = detectStandalone();
 
   if (!capable) {
     return {

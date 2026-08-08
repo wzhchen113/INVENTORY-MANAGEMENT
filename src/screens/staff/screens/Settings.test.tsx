@@ -44,6 +44,28 @@ jest.mock('../../../lib/webPush', () => ({
   getPushPermissionState: jest.fn(() => 'default'),
 }));
 
+// ── Spec 153 install-guide boundaries ────────────────────────────────────
+// The card is web-only, so the suite runs the Platform module at 'web' (same
+// module-mock shape as AppReloadButton.test.tsx). The impure probes are the
+// card's only other browser boundary; the pure model runs for real.
+jest.mock('react-native/Libraries/Utilities/Platform', () => ({
+  __esModule: true,
+  default: { OS: 'web', select: (obj: any) => obj.web ?? obj.default },
+  OS: 'web',
+}));
+
+let mockInstallPlatform: 'ios' | 'android' | 'desktop' = 'ios';
+let mockStandalone = false;
+jest.mock('../../../lib/installGuide', () => {
+  const actual = jest.requireActual('../../../lib/installGuide');
+  return {
+    ...actual,
+    detectInstallPlatform: () => mockInstallPlatform,
+    detectStandalone: () => mockStandalone,
+    useInstallPrompt: () => ({ available: false, promptInstall: jest.fn() }),
+  };
+});
+
 // Settings uses useNavigation().goBack; the gear (tested separately) uses
 // navigate. Provide both (no NavigationContainer in these unit renders).
 const mockGoBack = jest.fn();
@@ -57,6 +79,8 @@ import { useStaffStore } from '../store/useStaffStore';
 beforeEach(() => {
   mockSubmitStaffReport.mockReset();
   mockGoBack.mockReset();
+  mockInstallPlatform = 'ios';
+  mockStandalone = false;
   useStaffStore.setState({
     authState: {
       kind: 'signed-in',
@@ -79,6 +103,49 @@ describe('Settings — layout', () => {
     expect(getByTestId('staff-report-form')).toBeTruthy();
     expect(getByTestId('staff-report-submit')).toBeTruthy();
     expect(getByTestId('staff-settings-sign-out')).toBeTruthy();
+  });
+});
+
+// ── Spec 153 (AC-1, AC-7, AC-REG2) ───────────────────────────────────────
+describe('Settings — Add to Home Screen card (Spec 153)', () => {
+  it('AC-1: renders the card with the detected platform\'s numbered steps', () => {
+    mockInstallPlatform = 'ios';
+    const { getByTestId } = render(<Settings />);
+
+    expect(getByTestId('staff-install-guide')).toBeTruthy();
+    // iOS ships 4 steps (installSteps runs for real here).
+    expect(getByTestId('staff-install-guide-step-ios.step1')).toBeTruthy();
+    expect(getByTestId('staff-install-guide-step-ios.step4')).toBeTruthy();
+  });
+
+  it('AC-1 / AC-REG2: sits between the Text-size block and the Report-an-issue card', () => {
+    const tree = JSON.stringify(render(<Settings />).toJSON());
+    const scale = tree.indexOf('staff-scale-switcher');
+    const install = tree.indexOf('staff-install-guide');
+    const report = tree.indexOf('staff-report-form');
+    const signOut = tree.indexOf('staff-settings-sign-out');
+
+    expect(scale).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(scale);
+    expect(report).toBeGreaterThan(install);
+    expect(signOut).toBeGreaterThan(report);
+  });
+
+  it('follows the detected platform — an Android device sees the 3 Android steps', () => {
+    mockInstallPlatform = 'android';
+    const { getByTestId, queryByTestId } = render(<Settings />);
+    expect(getByTestId('staff-install-guide-step-android.step3')).toBeTruthy();
+    expect(queryByTestId('staff-install-guide-step-ios.step1')).toBeNull();
+  });
+
+  it('AC-7: already installed → the confirmation state instead of the steps', () => {
+    mockStandalone = true;
+    const { getByTestId, queryByTestId } = render(<Settings />);
+
+    // The row stays (a disappearing settings section is the confusing outcome).
+    expect(getByTestId('staff-install-guide')).toBeTruthy();
+    expect(getByTestId('staff-install-guide-installed')).toBeTruthy();
+    expect(queryByTestId('staff-install-guide-step-ios.step1')).toBeNull();
   });
 });
 

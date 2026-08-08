@@ -20,6 +20,9 @@ import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+// Spec 153 — inline "Add to Home Screen" card. Renders null off-web; consumes
+// the shared `lib/installGuide` model, which imports no store.
+import { InstallGuideCard } from '../components/InstallGuideCard';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { NotificationSwitcher } from '../components/NotificationSwitcher';
 import { ScaleSwitcher } from '../components/ScaleSwitcher';
@@ -160,6 +163,9 @@ export function Settings() {
           </Text>
           <ScaleSwitcher />
         </View>
+
+        {/* Add to Home Screen (spec 153) */}
+        <InstallGuideCard />
 
         {/* Report an issue */}
         <View

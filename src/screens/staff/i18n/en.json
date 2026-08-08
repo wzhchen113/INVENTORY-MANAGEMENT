@@ -446,6 +446,40 @@
     "sessionSwitched": {
       "title": "Signed in as a different user",
       "body": "This device has been signed out. Sign in again to continue."
+    },
+    "installGuide": {
+      "title": "Add to Home Screen",
+      "chip": "install app",
+      "chipAria": "Show how to add this app to your Home Screen",
+      "intro": "Add I.M.R to your Home Screen for a one-tap icon — and, on iPhone, to receive notifications.",
+      "tabs": {
+        "ios": "iPhone",
+        "android": "Android",
+        "desktop": "Desktop"
+      },
+      "steps": {
+        "ios": {
+          "step1": "Open this page in Safari.",
+          "step2": "Tap the Share button in the toolbar.",
+          "step3": "Scroll down and tap \"Add to Home Screen\".",
+          "step4": "Tap \"Add\". I.M.R appears on your Home Screen."
+        },
+        "android": {
+          "step1": "Tap the menu button at the top right.",
+          "step2": "Tap \"Install app\" or \"Add to Home screen\".",
+          "step3": "Tap \"Install\" to confirm."
+        },
+        "desktop": {
+          "step1": "Click the install icon at the right of the address bar (or menu → Cast, save and share → Install page as app).",
+          "step2": "Click \"Install\". I.M.R opens in its own window."
+        }
+      },
+      "installButton": "Install now",
+      "installButtonAria": "Install I.M.R on this device",
+      "installed": {
+        "title": "Already added",
+        "body": "I.M.R is installed on this device. Open it from your Home Screen."
+      }
     }
   }
 }

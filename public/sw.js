@@ -11,6 +11,20 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Installability SIGNAL ONLY (spec 153). Chrome has historically gated
+// `beforeinstallprompt` on a service worker that registers a fetch handler.
+// This listener deliberately never calls event.respondWith(), so every request
+// takes the browser's default network path, byte-for-byte unchanged.
+//
+// DO NOT add caching here. This worker sits in front of EVERY request the app
+// makes — Supabase PostgREST reads, /auth/v1 token refreshes, edge-function
+// calls. A cache-first strategy would serve stale inventory data and break
+// authentication in ways that are near-impossible to diagnose from the client.
+// Offline behavior is an explicit non-goal.
+self.addEventListener('fetch', () => {
+  // Intentionally empty: no respondWith, no caches.
+});
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch (_) { payload = {}; }

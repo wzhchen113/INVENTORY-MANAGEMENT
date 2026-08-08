@@ -446,6 +446,40 @@
     "sessionSwitched": {
       "title": "Sesión iniciada con otro usuario",
       "body": "Este dispositivo cerró sesión. Inicia sesión de nuevo para continuar."
+    },
+    "installGuide": {
+      "title": "Añadir a la pantalla de inicio",
+      "chip": "instalar",
+      "chipAria": "Ver cómo añadir esta app a la pantalla de inicio",
+      "intro": "Añade I.M.R a tu pantalla de inicio para tener un icono de un toque y, en iPhone, para recibir notificaciones.",
+      "tabs": {
+        "ios": "iPhone",
+        "android": "Android",
+        "desktop": "Escritorio"
+      },
+      "steps": {
+        "ios": {
+          "step1": "Abre esta página en Safari.",
+          "step2": "Toca el botón Compartir en la barra de herramientas.",
+          "step3": "Desplázate y toca «Añadir a pantalla de inicio».",
+          "step4": "Toca «Añadir». I.M.R aparecerá en tu pantalla de inicio."
+        },
+        "android": {
+          "step1": "Toca el menú en la esquina superior derecha.",
+          "step2": "Toca «Instalar aplicación» o «Añadir a pantalla de inicio».",
+          "step3": "Toca «Instalar» para confirmar."
+        },
+        "desktop": {
+          "step1": "Haz clic en el icono de instalación a la derecha de la barra de direcciones (o menú → Enviar, guardar y compartir → Instalar página como aplicación).",
+          "step2": "Haz clic en «Instalar». I.M.R se abrirá en su propia ventana."
+        }
+      },
+      "installButton": "Instalar ahora",
+      "installButtonAria": "Instalar I.M.R en este dispositivo",
+      "installed": {
+        "title": "Ya añadida",
+        "body": "I.M.R está instalada en este dispositivo. Ábrela desde tu pantalla de inicio."
+      }
     }
   }
 }

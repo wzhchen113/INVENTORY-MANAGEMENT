@@ -11,6 +11,7 @@ import { useStore, ACTIVE_BRAND_KEY, LOCALE_KEY } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
 import { registerServiceWorker, ensureManifestLinked, ensureAppleTouchIconLinked } from './src/lib/webPush';
+import { startInstallPromptCapture } from './src/lib/installGuide';
 import RoleRouter from './src/navigation/RoleRouter';
 import RecoveryGate from './src/navigation/RecoveryGate';
 import { useStaffStore } from './src/screens/staff/store/useStaffStore';
@@ -410,13 +411,19 @@ export default function App() {
   useEffect(() => {
     if (Platform.OS !== 'web') {
       registerForPushNotifications();
-    } else {
-      // Web: link the PWA manifest + apple-touch-icon and register the SW.
-      // Permission + subscription happen on user gesture via the EOD screen banner.
-      ensureManifestLinked();
-      ensureAppleTouchIconLinked();
-      registerServiceWorker();
+      return;
     }
+    // Web: link the PWA manifest + apple-touch-icon and register the SW.
+    // Permission + subscription happen on user gesture via the EOD screen banner.
+    ensureManifestLinked();
+    ensureAppleTouchIconLinked();
+    registerServiceWorker();
+    // Spec 153 — capture `beforeinstallprompt` into the module store behind
+    // `useInstallPrompt()`. Installed HERE (not at module scope: import-time
+    // listeners are test-hostile) and downstream of the manifest link + SW
+    // registration, which are what Chrome gates the event on — so the event
+    // cannot beat this call site in practice.
+    return startInstallPromptCapture();
   }, []);
 
   // Set HTML body background for overscroll coverage on web
