@@ -6,6 +6,18 @@ import { mono, sans } from '../../theme/typography';
 import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
+import { parsePostalCode } from '../../utils/postalCode';
+import type { Store } from '../../types';
+
+/** Spec 155 §5.3 — the saved values, handed to the parent only AFTER the
+ *  write resolved successfully so it can patch the row and sequence its
+ *  reconciling re-read. Edit mode only. */
+export interface StoreFormSavedPatch {
+  id: string;
+  name: string;
+  address: string;
+  postalCode: string | null;
+}
 
 interface Props {
   visible: boolean;
@@ -14,50 +26,106 @@ interface Props {
   brandId: string;
   /** Optional display label for the brand (shown in the drawer chrome). */
   brandName?: string;
+  /** Spec 155 — present ⇒ EDIT mode; absent/null ⇒ CREATE mode (unchanged). */
+  store?: Store | null;
+  /** Spec 155 — edit mode only; fired after a RESOLVED successful write. */
+  onSaved?: (patch: StoreFormSavedPatch) => void;
 }
 
-// New-store drawer used from the Brands section's StoresTab. Mirrors
-// BrandFormDrawer shape (right-anchored 480w on desktop, bottom sheet
-// on tablet, full-screen on phone). Two fields — name + address; the
-// brand_id is captive (passed by the parent — required by RLS).
-export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, brandName }) => {
+// Store drawer used from the Brands section's StoresTab.
+//
+// CREATE mode (no `store` prop) is the spec-149 shape, unchanged: mirrors
+// BrandFormDrawer (right-anchored 480w on desktop, bottom sheet on tablet,
+// full-screen on phone); name + address + postal code, with the brand_id
+// captive (passed by the parent — required by RLS).
+//
+// EDIT mode (spec 155 DG-2) reuses the exact same three fields against an
+// EXISTING store, because until this spec there was no way to set
+// `stores.postal_code` on a store that already existed — only hand-SQL.
+// It is deliberately NOT a general store-settings surface: eodDeadlineTime,
+// weeklyCountDueDow and brand transfer stay out (brandId is not writable
+// through db.updateStore at all — auth_can_see_brand WITH CHECK).
+export const StoreFormDrawer: React.FC<Props> = ({
+  visible,
+  onClose,
+  brandId,
+  brandName,
+  store,
+  onSaved,
+}) => {
   const C = useCmdColors();
   const isPhone = useIsPhone();
   const addStore = useStore((s) => s.addStore);
+  const updateStore = useStore((s) => s.updateStore);
+  const isEdit = !!store;
   const [name, setName] = React.useState('');
   const [address, setAddress] = React.useState('');
   // Spec 149 (§7.6) — the store's ZIP, used SERVER-SIDE by the
   // `instacart-cart-link` edge function for the IDP retailer-availability
   // lookup (OQ-2). `address` is free text and is deliberately never parsed for
-  // it. Blank ⇒ NULL ⇒ the Instacart channel is unavailable for this store and
-  // approvals fall back to the cart-filler / manual path (R-4).
+  // it. Blank ⇒ NULL. Spec 155 demoted that probe to ADVISORY, so a blank ZIP
+  // no longer refuses a mint — it only costs the market warning.
   const [postalCode, setPostalCode] = React.useState('');
+  const [postalError, setPostalError] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
 
+  // Spec 155 — seed from `store` in edit mode, blank in create mode. `store?.id`
+  // joins the dependency array so re-opening the drawer on a DIFFERENT row
+  // re-seeds instead of showing the previous row's values.
   React.useEffect(() => {
     if (visible) {
-      setName('');
-      setAddress('');
-      setPostalCode('');
+      setName(store?.name ?? '');
+      setAddress(store?.address ?? '');
+      setPostalCode(store?.postalCode ?? '');
+      setPostalError(false);
       setSubmitting(false);
     }
-  }, [visible]);
+  }, [visible, store?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requiredValid = name.trim().length > 0;
 
   const handleSave = async () => {
     if (!requiredValid || submitting) return;
+    // Spec 155 AC-3 — ONE shared validator, BOTH paths. An invalid ZIP refuses
+    // the save with an inline field error and issues NO write. Deliberately NOT
+    // folded into the `n/1 required valid` counter (that string is pinned).
+    const zip = parsePostalCode(postalCode);
+    if (!zip.ok) {
+      setPostalError(true);
+      return;
+    }
+    setPostalError(false);
     setSubmitting(true);
     try {
-      addStore({
-        name: name.trim(),
-        address: address.trim(),
-        postalCode: postalCode.trim() || null,
-        brandId,
-        status: 'active',
-      });
-      Toast.show({ type: 'success', text1: 'Created store', text2: name.trim() });
-      onClose();
+      if (store) {
+        // AC-4 / AC-6 — `updateStore` resolves false after its optimistic
+        // revert + notifyBackendError, and NEVER rejects. On failure the drawer
+        // stays open with the operator's input intact and no success toast.
+        const saved = await updateStore(store.id, {
+          name: name.trim(),
+          address: address.trim(),
+          postalCode: zip.value,
+        });
+        if (!saved) return;
+        Toast.show({ type: 'success', text1: 'Saved store', text2: name.trim() });
+        onSaved?.({
+          id: store.id,
+          name: name.trim(),
+          address: address.trim(),
+          postalCode: zip.value,
+        });
+        onClose();
+      } else {
+        addStore({
+          name: name.trim(),
+          address: address.trim(),
+          postalCode: zip.value,
+          brandId,
+          status: 'active',
+        });
+        Toast.show({ type: 'success', text1: 'Created store', text2: name.trim() });
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -94,10 +162,12 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
       }}
     >
       <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.accent }}>
-        <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>NEW</Text>
+        <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>
+          {isEdit ? 'EDIT' : 'NEW'}
+        </Text>
       </View>
       <Text style={{ fontFamily: sans(600), fontSize: 13.5, color: C.fg }} numberOfLines={1}>
-        new-store
+        {isEdit ? store?.name || store?.id : 'new-store'}
       </Text>
       <View style={{ flex: 1 }} />
       <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 3, backgroundColor: C.warnBg }}>
@@ -150,7 +220,7 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
         }}
       >
         <Text style={{ fontFamily: mono(700), fontSize: 11, color: requiredValid && !submitting ? C.accentFg : C.fg3 }}>
-          {submitting ? 'SAVING…' : 'CREATE  ⌘⏎'}
+          {submitting ? 'SAVING…' : isEdit ? 'SAVE  ⌘⏎' : 'CREATE  ⌘⏎'}
         </Text>
       </TouchableOpacity>
     </View>
@@ -164,7 +234,7 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
       tabletSheetHeight={0.5}
       header={header}
       footer={footer}
-      accessibilityLabel="New store"
+      accessibilityLabel={isEdit ? 'Edit store' : 'New store'}
     >
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <View
@@ -268,7 +338,10 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
           <TextInput
             testID="store-postal-code"
             value={postalCode}
-            onChangeText={setPostalCode}
+            onChangeText={(t) => {
+              setPostalCode(t);
+              if (postalError) setPostalError(false);
+            }}
             placeholder="e.g. 21204"
             placeholderTextColor={C.fg3}
             style={{
@@ -277,13 +350,20 @@ export const StoreFormDrawer: React.FC<Props> = ({ visible, onClose, brandId, br
               color: C.fg,
               backgroundColor: C.panel2,
               borderWidth: 1,
-              borderColor: C.border,
+              borderColor: postalError ? C.danger : C.border,
               borderRadius: CmdRadius.sm,
               paddingHorizontal: 10,
               paddingVertical: 9,
               ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
             }}
           />
+          {/* Spec 155 AC-3 — inline field error. Hardcoded English to match its
+              neighbours in this drawer (no i18n keys here by design). */}
+          {postalError ? (
+            <Text testID="store-postal-code-error" style={{ fontFamily: sans(400), fontSize: 11.5, color: C.danger }}>
+              Enter a 5-digit ZIP (optionally +4), or leave blank.
+            </Text>
+          ) : null}
         </View>
       </ScrollView>
     </ResponsiveSheet>

@@ -1088,6 +1088,12 @@ export function StoresTab({
   const C = useCmdColors();
   const updateStore = useStore((s) => s.updateStore);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  // Spec 155 — the EDIT drawer's state is deliberately SEPARATE from
+  // `drawerOpen`. Folding edit into `drawerOpen` would drag the edit close
+  // through the `[refresh, drawerOpen]` effect below, whose refetch races the
+  // in-flight PATCH (the spec-094 race documented in setStatus). The edit path
+  // sequences its own re-read AFTER the write resolves instead — see onEditSaved.
+  const [editStore, setEditStore] = React.useState<Store | null>(null);
   const [stores, setStores] = React.useState<Store[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -1124,9 +1130,34 @@ export function StoresTab({
       // / drawer-close effect re-pulls the include-inactive list to reconcile
       // any drift (e.g. an RLS 0-row no-op on a denied write) on next render.
       setStores((prev) => prev.map((st) => (st.id === s.id ? { ...st, status: next } : st)));
-      updateStore(s.id, { status: next });
+      // Spec 155 — updateStore now returns a promise that NEVER rejects; this
+      // call site stays deliberately fire-and-forget (`void`), unchanged.
+      void updateStore(s.id, { status: next });
     },
     [updateStore],
+  );
+
+  // Spec 155 AC-5 / AC-7 — the edit drawer calls this only AFTER its
+  // `updateStore` promise resolved successfully. Patch the row instantly (the
+  // spec-094 setStatus precedent), then re-read: because the write has already
+  // settled, the refetch is an authoritative reconciliation rather than a race,
+  // and it is what surfaces an RLS 0-row PATCH (a 204 that persisted nothing)
+  // as the row snapping back instead of a fake success.
+  const onEditSaved = React.useCallback(
+    (patch: { id: string; name: string; address: string; postalCode: string | null }) => {
+      setStores((prev) =>
+        prev.map((st) =>
+          st.id === patch.id
+            ? { ...st, name: patch.name, address: patch.address, postalCode: patch.postalCode }
+            : st,
+        ),
+      );
+      refresh().catch((e: any) => {
+        console.warn('[Supabase] Load stores', e?.message || e);
+        Toast.show({ type: 'error', text1: 'Could not load stores', text2: e?.message || String(e) });
+      });
+    },
+    [refresh],
   );
 
   const onToggle = (s: Store) => {
@@ -1236,6 +1267,26 @@ export function StoresTab({
                   status={isActive ? 'ok' : 'low'}
                   label={isActive ? 'ACTIVE' : 'INACTIVE'}
                 />
+                {/* Spec 155 AC-2 — the EDIT affordance (DG-2). Placed BEFORE
+                    the toggle so the consequential action stays right-most.
+                    hitSlop lifts the 22px-tall button to a ≥44×44 effective
+                    target. The row itself is deliberately NOT pressable. */}
+                <TouchableOpacity
+                  testID={`store-edit-${s.id}`}
+                  onPress={() => setEditStore(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit store ${s.name}`}
+                  hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
+                  style={{
+                    paddingVertical: 5,
+                    paddingHorizontal: 9,
+                    borderRadius: CmdRadius.sm,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg2 }}>EDIT</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => onToggle(s)}
                   accessibilityRole="button"
@@ -1270,6 +1321,16 @@ export function StoresTab({
         onClose={() => setDrawerOpen(false)}
         brandId={brandId}
         brandName={brandName}
+      />
+      {/* Spec 155 — a SECOND instance in edit mode. Separate from the create
+          drawer so `drawerOpen` (and the effect keyed on it) stays verbatim. */}
+      <StoreFormDrawer
+        visible={!!editStore}
+        onClose={() => setEditStore(null)}
+        brandId={brandId}
+        brandName={brandName}
+        store={editStore}
+        onSaved={onEditSaved}
       />
     </View>
   );

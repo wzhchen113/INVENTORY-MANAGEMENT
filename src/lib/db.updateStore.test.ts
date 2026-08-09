@@ -153,3 +153,55 @@ describe('updateStore — spec 083', () => {
     await expect(updateStore('s1', { status: 'inactive' })).rejects.toEqual({ message: 'rls denied' });
   });
 });
+
+// ── Spec 155 DG-2 — the store-ZIP edit path ─────────────────────────────────
+//
+// `postalCode` has been in the typed Pick<> since spec 149, but nothing wrote
+// it: the create drawer was the only producer and useStore.updateStore dropped
+// it. The edit drawer now sends it on every save, so the snake_case mapping and
+// the '' ⇒ null coercion are load-bearing — a blank reaching the column as ''
+// would make `stores.postal_code` non-null-but-useless to the retailers probe.
+
+describe('updateStore — postalCode mapping (spec 155)', () => {
+  it('maps postalCode → postal_code', async () => {
+    await updateStore('s1', { postalCode: '21204' });
+
+    expect(updateSpy).toHaveBeenCalledWith({ postal_code: '21204' });
+  });
+
+  it('passes ZIP+4 through verbatim (OQ-7 — no truncation client-side)', async () => {
+    await updateStore('s1', { postalCode: '21204-1234' });
+
+    expect(updateSpy).toHaveBeenCalledWith({ postal_code: '21204-1234' });
+  });
+
+  it('an explicit null clears the column', async () => {
+    await updateStore('s1', { postalCode: null });
+
+    expect(updateSpy).toHaveBeenCalledWith({ postal_code: null });
+  });
+
+  it('an empty string is coerced to null, never stored as ""', async () => {
+    await updateStore('s1', { postalCode: '' });
+
+    expect(updateSpy).toHaveBeenCalledWith({ postal_code: null });
+  });
+
+  it('rides along with name/address in ONE PATCH (the drawer submits all three)', async () => {
+    await updateStore('s1', { name: 'Towson', address: '1234 York Rd', postalCode: '21204' });
+
+    expect(updateSpy).toHaveBeenCalledWith({
+      name: 'Towson',
+      address: '1234 York Rd',
+      postal_code: '21204',
+    });
+    expect(eqSpy).toHaveBeenCalledWith('id', 's1');
+  });
+
+  it('an omitted postalCode never clobbers the stored value', async () => {
+    await updateStore('s1', { name: 'Towson' });
+
+    const body = updateSpy.mock.calls[0][0];
+    expect('postal_code' in body).toBe(false);
+  });
+});

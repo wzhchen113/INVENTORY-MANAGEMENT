@@ -59,24 +59,34 @@
 //     landing_page_configuration is sent only when INSTACART_PARTNER_LINKBACK_URL
 //     is configured; otherwise the whole object is omitted.
 //
-//   DRIFT #3 — *** ESCALATED TO THE PM, NOT WORKED AROUND ***:
+//   DRIFT #3 — *** ESCALATED, AND ACCEPTED BY THE OWNER (spec 155) ***:
 //     THERE IS NO RETAILER-PINNING FIELD on products_link (or on the recipe
 //     endpoint) in the current API. No retailer_key / retailer_id / preferred-
 //     retailer parameter exists in either request body, and the Shopping list
 //     page concept doc states plainly: "On the shopping list page, the user
 //     selects their preferred store". The changelog's only preferred-retailer
 //     entry (2025-04-17, recipe pages) is no longer reflected in the reference.
+//     Spec 149 surfaced this to the PM rather than working around it; spec 155
+//     records the owner's decision: ACCEPTED.
 //     ⇒ The minted link opens a pre-filled shopping list on which the ADMIN
-//       PICKS THE RETAILER. Spec 149 §5.4 says to STOP and surface this rather
-//       than ship a link that lands on a retailer picker — it is surfaced in the
-//       handoff as an open PM decision.
-//     ⇒ Shipping posture is SAFE MEANWHILE, per the design's own §10.2
-//       recommendation: leave vendors.order_channel NULL on BJ's and Sam's, so
-//       R-3 resolves them to 'extension' and behavior is IDENTICAL to today.
-//       Nothing reaches this function until an operator explicitly opts a vendor
-//       in. vendors.instacart_retailer_key still does real work — it is the key
-//       the §5.5 availability probe requires to resolve for the store's ZIP
-//       before the channel is offered at all.
+//       PICKS THE RETAILER. That extra tap is accepted, and the Approve Order
+//       screen DISCLOSES it (section.approveOrder.instacartPicker, spec 155
+//       AC-9). Do NOT attempt to recover pinning — the mechanism does not exist
+//       upstream (reconciled against the live docs 2026-08-01).
+//     ⇒ vendors.instacart_retailer_key is ADVISORY METADATA + the explicit
+//       OPT-IN TOKEN — it is NOT a pinning mechanism. Because the minted link is
+//       retailer-agnostic, the key's absence from a market listing predicts
+//       NOTHING about whether the link works. That is exactly why the §5.5
+//       availability probe below is ADVISORY and never refuses (spec 155 AC-13 /
+//       AC-14 / AC-15): it answers "is Instacart in this market at all", which is
+//       worth knowing and not worth blocking an order over.
+//     ⇒ R-3 precedence is UNCHANGED (spec 155 AC-REG-2): public.vendor_order_channel()
+//       resolves 'instacart' only when order_channel='instacart' AND the retailer
+//       key is non-blank. The key is still load-bearing — as a SWITCH, not as a
+//       PIN. A blank key at mint time is therefore still a refusal (409
+//       retailer_unavailable + reason='blank_retailer_key', spec 155 AC-16); the
+//       operator has de-opted the vendor out of the channel and the cart-filler
+//       fallback is the correct destination.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -99,6 +109,14 @@ const INSTACART_PARTNER_LINKBACK_URL = Deno.env.get("INSTACART_PARTNER_LINKBACK_
 
 // Design guidance 7 — a hung upstream must not pin the function.
 const UPSTREAM_TIMEOUT_MS = 10_000;
+// Spec 155 §4.4 — the retailers probe is ADVISORY, so it gets its own, much
+// smaller budget: its result no longer gates correctness and a hung probe must
+// not spend a third of the caller's patience on advice. Without this the
+// worst-case path after the demotion would be 10s (probe) + 10s (mint) ≈ 20s on
+// a request that previously bailed at 10s; with it the ceiling is ~13s.
+// Both budgets cover the RESPONSE BODY READ, not just the headers — see idpFetch
+// (post-review S4). Without that, the ~13s ceiling was not actually guaranteed.
+const RETAILERS_PROBE_TIMEOUT_MS = 3_000;
 // AC-27 bounds (§5.4 "Validation before the upstream call").
 const MAX_LINE_ITEMS = 100;
 const MAX_QUANTITY = 9999;
@@ -115,6 +133,12 @@ const corsHeaders = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type OrderChannel = "instacart" | "webstaurant" | "extension" | "manual";
+
+// Spec 155 §3.2 (OQ-5) — the advisory transport. An OPTIONAL string field on the
+// existing 200 body; OMITTED (never null, never "") when the probe was clean.
+// Stable tokens: the shell smoke asserts them and src/lib/db.ts type-guards
+// them, dropping anything it does not recognize.
+type Advisory = "no_postal_code" | "retailer_not_in_zip" | "retailers_probe_failed";
 
 type ApprovalLine = {
   item_id?: unknown;
@@ -170,18 +194,86 @@ async function requireAdminCaller(authHeader: string | null): Promise<AdminGate>
 
 // ─── upstream helper ────────────────────────────────────────────────────────
 class UpstreamTimeout extends Error {}
+// Spec 155 §4.4 (post-review S4) — a malformed body is NOT a timeout and NOT a
+// transport fault. Carried as its own class purely so the probe's log line can
+// say cause=parse (see the probe catch below).
+class UpstreamParseError extends Error {}
 
-async function idpFetch(url: string, init: RequestInit): Promise<Response> {
+function isAbortError(e: unknown): boolean {
+  const name = (e as Error)?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+// ★ Spec 155 §4.4 (post-review S4) — THE DEADLINE MUST COVER THE BODY READ.
+// The spec-149 shape cleared the abort timer as soon as `fetch` resolved, i.e.
+// at RESPONSE HEADERS. An upstream that answers 200 and then stalls the body
+// hung `await res.json()` with no deadline at all — for the advisory probe that
+// is §11 risk 2 arriving through the back door (a demoted probe killing a mint),
+// and for products_link it silently voided the 10s budget.
+//
+// So idpFetch no longer returns a bare Response: it hands back a small handle
+// whose `json()` runs under the SAME AbortController, and the timer is cleared
+// only once the body has settled (or `done()` is called). Callers MUST call
+// `done()` in a `finally` — it clears the timer and discards an unread body.
+type IdpCall = {
+  res: Response;
+  /** Reads + parses the body under the same deadline as the fetch. */
+  json: () => Promise<unknown>;
+  /** Clears the deadline and discards an unread body. Always safe to re-call. */
+  done: () => Promise<void>;
+};
+
+async function idpFetch(
+  url: string,
+  init: RequestInit,
+  // Spec 155 §4.4 — per-call budget. products_link keeps the 10s default; the
+  // advisory retailers probe passes RETAILERS_PROBE_TIMEOUT_MS.
+  timeoutMs: number = UPSTREAM_TIMEOUT_MS,
+): Promise<IdpCall> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: ac.signal });
-  } catch (e) {
-    if ((e as Error)?.name === "AbortError") throw new UpstreamTimeout();
-    throw e;
-  } finally {
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  let cleared = false;
+  const clear = () => {
+    if (cleared) return;
+    cleared = true;
     clearTimeout(timer);
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: ac.signal });
+  } catch (e) {
+    clear();
+    if (isAbortError(e)) throw new UpstreamTimeout();
+    throw e;
   }
+
+  return {
+    res,
+    json: async () => {
+      try {
+        return await res.json();
+      } catch (e) {
+        // The abort lands here as an errored body stream once the timer fires
+        // mid-read — that is the stalled-body case, and it is a TIMEOUT.
+        if (isAbortError(e) || ac.signal.aborted) throw new UpstreamTimeout();
+        // Anything else is a malformed payload, not a transport fault.
+        throw new UpstreamParseError((e as Error)?.message ?? "unparseable body");
+      } finally {
+        clear();
+      }
+    },
+    done: async () => {
+      clear();
+      try {
+        // No-op when the body was already consumed or errored.
+        if (!res.bodyUsed) await res.body?.cancel();
+      } catch {
+        // Discarding an unread body is best-effort; never let it mask the
+        // real outcome.
+      }
+    },
+  };
 }
 
 // §5.4 quantity mapping. Approval lines are BASE / COUNTED units; a case row
@@ -361,7 +453,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: `invalid lines: ${built.reason}`, correlationId }, 400);
     }
 
-    // ─── OQ-2 / §5.5: retailer availability for the store's real ZIP ───────
+    // ─── §5.5 retailer availability — ADVISORY since spec 155 ──────────────
     const postalCode =
       typeof store.postal_code === "string" && store.postal_code.trim()
         ? store.postal_code.trim()
@@ -371,11 +463,31 @@ Deno.serve(async (req: Request) => {
         ? vendor.instacart_retailer_key.trim()
         : null;
 
-    if (!postalCode || !retailerKey) {
-      // Step 1 short-circuit: no ZIP (or the key was cleared after approval) ⇒
-      // no products_link call is made.
+    // Spec 155 AC-16 — the ONE availability arm that still refuses. A blank key
+    // means the operator has de-opted this vendor OUT of the channel (R-3 would
+    // not resolve 'instacart' for it either), so the cart-filler fallback is the
+    // correct destination — not a mint.
+    //
+    // The wire token stays 'retailer_unavailable' DELIBERATELY (§4.2): AC-16
+    // requires distinguishability in LOGS, not on the wire, and reusing the
+    // token keeps the client's spec-149 409 → fallbackChannel branch live across
+    // the deploy-skew window (AC-18) instead of turning it into dead code. The
+    // two DEMOTED arms below never reach 409 at all, so the log sets are
+    // disjoint by construction. `reason` is additive, for logs/smoke only — the
+    // client ignores it and src/lib/db.ts does not surface it.
+    if (!retailerKey) {
+      console.warn(
+        `instacart-cart-link cid=${correlationId} approval=${approvalId} status=409 retailer_unavailable reason=blank_retailer_key ms=${Date.now() - startedAt}`,
+      );
       return json(
-        { ok: false, error: "retailer_unavailable", fallbackChannel, postalCode, correlationId },
+        {
+          ok: false,
+          error: "retailer_unavailable",
+          fallbackChannel,
+          postalCode,
+          reason: "blank_retailer_key",
+          correlationId,
+        },
         409,
       );
     }
@@ -388,41 +500,106 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "not_configured", correlationId }, 500);
     }
 
-    const retailersUrl =
-      `${INSTACART_IDP_BASE_URL}/idp/v1/retailers` +
-      `?postal_code=${encodeURIComponent(postalCode)}&country_code=US`;
-    const retailersRes = await idpFetch(retailersUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${INSTACART_IDP_API_KEY}`,
-        Accept: "application/json",
-      },
-    });
-    if (!retailersRes.ok) {
-      console.error(
-        `instacart-cart-link cid=${correlationId} approval=${approvalId} upstream=retailers upstreamStatus=${retailersRes.status} ms=${Date.now() - startedAt}`,
-      );
-      return json(
-        { ok: false, error: "upstream_error", upstreamStatus: retailersRes.status, correlationId },
-        502,
-      );
-    }
-    const retailersBody = await retailersRes.json().catch(() => null);
-    const availableKeys = new Set<string>(
-      (Array.isArray(retailersBody?.retailers) ? retailersBody.retailers : [])
-        .map((r: { retailer_key?: unknown }) => (typeof r?.retailer_key === "string" ? r.retailer_key : ""))
-        .filter(Boolean),
-    );
-    if (!availableKeys.has(retailerKey)) {
-      // Step 3: the vendor's retailer does not serve this ZIP. NO products_link
-      // call is made — never open a link that lands on an empty retailer.
+    // ─── The demoted probe (spec 155 AC-13 / AC-14 / AC-15) ────────────────
+    // NOTHING below this line can refuse the mint. Every outcome — no ZIP, a
+    // dead probe, a key that is not in the market listing, an empty market —
+    // resolves to at most an advisory token on the 200 body. The link is
+    // retailer-agnostic (DRIFT #3 in the header), so the probe predicts nothing
+    // about whether the mint works; it only answers "is Instacart in this market
+    // at all", which is worth telling the operator and not worth blocking on.
+    let advisory: Advisory | null = null;
+
+    if (!postalCode) {
+      // AC-13 — a null/blank stores.postal_code SKIPS the probe entirely. This
+      // was a 409 short-circuit before spec 155.
+      advisory = "no_postal_code";
       console.warn(
-        `instacart-cart-link cid=${correlationId} approval=${approvalId} status=409 retailer_unavailable ms=${Date.now() - startedAt}`,
+        `instacart-cart-link cid=${correlationId} approval=${approvalId} advisory=no_postal_code ms=${Date.now() - startedAt}`,
       );
-      return json(
-        { ok: false, error: "retailer_unavailable", fallbackChannel, postalCode, correlationId },
-        409,
-      );
+    } else {
+      // ★ Spec 155 §4.4 / risk 2 — the ENTIRE probe (fetch, .json(), and the
+      // availableKeys construction) is wrapped in its own try/catch so a probe
+      // UpstreamTimeout can NEVER reach the outer catch and become a 504. A
+      // slow ADVISORY probe killing a mint that would have succeeded is the
+      // demotion inverted, and an AC-15 failure. Do not unwrap this.
+      try {
+        const retailersUrl =
+          `${INSTACART_IDP_BASE_URL}/idp/v1/retailers` +
+          `?postal_code=${encodeURIComponent(postalCode)}&country_code=US`;
+        const probe = await idpFetch(
+          retailersUrl,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${INSTACART_IDP_API_KEY}`,
+              Accept: "application/json",
+            },
+          },
+          RETAILERS_PROBE_TIMEOUT_MS,
+        );
+        try {
+          if (!probe.res.ok) {
+            // AC-15 — a non-2xx on the PROBE is advice, not a failure. (A non-2xx
+            // on products_link below keeps its 502; that one is a real failure.)
+            advisory = "retailers_probe_failed";
+            console.warn(
+              `instacart-cart-link cid=${correlationId} approval=${approvalId} advisory=retailers_probe_failed upstream=retailers upstreamStatus=${probe.res.status} ms=${Date.now() - startedAt}`,
+            );
+          } else {
+            // Deliberately NOT .catch(() => null): an unparseable body is a probe
+            // failure (§3.2), not an empty market. Letting it throw into the local
+            // catch below keeps `retailers=0` meaning exactly "Instacart does not
+            // serve this market" (§4.3). Same reasoning for a body whose
+            // `retailers` is not an array.
+            //
+            // S4: probe.json() runs under the SAME 3s deadline as the fetch, so a
+            // 200-then-stalled body aborts at the budget instead of hanging the
+            // mint behind an advisory read.
+            const retailersBody = (await probe.json()) as { retailers?: unknown } | null;
+            if (!Array.isArray(retailersBody?.retailers)) {
+              throw new UpstreamParseError("retailers payload is not an array");
+            }
+            const retailers = retailersBody.retailers as Array<{ retailer_key?: unknown }>;
+            const availableKeys = new Set<string>(
+              retailers
+                .map((r) => (typeof r?.retailer_key === "string" ? r.retailer_key : ""))
+                .filter(Boolean),
+            );
+            if (!availableKeys.has(retailerKey)) {
+              // AC-14 + OQ-3 — the key is absent from the listing, OR the market
+              // is empty. Both share this token: with no retailer pinning they
+              // produce the SAME operator action (proceed; if it repeats, check
+              // the ZIP). Distinguishability lives in the log line's retailers=<n>
+              // — retailers=0 is the "Instacart does not serve this market at all"
+              // signal (§4.3). No ZIP, no key, no URL in any log line.
+              advisory = "retailer_not_in_zip";
+              console.warn(
+                `instacart-cart-link cid=${correlationId} approval=${approvalId} advisory=retailer_not_in_zip retailers=${retailers.length} ms=${Date.now() - startedAt}`,
+              );
+            }
+          }
+        } finally {
+          // Clears the 3s deadline and discards an unread body (the non-2xx arm
+          // never reads one). Without this the timer would sit until it fires.
+          await probe.done();
+        }
+      } catch (probeErr) {
+        advisory = "retailers_probe_failed";
+        // Post-review M2 — one-line field diagnosis (runbook step 5.9):
+        //   timeout = the probe blew its 3s budget (connect, headers, OR body);
+        //   parse   = 2xx with a body that is not the documented shape;
+        //   network = DNS / TLS / connection-level fault.
+        // `timeout=` is kept verbatim alongside it: it predates this fix and the
+        // smoke/runbook grep for it.
+        const cause = probeErr instanceof UpstreamTimeout
+          ? "timeout"
+          : probeErr instanceof UpstreamParseError
+          ? "parse"
+          : "network";
+        console.warn(
+          `instacart-cart-link cid=${correlationId} approval=${approvalId} advisory=retailers_probe_failed upstream=retailers cause=${cause} timeout=${probeErr instanceof UpstreamTimeout} ms=${Date.now() - startedAt}`,
+        );
+      }
     }
 
     // ─── Mint ──────────────────────────────────────────────────────────────
@@ -442,7 +619,7 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    const mintRes = await idpFetch(`${INSTACART_IDP_BASE_URL}/idp/v1/products/products_link`, {
+    const mintCall = await idpFetch(`${INSTACART_IDP_BASE_URL}/idp/v1/products/products_link`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${INSTACART_IDP_API_KEY}`,
@@ -451,7 +628,9 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify(payload),
     });
+    const mintRes = mintCall.res;
     if (!mintRes.ok) {
+      await mintCall.done();
       console.error(
         `instacart-cart-link cid=${correlationId} approval=${approvalId} upstream=products_link upstreamStatus=${mintRes.status} ms=${Date.now() - startedAt}`,
       );
@@ -460,7 +639,19 @@ Deno.serve(async (req: Request) => {
         502,
       );
     }
-    const mintBody = await mintRes.json().catch(() => null);
+    // S4: the body read stays inside the 10s budget. An UpstreamTimeout raised
+    // HERE is a real products_link timeout and must reach the outer 504 arm
+    // (§3.2) — so it is deliberately NOT swallowed the way an unparseable body
+    // is (that one falls through to the missing-url 502 below).
+    let mintBody: { products_link_url?: unknown } | null = null;
+    try {
+      mintBody = (await mintCall.json()) as { products_link_url?: unknown } | null;
+    } catch (mintErr) {
+      if (mintErr instanceof UpstreamTimeout) throw mintErr;
+      mintBody = null;
+    } finally {
+      await mintCall.done();
+    }
     const url = typeof mintBody?.products_link_url === "string" ? mintBody.products_link_url : "";
     if (!url) {
       // A 2xx without the documented key is NOT a success. AC-15 forbids a
@@ -495,11 +686,29 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "writeback_failed", correlationId }, 500);
     }
 
+    // Post-review M1 — `advisory=<token|none>` on the TERMINAL line so an
+    // outcome can be correlated with its advice by a single-line grep instead of
+    // a join on cid. Still no ZIP, no key, no URL.
     console.log(
-      `instacart-cart-link cid=${correlationId} approval=${approvalId} status=200 reused=false upstreamStatus=${mintRes.status} ms=${Date.now() - startedAt}`,
+      `instacart-cart-link cid=${correlationId} approval=${approvalId} status=200 reused=false upstreamStatus=${mintRes.status} advisory=${advisory ?? "none"} ms=${Date.now() - startedAt}`,
     );
-    return json({ ok: true, approvalId, url, expiresAt, reused: false, correlationId }, 200);
+    return json(
+      {
+        ok: true,
+        approvalId,
+        url,
+        expiresAt,
+        reused: false,
+        correlationId,
+        // Spec 155 §3.2 — OMITTED when the probe was clean. Never null, never "".
+        ...(advisory ? { advisory } : {}),
+      },
+      200,
+    );
   } catch (e) {
+    // Spec 155 §4.4 — the ONLY idpFetch that can still land here is the
+    // products_link mint: the advisory probe swallows its own UpstreamTimeout
+    // above. A probe timeout arriving as a 504 is an AC-15 failure.
     if (e instanceof UpstreamTimeout) {
       console.error(
         `instacart-cart-link cid=${correlationId} approval=${approvalId} upstream_timeout ms=${Date.now() - startedAt}`,

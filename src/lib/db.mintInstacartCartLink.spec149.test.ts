@@ -129,6 +129,65 @@ describe('mintInstacartCartLink — structured refusals (the seam)', () => {
   });
 });
 
+// ── Spec 155 §8 — the optional `advisory` field on the 200 body ─────────────
+//
+// The demoted retailer-availability probe attaches one of three STABLE tokens
+// to an otherwise-normal success. The client's `ADVISORY_TOAST_KEY` lookup is
+// total only because this guard drops anything it does not recognise, so an
+// unknown/future token must arrive as `undefined` rather than raw — the same
+// defensive posture as `isOrderChannel(body.fallbackChannel)`.
+describe('mintInstacartCartLink — advisory passthrough (spec 155)', () => {
+  it.each(['no_postal_code', 'retailer_not_in_zip', 'retailers_probe_failed'])(
+    'carries the %s advisory through on a 200',
+    async (advisory) => {
+      mockInvoke.mockResolvedValue({
+        data: { ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory },
+        error: null,
+      });
+      await expect(mintInstacartCartLink('ap-1')).resolves.toEqual({
+        ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory,
+      });
+    },
+  );
+
+  it('an ABSENT advisory (the clean probe) resolves to undefined', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false },
+      error: null,
+    });
+    const res = await mintInstacartCartLink('ap-1');
+    expect((res as any).advisory).toBeUndefined();
+  });
+
+  it('drops an UNRECOGNIZED advisory token rather than surfacing it raw', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory: 'mealme_down' },
+      error: null,
+    });
+    const res = await mintInstacartCartLink('ap-1');
+    expect(res).toMatchObject({ ok: true, url: 'https://instacart.example/c/1' });
+    expect((res as any).advisory).toBeUndefined();
+  });
+
+  it('drops a non-string advisory', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory: 42 },
+      error: null,
+    });
+    expect((await mintInstacartCartLink('ap-1') as any).advisory).toBeUndefined();
+  });
+
+  it('a reused link carries no advisory (no probe ran)', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: true },
+      error: null,
+    });
+    const res = await mintInstacartCartLink('ap-1');
+    expect(res).toMatchObject({ ok: true, reused: true });
+    expect((res as any).advisory).toBeUndefined();
+  });
+});
+
 describe('mintInstacartCartLink — AC-15 never a fake success', () => {
   it('a 2xx with no url is an error, not ok:true', async () => {
     mockInvoke.mockResolvedValue({ data: { ok: true, url: '' }, error: null });

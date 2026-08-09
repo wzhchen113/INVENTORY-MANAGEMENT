@@ -1042,7 +1042,7 @@
       "orderChannelExtension": "Extensión",
       "orderChannelManual": "Manual",
       "instacartRetailerKeyLabel": "clave de minorista de Instacart",
-      "instacartRetailerKeyHelp": "identificador IDP del minorista, p. ej. sams_club — vacío mantiene el llenado de carrito"
+      "instacartRetailerKeyHelp": "identificador IDP del minorista, p. ej. sams_club: es el token de habilitación del canal Instacart. Solo informativo: no fija la tienda. Vacío mantiene el llenado de carrito."
     },
     "recipes": {
       "title": "Menú / BOM",
@@ -1291,9 +1291,13 @@
       "countChanged": "El conteo se volvió a enviar después de esta alerta. Recarga el pedido antes de aprobarlo.",
       "switchStore": "CAMBIAR A {store}",
       "switchStoreBody": "Este pedido es de {store}. Cambia de tienda para revisarlo.",
-      "retailerUnavailable": "Instacart no cubre a {vendor} en el código postal de {store}. Se usará el llenado de carrito.",
+      "retailerUnavailable": "Instacart aún no está configurado para {vendor}. Se usará el llenado de carrito.",
       "disclosureInstacart": "La estimación es tu costo de catálogo, no el precio de Instacart. Los precios de Instacart pueden superar los del club y se aplican cargos de entrega y servicio.",
       "disclosureCatalog": "La estimación es tu costo de catálogo.",
+      "instacartPicker": "Se abre en Instacart: elige allí tu tienda (p. ej. BJ's) y luego paga.",
+      "advisoryNoPostalCode": "{store} no tiene código postal — se omitió la verificación de mercado de Instacart. Tu lista se abre igual.",
+      "advisoryRetailerNotInZip": "{vendor} no aparece para el código postal de {store} en Instacart. Tu lista se abre igual: elige allí una tienda.",
+      "advisoryProbeFailed": "No se pudo consultar la lista de tiendas de Instacart. Tu lista se abre igual: elige allí tu tienda.",
       "linkFailed": "No se pidió nada. Intenta APROBAR Y PEDIR de nuevo.",
       "channelLabel": "se pide por",
       "channel": {

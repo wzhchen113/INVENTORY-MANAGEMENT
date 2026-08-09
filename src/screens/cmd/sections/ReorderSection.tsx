@@ -357,11 +357,27 @@ function ReorderQuickOrderButton({
   const vendors = useStore((s) => s.vendors);
   // Spec 138 (AC-7): a successful share/copy resets this vendor's inline edits.
   const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
+  // Spec 156 (AC-8 site 1): a successful share/copy ALSO records the shared
+  // lines as a `draft` PO. Selectors at the top of the component body with the
+  // others — never inside a conditional or a callback (AC-REG-8).
+  const recordExportedOrder = useStore((s) => s.recordExportedOrder);
+  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` half
+  // of the draft's upsert key must be the one that was TRUE WHEN THE EXPORT
+  // STARTED. The share sheet is user-paced, and both the active store (TitleBar
+  // switcher) and `reorderPayload` (nulled by every realtime reload) can move
+  // while it is open.
+  const currentStore = useStore((s) => s.currentStore);
+  const reorderPayload = useStore((s) => s.reorderPayload);
   const [busy, setBusy] = React.useState(false);
 
   const onShareQuickOrder = async () => {
     if (busy) return;
     setBusy(true);
+    // Snapshot BEFORE the first await (see the selector comment above).
+    const exportedAt = {
+      storeId: currentStore?.id,
+      referenceDate: reorderPayload?.asOfDate || undefined,
+    };
     try {
       // The card's vendor's counting unit ('case' by default) — the SAME
       // conversion the PO path applies, via the shared builder.
@@ -393,7 +409,18 @@ function ReorderQuickOrderButton({
       });
       // AC-7: only a genuine share/copy (not a user-dismiss / failure) closes the
       // edit cycle for this vendor. `shared` is false on cancel or hard failure.
-      if (shared) clearReorderEditsForVendor(vendor.vendorId);
+      // Spec 156 (AC-9/AC-10): the same boolean gates the draft-PO recording,
+      // which is INVOKED (never awaited — D-3) BEFORE the clear so the recorded
+      // quantities are the exported ones. AC-6: the recorder is a background
+      // side effect of an export that already left the building, so neither its
+      // absence (optional call) nor a rejection (`.catch`) may break the export
+      // — the action never rejects by contract (D-2 property 3); the catch is
+      // the belt-and-braces that keeps that contract from becoming load-bearing
+      // at six call sites.
+      if (shared) {
+        void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+        clearReorderEditsForVendor(vendor.vendorId);
+      }
       onPreview({
         text: previewText,
         unitNote:
@@ -460,21 +487,46 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
   // its inline-edit buffer so the next reorder cycle starts fresh from the
   // computed suggestions. A failed/cancelled export must NOT wipe the edits.
   const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
+  // Spec 156 (AC-8 sites 2 + 3): a successful CSV / import-file / PDF export
+  // ALSO records the exported lines as a `draft` PO. Selector at the top of the
+  // component body with the others (AC-REG-8).
+  const recordExportedOrder = useStore((s) => s.recordExportedOrder);
+
+  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` the
+  // export actually went out under. Captured from the values THIS handler used
+  // to build the file, before its first await: `handlePdfExport` awaits two
+  // dynamic `jspdf` chunk imports, during which the TitleBar store switcher is
+  // live and a realtime reload can null `reorderPayload`.
+  const snapshot = (store: Store, payload: ReorderPayload) => ({
+    storeId: store.id,
+    referenceDate: payload.asOfDate || undefined,
+  });
 
   const onCsv = async () => {
     if (!reorderPayload || !currentStore) return;
+    const exportedAt = snapshot(currentStore, reorderPayload);
     const narrowed = narrowReorderToVendor(reorderPayload, vendor);
     const importCfg = pickImportVendor(narrowed, vendorsList);
     const ok = importCfg
       ? handleImportExport(narrowed, currentStore, importCfg, inventory)
       : await handleCsvExport(narrowed, currentStore, locale);
-    if (ok) clearReorderEditsForVendor(vendor.vendorId);
+    // Spec 156 — ONE call after the `if (ok)`, covering BOTH branches (the US
+    // FOODS / SYSCO import file and the generic reorder CSV). Invoked, never
+    // awaited (D-3), before the spec-138 clear (AC-10).
+    if (ok) {
+      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(vendor.vendorId);
+    }
   };
 
   const onPdf = async () => {
     if (!reorderPayload || !currentStore) return;
+    const exportedAt = snapshot(currentStore, reorderPayload);
     const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
-    if (ok) clearReorderEditsForVendor(vendor.vendorId);
+    if (ok) {
+      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(vendor.vendorId);
+    }
   };
 
   const btnStyle = {

@@ -47,7 +47,10 @@ jest.mock('./ResponsiveSheet', () => {
 
 jest.mock('../../store/useStore', () => {
   const addStore = jest.fn();
-  const state: any = { addStore };
+  // Spec 155 — the EDIT path delegates to useStore.updateStore, which now
+  // resolves true/false and NEVER rejects.
+  const updateStore = jest.fn().mockResolvedValue(true);
+  const state: any = { addStore, updateStore };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
   fn.__state = state;
@@ -55,13 +58,20 @@ jest.mock('../../store/useStore', () => {
 });
 
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import Toast from 'react-native-toast-message';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { StoreFormDrawer } from './StoreFormDrawer';
+import type { Store } from '../../types';
 
 const mod = jest.requireMock('../../store/useStore');
 const addStoreMock = mod.useStore.__state.addStore as jest.Mock;
+const updateStoreMock = mod.useStore.__state.updateStore as jest.Mock;
+const toastShowMock = (Toast as any).show as jest.Mock;
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  updateStoreMock.mockResolvedValue(true);
+});
 
 const open = () =>
   render(<StoreFormDrawer visible brandId="b1" brandName="2AM PROJECT" onClose={() => {}} />);
@@ -145,5 +155,190 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
       address: '1234 York Rd, Towson MD 21204',
       postalCode: null,
     });
+  });
+});
+
+// ── Spec 155 — the shared ZIP validator, on BOTH paths (AC-3) ───────────────
+//
+// DELIBERATE, spec-authorized delta on the create path (§5.1): create used to
+// accept any text, so 'ABCDE' would have been stored and the IDP retailers
+// probe could never use it. The validator now gates both modes. It is
+// deliberately NOT folded into the `n/1 required valid` counter — that string
+// is asserted verbatim above and stays byte-identical.
+
+describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
+  it('an invalid ZIP refuses the CREATE with an inline error and issues NO write', () => {
+    open();
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), 'ABCDE');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+
+    expect(addStoreMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('store-postal-code-error')).toBeTruthy();
+    // The required-field counter is untouched by ZIP validity.
+    expect(screen.getByText('1/1 required valid')).toBeTruthy();
+  });
+
+  it('editing the ZIP clears the inline error, and a corrected value saves', () => {
+    open();
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '2120');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(screen.getByTestId('store-postal-code-error')).toBeTruthy();
+
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '21204');
+    expect(screen.queryByTestId('store-postal-code-error')).toBeNull();
+
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addStoreMock).toHaveBeenCalledTimes(1);
+    expect(addStoreMock.mock.calls[0][0]).toMatchObject({ postalCode: '21204' });
+  });
+
+  it('ZIP+4 is accepted on the create path and stored verbatim (OQ-7)', () => {
+    open();
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '21204-1234');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+
+    expect(addStoreMock.mock.calls[0][0]).toMatchObject({ postalCode: '21204-1234' });
+  });
+});
+
+// ── Spec 155 — EDIT mode (AC-1, AC-4, AC-6) ─────────────────────────────────
+//
+// Until this spec there was NO way to set stores.postal_code on an existing
+// store, so every store in prod has a null ZIP. The ★ hazard the design calls
+// out: a save that updates local Zustand state but never reaches PostgREST is
+// a silent fake success with no visible symptom, which is why the write is
+// asserted on the action seam here AND on db.updateStore in the store suite.
+
+const EXISTING: Store = {
+  id: 'store-7',
+  brandId: 'b1',
+  name: 'Towson',
+  address: '1234 York Rd',
+  status: 'active',
+  postalCode: '21204',
+};
+
+const openEdit = (over: Partial<Store> = {}, onSaved?: jest.Mock, onClose?: jest.Mock) =>
+  render(
+    <StoreFormDrawer
+      visible
+      brandId="b1"
+      brandName="2AM PROJECT"
+      store={{ ...EXISTING, ...over }}
+      onSaved={onSaved}
+      onClose={onClose ?? (() => {})}
+    />,
+  );
+
+describe('StoreFormDrawer — edit mode (spec 155 AC-1)', () => {
+  it('prefills name / address / postal code from the supplied store', () => {
+    openEdit();
+    expect(screen.getByPlaceholderText('e.g. Towson').props.value).toBe('Towson');
+    expect(screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204').props.value).toBe(
+      '1234 York Rd',
+    );
+    expect(screen.getByTestId('store-postal-code').props.value).toBe('21204');
+  });
+
+  it('renders the EDIT badge, the store name, and a SAVE primary', () => {
+    openEdit();
+    expect(screen.getByText('EDIT')).toBeTruthy();
+    expect(screen.queryByText('NEW')).toBeNull();
+    expect(screen.getByText('Towson')).toBeTruthy();
+    expect(screen.getByText('SAVE  ⌘⏎')).toBeTruthy();
+    expect(screen.queryByText('CREATE  ⌘⏎')).toBeNull();
+  });
+
+  it('a store with no ZIP yet renders an empty field (the prod state DG-2 exists for)', () => {
+    openEdit({ postalCode: null });
+    expect(screen.getByTestId('store-postal-code').props.value).toBe('');
+  });
+
+  it('re-opening on a DIFFERENT row re-seeds the fields', () => {
+    const { rerender } = openEdit();
+    expect(screen.getByTestId('store-postal-code').props.value).toBe('21204');
+
+    rerender(
+      <StoreFormDrawer
+        visible
+        brandId="b1"
+        store={{ ...EXISTING, id: 'store-8', name: 'Frederick', postalCode: '21701' }}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByPlaceholderText('e.g. Towson').props.value).toBe('Frederick');
+    expect(screen.getByTestId('store-postal-code').props.value).toBe('21701');
+  });
+});
+
+describe('StoreFormDrawer — edit save (spec 155 AC-4 / AC-6)', () => {
+  it('★ saves through useStore.updateStore EXACTLY ONCE with the ZIP (AC-4)', async () => {
+    const onSaved = jest.fn();
+    const onClose = jest.fn();
+    openEdit({ postalCode: null }, onSaved, onClose);
+
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '  21204  ');
+    fireEvent.press(screen.getByText('SAVE  ⌘⏎'));
+
+    await waitFor(() => expect(updateStoreMock).toHaveBeenCalledTimes(1));
+    expect(updateStoreMock).toHaveBeenCalledWith('store-7', {
+      name: 'Towson',
+      address: '1234 York Rd',
+      postalCode: '21204',
+    });
+    // addStore is NEVER touched in edit mode.
+    expect(addStoreMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledWith({
+      id: 'store-7',
+      name: 'Towson',
+      address: '1234 York Rd',
+      postalCode: '21204',
+    });
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', text1: 'Saved store' }),
+    );
+  });
+
+  it('clearing the ZIP writes NULL, not an empty string', async () => {
+    openEdit();
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '   ');
+    fireEvent.press(screen.getByText('SAVE  ⌘⏎'));
+
+    await waitFor(() => expect(updateStoreMock).toHaveBeenCalledTimes(1));
+    expect(updateStoreMock.mock.calls[0][1]).toMatchObject({ postalCode: null });
+  });
+
+  it('an invalid ZIP refuses the save: inline error, ZERO updateStore calls', () => {
+    openEdit();
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '21204 1234');
+    fireEvent.press(screen.getByText('SAVE  ⌘⏎'));
+
+    expect(updateStoreMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('store-postal-code-error')).toBeTruthy();
+  });
+
+  it('a REFUSED write keeps the drawer open with the input intact and does not toast success (AC-6)', async () => {
+    const onSaved = jest.fn();
+    const onClose = jest.fn();
+    // updateStore resolves FALSE after its own revert + notifyBackendError.
+    updateStoreMock.mockResolvedValue(false);
+    openEdit({}, onSaved, onClose);
+
+    fireEvent.changeText(screen.getByTestId('store-postal-code'), '21701');
+    fireEvent.press(screen.getByText('SAVE  ⌘⏎'));
+
+    await waitFor(() => expect(updateStoreMock).toHaveBeenCalledTimes(1));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(toastShowMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text1: 'Saved store' }),
+    );
+    // The operator's input survives so they can retry.
+    expect(screen.getByTestId('store-postal-code').props.value).toBe('21701');
   });
 });

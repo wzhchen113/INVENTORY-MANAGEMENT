@@ -362,6 +362,102 @@ describe('approveAndOrder — retailer_unavailable fallback (OQ-2)', () => {
   });
 });
 
+// ── Spec 155 AC-17 — the advisory info toast (the demoted probe) ────────────
+//
+// Spec 155 demoted the `instacart-cart-link` retailer-availability probe from
+// blocking (409 / short-circuit) to ADVISORY: the minted link is retailer-
+// agnostic, so a missing ZIP, an unlisted retailer key or a failed probe
+// predict nothing about whether the link works. The client's job is therefore
+// narrow and must stay narrow — ONE info toast, and the link still opens. An
+// advisory must never become an error toast, never re-route the channel, and
+// never consume the `allowFallback` budget.
+describe('approveAndOrder — advisory toasts (spec 155 AC-17)', () => {
+  const Toast = require('react-native-toast-message').default as { show: jest.Mock };
+
+  const advisoryCases = [
+    ['no_postal_code', 'section.approveOrder.advisoryNoPostalCode'],
+    ['retailer_not_in_zip', 'section.approveOrder.advisoryRetailerNotInZip'],
+    ['retailers_probe_failed', 'section.approveOrder.advisoryProbeFailed'],
+  ] as const;
+
+  it.each(advisoryCases)(
+    '%s: shows ONE info toast, still opens the link, still re-reads the row',
+    async (advisory) => {
+      createMock.mockResolvedValue(approvalRow({ channel: 'instacart' }));
+      mintMock.mockResolvedValue({
+        ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory,
+      });
+      fetchApprovalMock.mockResolvedValue(approvalRow({ channel: 'instacart', status: 'approved' }));
+
+      const res = await useStore.getState().approveAndOrder(makeVendor());
+      await flush();
+
+      // The link opened and the row was re-read — the advisory changes NOTHING
+      // about the happy path.
+      expect(res).toEqual({ channel: 'instacart', url: 'https://instacart.example/c/1' });
+      expect(mockOpenURL).toHaveBeenCalledWith('https://instacart.example/c/1');
+      expect(useStore.getState().approval?.status).toBe('approved');
+      // No re-route: exactly one mint, and the channel was never advanced.
+      expect(mintMock).toHaveBeenCalledTimes(1);
+      expect(advanceMock).not.toHaveBeenCalled();
+
+      // Exactly one toast, type INFO — never 'error', never notifyBackendError.
+      expect(Toast.show).toHaveBeenCalledTimes(1);
+      expect(Toast.show).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'info', visibilityTime: 5000 }),
+      );
+      expect(Toast.show).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    },
+  );
+
+  it.each(advisoryCases)('%s maps to its own i18n string (OQ-6 — three, not one)', async (advisory, key) => {
+    createMock.mockResolvedValue(approvalRow({ channel: 'instacart' }));
+    mintMock.mockResolvedValue({
+      ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory,
+    });
+    // `locale` is not a real catalog lookup under test here — assert the three
+    // tokens produce three DISTINCT strings, which is the OQ-6 contract.
+    await useStore.getState().approveAndOrder(makeVendor());
+    await flush();
+
+    const text = Toast.show.mock.calls[0][0].text1 as string;
+    expect(typeof text).toBe('string');
+    expect(text.length).toBeGreaterThan(0);
+    // Not the raw key: it resolved through the catalog.
+    expect(text).not.toBe(key);
+  });
+
+  it('produces three DISTINCT strings across the three tokens', async () => {
+    const texts: string[] = [];
+    for (const [advisory] of advisoryCases) {
+      jest.clearAllMocks();
+      createMock.mockResolvedValue(approvalRow({ channel: 'instacart' }));
+      fetchApprovalMock.mockResolvedValue(null);
+      mintMock.mockResolvedValue({
+        ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false, advisory,
+      });
+      useStore.setState({ approvalBusy: false });
+      await useStore.getState().approveAndOrder(makeVendor());
+      await flush();
+      texts.push(Toast.show.mock.calls[0][0].text1);
+    }
+    expect(new Set(texts).size).toBe(3);
+  });
+
+  it('NO advisory ⇒ no extra toast at all (the clean-probe case)', async () => {
+    createMock.mockResolvedValue(approvalRow({ channel: 'instacart' }));
+    mintMock.mockResolvedValue({
+      ok: true, url: 'https://instacart.example/c/1', expiresAt: null, reused: false,
+    });
+
+    await useStore.getState().approveAndOrder(makeVendor());
+    await flush();
+
+    expect(mockOpenURL).toHaveBeenCalledTimes(1);
+    expect(Toast.show).not.toHaveBeenCalled();
+  });
+});
+
 // ── Failure + idempotency posture ───────────────────────────────────────────
 describe('approveAndOrder — failure, replay, and double-tap', () => {
   it('an upstream error returns null and leaves the row PENDING (retriable, AC-15)', async () => {

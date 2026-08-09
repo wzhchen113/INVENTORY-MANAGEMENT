@@ -53,7 +53,7 @@ jest.mock('../../../../../theme/breakpoints', () => {
 import {
   PhoneApproveOrder,
   approveOrderState,
-  disclosureKeyForChannel,
+  disclosureKeysForChannel,
 } from '../PhoneApproveOrder';
 import { useStore } from '../../../../../store/useStore';
 import { usePaletteAction } from '../../../../../lib/paletteAction';
@@ -165,11 +165,24 @@ describe('approveOrderState — AC-13 stale/empty/actioned precedence', () => {
   });
 });
 
-describe('disclosureKeyForChannel — AC-10', () => {
-  it('only the instacart channel gets the markup + fees copy', () => {
-    expect(disclosureKeyForChannel('instacart')).toBe('section.approveOrder.disclosureInstacart');
+// Spec 155 AC-11 — the contract MOVED from a single-string
+// `disclosureKeyForChannel` to a list-returning `disclosureKeysForChannel`.
+// ORDER is part of the contract: the fee/markup line first, then the DG-1
+// store-picker line. The picker line exists because the minted IDP link has no
+// retailer-pinning parameter — it opens Instacart's shopping-list page and the
+// admin picks the store there — so without it the screen promises a
+// pre-selected retailer it cannot deliver.
+describe('disclosureKeysForChannel — AC-10 / spec 155 AC-11', () => {
+  it('instacart yields the fee/markup line THEN the store-picker line, in that order', () => {
+    expect(disclosureKeysForChannel('instacart')).toEqual([
+      'section.approveOrder.disclosureInstacart',
+      'section.approveOrder.instacartPicker',
+    ]);
+  });
+
+  it('every other channel yields exactly the catalog-cost line (unchanged)', () => {
     for (const c of ['webstaurant', 'extension', 'manual'] as const) {
-      expect(disclosureKeyForChannel(c)).toBe('section.approveOrder.disclosureCatalog');
+      expect(disclosureKeysForChannel(c)).toEqual(['section.approveOrder.disclosureCatalog']);
     }
   });
 });
@@ -219,10 +232,32 @@ describe('PhoneApproveOrder — render + primary action', () => {
       ],
     });
     const { getByTestId } = render(<PhoneApproveOrder request={REQUEST} />);
+    // Spec 155 — the block now carries BOTH lines for instacart. The fee line
+    // is byte-unchanged and still comes FIRST.
     expect(getByTestId('phone-approve-disclosure')).toHaveTextContent(
-      'Estimate is your catalog cost — not the Instacart price. Instacart pricing ' +
-        'can exceed in-club pricing, and delivery/service fees apply.',
+      /Estimate is your catalog cost — not the Instacart price\. Instacart pricing can exceed in-club pricing, and delivery\/service fees apply\./,
     );
+  });
+
+  it('ALSO shows the spec-155 store-picker line, AFTER the fee line (AC-10 / AC-11)', () => {
+    seed({
+      vendors: [
+        { id: 'v-a', extensionOrdering: false, orderUnit: 'case', orderChannel: 'instacart', instacartRetailerKey: 'sams_club' } as any,
+      ],
+    });
+    const { getByTestId } = render(<PhoneApproveOrder request={REQUEST} />);
+    expect(getByTestId('phone-approve-disclosure')).toHaveTextContent(
+      /Opens in Instacart — pick your store there \(e\.g\. BJ's\), then check out\./,
+    );
+    // Order is contractual: fees first, picker second.
+    expect(getByTestId('phone-approve-disclosure')).toHaveTextContent(
+      /delivery\/service fees apply\.Opens in Instacart/,
+    );
+  });
+
+  it('the picker line is instacart-ONLY — the cart-filler block is unchanged (AC-10)', () => {
+    const { getByTestId } = render(<PhoneApproveOrder request={REQUEST} />);
+    expect(getByTestId('phone-approve-disclosure')).not.toHaveTextContent(/Opens in Instacart/);
   });
 
   it('an instacart-flagged vendor with NO retailer key still discloses catalog cost (R-3)', () => {

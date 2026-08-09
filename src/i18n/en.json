@@ -1042,7 +1042,7 @@
       "orderChannelExtension": "Extension",
       "orderChannelManual": "Manual",
       "instacartRetailerKeyLabel": "Instacart retailer key",
-      "instacartRetailerKeyHelp": "IDP retailer slug, e.g. sams_club — blank keeps the cart-filler"
+      "instacartRetailerKeyHelp": "IDP retailer slug, e.g. sams_club — the opt-in token for the Instacart channel. Advisory only: it does not pin the store. Blank keeps the cart-filler."
     },
     "recipes": {
       "title": "Menu items / BOM",
@@ -1291,9 +1291,13 @@
       "countChanged": "The count was re-submitted after this alert. Reload the order before approving.",
       "switchStore": "SWITCH TO {store}",
       "switchStoreBody": "This order is for {store}. Switch stores to review it.",
-      "retailerUnavailable": "Instacart doesn't cover {vendor} at {store}'s ZIP. Falling back to the cart-filler.",
+      "retailerUnavailable": "Instacart isn't set up for {vendor} yet. Falling back to the cart-filler.",
       "disclosureInstacart": "Estimate is your catalog cost — not the Instacart price. Instacart pricing can exceed in-club pricing, and delivery/service fees apply.",
       "disclosureCatalog": "Estimate is your catalog cost.",
+      "instacartPicker": "Opens in Instacart — pick your store there (e.g. BJ's), then check out.",
+      "advisoryNoPostalCode": "No ZIP set for {store} — the Instacart market check was skipped. Your list still opens.",
+      "advisoryRetailerNotInZip": "{vendor} isn't listed for {store}'s ZIP on Instacart. Your list still opens — pick a store there.",
+      "advisoryProbeFailed": "Couldn't check Instacart's store list. Your list still opens — pick your store there.",
       "linkFailed": "Nothing was ordered. Try APPROVE & ORDER again.",
       "channelLabel": "orders via",
       "channel": {

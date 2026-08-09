@@ -72,18 +72,21 @@ const toastShowMock = (Toast as any).show as jest.Mock;
 /** Flush microtasks so the db.updateStore promise chain settles. */
 const flush = () => new Promise<void>((r) => setImmediate(r));
 
-describe('useStore.updateStore — spec 083 status persistence', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    useStore.setState(INITIAL_STATE, true);
-    useStore.setState({
-      stores: [
-        { id: 's1', brandId: 'b1', name: 'Store One', address: '1 Main', status: 'active' },
-      ],
-      currentStore: { id: 's1', brandId: 'b1', name: 'Store One', address: '1 Main', status: 'active' },
-    });
+// Spec 155 — hoisted to FILE scope (was inside the spec-083 describe) so the
+// added describes below get the same clean-mocks + snapshot-and-replace
+// isolation. The body is unchanged.
+beforeEach(() => {
+  jest.clearAllMocks();
+  useStore.setState(INITIAL_STATE, true);
+  useStore.setState({
+    stores: [
+      { id: 's1', brandId: 'b1', name: 'Store One', address: '1 Main', status: 'active' },
+    ],
+    currentStore: { id: 's1', brandId: 'b1', name: 'Store One', address: '1 Main', status: 'active' },
   });
+});
 
+describe('useStore.updateStore — spec 083 status persistence', () => {
   it('optimistically flips status locally and delegates to db.updateStore with status', async () => {
     useStore.getState().updateStore('s1', { status: 'inactive' });
 
@@ -127,5 +130,80 @@ describe('useStore.updateStore — spec 083 status persistence', () => {
     expect(toastShowMock).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'error' }),
     );
+  });
+});
+
+// ── Spec 155 §6.1 — the ★ five-field widening + the boolean contract ────────
+//
+// THE hazard this suite exists for: the action narrows `Partial<Store>` to an
+// EXPLICIT named literal (never a spread — a spread would reintroduce `brandId`
+// and trip auth_can_see_brand WITH CHECK). Before spec 155 that literal had
+// four fields and SILENTLY DROPPED `postalCode`, so an edit drawer calling
+// `updateStore({ postalCode })` would update local Zustand state, persist
+// nothing, and never error — a silent fake success whose only symptom is the
+// value vanishing on re-open. These are the pins.
+
+describe('useStore.updateStore — spec 155 postalCode (AC-4)', () => {
+  it('★ postalCode reaches db.updateStore instead of being dropped', async () => {
+    await useStore.getState().updateStore('s1', { postalCode: '21204' });
+
+    expect(updateStoreMock).toHaveBeenCalledTimes(1);
+    const [id, updates] = updateStoreMock.mock.calls[0];
+    expect(id).toBe('s1');
+    expect(updates.postalCode).toBe('21204');
+    // And the local slice carries it too.
+    expect(useStore.getState().stores[0].postalCode).toBe('21204');
+  });
+
+  it('an explicit null (the clear) reaches db.updateStore as null', async () => {
+    await useStore.getState().updateStore('s1', { postalCode: null });
+
+    const [, updates] = updateStoreMock.mock.calls[0];
+    expect('postalCode' in updates).toBe(true);
+    expect(updates.postalCode).toBeNull();
+  });
+
+  it('carries name + address + postalCode as ONE save (the drawer submits all three)', async () => {
+    await useStore
+      .getState()
+      .updateStore('s1', { name: 'Towson', address: '1234 York Rd', postalCode: '21204-1234' });
+
+    const [, updates] = updateStoreMock.mock.calls[0];
+    expect(updates).toMatchObject({
+      name: 'Towson',
+      address: '1234 York Rd',
+      postalCode: '21204-1234',
+    });
+  });
+
+  it('still DROPS weeklyCountDueDow — setStoreWeeklyDueDow owns it (spec 098)', async () => {
+    await useStore.getState().updateStore('s1', { weeklyCountDueDow: 5 } as any);
+
+    const [, updates] = updateStoreMock.mock.calls[0];
+    expect(updates.weeklyCountDueDow).toBeUndefined();
+  });
+
+  it('still DROPS brandId — the literal is not a passthrough', async () => {
+    await useStore.getState().updateStore('s1', { brandId: 'b2' } as any);
+
+    const [, updates] = updateStoreMock.mock.calls[0];
+    expect(updates.brandId).toBeUndefined();
+  });
+});
+
+describe('useStore.updateStore — spec 155 boolean contract', () => {
+  it('resolves TRUE when the write settled', async () => {
+    await expect(useStore.getState().updateStore('s1', { postalCode: '21204' })).resolves.toBe(true);
+  });
+
+  it('resolves FALSE (never rejects) after the revert + notifyBackendError', async () => {
+    updateStoreMock.mockRejectedValueOnce(new Error('rls denied'));
+
+    // `.resolves` is the assertion: a rejection here would mean an unhandled
+    // rejection at every fire-and-forget call site.
+    await expect(useStore.getState().updateStore('s1', { postalCode: '21204' })).resolves.toBe(false);
+
+    expect(useStore.getState().stores[0].postalCode).toBeUndefined();
+    expect(toastShowMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
 });

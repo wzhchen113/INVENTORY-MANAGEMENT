@@ -577,9 +577,27 @@ function OverflowSheet({
   const inventory = useStore((s) => s.inventory);
   const vendorsSlice = useStore((s) => s.vendors);
   const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
+  // Spec 156 (AC-8 sites 4/5/6) — a successful quick-order share, CSV /
+  // import-file export or PDF export ALSO records the exported lines as a
+  // `draft` PO. Selector at the top of the component body with the others,
+  // never inside a callback (AC-REG-8).
+  const recordExportedOrder = useStore((s) => s.recordExportedOrder);
+
+  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` half
+  // of the draft's upsert key, as of EXPORT START. Both move: the store can be
+  // switched (phone store-switch sheet) and `reorderPayload` is nulled by every
+  // realtime reload, including the self-echo of the draft this feature writes.
+  // Reading either at record time would file the order under the wrong store,
+  // or write an UNDATED second draft header. Captured before the first await at
+  // each of the three call sites below.
+  const exportContext = (): { storeId: string | undefined; referenceDate: string | undefined } => ({
+    storeId: currentStore?.id,
+    referenceDate: reorderPayload?.asOfDate || undefined,
+  });
 
   const runQuickOrder = async () => {
     onClose();
+    const exportedAt = exportContext();
     const orderUnit = vendorsSlice.find((v) => v.id === vendor.vendorId)?.orderUnit ?? 'case';
     const resolveCode = (itemId: string): string | null | undefined =>
       inventory.find((i) => i.id === itemId)?.vendors?.find((v) => v.vendorId === vendor.vendorId)?.orderCode;
@@ -597,7 +615,11 @@ function OverflowSheet({
       dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
       onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
     });
-    if (shared) clearReorderEditsForVendor(vendor.vendorId);
+    // Spec 156 — record BEFORE the clear (AC-10), invoked not awaited (D-3).
+    if (shared) {
+      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(vendor.vendorId);
+    }
     if (unmappedCount > 0) {
       Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }), position: 'bottom' });
     }
@@ -613,12 +635,18 @@ function OverflowSheet({
       return;
     }
     if (!reorderPayload || !currentStore) return;
+    const exportedAt = exportContext();
     const narrowed = narrowReorderToVendor(reorderPayload, vendor);
     const importCfg = pickImportVendor(narrowed, vendorsSlice);
     const ok = importCfg
       ? handleImportExport(narrowed, currentStore, importCfg, inventory)
       : await handleCsvExport(narrowed, currentStore, locale);
-    if (ok) clearReorderEditsForVendor(vendor.vendorId);
+    // Spec 156 — one call covering BOTH branches, past the non-web early return
+    // above (AC-9: the native `availableOnDesktop` path records nothing).
+    if (ok) {
+      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(vendor.vendorId);
+    }
   };
 
   const runPdf = async () => {
@@ -628,8 +656,12 @@ function OverflowSheet({
       return;
     }
     if (!reorderPayload || !currentStore) return;
+    const exportedAt = exportContext();
     const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
-    if (ok) clearReorderEditsForVendor(vendor.vendorId);
+    if (ok) {
+      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(vendor.vendorId);
+    }
   };
 
   const runOrderSchedule = () => {

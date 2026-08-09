@@ -11,7 +11,7 @@ import {
   LocalizedNames, RecipeCategory, IngredientCategory,
   WeeklyCountStatus, ItemVendorLink, AdminNotification,
 } from '../types';
-import type { PoLine, OrderApproval, OrderApprovalLine } from '../lib/db';
+import type { PoLine, OrderApproval, OrderApprovalLine, InstacartAdvisory } from '../lib/db';
 // Spec 149 — the ORDER CHANNEL union (pure util; the R-3 precedence resolver
 // lives there too, but the SERVER is authoritative for an approval's channel).
 import type { OrderChannel } from '../utils/orderChannel';
@@ -80,6 +80,23 @@ function openExternalOrderUrl(url: string): boolean {
 }
 
 /**
+ * Spec 155 §6.2 (AC-17) — the three NON-BLOCKING advisory tokens the
+ * `instacart-cart-link` function can attach to a 200, mapped to one admin i18n
+ * string each (OQ-6: three strings, because the operator's next action differs
+ * — type a ZIP / ignore / check the key).
+ *
+ * An advisory is INFORMATION, never an error: it shows one info toast and the
+ * link still opens. It never routes the channel and never reaches
+ * `notifyBackendError`. `db.mintInstacartCartLink` type-guards the wire value,
+ * so an unknown/future token arrives as `undefined` and this lookup stays total.
+ */
+const ADVISORY_TOAST_KEY: Record<InstacartAdvisory, string> = {
+  no_postal_code: 'section.approveOrder.advisoryNoPostalCode',
+  retailer_not_in_zip: 'section.approveOrder.advisoryRetailerNotInZip',
+  retailers_probe_failed: 'section.approveOrder.advisoryProbeFailed',
+};
+
+/**
  * Build the approved-line SNAPSHOT for one vendor. Exported for jest (AC-28):
  * the ★ bridge below is the single easiest thing in spec 149 to get wrong.
  *
@@ -115,6 +132,93 @@ export function buildOrderApprovalLines(
     })
     .filter((ln) => ln.itemId && ln.qtyBase > 0);
 }
+
+// ─── Spec 156 — export → draft-order recording helpers ───────────────────────
+
+/**
+ * Spec 156 (D-1) — the line shape `db.upsertVendorDraftOrder` consumes. Naming
+ * the type here is NOT a db.ts signature change: db.ts keeps its inline literal
+ * and accepts this structurally.
+ */
+export type DraftOrderLine = {
+  itemId: string;
+  /** BASE / COUNTED units. */
+  orderedQty: number;
+  /** ★ spec-104 bridge: costPerUnit (per-EACH) × subUnitSize. */
+  costPerUnitCounted: number;
+};
+
+/**
+ * Spec 156 (AC-2 / D-1) — build the draft-PO line array for one vendor. A
+ * verbatim extraction of the builder that used to live inline in
+ * `fillCartForVendor`, so FILL CART and the new export recording can never
+ * drift. Pure: it reads nothing from the store and mutates no input.
+ *
+ * - `orderedQty` is BASE / COUNTED units with the per-session inline edit
+ *   overlay applied (`edits[itemId] ?? suggestedUnits`). Re-derived here even
+ *   though both callers pass an `applyReorderEdits`-overlaid vendor: the two
+ *   agree, so there is no double-apply, and the helper stays correct if a
+ *   future caller hands it a NON-overlaid vendor.
+ * - `costPerUnitCounted` = the item's per-EACH `costPerUnit` × the item's
+ *   `subUnitSize` (resolved from `inventory` by itemId, defaulting to 1) — the
+ *   spec-104 ★ bridge. Do NOT drop subUnitSize: it silently mis-costs every
+ *   recorded order and every downstream `total_cost`.
+ * - Zero-qty and id-less lines are dropped (the writer requires qty > 0).
+ */
+export function buildDraftOrderLines(
+  vendor: ReorderVendor,
+  vendorEdits: Record<string, number> | undefined,
+  inventory: InventoryItem[],
+): DraftOrderLine[] {
+  const edits = vendorEdits || {};
+  return vendor.items
+    .map((it) => {
+      const inv = inventory.find((i) => i.id === it.itemId);
+      const subUnitSize = inv?.subUnitSize || 1;
+      const base = edits[it.itemId] ?? (it.suggestedUnits || it.suggestedQty || 0);
+      return {
+        itemId: it.itemId,
+        orderedQty: base,
+        costPerUnitCounted: it.costPerUnit * subUnitSize, // ★ spec-104 bridge
+      };
+    })
+    .filter((ln) => ln.itemId && ln.orderedQty > 0);
+}
+
+/**
+ * Spec 156 — the `(store, reference_date)` half of the draft-PO upsert key, as
+ * it stood at EXPORT START.
+ *
+ * Security review (2026-08-08) found both components can move DURING an export
+ * (a mid-flight store switch; a realtime reload nulling `reorderPayload`), so
+ * `recordExportedOrder` may not read them from live global state when the export
+ * finishes — the call site snapshots them before its first `await` and hands
+ * them over. See the block comment in `recordExportedOrder` for the two concrete
+ * failure modes this closes.
+ */
+export type ExportRecordingContext = {
+  /** `currentStore.id` as of export start. */
+  storeId: string | undefined;
+  /** `reorderPayload.asOfDate` as of export start (the reorder date exported). */
+  referenceDate: string | undefined;
+};
+
+/**
+ * Spec 156 (D-4 / finding F-1) — in-flight `(store|vendor|referenceDate)` keys
+ * currently being recorded by `recordExportedOrder`.
+ *
+ * The desktop CSV / PDF export buttons carry no `busy` guard, so a double-click
+ * fires two overlapping records for the same key. `upsertVendorDraftOrder` has
+ * no unique index behind it, so two concurrent find-then-insert passes can leave
+ * TWO draft headers for one key (an AC-12 violation). This Set collapses the
+ * second call.
+ *
+ * Deliberately module-level and NOT Zustand state: it is never rendered, so
+ * keeping it out of the store avoids a re-render on every export. It is emptied
+ * by the `finally` inside the action — never by test isolation
+ * (`useStore.setState(INITIAL_STATE, true)` does not touch it).
+ */
+const recordingKeys = new Set<string>();
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -554,7 +658,13 @@ interface StoreActions {
 
   // Stores
   addStore: (store: Omit<Store, 'id'>) => void;
-  updateStore: (id: string, updates: Partial<Store>) => void;
+  /** Optimistic-then-revert store write. Spec 155 — resolves `true` when the
+   *  PATCH settled and `false` after the revert + `notifyBackendError`. It
+   *  **never rejects**, so existing fire-and-forget call sites cannot produce an
+   *  unhandled rejection; callers that need to know (the store edit drawer)
+   *  branch on the boolean, NOT on a catch. Writable fields are the explicit
+   *  five-field literal in the action — `brandId` is never persisted. */
+  updateStore: (id: string, updates: Partial<Store>) => Promise<boolean>;
   /** Spec 098 — set (or clear, with `null`) a store's weekly-count due
    *  day-of-week (0=Sun..6=Sat). Optimistic-then-revert: the local
    *  `stores`/`currentStore` slice updates first, then `db.updateStore`
@@ -669,6 +779,42 @@ interface StoreActions {
    * buffer is kept on error so the operator can retry (optimistic-then-revert).
    */
   fillCartForVendor: (vendor: ReorderVendor) => Promise<string | null>;
+
+  /**
+   * Spec 156 §8 (D-2) — record an ALREADY-COMPLETED export (quick-order text /
+   * CSV / US FOODS–SYSCO import file / PDF) as a `draft` purchase order, through
+   * the SAME `db.upsertVendorDraftOrder` path FILL CART uses (AC-1: no second
+   * draft-PO writer). Idempotent per `(store, vendor, reference_date)`, so any
+   * number of exports on one day converge on ONE draft carrying the last
+   * export's lines (AC-12).
+   *
+   * This is a BACKGROUND side effect of an export that already succeeded: it
+   * NEVER throws, never reverts or re-opens the export, and never blocks the
+   * caller (AC-6). Call sites invoke it WITHOUT awaiting, immediately before
+   * `clearReorderEditsForVendor` (AC-10) — safe because every value it needs is
+   * snapshotted synchronously before the first await.
+   *
+   * `exportedAt` carries the `(storeId, referenceDate)` the call site captured
+   * BEFORE its first await (security review 2026-08-08, Mediums 1+2). Both can
+   * move mid-export, and reading them from live state here would file the order
+   * against the wrong store or write an undated second draft header. The guards
+   * still all live in this one action — the call site only snapshots, it never
+   * decides.
+   *
+   * Returns the po id, or null: no active single store / `'__all__'` (AC-4,
+   * silent), no reorder date to key against (silent), no orderable lines (AC-5,
+   * silent), a duplicate call already in flight for this key (D-4, silent), the
+   * active store changed mid-export (reported), or a write failure (AC-6,
+   * reported) — the last two via
+   * `notifyBackendError('Record exported order', …)`.
+   *
+   * NOT a promotion to `sent` (AC-15): spec 151 renders the row as tier-4
+   * "NOT CONFIRMED" until a human taps MARK-SENT in POsSection.
+   */
+  recordExportedOrder: (
+    vendor: ReorderVendor,
+    exportedAt: ExportRecordingContext,
+  ) => Promise<string | null>;
 
   // ─── Spec 149 §8 — EOD → Approve & Order (phone) ─────────────────────────
   /** The (submission, store, vendor, business date) tuple the Approve Order
@@ -3021,26 +3167,40 @@ export const useStore = create<FullStore>((set, get) => ({
     // update. The privileged_update_stores RLS policy enforces the
     // admin/master/super_admin gate server-side.
     //
-    // The explicit 4-field object is REQUIRED, not redundant: `updates` is typed
-    // Partial<Store> (wider) while db.updateStore takes
-    // Partial<Pick<Store,'name'|'address'|'eodDeadlineTime'|'status'>>. Spreading
-    // `updates` directly would be a type error; this literal narrows to exactly
-    // the writable fields and intentionally drops `brandId` (a brand transfer
-    // would trip auth_can_see_brand WITH CHECK — see db.updateStore). Do NOT
-    // "simplify" this back into a passthrough that reintroduces brandId.
-    db.updateStore(id, {
-      name: updates.name,
-      address: updates.address,
-      eodDeadlineTime: updates.eodDeadlineTime,
-      status: updates.status,
-    }).catch((e: any) => {
-      set({ stores: prevStores, currentStore: prevCurrentStore });
-      notifyBackendError('Update store', e);
-    });
+    // The explicit field-by-field object is REQUIRED, not redundant: `updates`
+    // is typed Partial<Store> (wider) while db.updateStore takes a narrower
+    // Pick<>. Spreading `updates` directly would be a type error; this literal
+    // narrows to exactly the writable fields and intentionally drops `brandId`
+    // (a brand transfer would trip auth_can_see_brand WITH CHECK — see
+    // db.updateStore). Do NOT "simplify" this back into a passthrough that
+    // reintroduces brandId. Spec 155 widened it to FIVE fields (+ postalCode,
+    // the DG-2 store-ZIP edit): the rule is NAME every field explicitly, never
+    // spread `updates`. `weeklyCountDueDow` deliberately stays out —
+    // setStoreWeeklyDueDow owns it (spec 098).
+    //
+    // Spec 155 — returns a promise resolving true/false instead of being
+    // fire-and-forget, so the store edit drawer can toast only on success, stay
+    // open with the operator's input on failure, and sequence its reconciling
+    // re-read AFTER the write settled (the spec-094 refetch race). It never
+    // rejects: existing fire-and-forget call sites are unaffected.
+    return db
+      .updateStore(id, {
+        name: updates.name,
+        address: updates.address,
+        eodDeadlineTime: updates.eodDeadlineTime,
+        status: updates.status,
+        postalCode: updates.postalCode,
+      })
+      .then(() => true)
+      .catch((e: any) => {
+        set({ stores: prevStores, currentStore: prevCurrentStore });
+        notifyBackendError('Update store', e);
+        return false;
+      });
   },
 
   // Spec 098 — per-store weekly-count due day-of-week. Separate from
-  // updateStore because that action intentionally narrows to a 4-field
+  // updateStore because that action intentionally narrows to a five-field
   // writable subset and drops weeklyCountDueDow; the dedicated cadence
   // write goes straight through db.updateStore's extended Pick.
   setStoreWeeklyDueDow: (id, dow) => {
@@ -3396,25 +3556,16 @@ export const useStore = create<FullStore>((set, get) => ({
     // per-COUNTED-unit cost snapshot (OQ-6) = the item's per-each costPerUnit ×
     // subUnitSize (the spec-104 ★ bridge), read from `inventory` by itemId —
     // the same basis createPoDraft uses.
-    const edits = get().reorderEdits[vendor.vendorId] || {};
-    const inventory = get().inventory;
-    const lines = vendor.items
-      .map((it) => {
-        const inv = inventory.find((i) => i.id === it.itemId);
-        const subUnitSize = inv?.subUnitSize || 1;
-        // Re-derive the buffer overlay here (edits ?? suggestion) even though the
-        // caller passes a vendor whose items are already buffer-overlaid via
-        // `applyReorderEdits`. This is intentionally defensive: it keeps
-        // `fillCartForVendor` correct even if a future caller hands it a
-        // NON-overlaid vendor. Both paths agree, so there is no double-apply.
-        const base = edits[it.itemId] ?? (it.suggestedUnits || it.suggestedQty || 0);
-        return {
-          itemId: it.itemId,
-          orderedQty: base,
-          costPerUnitCounted: it.costPerUnit * subUnitSize,
-        };
-      })
-      .filter((ln) => ln.itemId && ln.orderedQty > 0);
+    //
+    // Spec 156 (AC-2 / D-1) — this used to be an inline builder here; it now
+    // lives in the pure module-level `buildDraftOrderLines` so FILL CART and
+    // `recordExportedOrder` (the export recorder) can never drift. Behavior is
+    // byte-identical: same overlay, same ★ bridge, same qty>0 / itemId filter.
+    const lines = buildDraftOrderLines(
+      vendor,
+      get().reorderEdits[vendor.vendorId],
+      get().inventory,
+    );
     if (lines.length === 0) {
       notifyBackendError('Fill cart', new Error('No orderable lines'));
       return null;
@@ -3447,6 +3598,104 @@ export const useStore = create<FullStore>((set, get) => ({
       // revert: the buffer IS the optimistic state).
       notifyBackendError('Fill cart', e);
       return null;
+    }
+  },
+
+  // ─── Spec 156 — record an export as a draft purchase order ────────────────
+  recordExportedOrder: async (vendor, exportedAt) => {
+    // ── Security review (2026-08-08), Mediums 1 + 2 — ONE root cause ─────────
+    // The write key must describe the export that HAPPENED, not whatever the
+    // globals say once it finishes. The six call sites are `async` closures that
+    // await a user-paced share sheet / a `jspdf` chunk fetch / a CSV build, and
+    // BOTH key components can move inside that window:
+    //   • `currentStore` — the desktop TitleBar store switcher stays live during
+    //     the export. Reading it here would file store A's lines (store A's
+    //     item ids, quantities and costs) under `store_id = B`, which RLS admits
+    //     because the operator can see both — exposing them to store-B-only
+    //     members.
+    //   • `reorderPayload` — `loadFromSupabase` nulls it on EVERY realtime
+    //     reload, including the self-echo of the draft THIS feature just wrote.
+    //     Reading it here would yield `referenceDate: undefined`, which sends
+    //     `upsertVendorDraftOrder` down its `reference_date IS NULL` branch → a
+    //     SECOND draft header for the same day, invisible to `has_po` and
+    //     un-collapsible by the D-4 key (a different key string).
+    // So both come from `exportedAt`, snapshotted by the call site BEFORE its
+    // first await. Do NOT "simplify" either back to a `get()` read.
+    const { storeId, referenceDate } = exportedAt;
+    // AC-4 — no active SINGLE store at export time: no write, and SILENTLY.
+    // Unlike FILL CART (an explicit user action whose failure must be reported),
+    // this is a background side effect of an export that already succeeded;
+    // shouting about it teaches the operator to ignore toasts. Do NOT copy
+    // fillCartForVendor's 'No active store' toast across.
+    if (!storeId || storeId === '__all__') return null;
+    // Security Medium 1 — REFUSE on a mid-export store switch rather than file
+    // the order against the wrong tenant. Reported (not silent): the operator
+    // caused it, it is rare, and it is actionable — switch back and re-export.
+    // Dropping a record in this race is strictly better than a cross-store row.
+    if (get().currentStore?.id !== storeId) {
+      notifyBackendError(
+        'Record exported order',
+        new Error('Active store changed during the export — not recorded'),
+      );
+      return null;
+    }
+    // Security Medium 2 — an UNDATED draft is worse than no draft: it escapes
+    // the `(store, vendor, reference_date)` upsert key, escapes the D-4 in-flight
+    // key, is invisible to `report_reorder_list.has_po`, and (for an
+    // extension-ordering vendor) doubles the pending-list entry. Silent, like the
+    // other "nothing to key against" guards above and below.
+    if (!referenceDate) return null;
+    const createdByUserId = get().currentUser?.id;
+    // D-2 property 1 — the remaining reads are SYNCHRONOUS, before the first
+    // `await`. The call site clears the edit buffer immediately after invoking
+    // this (unawaited), so the quantities must already be captured here. Moving
+    // the `reorderEdits` read after an `await` silently records POST-clear
+    // (server-suggestion) quantities and breaks AC-10/AC-11 in a way no type
+    // checker catches.
+    const lines = buildDraftOrderLines(
+      vendor,
+      get().reorderEdits[vendor.vendorId],
+      get().inventory,
+    );
+    // AC-5 — nothing orderable: no empty draft header, no zero-line PO. Silent.
+    if (lines.length === 0) return null;
+
+    // D-4 (finding F-1) — collapse a double-fire on the same key. The desktop
+    // CSV/PDF buttons have no `busy` guard, and there is no unique index behind
+    // the upsert, so two concurrent find-then-insert passes could leave two
+    // draft headers for one key. `referenceDate` is non-empty by the guard
+    // above, so the key can no longer drift between two in-flight exports.
+    const key = `${storeId}|${vendor.vendorId}|${referenceDate}`;
+    if (recordingKeys.has(key)) return null; // same export fired twice — not an error
+    recordingKeys.add(key);
+    try {
+      const poId = await db.upsertVendorDraftOrder({
+        storeId,
+        vendorId: vendor.vendorId,
+        createdByUserId,
+        referenceDate,
+        lines,
+      });
+      if (!poId) {
+        // AC-6 / OQ-1 — the export already left the building; report only that
+        // we failed to file a copy. Nothing is reverted.
+        notifyBackendError('Record exported order', new Error('Draft not recorded'));
+        return null;
+      }
+      // AC-7 / OQ-6 — POs list only. Deliberately NOT loadReorderSuggestions():
+      // the realtime self-echo already nulls reorderPayload and refetches the
+      // section ~400 ms later, and the only reorder field this write touches
+      // (`has_po`) is rendered nowhere today.
+      await get().refreshPurchaseOrders();
+      return poId;
+    } catch (e: any) {
+      // AC-6 — never rejects into the call site (which does not await), so an
+      // unawaited invocation can never produce an unhandled rejection.
+      notifyBackendError('Record exported order', e);
+      return null;
+    } finally {
+      // Release the key even on throw / inflight-timeout, so it can never wedge.
+      recordingKeys.delete(key);
     }
   },
 
@@ -3518,6 +3767,20 @@ export const useStore = create<FullStore>((set, get) => ({
       if (channel === 'instacart') {
         const res = await db.mintInstacartCartLink(row.id);
         if (res.ok) {
+          // Spec 155 AC-17 — a non-blocking advisory from the demoted
+          // retailer-availability probe. Toast FIRST, then open: on web
+          // `openExternalOrderUrl` may hand the tab away. The link ALWAYS
+          // opens; no re-route, no channel change, no allowFallback spend.
+          if (res.advisory) {
+            Toast.show({
+              type: 'info',
+              text1: translate(get().locale, ADVISORY_TOAST_KEY[res.advisory], {
+                vendor: vendor.vendorName || '',
+                store: get().currentStore?.name || '',
+              }),
+              visibilityTime: 5000,
+            });
+          }
           openExternalOrderUrl(res.url);
           // The edge function already advanced the row to `approved` and wrote
           // external_ref through the caller's token — re-read rather than
@@ -3533,11 +3796,13 @@ export const useStore = create<FullStore>((set, get) => ({
           return { channel: 'instacart', url: res.url };
         }
         if (res.error === 'retailer_unavailable' && allowFallback) {
-          // OQ-2 / §5.5 — Instacart does not cover this vendor at the store's
-          // ZIP. This is NOT an error the operator can act on, so it is an
-          // INFO toast + a silent re-route to the server-chosen fallback
-          // (extension ⇒ the tuned cart-filler; manual ⇒ quick-order text).
-          // We never open a link that lands on an empty retailer.
+          // Spec 155 (AC-16/AC-18) — since the probe's demotion this 409 fires
+          // only for a BLANK retailer key at mint time (vendor de-opted; body
+          // carries reason:'blank_retailer_key'), and this branch also absorbs
+          // the pre-155 edge function during the deploy window. ZIP-coverage
+          // gaps are now ADVISORY (200 + advisory token), not this path. The
+          // re-route to the server-chosen fallback stays: extension ⇒ tuned
+          // cart-filler; manual ⇒ quick-order text.
           const fallback: OrderChannel = res.fallbackChannel ?? 'manual';
           const locale = get().locale;
           Toast.show({

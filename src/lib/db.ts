@@ -2552,12 +2552,42 @@ export async function fetchEodSubmissionContext(
   }, { kind: 'read', label: 'fetchEodSubmissionContext' });
 }
 
+/** Spec 155 §3.2 — the three STABLE, NON-BLOCKING advisory tokens the
+ *  `instacart-cart-link` function may attach to a 200 after the
+ *  retailer-availability probe was demoted from refusing to advising. An
+ *  advisory means "the link was minted and works; here is what we could not
+ *  verify" — it is never an error and never re-routes the channel.
+ *  Omitted (never `null` / `''`) when the probe ran clean or never ran. */
+export type InstacartAdvisory =
+  | 'no_postal_code'
+  | 'retailer_not_in_zip'
+  | 'retailers_probe_failed';
+
+const INSTACART_ADVISORIES: readonly InstacartAdvisory[] = [
+  'no_postal_code',
+  'retailer_not_in_zip',
+  'retailers_probe_failed',
+] as const;
+
+/** Narrowing guard for the untrusted wire value. Anything unrecognised — a
+ *  future token from a newer function during a deploy-skew window, a non-string
+ *  — is DROPPED to `undefined` rather than surfaced raw. Same defensive posture
+ *  as `isOrderChannel(body.fallbackChannel)` below, and it is what keeps the
+ *  client's advisory → i18n-key lookup total. */
+function isInstacartAdvisory(v: unknown): v is InstacartAdvisory {
+  return typeof v === 'string' && (INSTACART_ADVISORIES as readonly string[]).includes(v);
+}
+
 /** The structured result of a cart-link mint. `ok:false` carries the edge
  *  function's STABLE error token (`retailer_unavailable`, `wrong_channel`,
  *  `already_ordered`, `upstream_error`, …) so the caller can branch — notably
- *  the OQ-2 `retailer_unavailable` → `fallbackChannel` re-route. */
+ *  the OQ-2 `retailer_unavailable` → `fallbackChannel` re-route.
+ *
+ *  Spec 155 — `ok:true` gained the optional `advisory`. The `ok:false` variant
+ *  is UNCHANGED: the function's additive `reason: 'blank_retailer_key'` field on
+ *  the 409 arm is a logs/smoke affordance and is deliberately not surfaced. */
 export type InstacartCartLinkResult =
-  | { ok: true; url: string; expiresAt: string | null; reused: boolean }
+  | { ok: true; url: string; expiresAt: string | null; reused: boolean; advisory?: InstacartAdvisory }
   | { ok: false; error: string; fallbackChannel?: OrderChannel; postalCode?: string | null };
 
 /**
@@ -2622,6 +2652,8 @@ export async function mintInstacartCartLink(
       url: data.url,
       expiresAt: data.expiresAt ?? null,
       reused: data.reused === true,
+      // Spec 155 — type-guarded, so an unknown token lands as `undefined`.
+      advisory: isInstacartAdvisory(data?.advisory) ? data.advisory : undefined,
     };
   }, { kind: 'write', label: 'mintInstacartCartLink' });
 }

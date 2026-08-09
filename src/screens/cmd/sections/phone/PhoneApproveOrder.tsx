@@ -75,14 +75,27 @@ export function approveOrderState(args: {
   return 'ready';
 }
 
-/** AC-10 — the disclosure is honest PER CHANNEL and is a first-class block, not
- *  a tooltip. Instacart gets the markup + fees warning AND labels the on-screen
- *  number as catalog cost; every other channel gets the catalog-cost label only
- *  (there is no Instacart fee to disclose). */
-export function disclosureKeyForChannel(channel: OrderChannel): string {
+/** Spec 149 AC-10 / spec 155 AC-11 — the disclosure is honest PER CHANNEL and is
+ *  a first-class block, not a tooltip.
+ *
+ *  Instacart yields TWO lines, in this order and no other:
+ *    1. the markup + fees warning that labels the on-screen number as catalog
+ *       cost (spec 149);
+ *    2. the store-picker line (spec 155 DG-1) — the minted IDP link has no
+ *       retailer-pinning parameter, so it opens Instacart's shopping-list page
+ *       and the admin picks the store there. Without this line the screen
+ *       promises a pre-selected retailer it cannot deliver.
+ *
+ *  Every other channel yields exactly the catalog-cost line — byte-unchanged
+ *  from spec 149. ORDER IS PART OF THE CONTRACT.
+ *
+ *  Spec 155 REPLACED the single-string `disclosureKeyForChannel`; there is
+ *  deliberately no sibling helper, because two sources of truth for the same
+ *  disclosure is exactly the drift this project keeps paying for. */
+export function disclosureKeysForChannel(channel: OrderChannel): string[] {
   return channel === 'instacart'
-    ? 'section.approveOrder.disclosureInstacart'
-    : 'section.approveOrder.disclosureCatalog';
+    ? ['section.approveOrder.disclosureInstacart', 'section.approveOrder.instacartPicker']
+    : ['section.approveOrder.disclosureCatalog'];
 }
 
 // ── Screen ───────────────────────────────────────────────────────────────────
@@ -438,9 +451,15 @@ export const PhoneApproveOrder: React.FC<{
             borderWidth: 1,
             borderColor: C.border,
             backgroundColor: C.panel2,
+            // Spec 155 — visually inert for the single-child (non-instacart)
+            // case; separates the two instacart lines. No per-line testIDs:
+            // they would mutate the non-instacart render tree AC-10 freezes.
+            gap: 6,
           }}
         >
-          <Text style={[PhoneType.body, { color: C.fg2 }]}>{T(disclosureKeyForChannel(channel))}</Text>
+          {disclosureKeysForChannel(channel).map((k) => (
+            <Text key={k} style={[PhoneType.body, { color: C.fg2 }]}>{T(k)}</Text>
+          ))}
         </View>
 
         {state !== 'ordered' ? (
