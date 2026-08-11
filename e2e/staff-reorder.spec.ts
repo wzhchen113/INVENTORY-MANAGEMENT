@@ -55,7 +55,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { SEED, STORAGE_STATE, WEEKDAYS } from './fixtures/constants';
-import { serviceRoleClient } from './fixtures/db';
+import { serviceRoleClient, todayIso } from './fixtures/db';
 
 test.use({ storageState: STORAGE_STATE.staff });
 
@@ -250,6 +250,68 @@ test.describe('staff Reorder', () => {
       throw new Error(
         `[e2e staff-reorder] order_schedule fixture insert failed: ${schedErr.message}. ` +
           `Expected the dedicated store ${SEED.e2eReorderStoreId} and seed vendor ${SEED.vendorUsFoodId}.`,
+      );
+    }
+
+    // 6. eod_submissions + eod_entries — spec 130 gated the staff Reorder card
+    //    on the vendor's EOD count being SUBMITTED for the reorder date:
+    //    `eodSubmittedAt == null` → the "Count not submitted yet" block REPLACES
+    //    the item rows (Reorder.tsx isReorderCountNotSubmitted branch), so
+    //    AC-092-CASES's "Order: …" line never renders and the suite fails at
+    //    the casesPattern assertion (the exact long-red CI failure). Submit a
+    //    service-role EOD count for (reorder store, today, US FOOD) with the
+    //    fixture item counted at 0, so report_reorder_list's case A applies:
+    //    on_hand = actual_remaining = 0 (source 'eod'), par 24 → suggested 24 →
+    //    2 cases · 24 ea — the same math as before, now EOD-sourced. Upsert on
+    //    the (store_id, date, vendor_id) unique key (spec 020) → idempotent
+    //    across re-runs; `date` uses todayIso() (the app's own local-date
+    //    format) so the row matches the Reorder screen's default as-of date.
+    const { data: eodSub, error: eodSubErr } = await admin
+      .from('eod_submissions')
+      .upsert(
+        {
+          store_id: SEED.e2eReorderStoreId,
+          date: todayIso(),
+          vendor_id: SEED.vendorUsFoodId,
+          submitted_by: SEED.managerUserId,
+          submitted_at: new Date().toISOString(),
+          status: 'submitted',
+        },
+        { onConflict: 'store_id,date,vendor_id' },
+      )
+      .select('id')
+      .single();
+    if (eodSubErr || !eodSub) {
+      throw new Error(
+        `[e2e staff-reorder] eod_submissions fixture upsert failed: ${eodSubErr?.message}. ` +
+          `Spec 130 hides reorder quantities for vendors without a submitted EOD count, ` +
+          `so without this row the "Order: N cases" line cannot render.`,
+      );
+    }
+
+    //    The entry row: eod_entries has no natural unique key, so delete-then-
+    //    insert keyed on (submission_id, item_id) for idempotency. A re-run's
+    //    upsert above returns the SAME submission id (unique-key merge), so
+    //    this can never orphan an entry.
+    const { error: eodEntryDelErr } = await admin
+      .from('eod_entries')
+      .delete()
+      .eq('submission_id', eodSub.id)
+      .eq('item_id', SEED.e2eReorderItemId);
+    if (eodEntryDelErr) {
+      throw new Error(
+        `[e2e staff-reorder] eod_entries fixture pre-delete failed: ${eodEntryDelErr.message}.`,
+      );
+    }
+    const { error: eodEntryErr } = await admin.from('eod_entries').insert({
+      submission_id: eodSub.id,
+      item_id: SEED.e2eReorderItemId,
+      actual_remaining: 0,
+    });
+    if (eodEntryErr) {
+      throw new Error(
+        `[e2e staff-reorder] eod_entries fixture insert failed: ${eodEntryErr.message}. ` +
+          `Expected submission ${eodSub.id} + item ${SEED.e2eReorderItemId}.`,
       );
     }
 

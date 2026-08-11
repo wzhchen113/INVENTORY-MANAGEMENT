@@ -38,6 +38,17 @@
 // as the pre-086 single-input semantics), eod-item-row-{id}, eod-submit,
 // eod-queue-indicator, eod-prefill-banner (EODCount — all 078 §7, banner
 // pre-079); eod-item-list (079 §6 #1 — FROZEN, the scroll container).
+//
+// SPEC 141 REWRITE (2026-08-11 — the long-red CI fix): the row TextInputs are
+// GONE. Counts are entered via Pressable "wells" + a keypad bottom sheet:
+//   • eod-item-units-{id} still exists but is now the well's VALUE TEXT
+//     (renders '—' when blank) — assert with toHaveText, never .fill().
+//   • eod-well-{id}-units opens StaffKeypadSheet for that item/field.
+//   • eod-key-{0..9} / eod-key-dot / eod-key-back type into the ACTIVE field;
+//     eod-sheet-close commits-and-closes (values live in EODCount's
+//     caseCounts/unitCounts maps as you type — close loses nothing).
+//   • Spec 129: once a submission exists the wells LOCK and the eod-submit
+//     testID renders the "Edit" button (same id) — see ensureEditable().
 
 import { test, expect, type Page } from '@playwright/test';
 import { SEED, STAFF_QUEUE_KEY, STORAGE_STATE } from './fixtures/constants';
@@ -129,26 +140,93 @@ test.describe('staff EOD', () => {
     return { itemId, unitsTestId };
   }
 
+  // ─── Spec 141 keypad helpers (replace the removed TextInput .fill()s) ─────
+
+  /** The well's current Units value ('' when the '—' placeholder shows). */
+  async function unitsValue(page: Page, itemId: string): Promise<string> {
+    const raw = (await page.getByTestId(`eod-item-units-${itemId}`).textContent()) ?? '';
+    const v = raw.trim();
+    return v === '—' ? '' : v;
+  }
+
+  /** Set one item's Units via the keypad sheet: open the well, clear whatever
+   *  is prefilled (backspace count = current length; backspace on empty is a
+   *  no-op), type the digits, close. The read-back assertion proves the value
+   *  committed to EODCount's unitCounts map (the single source of truth). */
+  async function setUnitsViaKeypad(page: Page, itemId: string, value: string): Promise<void> {
+    const existing = await unitsValue(page, itemId);
+    await page.getByTestId(`eod-well-${itemId}-units`).click();
+    await expect(page.getByTestId('eod-sheet-well-units')).toBeVisible();
+    for (let i = 0; i < existing.length; i++) {
+      await page.getByTestId('eod-key-back').click();
+    }
+    for (const ch of value) {
+      await page.getByTestId(ch === '.' ? 'eod-key-dot' : `eod-key-${ch}`).click();
+    }
+    await page.getByTestId('eod-sheet-close').click();
+    // closeSheet null-s sheetItemId → the sheet unmounts entirely.
+    await expect(page.getByTestId('eod-sheet-well-units')).toHaveCount(0);
+    await expect(page.getByTestId(`eod-item-units-${itemId}`)).toHaveText(value);
+  }
+
+  /** Spec 129: when a submission already exists for (store, today, vendor) the
+   *  wells render LOCKED and the eod-submit testID is the "Edit" button.
+   *  Unlock (click Edit → the Cancel affordance appears) so the keypad opens.
+   *  Handles all three states: UNSUBMITTED (no banner — no-op), LOCKED
+   *  (banner, no cancel — click Edit), EDITING (banner + cancel — no-op).
+   *  Makes both tests convergent on a non-reset local DB and lets the offline
+   *  test run after AC-EOD1's submission. */
+  async function ensureEditable(page: Page): Promise<void> {
+    // The prefill fetch's setExisting can PAINT a frame after networkidle, so
+    // a bare isVisible() could race to false on a submitted vendor and leave
+    // the wells locked (the keypad would then never open). Give the banner a
+    // short window to appear before deciding the state is UNSUBMITTED — the
+    // fixed 1.5s cost applies only on genuinely-unsubmitted screens.
+    const banner = page.getByTestId('eod-prefill-banner');
+    const locked = await banner
+      .waitFor({ state: 'visible', timeout: 1_500 })
+      .then(() => true)
+      .catch(() => false);
+    if (!locked) return;
+    if ((await page.getByTestId('eod-cancel-edit').count()) === 0) {
+      await page.getByTestId('eod-submit').click(); // labeled "Edit" while locked
+      await expect(page.getByTestId('eod-cancel-edit')).toBeVisible();
+    }
+  }
+
+  /** Satisfy the count-everything submit gate: every row must be counted (a
+   *  '0' counts). Rows already carrying a value (a prefilled submission, or an
+   *  earlier pass) are left as-is — only blank rows get a keypad '0'. */
+  async function countAllRows(page: Page): Promise<void> {
+    const allUnits = page.getByTestId(/^eod-item-units-/);
+    const ids: string[] = [];
+    for (let i = 0, n = await allUnits.count(); i < n; i++) {
+      const tid = await allUnits.nth(i).getAttribute('data-testid');
+      if (tid) ids.push(tid.replace('eod-item-units-', ''));
+    }
+    for (const id of ids) {
+      if ((await unitsValue(page, id)) === '') {
+        await setUnitsViaKeypad(page, id, '0');
+      }
+    }
+  }
+
   test('AC-EOD1 + AC-EOD-PERSIST: online submit persists (banner on reload + service read)', async ({
     page,
   }) => {
     const { itemId, unitsTestId } = await gotoTowsonEod(page);
 
-    // Count-everything gate (EODCount.tsx): every row needs a value (even 0)
-    // before submit, or the submit is BLOCKED and jumps to the first uncounted
-    // row (so eod-prefill-banner never appears). Fill every Units box with 0 —
-    // the list is un-windowed so all rows are mounted — then the target row is
-    // overridden with the real value below.
-    const allUnits = page.getByTestId(/^eod-item-units-/);
-    for (let i = 0, n = await allUnits.count(); i < n; i++) {
-      await allUnits.nth(i).fill('0');
-    }
-
-    // Enter a count into the first rendered item's Units box (Cases blank →
-    // total === units). The online case fills '7' (the offline case fills '5')
-    // so a stale-row read can never match the wrong case (design ordering
+    // Spec 129: unlock first when a submission already exists (re-runs on a
+    // non-reset local DB), then satisfy the count-everything gate (EODCount):
+    // every row needs a value (even 0) before submit, or the submit is BLOCKED
+    // and jumps to the first uncounted row (so eod-prefill-banner never
+    // appears). Blank rows get a keypad '0'; then the target row is set to the
+    // real value. The online case enters '7' (the offline case enters '5') so
+    // a stale-row read can never match the wrong case (design ordering
     // call-out).
-    await page.getByTestId(unitsTestId).fill('7');
+    await ensureEditable(page);
+    await countAllRows(page);
+    await setUnitsViaKeypad(page, itemId, '7');
 
     // Submit button is disabled when items.length === 0; we have items.
     await expect(page.getByTestId('eod-submit')).toBeEnabled();
@@ -164,6 +242,13 @@ test.describe('staff EOD', () => {
     // reload. Waiting on it here means the RPC has landed AND the row is
     // server-readable before we navigate.
     await expect(page.getByTestId('eod-prefill-banner')).toBeVisible();
+    // Spec 129 belt-and-suspenders for the RE-RUN path (banner already visible
+    // pre-submit when a prior submission existed): a confirmed server write
+    // exits EDITING (setEditing(false) in enterLockedAfterWrite), so the
+    // Cancel affordance disappearing is the state-machine's own success
+    // signal. toHaveCount(0) auto-retries until the transition lands; on the
+    // fresh path it passes vacuously (no cancel ever rendered).
+    await expect(page.getByTestId('eod-cancel-edit')).toHaveCount(0);
     // And it submitted online, not queued (the indicator never populated).
     await expect(page.getByTestId('eod-queue-indicator')).toHaveCount(0);
 
@@ -176,9 +261,10 @@ test.describe('staff EOD', () => {
     // FOOD so we hit the same (store, today, vendor) tuple the submit wrote.
     await gotoTowsonEod(page);
     await expect(page.getByTestId('eod-prefill-banner')).toBeVisible();
-    // Spec 086: the Units box pre-fills from the stored total (legacy/units-
+    // Spec 086: the Units well pre-fills from the stored total (legacy/units-
     // only fallback) — 7, the value this run submitted with Cases blank.
-    await expect(page.getByTestId(unitsTestId)).toHaveValue('7');
+    // Spec 141: the well value is TEXT now (toHaveText, not toHaveValue).
+    await expect(page.getByTestId(unitsTestId)).toHaveText('7');
 
     // ── AC-EOD-PERSIST-2/3 (the ONE service-role read — belt-and-suspenders):
     // read eod_submissions for (Towson, today, US FOOD) and assert the row +
@@ -215,14 +301,14 @@ test.describe('staff EOD', () => {
     page,
     context,
   }) => {
-    const { unitsTestId } = await gotoTowsonEod(page);
-    // Count-everything gate — see AC-EOD1. Fill every Units box 0 (un-windowed
-    // list → all rows mounted), then override the target row with the real value.
-    const allUnits = page.getByTestId(/^eod-item-units-/);
-    for (let i = 0, n = await allUnits.count(); i < n; i++) {
-      await allUnits.nth(i).fill('0');
-    }
-    await page.getByTestId(unitsTestId).fill('5');
+    const { itemId } = await gotoTowsonEod(page);
+    // Spec 129 unlock (this test typically runs AFTER AC-EOD1's submission, so
+    // the wells are locked behind Edit) + the count-everything gate — see
+    // AC-EOD1. Already-counted rows are left as-is; blank rows get a keypad
+    // '0'; the target row is overridden with '5'.
+    await ensureEditable(page);
+    await countAllRows(page);
+    await setUnitsViaKeypad(page, itemId, '5');
 
     // ── Go offline + force the queue path deterministically ─────────────
     // THE FLAKE THIS GUARDS: submit() reads isOnline from a captured closure

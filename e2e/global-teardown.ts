@@ -171,6 +171,14 @@ async function globalTeardown(): Promise<void> {
   const reorderStoreIds = [SEED.e2eReorderStoreId, SEED.e2eReorderEmptyStoreId];
   const reorderChildTables = [
     'order_schedule',
+    // eod_submissions BEFORE inventory_items (2026-08-11 spec-130 fixture):
+    // staff-reorder.spec.ts now seeds an eod_submissions row + an eod_entries
+    // child for the reorder store. eod_entries.item_id FKs inventory_items
+    // with NO cascade, so the inventory_items delete below would FK-fail while
+    // the entry exists; deleting the submission first cascades its entries
+    // (eod_entries.submission_id is ON DELETE CASCADE) and clears the path.
+    // Store-scoped like every other delete here.
+    'eod_submissions',
     'inventory_items',
     'user_stores',
   ] as const;
