@@ -30,6 +30,10 @@ import { SessionLostBanner } from '../../components/cmd/SessionLostBanner';
 // section: no new section id, so no spec-008 override machinery is involved.
 import { InstallGuideSheet } from '../../components/cmd/InstallGuideSheet';
 import { detectStandalone } from '../../lib/installGuide';
+// Spec 158 — the in-app Guide's `?` affordance. Topic ids ARE section ids, so
+// the sheet resolves its topic from the shell's `section` state and NO file
+// under `src/screens/cmd/sections/` needs per-section wiring (AC-11).
+import { GuideSheet } from '../../components/cmd/GuideSheet';
 import { PhoneNotifications } from './sections/phone/PhoneNotifications';
 import { PhoneStoreSwitch } from './sections/phone/PhoneStoreSwitch';
 import { BrandPicker } from '../../components/cmd/BrandPicker';
@@ -133,6 +137,13 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
   // Spec 153 — install-tutorial sheet. Plain component state, not a store
   // slice (per-device UI with nothing to persist).
   const [installGuideOpen, setInstallGuideOpen] = React.useState(false);
+  // Spec 158 — in-app guide sheet. Same shape as `installGuideOpen` above:
+  // plain component state, not a store slice (per-device UI, nothing to
+  // persist, no mutation and therefore nothing to optimistically revert).
+  // `guideSheetTopicId` is captured at press time so the sheet keeps showing
+  // the section the user asked about even if `section` changes underneath.
+  const [guideSheetOpen, setGuideSheetOpen] = React.useState(false);
+  const [guideSheetTopicId, setGuideSheetTopicId] = React.useState<string | null>(null);
   const [paletteQuery, setPaletteQuery] = React.useState('');
 
   // Tablet sidebar collapsed pref (rail vs full Sidebar).
@@ -291,6 +302,36 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     setMobileDrawerOpen(false);
     setInstallGuideOpen(true);
   }, []);
+
+  // Spec 158 — same nested-Modal rule as `openInstallGuide` above, and for the
+  // same reason: MobileNavDrawer is a Modal and ResponsiveSheet is another, so
+  // the drawer is closed IN THE SAME HANDLER before the sheet opens (AC-10).
+  // Opening the sheet never changes the active section (AC-7).
+  const openGuideSheet = React.useCallback(() => {
+    setMobileDrawerOpen(false);
+    setGuideSheetTopicId(section);
+    setGuideSheetOpen(true);
+  }, [section]);
+
+  // Spec 158 review fix — the `?` is SUPPRESSED while `Guide` is the active
+  // section. `Guide` is deliberately undocumented (`GuideExemptSectionId`), so
+  // pressing it there would open the sheet in its index fallback ON TOP OF
+  // GuideSection's own always-visible index — a redundant popup over the same
+  // content, and two live trees emitting the same `cmd-guide-index-<id>`
+  // testIDs. Passing `undefined` (rather than a no-op handler) is what keeps
+  // the tree clean: both props are optional, so TitleBar renders no control at
+  // all and MobileTopAppBar falls back to its plain, non-pressable title.
+  const guideEntryHandler = section === 'Guide' ? undefined : openGuideSheet;
+
+  // Belt-and-braces for the same invariant: suppression stops the sheet being
+  // OPENED from the Guide page, and this closes it if the section becomes
+  // `Guide` while it is already open. Together they make "never two index trees
+  // at once" hold unconditionally, not just along the reachable paths. Clearing
+  // the flag (rather than gating `visible`) means leaving Guide cannot
+  // resurrect a stale sheet.
+  React.useEffect(() => {
+    if (section === 'Guide') setGuideSheetOpen(false);
+  }, [section]);
 
   const sidebarFooterLeft = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -469,6 +510,15 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
     <InstallGuideSheet visible={installGuideOpen} onClose={() => setInstallGuideOpen(false)} />
   );
 
+  // Spec 158 — same per-branch insertion rule as the two elements above.
+  const guideSheet = (
+    <GuideSheet
+      visible={guideSheetOpen}
+      onClose={() => setGuideSheetOpen(false)}
+      topicId={guideSheetTopicId}
+    />
+  );
+
   if (isPhone) {
     // Phone: top app-bar + body. Sidebar is the hamburger-driven
     // MobileNavDrawer. TitleBar is replaced with MobileTopAppBar (per §2).
@@ -479,6 +529,11 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           title={sectionLabel}
           height={52}
           titleType={PhoneType.screenTitle}
+          // Spec 158 (OQ-2) — the bar's TITLE is the guide affordance on phone:
+          // the fixed 52px bar (Hard Rule 5) has no room for a fifth trailing
+          // glyph at 375px with a super-admin brand picker present.
+          onTitlePress={guideEntryHandler}
+          titlePressLabel={T('guide.helpAria')}
           trailing={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {brandPickerCompact}
@@ -521,6 +576,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           footerRight={sidebarFooterRight}
         />
         {installGuideSheet}
+        {guideSheet}
         {switchOverlay}
       </View>
     );
@@ -538,6 +594,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           storeName={currentStore?.name || T('chrome.store')}
           section={section}
           brandPicker={brandPickerSlot}
+          onHelpPress={guideEntryHandler}
         />
         <SessionLostBanner />
         <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
@@ -586,6 +643,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
           <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>{Body}</View>
         </View>
         {installGuideSheet}
+        {guideSheet}
         {switchOverlay}
       </View>
     );
@@ -599,6 +657,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         storeName={currentStore?.name || 'store'}
         section={section}
         brandPicker={brandPickerSlot}
+        onHelpPress={guideEntryHandler}
       />
       <SessionLostBanner />
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
@@ -618,6 +677,7 @@ export default function ResponsiveCmdShell({ onPaletteOpen }: Props) {
         <View style={{ flex: 1, minHeight: 0 }}>{Body}</View>
       </View>
       {installGuideSheet}
+      {guideSheet}
       {switchOverlay}
     </View>
   );

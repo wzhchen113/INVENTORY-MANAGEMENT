@@ -53,6 +53,8 @@ import AuditLogSection from './sections/AuditLogSection';
 import ReportsSection from './sections/ReportsSection';
 import BrandsSection from './sections/BrandsSection';
 import UsersSection from './sections/UsersSection';
+// Spec 158 — the in-app Guide destination (HELP sidebar group).
+import GuideSection from './sections/GuideSection';
 
 // Spec 011 — body-only. The chrome (TitleBar / Sidebar / hamburger drawer
 // / footer slots / Spec-008 edit-mode handlers) lives in
@@ -355,6 +357,10 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
           <UsersSection />
         ) : section === 'Brands' ? (
           <BrandsSection />
+        ) : section === 'Guide' ? (
+          // Spec 158 — MUST sit before the `section !== 'Inventory'` fallback
+          // below, or the Guide renders as "coming soon".
+          <GuideSection />
         ) : section !== 'Inventory' ? (
           // Right side collapses to ComingSoon for the remaining 9 tree
           // items per G3 — keep the chrome consistent.

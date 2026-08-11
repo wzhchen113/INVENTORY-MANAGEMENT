@@ -69,8 +69,11 @@ jest.mock('../../../lib/installGuide', () => {
 // Settings uses useNavigation().goBack; the gear (tested separately) uses
 // navigate. Provide both (no NavigationContainer in these unit renders).
 const mockGoBack = jest.fn();
+// Spec 158 — the Guide row and the header HelpButton both call navigate();
+// hoist the mock so AC-14 can assert on the exact call.
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: mockGoBack }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack }),
 }));
 
 import { Settings } from './Settings';
@@ -79,6 +82,7 @@ import { useStaffStore } from '../store/useStaffStore';
 beforeEach(() => {
   mockSubmitStaffReport.mockReset();
   mockGoBack.mockReset();
+  mockNavigate.mockReset();
   mockInstallPlatform = 'ios';
   mockStandalone = false;
   useStaffStore.setState({
@@ -176,6 +180,48 @@ describe('Settings — Add to Home Screen illustrations (Spec 154)', () => {
     mockStandalone = true;
     const { queryByTestId } = render(<Settings />);
     expect(queryByTestId('staff-install-guide-art-ios.step1', HIDDEN)).toBeNull();
+  });
+});
+
+// ── Spec 158 (AC-14, AC-13, AC-REG4) ─────────────────────────────────────
+describe('Settings — Guide row (Spec 158)', () => {
+  it('AC-14: renders a Guide row that opens the INDEX (no topicId)', () => {
+    const { getByTestId } = render(<Settings />);
+    fireEvent.press(getByTestId('staff-guide-entry'));
+    expect(mockNavigate).toHaveBeenCalledWith('Guide');
+  });
+
+  it('AC-14 / AC-REG4: the row sits between Text size and the install-guide card', () => {
+    // Section order pin: Notifications → Language → Text size → [Guide] →
+    // install guide → Report an issue → Sign out.
+    const tree = JSON.stringify(render(<Settings />).toJSON());
+    const notif = tree.indexOf('staff-notification-switcher');
+    const locale = tree.indexOf('staff-locale-switcher');
+    const scale = tree.indexOf('staff-scale-switcher');
+    const guide = tree.indexOf('staff-guide-entry');
+    const install = tree.indexOf('staff-install-guide');
+    const report = tree.indexOf('staff-report-form');
+    const signOut = tree.indexOf('staff-settings-sign-out');
+
+    expect(notif).toBeGreaterThan(-1);
+    expect(locale).toBeGreaterThan(notif);
+    expect(scale).toBeGreaterThan(locale);
+    expect(guide).toBeGreaterThan(scale);
+    expect(install).toBeGreaterThan(guide);
+    expect(report).toBeGreaterThan(install);
+    expect(signOut).toBeGreaterThan(report);
+  });
+
+  it("AC-13: the header ? navigates to this screen's own topic", () => {
+    const { getByTestId } = render(<Settings />);
+    fireEvent.press(getByTestId('staff-guide-help-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('Guide', { topicId: 'Settings' });
+  });
+
+  it('AC-13: the ? does not displace the back control or the title', () => {
+    const { getByTestId } = render(<Settings />);
+    expect(getByTestId('staff-settings-back')).toBeTruthy();
+    expect(getByTestId('staff-guide-help-button')).toBeTruthy();
   });
 });
 

@@ -37,6 +37,7 @@ import { ListRow } from '../components/ListRow';
 import { IngredientThumb } from '../components/IngredientThumb';
 import { UpdatedBadge } from '../components/UpdatedBadge';
 import { SettingsGear } from '../components/SettingsGear';
+import { HelpButton } from '../components/HelpButton';
 import { AppReloadButton } from '../components/AppReloadButton';
 import { WeeklyDueBanner } from '../components/WeeklyDueBanner';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
@@ -1081,6 +1082,7 @@ export function WeeklyCount() {
             {t('weekly.title')}
           </Text>
           <AppReloadButton />
+          <HelpButton topicId="WeeklyCount" />
           <SettingsGear />
         </View>
         <Text style={[styles.subtitle, { color: c.textSecondary }]} numberOfLines={2}>

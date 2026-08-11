@@ -41,6 +41,9 @@ import { EODCount } from '../screens/EODCount';
 import { Reorder } from '../screens/Reorder';
 import { WeeklyCount } from '../screens/WeeklyCount';
 import { Settings } from '../screens/Settings';
+// Spec 158 — the in-app Guide screen. Registered in BOTH signed-in branches
+// (see below); it reads no store state, so it is valid in the pre-store one.
+import { Guide } from '../screens/Guide';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { lockStaffViewport } from '../lib/lockViewport';
 import { useStaffStore } from '../store/useStaffStore';
@@ -195,6 +198,10 @@ export function StaffStack() {
             `navigation.navigate('Settings')` from a nested tab bubbles up to
             this parent stack. */}
         <Stack.Screen name="Settings" component={Settings} />
+        {/* Spec 158 — the Guide screen, sibling of Settings for the same
+            reason: a `navigation.navigate('Guide', { topicId })` from a
+            nested tab bubbles up to this parent stack. */}
+        <Stack.Screen name="Guide" component={Guide} />
       </Stack.Navigator>
     );
   } else {
@@ -202,6 +209,13 @@ export function StaffStack() {
     content = (
       <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="StorePicker" component={StorePicker} />
+        {/* Spec 158 §0 C-5 — StorePicker lives in a DIFFERENT Stack.Navigator
+            than StaffTabs/Settings (which is exactly why SettingsGear is not on
+            it), so `navigate('Guide')` from the picker would target an
+            unregistered route unless the screen is registered here too. The
+            Guide reads no store state, so it is valid in this pre-store
+            branch. */}
+        <Stack.Screen name="Guide" component={Guide} />
       </Stack.Navigator>
     );
   }

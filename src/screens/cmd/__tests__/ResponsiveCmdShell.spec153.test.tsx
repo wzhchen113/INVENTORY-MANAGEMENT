@@ -144,7 +144,14 @@ jest.mock('../../../lib/paletteAction', () => ({
     { getState: () => ({ request: jest.fn() }) },
   ),
 }));
-jest.mock('../../../hooks/useRole', () => ({ useIsSuperAdmin: () => false }));
+// Spec 158 — the shell now also mounts GuideSheet, which reads useIsMaster.
+// Stubbed to null here (its own suite covers it) so this file keeps testing
+// only the spec-153 install entry.
+jest.mock('../../../components/cmd/GuideSheet', () => ({ GuideSheet: () => null }));
+jest.mock('../../../hooks/useRole', () => ({
+  useIsSuperAdmin: () => false,
+  useIsMaster: () => false,
+}));
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
 }));

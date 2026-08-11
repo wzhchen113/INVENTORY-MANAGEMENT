@@ -20,6 +20,8 @@ import Toast from 'react-native-toast-message';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+// Spec 158 — the `?` header control + the Guide row below.
+import { HelpButton } from '../components/HelpButton';
 // Spec 153 — inline "Add to Home Screen" card. Renders null off-web; consumes
 // the shared `lib/installGuide` model, which imports no store.
 import { InstallGuideCard } from '../components/InstallGuideCard';
@@ -49,7 +51,11 @@ export function Settings() {
   const T = useStaffTokens();
   const styles = useMemo(() => makeStyles(T), [T]);
   const { t } = useI18n();
-  const navigation = useNavigation<{ goBack: () => void }>();
+  const navigation = useNavigation<{
+    goBack: () => void;
+    // Spec 158 — the Guide row below navigates to the sibling `Guide` screen.
+    navigate: (screen: string, params?: { topicId?: string }) => void;
+  }>();
 
   const activeStore = useStaffStore((s) => s.activeStore);
   const setAuthState = useStaffStore((s) => s.setAuthState);
@@ -134,9 +140,12 @@ export function Settings() {
         >
           <Text style={[styles.backText, { color: c.primary }]}>‹ {t('chrome.settings.back')}</Text>
         </Pressable>
-        <Text style={[styles.title, { color: c.text }]} accessibilityRole="header" numberOfLines={1}>
-          {t('chrome.settings.title')}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, { color: c.text }]} accessibilityRole="header" numberOfLines={1}>
+            {t('chrome.settings.title')}
+          </Text>
+          <HelpButton topicId="Settings" />
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody}>
@@ -163,6 +172,24 @@ export function Settings() {
           </Text>
           <ScaleSwitcher />
         </View>
+
+        {/* Guide (spec 158) — between Text size and the install-guide card
+            (AC-14 / AC-REG4 section order). Opens the index: no topicId. */}
+        <Pressable
+          onPress={() => navigation.navigate('Guide')}
+          testID="staff-guide-entry"
+          accessibilityRole="button"
+          accessibilityLabel={t('guide.title')}
+          style={({ pressed }) => [
+            styles.card,
+            styles.guideRow,
+            { backgroundColor: pressed ? c.surfaceAlt : c.surface, borderColor: c.border },
+            e.card,
+          ]}
+        >
+          <Text style={[styles.cardTitle, { color: c.text }]}>{t('guide.title')}</Text>
+          <Text style={[styles.guideBody, { color: c.textSecondary }]}>{t('guide.intro')}</Text>
+        </Pressable>
 
         {/* Add to Home Screen (spec 153) */}
         <InstallGuideCard />
@@ -295,9 +322,24 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     fontSize: T.typography.body,
     fontWeight: T.typography.semibold,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: T.spacing.sm,
+  },
   title: {
+    flexShrink: 1,
     fontSize: T.typography.headline,
     fontWeight: T.typography.bold,
+  },
+  guideRow: {
+    minHeight: T.touchTarget.min,
+    justifyContent: 'center',
+  },
+  guideBody: {
+    fontSize: T.typography.caption,
+    lineHeight: T.typography.lineHeightBody,
   },
   scrollBody: {
     padding: T.spacing.lg,

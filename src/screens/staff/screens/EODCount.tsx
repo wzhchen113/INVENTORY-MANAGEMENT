@@ -31,6 +31,7 @@ import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { SettingsGear } from '../components/SettingsGear';
+import { HelpButton } from '../components/HelpButton';
 import { AppReloadButton } from '../components/AppReloadButton';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { QueueIndicator } from '../components/QueueIndicator';
@@ -948,6 +949,7 @@ export function EODCount() {
             </Text>
           </Pressable>
           <AppReloadButton />
+          <HelpButton topicId="EODCount" />
           <SettingsGear />
         </View>
         {/* Today / Yesterday count-date toggle. Yesterday lets staff catch a

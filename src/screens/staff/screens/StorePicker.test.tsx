@@ -23,6 +23,14 @@ jest.mock('../../../lib/supabase', () => ({
   supabase: { rpc: jest.fn().mockResolvedValue({ data: null, error: null }) },
 }));
 
+// Spec 158 — the header now carries a HelpButton, which owns its own
+// `useNavigation` (mirroring SettingsGear). These unit renders have no
+// NavigationContainer, so stub the hook.
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 import { StorePicker } from './StorePicker';
 import { useStaffStore } from '../store/useStaffStore';
 
@@ -139,5 +147,31 @@ describe('StorePicker — spec 072 scroll-pinned-footer', () => {
       : [styleProp as Record<string, unknown>];
     const flex = styles.filter(Boolean).map((s) => s.flex).find((v) => v !== undefined);
     expect(flex).toBe(1);
+  });
+});
+
+// ── Spec 158 (AC-13) ─────────────────────────────────────────────────────
+// StorePicker lives in its OWN Stack.Navigator (which is why SettingsGear is
+// not on it), so the `Guide` screen is registered in that branch too — §0 C-5.
+describe('StorePicker — guide affordance (Spec 158)', () => {
+  beforeEach(() => {
+    mockNavigate.mockReset();
+  });
+
+  it('renders the ? control in the title row', () => {
+    const { getByTestId } = render(<StorePicker />);
+    expect(getByTestId('staff-guide-help-button')).toBeTruthy();
+  });
+
+  it("navigates to Guide with this screen's own topic id", () => {
+    const { getByTestId } = render(<StorePicker />);
+    fireEvent.press(getByTestId('staff-guide-help-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('Guide', { topicId: 'StorePicker' });
+  });
+
+  it('does not displace the title or the store rows', () => {
+    const { getByText } = render(<StorePicker />);
+    expect(getByText('Frederick')).toBeTruthy();
+    expect(getByText('Charles')).toBeTruthy();
   });
 });

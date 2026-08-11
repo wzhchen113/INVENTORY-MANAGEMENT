@@ -65,7 +65,8 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 import React from 'react';
-import { act, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { MobileTopAppBar } from './MobileTopAppBar';
 import { useInflight } from '../../lib/inflight';
 
@@ -108,5 +109,68 @@ describe('MobileTopAppBar — LoadingBar integration (Spec 056)', () => {
     // Still rendered, still labelled "Loading" — the slow state is a
     // color shift only (verified in LoadingBar.test.tsx).
     expect(screen.getByLabelText('Loading')).toBeTruthy();
+  });
+});
+
+// ── Spec 158: the pressable-title guide affordance (AC-8 / AC-REG3) ──────
+describe('MobileTopAppBar — guide affordance (Spec 158)', () => {
+  test('AC-REG3: no onTitlePress → a plain, non-pressable title', () => {
+    render(<MobileTopAppBar onHamburgerPress={() => {}} title="waste log" height={52} />);
+    expect(screen.queryByTestId('cmd-guide-entry')).toBeNull();
+    expect(screen.queryByTestId('cmd-guide-entry-marker')).toBeNull();
+    expect(screen.getByText('waste log')).toBeTruthy();
+  });
+
+  test('onTitlePress → the title area becomes the button, with an ALWAYS-visible ? marker', () => {
+    const onTitlePress = jest.fn();
+    render(
+      <MobileTopAppBar
+        onHamburgerPress={() => {}}
+        title="waste log"
+        height={52}
+        onTitlePress={onTitlePress}
+        titlePressLabel="open the guide"
+      />,
+    );
+
+    const entry = screen.getByTestId('cmd-guide-entry');
+    expect(screen.getByTestId('cmd-guide-entry-marker')).toBeTruthy();
+    expect(screen.getByLabelText('open the guide')).toBeTruthy();
+    // The title itself still renders (the marker is additive, not a swap).
+    expect(screen.getByText('waste log')).toBeTruthy();
+
+    fireEvent.press(entry);
+    expect(onTitlePress).toHaveBeenCalledTimes(1);
+  });
+
+  test('AC-8: the bar stays exactly 52px and the pressable fills its height', () => {
+    render(
+      <MobileTopAppBar
+        onHamburgerPress={() => {}}
+        title="a very long section name that must ellipsize"
+        height={52}
+        onTitlePress={() => {}}
+        titlePressLabel="open the guide"
+      />,
+    );
+    const row = screen.getByTestId('mobile-top-app-bar-row');
+    expect(row.props.style.height).toBe(52);
+    // ≥44px target: the pressable is the full bar height. TouchableOpacity
+    // merges its own opacity style in, so flatten before reading.
+    const entry = screen.getByTestId('cmd-guide-entry');
+    expect(StyleSheet.flatten(entry.props.style).height).toBe(52);
+  });
+
+  test('AC-8: the title keeps numberOfLines={1} so a long name cannot push the ? out', () => {
+    render(
+      <MobileTopAppBar
+        onHamburgerPress={() => {}}
+        title="a very long section name that must ellipsize"
+        height={52}
+        onTitlePress={() => {}}
+      />,
+    );
+    const title = screen.getByText('a very long section name that must ellipsize');
+    expect(title.props.numberOfLines).toBe(1);
   });
 });

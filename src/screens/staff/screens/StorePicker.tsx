@@ -19,6 +19,7 @@
 import { useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HelpButton } from '../components/HelpButton';
 import { ListRow } from '../components/ListRow';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { NotificationSwitcher } from '../components/NotificationSwitcher';
@@ -47,9 +48,14 @@ export function StorePicker() {
       testID="store-picker-root"
     >
       <View style={styles.header}>
-        <Text style={[styles.title, { color: c.text }]} accessibilityRole="header">
-          {t('store.picker.title')}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, { color: c.text }]} accessibilityRole="header">
+            {t('store.picker.title')}
+          </Text>
+          {/* Spec 158 — this screen lives in its OWN Stack.Navigator, so the
+              `Guide` screen is registered in that branch too (§0 C-5). */}
+          <HelpButton topicId="StorePicker" />
+        </View>
         <Text style={[styles.subtitle, { color: c.textSecondary }]}>
           {t('store.picker.subtitle', { count: stores.length })}
         </Text>
@@ -103,7 +109,14 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
     paddingTop: T.spacing.xl,
     paddingBottom: T.spacing.lg,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: T.spacing.sm,
+  },
   title: {
+    flexShrink: 1,
     fontSize: T.typography.headline,
     fontWeight: T.typography.bold,
     marginBottom: T.spacing.xs,

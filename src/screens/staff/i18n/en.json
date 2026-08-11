@@ -488,5 +488,80 @@
         "body": "I.M.R is installed on this device. Open it from your Home Screen."
       }
     }
+  },
+  "guide": {
+    "title": "Guide",
+    "indexTitle": "Every screen, explained",
+    "intro": "A plain-language explanation of every screen in this app. Pick a screen to read what it is for and what you do on it.",
+    "purposeLabel": "What this screen is for",
+    "actionsLabel": "Key actions",
+    "seeAllPages": "See all screens",
+    "backToIndex": "Back to all screens",
+    "back": "Back",
+    "helpAria": "Open the guide for this screen",
+    "groups": {
+      "overview": "Overview",
+      "operations": "Operations",
+      "planning": "Planning",
+      "insights": "Insights",
+      "admin": "Admin",
+      "tenancy": "Brands",
+      "staff": "Your screens"
+    },
+    "topics": {
+      "overview": {
+        "title": "How your day fits together",
+        "purpose": "A first-day tour of what you are being asked to do and why it matters. Every screen in this app is one step in the same daily loop.",
+        "actions": {
+          "1": "Pick the store you are working at, so everything you enter is recorded against the right one.",
+          "2": "During your shift, flag anything running low on Reorder so the manager sees it.",
+          "3": "At close, count what is physically left and submit it — the next order is built from that count.",
+          "4": "Once a week, work through the full weekly count so the numbers stay honest."
+        }
+      },
+      "eodCount": {
+        "title": "Count (end of day)",
+        "purpose": "Entering what is physically left at the end of your shift, so the next order is based on real numbers.",
+        "actions": {
+          "1": "Enter a number for each item you counted.",
+          "2": "Leave an item blank if you did not count it.",
+          "3": "Submit before you leave — it saves even without signal and sends when you are back online."
+        }
+      },
+      "reorder": {
+        "title": "Reorder",
+        "purpose": "Flagging what needs to be bought so the manager sees it.",
+        "actions": {
+          "1": "Mark the items that are running low.",
+          "2": "Add a quantity or note if you know how much is needed."
+        }
+      },
+      "weeklyCount": {
+        "title": "Weekly count",
+        "purpose": "The full count of everything in the store, done once a week rather than nightly.",
+        "actions": {
+          "1": "Work through every item on the list.",
+          "2": "Save as you go — your progress is kept.",
+          "3": "Submit when the whole list is done."
+        }
+      },
+      "storePicker": {
+        "title": "Choosing your store",
+        "purpose": "Picking which store you are working at. Everything you enter is recorded against this store.",
+        "actions": {
+          "1": "Tap the store you are working at today.",
+          "2": "Switch stores from the header if you move."
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "purpose": "Your personal settings: notifications, language, text size, reporting a problem, and signing out.",
+        "actions": {
+          "1": "Turn notifications on so you are reminded to count.",
+          "2": "Change the language or text size.",
+          "3": "Report a problem if something looks wrong."
+        }
+      }
+    }
   }
 }

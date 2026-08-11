@@ -4,7 +4,8 @@ import {
   EODSubmission, Recipe, PrepRecipe, InventoryItem, Vendor, AuditEvent, POSImport,
   Store, OrderSubmission, OrderSchedule, ItemStatus,
 } from '../types';
-import type { SidebarGroup } from './sidebarLayout';
+import type { SidebarGroup, TreeItem } from './sidebarLayout';
+import type { AdminSectionId } from './adminSections';
 import { useIsSuperAdmin, useIsMaster } from '../hooks/useRole';
 import { useT } from '../hooks/useT';
 import { getWeekWindow, isoDateRange, getLocalDateISO } from '../utils/weekWindow';
@@ -1069,6 +1070,27 @@ export function useCogsForCurrentStore(days: number = 7): {
 // rename them casually.
 
 /**
+ * Spec 158 §6, layer 1 (TYPE-ONLY — zero behavior change).
+ *
+ * `TreeItem.id` is `string`, and assigning a string literal into a `string`
+ * field produces no error — so the guide registry's
+ * `Record<Exclude<AdminSectionId, GuideExemptSectionId>, GuideTopic>` alone
+ * catches nothing. The chain only closes if the sidebar's item ids are FORCED
+ * to be union members, which is what this local alias does: annotate each
+ * group's item array as `NavItem[]`, then compose the `SidebarGroup[]` as
+ * before (`AdminSectionId extends string`, so it widens silently).
+ *
+ * Drift chain: new sidebar id → `NavItem[]` rejects it → dev adds it to
+ * `ADMIN_SECTION_IDS` → the guide `Record` is missing a key → dev writes the
+ * topic. `npx tsc --noEmit` and `npm run typecheck:test` both run it.
+ *
+ * `TreeItem.id` itself MUST stay `string`: `sidebarLayout.ts`'s legacy remap
+ * operates on ids that are deliberately NOT union members (`Reorder`,
+ * `PurchaseOrders`, `Receiving`). This alias is local on purpose.
+ */
+type NavItem = Omit<TreeItem, 'id'> & { id: AdminSectionId };
+
+/**
  * Default group structure (admin-only app — store users have a separate
  * app + API). Memoized via stable identity: the array is constructed
  * once per `useMemo` boundary and returned. Consumers that need to wire
@@ -1102,7 +1124,7 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           // at EOD/weekly counts, ordering is phone/text/cart-filler, so the
           // PO/receiving paperwork is gone. A saved custom layout referencing the
           // old `Receiving` id resolves cleanly via remapLegacySidebarOverrideIds.
-        ],
+        ] satisfies NavItem[],
       },
       {
         label: T('sidebar.groups.planning'),
@@ -1116,7 +1138,7 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           { id: 'Vendors',         label: T('sidebar.items.vendors') },
           { id: 'Recipes',         label: T('sidebar.items.menuItemsBom') },
           { id: 'PrepRecipes',     label: T('sidebar.items.prepRecipes') },
-        ],
+        ] satisfies NavItem[],
       },
       {
         label: T('sidebar.groups.insights'),
@@ -1135,7 +1157,7 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
           // The shell attaches `onPress` since this selector is decoupled
           // from React Navigation.
           { id: 'DBInspector',     label: T('sidebar.items.dbInspector') },
-        ],
+        ] satisfies NavItem[],
       },
     ];
     // Spec 030 — gate the Admin group on master/super_admin. Non-master
@@ -1148,7 +1170,7 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
         label: T('sidebar.groups.admin'),
         items: [
           { id: 'Users', label: T('sidebar.items.usersAccess') },
-        ],
+        ] satisfies NavItem[],
       });
     }
     if (isSuperAdmin) {
@@ -1156,9 +1178,23 @@ export function useDefaultSidebarGroups(): SidebarGroup[] {
         label: T('sidebar.groups.tenancy'),
         items: [
           { id: 'Brands', label: T('sidebar.items.brands') },
-        ],
+        ] satisfies NavItem[],
       });
     }
+    // Spec 158 — the in-app Guide, in its own always-visible HELP group,
+    // appended LAST (after the role-gated Admin / Tenancy groups). No override
+    // migration is needed: applySidebarOverride walks the DEFAULT groups and
+    // falls back to the default group + default sort key for any id missing
+    // from a user's saved profiles.sidebar_layout, exactly as spec 060 added
+    // `MenuImpact`. It is a normal sidebar item — hideable in spec-008 edit
+    // mode like any other, with no special-casing (hiding it is not a dead end
+    // because the `?` in the chrome remains).
+    groups.push({
+      label: T('sidebar.groups.help'),
+      items: [
+        { id: 'Guide', label: T('sidebar.items.guide') },
+      ] satisfies NavItem[],
+    });
     return groups;
   }, [isSuperAdmin, isMaster, T]);
 }

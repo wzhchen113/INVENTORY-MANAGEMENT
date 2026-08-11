@@ -488,5 +488,80 @@
         "body": "I.M.R está instalada en este dispositivo. Ábrela desde tu pantalla de inicio."
       }
     }
+  },
+  "guide": {
+    "title": "Guía",
+    "indexTitle": "Todas las pantallas, explicadas",
+    "intro": "Una explicación en lenguaje sencillo de cada pantalla de esta aplicación. Elige una pantalla para leer para qué sirve y qué se hace en ella.",
+    "purposeLabel": "Para qué sirve esta pantalla",
+    "actionsLabel": "Acciones clave",
+    "seeAllPages": "Ver todas las pantallas",
+    "backToIndex": "Volver a todas las pantallas",
+    "back": "Atrás",
+    "helpAria": "Abrir la guía de esta pantalla",
+    "groups": {
+      "overview": "Resumen",
+      "operations": "Operaciones",
+      "planning": "Planificación",
+      "insights": "Análisis",
+      "admin": "Administración",
+      "tenancy": "Marcas",
+      "staff": "Tus pantallas"
+    },
+    "topics": {
+      "overview": {
+        "title": "Cómo encaja tu jornada",
+        "purpose": "Un recorrido para el primer día sobre lo que se te pide hacer y por qué importa. Cada pantalla de esta aplicación es un paso del mismo ciclo diario.",
+        "actions": {
+          "1": "Elige la tienda en la que trabajas, para que todo lo que registres quede en la correcta.",
+          "2": "Durante tu turno, marca en Reposición todo lo que se esté agotando para que el gerente lo vea.",
+          "3": "Al cerrar, cuenta lo que queda físicamente y envíalo: el próximo pedido se arma a partir de ese conteo.",
+          "4": "Una vez por semana, recorre el conteo semanal completo para que las cantidades sigan siendo fiables."
+        }
+      },
+      "eodCount": {
+        "title": "Conteo (fin de turno)",
+        "purpose": "Registrar lo que queda físicamente al terminar tu turno, para que el próximo pedido se base en números reales.",
+        "actions": {
+          "1": "Escribe un número para cada artículo que contaste.",
+          "2": "Deja un artículo en blanco si no lo contaste.",
+          "3": "Envía antes de irte: se guarda incluso sin señal y se envía cuando vuelvas a estar en línea."
+        }
+      },
+      "reorder": {
+        "title": "Reposición",
+        "purpose": "Marcar lo que hay que comprar para que el gerente lo vea.",
+        "actions": {
+          "1": "Marca los artículos que se están agotando.",
+          "2": "Agrega una cantidad o una nota si sabes cuánto hace falta."
+        }
+      },
+      "weeklyCount": {
+        "title": "Conteo semanal",
+        "purpose": "El conteo completo de todo lo que hay en la tienda, hecho una vez por semana en lugar de cada noche.",
+        "actions": {
+          "1": "Recorre cada artículo de la lista.",
+          "2": "Guarda sobre la marcha: tu progreso se conserva.",
+          "3": "Envía cuando toda la lista esté terminada."
+        }
+      },
+      "storePicker": {
+        "title": "Elegir tu tienda",
+        "purpose": "Elegir en qué tienda estás trabajando. Todo lo que registres queda asociado a esta tienda.",
+        "actions": {
+          "1": "Toca la tienda en la que trabajas hoy.",
+          "2": "Cambia de tienda desde el encabezado si te trasladas."
+        }
+      },
+      "settings": {
+        "title": "Ajustes",
+        "purpose": "Tus ajustes personales: notificaciones, idioma, tamaño del texto, reportar un problema y cerrar sesión.",
+        "actions": {
+          "1": "Activa las notificaciones para que te recuerden contar.",
+          "2": "Cambia el idioma o el tamaño del texto.",
+          "3": "Reporta un problema si algo se ve mal."
+        }
+      }
+    }
   }
 }

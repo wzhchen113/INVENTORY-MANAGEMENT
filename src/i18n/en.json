@@ -5,7 +5,8 @@
       "planning": "Planning",
       "insights": "Insights",
       "admin": "Admin",
-      "tenancy": "Tenancy"
+      "tenancy": "Tenancy",
+      "help": "Help"
     },
     "items": {
       "inventory": "Inventory",
@@ -27,7 +28,8 @@
       "dbInspector": "DB inspector",
       "usersAccess": "Users & access",
       "brands": "Brands",
-      "menuImpact": "Menu impact"
+      "menuImpact": "Menu impact",
+      "guide": "Guide"
     },
     "actions": {
       "resetConfirmTitle": "Reset sidebar to default?",
@@ -1820,5 +1822,183 @@
     "caseOne": "{count} case",
     "caseMany": "{count} cases",
     "onHandLine": "on hand {qty} {unit}"
+  },
+  "guide": {
+    "title": "Guide",
+    "indexTitle": "Every page, explained",
+    "intro": "A plain-language explanation of every page in this app. Pick a page to read what it is for and what you do on it.",
+    "purposeLabel": "What this page is for",
+    "actionsLabel": "Key actions",
+    "seeAllPages": "See all pages",
+    "backToIndex": "Back to all pages",
+    "back": "Back",
+    "helpAria": "Open the guide for this page",
+    "groups": {
+      "overview": "Overview",
+      "operations": "Operations",
+      "planning": "Planning",
+      "insights": "Insights",
+      "admin": "Admin",
+      "tenancy": "Tenancy",
+      "staff": "Staff app"
+    },
+    "topics": {
+      "overview": {
+        "title": "How a normal day flows",
+        "purpose": "A first-day tour of how the pieces fit together. Everything else in this Guide is one step in the same daily loop: count what is left, buy what is short, count what arrives.",
+        "actions": {
+          "1": "At close, staff enter what is physically left. That is the EOD count, and every number downstream starts there.",
+          "2": "Ordering turns those counts into a suggested reorder list. Review it, adjust quantities, and send the order to the vendor.",
+          "3": "When the delivery arrives it lands on the books at the next count — there is no separate receiving step.",
+          "4": "Weekly count catches what nightly counts miss, Reconciliation shows where stock actually went, and Dashboard and Reports are where you read the result."
+        }
+      },
+      "inventory": {
+        "title": "Inventory",
+        "purpose": "The master list of every ingredient this store stocks, with its current on-hand count, unit, cost and vendor.",
+        "actions": {
+          "1": "Search or filter to find an item.",
+          "2": "Open an item to see its history, cost and which menu items use it.",
+          "3": "Use catalog.tsv to manage the brand-wide catalog and categories to organise items into groups."
+        }
+      },
+      "dashboard": {
+        "title": "Dashboard",
+        "purpose": "The daily health check for this store — what changed, what is running low, what needs attention today.",
+        "actions": {
+          "1": "Scan the summary cards for low stock and today's activity.",
+          "2": "Click through a card to the section it summarises."
+        }
+      },
+      "eodCount": {
+        "title": "EOD count",
+        "purpose": "End-of-day counting. Staff enter what is physically left at close; this is what keeps on-hand numbers honest.",
+        "actions": {
+          "1": "Enter tonight's counts, item by item.",
+          "2": "Review what staff submitted for the day.",
+          "3": "Fix a wrong entry before it flows into reports."
+        }
+      },
+      "inventoryCount": {
+        "title": "Weekly count",
+        "purpose": "The full-store count, done weekly rather than nightly. Catches the drift that a nightly partial count misses.",
+        "actions": {
+          "1": "Start or continue this week's count.",
+          "2": "Work through every item, including the ones not counted nightly.",
+          "3": "Submit to set the new baseline."
+        }
+      },
+      "wasteLog": {
+        "title": "Waste log",
+        "purpose": "A record of everything thrown out, spilled or comped, so shrinkage shows up as waste rather than as an unexplained gap.",
+        "actions": {
+          "1": "Log an item, quantity and reason.",
+          "2": "Review the recent waste history for this store."
+        }
+      },
+      "ordering": {
+        "title": "Ordering",
+        "purpose": "The reorder list — what to buy, from whom, and how much, based on current stock. Also keeps a read-only history of past orders.",
+        "actions": {
+          "1": "Review the suggested reorder list and adjust quantities.",
+          "2": "Export or send the order to the vendor.",
+          "3": "Open History at the bottom to see what was ordered previously."
+        }
+      },
+      "vendors": {
+        "title": "Vendors",
+        "purpose": "Who you buy from: contact details, order method and which items each vendor supplies.",
+        "actions": {
+          "1": "Add or edit a vendor.",
+          "2": "Set how orders reach them.",
+          "3": "See which items are tied to a vendor."
+        }
+      },
+      "recipes": {
+        "title": "Menu items / BOM",
+        "purpose": "Every menu item and the ingredient list (bill of materials) behind it. This is what turns a sale into an inventory depletion.",
+        "actions": {
+          "1": "Add or edit a menu item.",
+          "2": "Set the ingredients and quantities it consumes.",
+          "3": "Check the resulting plate cost."
+        }
+      },
+      "prepRecipes": {
+        "title": "Prep recipes",
+        "purpose": "Sub-recipes made in-house — sauces, doughs, batches — that other menu items consume as if they were an ingredient.",
+        "actions": {
+          "1": "Create a prep recipe and its ingredient list.",
+          "2": "Set the batch yield.",
+          "3": "Use it as an ingredient inside a menu item."
+        }
+      },
+      "menuImpact": {
+        "title": "Menu impact",
+        "purpose": "How many of each menu item you can still make with what is on hand, and which single ingredient is the limit.",
+        "actions": {
+          "1": "Read the list, lowest makeable quantity first.",
+          "2": "Check the binding ingredient to see what to reorder first."
+        }
+      },
+      "reconciliation": {
+        "title": "Reconciliation",
+        "purpose": "The variance report: what the counts say you used versus what you should have used. Where theft, waste and miscounts show up.",
+        "actions": {
+          "1": "Review variance by item for the latest period.",
+          "2": "Switch to the category or timeline view for the wider pattern.",
+          "3": "Investigate the biggest dollar gaps first."
+        }
+      },
+      "posImports": {
+        "title": "POS imports",
+        "purpose": "Bringing sales data in from the point-of-sale system, so sales can deplete inventory automatically.",
+        "actions": {
+          "1": "Run an import or backfill a date range.",
+          "2": "Review the preview before confirming.",
+          "3": "Check the import history for failures."
+        }
+      },
+      "auditLog": {
+        "title": "Audit log",
+        "purpose": "A time-stamped record of who changed what. The place to answer \"who edited this and when\".",
+        "actions": {
+          "1": "Browse recent changes for this store.",
+          "2": "Filter to a user, item or date."
+        }
+      },
+      "reports": {
+        "title": "Reports",
+        "purpose": "Exportable summaries — usage, cost and movement over a date range — for sharing outside the app.",
+        "actions": {
+          "1": "Pick a report and a date range.",
+          "2": "Export to CSV or PDF."
+        }
+      },
+      "dbInspector": {
+        "title": "DB inspector",
+        "purpose": "A read-only technical view of the raw database tables. For debugging, not for daily work.",
+        "actions": {
+          "1": "Pick a table to inspect.",
+          "2": "Read the raw rows. Nothing here changes data."
+        }
+      },
+      "users": {
+        "title": "Users & access",
+        "purpose": "Who can sign in, what role they have, and which stores they can see.",
+        "actions": {
+          "1": "Invite a new user.",
+          "2": "Change a role or store access.",
+          "3": "Remove someone who has left."
+        }
+      },
+      "brands": {
+        "title": "Brands",
+        "purpose": "Super-admin only: the brands (restaurant concepts) this account manages and the stores under each.",
+        "actions": {
+          "1": "Switch the active brand.",
+          "2": "Review the stores under a brand."
+        }
+      }
+    }
   }
 }

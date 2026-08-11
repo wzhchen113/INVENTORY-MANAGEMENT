@@ -26,6 +26,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Banner } from '../components/Banner';
 import { SettingsGear } from '../components/SettingsGear';
+import { HelpButton } from '../components/HelpButton';
 import { AppReloadButton } from '../components/AppReloadButton';
 import { NotificationReminderBanner } from '../components/NotificationReminderBanner';
 import { ReorderDatePicker } from '../components/ReorderDatePicker';
@@ -591,6 +592,7 @@ export function Reorder() {
             <Text style={[styles.headerSub, { color: c.textSecondary }]}>{t('reorder.title')}</Text>
           </Pressable>
           <AppReloadButton />
+          <HelpButton topicId="Reorder" />
           <SettingsGear />
         </View>
 

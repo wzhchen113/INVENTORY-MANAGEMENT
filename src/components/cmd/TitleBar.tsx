@@ -21,6 +21,10 @@ interface Props {
    *  BrandPicker only when useIsSuperAdmin() === true; non-super-admin
    *  users see the same chrome as before (slot is null). */
   brandPicker?: React.ReactNode;
+  /** Spec 158 — optional `?` control in the right cluster (before the bell)
+   *  that opens the guide sheet for the active section. OPTIONAL on purpose:
+   *  callers that pass nothing render byte-identically (AC-REG3). */
+  onHelpPress?: () => void;
 }
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
@@ -35,7 +39,7 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/\s+/g, '-');
 // to drop a menu of stores the user has access to (admin/master see all,
 // regular users see their user_stores grants). Picking one calls
 // setCurrentStore.
-export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandPicker }) => {
+export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandPicker, onHelpPress }) => {
   const C = useCmdColors();
   const T = useT();
   const stores = useStore((s) => s.stores);
@@ -234,6 +238,30 @@ export const TitleBar: React.FC<Props> = ({ storeName, section, itemSlug, brandP
         : null}
       {/* Spec 012b — brand picker slot (super-admin only, gated upstream) */}
       {brandPicker ? <View>{brandPicker}</View> : null}
+      {/* Spec 158 — the `?` guide entry, BEFORE the bell. Renders only when the
+          shell supplies a handler, so every other caller is byte-unchanged.
+          The tablet branch renders this TitleBar in BOTH sub-states (rail XOR
+          full sidebar happens BELOW it), so one insertion point covers desktop
+          and both tablet layouts — there is deliberately no rail twin, which
+          would duplicate the `cmd-guide-entry` testID (§0 C-2). */}
+      {onHelpPress ? (
+        <TouchableOpacity
+          testID="cmd-guide-entry"
+          onPress={onHelpPress}
+          accessibilityRole="button"
+          accessibilityLabel={T('guide.helpAria')}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={{
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: CmdRadius.xs,
+            borderWidth: 1,
+            borderColor: C.border,
+          }}
+        >
+          <Text style={{ fontFamily: mono(500), fontSize: 11, color: C.fg2 }}>?</Text>
+        </TouchableOpacity>
+      ) : null}
       {/* Spec 120 — submission notification bell + badge + portaled panel. */}
       <NotificationBell />
       {/* Theme toggle — always visible, sits next to the brand picker. */}

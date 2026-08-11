@@ -24,6 +24,22 @@ interface Props {
    *  Defaults to the Spec 011 sans-600 / 14 style so existing callers are
    *  byte-unchanged. */
   titleType?: TextStyle;
+  /** Spec 158 (OQ-2) — makes the whole title area a pressable that opens the
+   *  guide for the active section, and renders a small trailing `?` marker
+   *  inside the title area so the affordance is discoverable.
+   *
+   *  Why the title and not a fifth trailing glyph: the phone bar is a FIXED
+   *  52px (handoff Hard Rule 5) and its trailing cluster already carries brand
+   *  picker (super-admin) + bell + theme + refresh at 375px. The title row is
+   *  ≫44px wide and 52px tall, so it is a legal target for free and costs ~16px
+   *  of title width instead of a whole control.
+   *
+   *  OPTIONAL: callers that pass nothing render a plain `Text`, byte-identical
+   *  to before (AC-REG3). */
+  onTitlePress?: () => void;
+  /** Accessibility label for the pressable title. Only used with
+   *  `onTitlePress`. */
+  titlePressLabel?: string;
 }
 
 // Spec 011 §2 — narrow-tier app bar: hamburger + section title + slot.
@@ -38,6 +54,8 @@ export const MobileTopAppBar: React.FC<Props> = ({
   hamburgerLabel = 'Open menu',
   height = 44,
   titleType,
+  onTitlePress,
+  titlePressLabel,
 }) => {
   const C = useCmdColors();
   const insets = useSafeAreaInsets();
@@ -92,15 +110,54 @@ export const MobileTopAppBar: React.FC<Props> = ({
             {hamburgerGlyph}
           </Text>
         </TouchableOpacity>
-        <Text
-          numberOfLines={1}
-          style={[
-            { flex: 1, color: C.fg },
-            titleType ?? { fontFamily: sans(600), fontSize: 14 },
-          ]}
-        >
-          {title || 'im.cmd'}
-        </Text>
+        {onTitlePress ? (
+          // Spec 158 — the whole title area is the guide affordance. The title
+          // Text keeps numberOfLines={1} and flex:1 so a long section name
+          // still ellipsizes rather than pushing the `?` marker out of the bar;
+          // the marker itself is flexShrink:0 and ALWAYS visible (never
+          // hover-only) — a pressable title is otherwise undiscoverable.
+          <TouchableOpacity
+            testID="cmd-guide-entry"
+            onPress={onTitlePress}
+            accessibilityRole="button"
+            accessibilityLabel={titlePressLabel}
+            activeOpacity={0.7}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                { flexShrink: 1, minWidth: 0, color: C.fg },
+                titleType ?? { fontFamily: sans(600), fontSize: 14 },
+              ]}
+            >
+              {title || 'im.cmd'}
+            </Text>
+            <Text
+              testID="cmd-guide-entry-marker"
+              style={{ fontFamily: mono(500), fontSize: 12, color: C.fg3, flexShrink: 0 }}
+            >
+              ?
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <Text
+            numberOfLines={1}
+            style={[
+              { flex: 1, color: C.fg },
+              titleType ?? { fontFamily: sans(600), fontSize: 14 },
+            ]}
+          >
+            {title || 'im.cmd'}
+          </Text>
+        )}
         {trailing ? <View>{trailing}</View> : null}
       </View>
     </View>

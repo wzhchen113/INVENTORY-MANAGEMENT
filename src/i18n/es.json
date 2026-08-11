@@ -5,7 +5,8 @@
       "planning": "Planificación",
       "insights": "Análisis",
       "admin": "Administración",
-      "tenancy": "Tenencia"
+      "tenancy": "Tenencia",
+      "help": "Ayuda"
     },
     "items": {
       "inventory": "Inventario",
@@ -27,7 +28,8 @@
       "dbInspector": "Inspector de BD",
       "usersAccess": "Usuarios y acceso",
       "brands": "Marcas",
-      "menuImpact": "Impacto del menú"
+      "menuImpact": "Impacto del menú",
+      "guide": "Guía"
     },
     "actions": {
       "resetConfirmTitle": "¿Restablecer barra lateral por defecto?",
@@ -1820,5 +1822,183 @@
     "caseOne": "{count} caja",
     "caseMany": "{count} cajas",
     "onHandLine": "en existencia {qty} {unit}"
+  },
+  "guide": {
+    "title": "Guía",
+    "indexTitle": "Todas las páginas, explicadas",
+    "intro": "Una explicación en lenguaje sencillo de cada página de esta aplicación. Elige una página para leer para qué sirve y qué se hace en ella.",
+    "purposeLabel": "Para qué sirve esta página",
+    "actionsLabel": "Acciones clave",
+    "seeAllPages": "Ver todas las páginas",
+    "backToIndex": "Volver a todas las páginas",
+    "back": "Atrás",
+    "helpAria": "Abrir la guía de esta página",
+    "groups": {
+      "overview": "Resumen",
+      "operations": "Operaciones",
+      "planning": "Planificación",
+      "insights": "Análisis",
+      "admin": "Administración",
+      "tenancy": "Marcas",
+      "staff": "App del personal"
+    },
+    "topics": {
+      "overview": {
+        "title": "Cómo transcurre un día normal",
+        "purpose": "Un recorrido para el primer día sobre cómo encajan las piezas. Todo lo demás en esta guía es un paso del mismo ciclo diario: contar lo que queda, comprar lo que falta, contar lo que llega.",
+        "actions": {
+          "1": "Al cerrar, el personal registra lo que queda físicamente. Ese es el conteo de cierre, y de ahí parte cada número posterior.",
+          "2": "Pedidos convierte esos conteos en una lista de reposición sugerida. Revísala, ajusta las cantidades y envía el pedido al proveedor.",
+          "3": "Cuando llega la entrega, queda registrada en el próximo conteo: no hay un paso de recepción aparte.",
+          "4": "El conteo semanal detecta lo que los conteos nocturnos no ven, la conciliación muestra a dónde fue realmente el stock, y el panel y los informes son donde lees el resultado."
+        }
+      },
+      "inventory": {
+        "title": "Inventario",
+        "purpose": "La lista maestra de cada ingrediente que esta tienda mantiene en stock, con su conteo actual disponible, unidad, costo y proveedor.",
+        "actions": {
+          "1": "Busca o filtra para encontrar un artículo.",
+          "2": "Abre un artículo para ver su historial, su costo y qué platos del menú lo usan.",
+          "3": "Usa catalog.tsv para gestionar el catálogo de toda la marca y categories para organizar los artículos en grupos."
+        }
+      },
+      "dashboard": {
+        "title": "Panel",
+        "purpose": "El chequeo diario de esta tienda: qué cambió, qué se está agotando y qué necesita atención hoy.",
+        "actions": {
+          "1": "Revisa las tarjetas de resumen para ver stock bajo y la actividad de hoy.",
+          "2": "Haz clic en una tarjeta para ir a la sección que resume."
+        }
+      },
+      "eodCount": {
+        "title": "Conteo de cierre",
+        "purpose": "Conteo de fin de día. El personal registra lo que queda físicamente al cerrar; esto es lo que mantiene honestas las cantidades disponibles.",
+        "actions": {
+          "1": "Registra los conteos de esta noche, artículo por artículo.",
+          "2": "Revisa lo que el personal envió durante el día.",
+          "3": "Corrige una entrada errónea antes de que llegue a los informes."
+        }
+      },
+      "inventoryCount": {
+        "title": "Conteo semanal",
+        "purpose": "El conteo completo de la tienda, hecho cada semana en lugar de cada noche. Detecta la desviación que un conteo parcial nocturno no ve.",
+        "actions": {
+          "1": "Inicia o continúa el conteo de esta semana.",
+          "2": "Recorre cada artículo, incluidos los que no se cuentan cada noche.",
+          "3": "Envíalo para fijar la nueva base de referencia."
+        }
+      },
+      "wasteLog": {
+        "title": "Registro de mermas",
+        "purpose": "Un registro de todo lo tirado, derramado o cortesía, para que el faltante aparezca como merma y no como un hueco sin explicación.",
+        "actions": {
+          "1": "Registra un artículo, la cantidad y el motivo.",
+          "2": "Revisa el historial reciente de mermas de esta tienda."
+        }
+      },
+      "ordering": {
+        "title": "Pedidos",
+        "purpose": "La lista de reposición: qué comprar, a quién y cuánto, según el stock actual. También guarda un historial de solo lectura de pedidos anteriores.",
+        "actions": {
+          "1": "Revisa la lista de reposición sugerida y ajusta las cantidades.",
+          "2": "Exporta o envía el pedido al proveedor.",
+          "3": "Abre Historial abajo para ver qué se pidió antes."
+        }
+      },
+      "vendors": {
+        "title": "Proveedores",
+        "purpose": "A quién le compras: datos de contacto, método de pedido y qué artículos suministra cada proveedor.",
+        "actions": {
+          "1": "Agrega o edita un proveedor.",
+          "2": "Define cómo le llegan los pedidos.",
+          "3": "Consulta qué artículos están ligados a un proveedor."
+        }
+      },
+      "recipes": {
+        "title": "Platos del menú / BOM",
+        "purpose": "Cada plato del menú y la lista de ingredientes (lista de materiales) detrás de él. Esto es lo que convierte una venta en una baja de inventario.",
+        "actions": {
+          "1": "Agrega o edita un plato del menú.",
+          "2": "Define los ingredientes y las cantidades que consume.",
+          "3": "Verifica el costo del plato resultante."
+        }
+      },
+      "prepRecipes": {
+        "title": "Recetas de preparación",
+        "purpose": "Sub-recetas hechas en casa (salsas, masas, lotes) que otros platos del menú consumen como si fueran un ingrediente.",
+        "actions": {
+          "1": "Crea una receta de preparación y su lista de ingredientes.",
+          "2": "Define el rendimiento del lote.",
+          "3": "Úsala como ingrediente dentro de un plato del menú."
+        }
+      },
+      "menuImpact": {
+        "title": "Impacto en el menú",
+        "purpose": "Cuántas unidades de cada plato del menú puedes hacer todavía con lo que hay disponible, y qué ingrediente es el que limita.",
+        "actions": {
+          "1": "Lee la lista, empezando por la menor cantidad posible de preparar.",
+          "2": "Revisa el ingrediente limitante para saber qué reponer primero."
+        }
+      },
+      "reconciliation": {
+        "title": "Conciliación",
+        "purpose": "El informe de varianza: lo que los conteos dicen que usaste frente a lo que deberías haber usado. Aquí aparecen el robo, la merma y los errores de conteo.",
+        "actions": {
+          "1": "Revisa la varianza por artículo del último período.",
+          "2": "Cambia a la vista por categoría o de línea de tiempo para ver el patrón general.",
+          "3": "Investiga primero las diferencias más grandes en dólares."
+        }
+      },
+      "posImports": {
+        "title": "Importaciones de POS",
+        "purpose": "Traer los datos de ventas desde el punto de venta, para que las ventas descuenten el inventario automáticamente.",
+        "actions": {
+          "1": "Ejecuta una importación o rellena un rango de fechas.",
+          "2": "Revisa la vista previa antes de confirmar.",
+          "3": "Revisa el historial de importaciones para detectar fallos."
+        }
+      },
+      "auditLog": {
+        "title": "Registro de auditoría",
+        "purpose": "Un registro con marca de tiempo de quién cambió qué. El lugar para responder «quién editó esto y cuándo».",
+        "actions": {
+          "1": "Explora los cambios recientes de esta tienda.",
+          "2": "Filtra por usuario, artículo o fecha."
+        }
+      },
+      "reports": {
+        "title": "Informes",
+        "purpose": "Resúmenes exportables — consumo, costo y movimiento en un rango de fechas — para compartir fuera de la aplicación.",
+        "actions": {
+          "1": "Elige un informe y un rango de fechas.",
+          "2": "Exporta a CSV o PDF."
+        }
+      },
+      "dbInspector": {
+        "title": "Inspector de BD",
+        "purpose": "Una vista técnica de solo lectura de las tablas de la base de datos. Para depurar, no para el trabajo diario.",
+        "actions": {
+          "1": "Elige una tabla para inspeccionar.",
+          "2": "Lee las filas en bruto. Nada aquí cambia datos."
+        }
+      },
+      "users": {
+        "title": "Usuarios y accesos",
+        "purpose": "Quién puede iniciar sesión, qué rol tiene y qué tiendas puede ver.",
+        "actions": {
+          "1": "Invita a un nuevo usuario.",
+          "2": "Cambia un rol o el acceso a tiendas.",
+          "3": "Elimina a alguien que ya se fue."
+        }
+      },
+      "brands": {
+        "title": "Marcas",
+        "purpose": "Solo para super-administradores: las marcas (conceptos de restaurante) que gestiona esta cuenta y las tiendas de cada una.",
+        "actions": {
+          "1": "Cambia la marca activa.",
+          "2": "Revisa las tiendas de una marca."
+        }
+      }
+    }
   }
 }
