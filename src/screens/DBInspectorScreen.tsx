@@ -5,9 +5,11 @@
 // see exactly what's in Supabase vs what the app is showing.
 //
 // Surfaces three things:
-//   1. Auth probe — whether YOUR JWT is admin (writes get silently
-//      denied by RLS otherwise; this is often the answer to "delete
-//      doesn't reach backend").
+//   1. Auth probe — whether you are PRIVILEGED (admin/master via the
+//      JWT, or super_admin via profiles.role). Spec 157: the banner keys
+//      off `is_privileged`, not `is_admin`, because a super_admin's token
+//      legitimately reports `is_admin: false` while every write policy
+//      that matters gates on auth_is_privileged().
 //   2. Schema state — pre-P3 (per-store) vs post-P3 (brand-scoped),
 //      and whether the prep partial unique index from Stage 3a is in.
 //   3. Duplicate groups by `(brand_id, lower(name))` for both `recipes`
@@ -67,8 +69,22 @@ type PrepGroup = {
   rows: PrepRow[];
 };
 
+// Spec 157 — `is_privileged` / `is_super_admin` are ADDITIVE and typed
+// OPTIONAL on purpose. The web bundle and the DB do not deploy atomically,
+// so a client built after the merge can hit a DB whose
+// admin_db_inspector_probe() has not been replaced yet. Typing them as
+// required would let the compiler bless a `false` that is really
+// `undefined` — see classifyAuthBanner's `'unknown'` arm.
+export type ProbeAuth = {
+  is_admin: boolean;
+  is_privileged?: boolean;
+  is_super_admin?: boolean;
+  app_metadata: any;
+  user_id: string | null;
+};
+
 type Probe = {
-  auth: { is_admin: boolean; app_metadata: any; user_id: string | null };
+  auth: ProbeAuth;
   schema: {
     recipes_has_store_id: boolean;
     recipes_has_brand_id: boolean;
@@ -99,6 +115,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleString();
 }
 
+// Raw-value echo for the auth kvLine. A field the deployed probe did not
+// emit reads as "(absent)" rather than silently as "false".
+function fmtFlag(v: boolean | undefined) {
+  return typeof v === 'boolean' ? String(v) : '(absent)';
+}
+
 function describeSchema(s: Probe['schema']): { label: string; tone: 'ok' | 'warn' | 'err' } {
   const postP3 =
     !s.recipes_has_store_id && s.recipes_has_brand_id &&
@@ -112,6 +134,80 @@ function describeSchema(s: Probe['schema']): { label: string; tone: 'ok' | 'warn
 
   return { label: 'Schema: drift detected — check probe output', tone: 'err' };
 }
+
+// ─── Auth banner (spec 157) ──────────────────────────────────────────────
+//
+// Pure + exported so the jest suite can assert every probe shape without
+// rendering the screen (same testability shape as describeSchema above).
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+export type AuthBannerState =
+  | 'privileged-jwt'          // is_privileged && is_admin   → affirmative
+  | 'privileged-super-admin'  // is_privileged && !is_admin  → affirmative
+  | 'not-privileged'          // is_privileged === false     → should be unreachable
+  | 'unknown';                // field absent / not a boolean → neutral
+
+/**
+ * Classify the probe's `auth` object into a banner state.
+ *
+ * Order matters:
+ *   1. no auth object at all            → unknown
+ *   2. is_privileged is not a boolean   → unknown  (deploy skew — the DB is
+ *      older than this bundle. Do NOT read `undefined` as `false`, and do NOT
+ *      fall back to `is_admin` as a green.)
+ *   3. is_privileged === false          → not-privileged
+ *   4. is_admin === true                → privileged-jwt
+ *   5. otherwise                        → privileged-super-admin
+ *
+ * Rule 5 keys off `is_privileged && !is_admin` rather than off
+ * `is_super_admin`, so the function stays total even if the two new fields
+ * ever disagree, and a hypothetical future privileged tier still lands in an
+ * affirmative state rather than falling through to the alarm.
+ */
+export function classifyAuthBanner(auth: ProbeAuth | null | undefined): AuthBannerState {
+  if (!auth) return 'unknown';
+  if (typeof auth.is_privileged !== 'boolean') return 'unknown';
+  if (auth.is_privileged === false) return 'not-privileged';
+  if (auth.is_admin === true) return 'privileged-jwt';
+  return 'privileged-super-admin';
+}
+
+export const AUTH_BANNER_COPY: Record<AuthBannerState, {
+  tone: 'ok' | 'warn' | 'unknown';
+  icon: IoniconName;
+  title: string;
+  detail?: string;
+}> = {
+  'privileged-jwt': {
+    tone: 'ok',
+    icon: 'shield-checkmark',
+    title: 'You are admin — writes are authorized.',
+    detail:
+      'Your token carries app_metadata.role of admin or master, so both the token-only check and the wider privileged check admit you.',
+  },
+  'privileged-super-admin': {
+    tone: 'ok',
+    icon: 'shield-checkmark',
+    title: 'You are super_admin — writes are authorized.',
+    detail:
+      'The token-only check (auth_is_admin) reports is_admin: false, and that is expected — super_admin is read from your profile row (profiles.role), never from your token, so nobody can grant it to themselves by forging a claim. Write policies gate on auth_is_privileged(), which admits admin, master and super_admin alike.',
+  },
+  'not-privileged': {
+    tone: 'warn',
+    icon: 'warning',
+    title: 'Inconsistent state — this probe should not have returned at all.',
+    detail:
+      'admin_db_inspector_probe() refuses any caller that is not privileged, so reading this panel while the payload says is_privileged: false means the payload and the entry guard disagree. Treat it as a bug in the RPC or a half-applied migration — not as a diagnosis of your account.',
+  },
+  unknown: {
+    tone: 'unknown',
+    icon: 'help-circle',
+    title: 'Privilege state unknown — the deployed probe predates this build.',
+    detail:
+      'The deployed admin_db_inspector_probe() did not return is_privileged, so no claim is made either way. Apply the pending migration and refresh. This is deploy skew between the web bundle and the database, not an access problem.',
+  },
+};
 
 export default function DBInspectorScreen() {
   const C = useColors();
@@ -144,6 +240,12 @@ export default function DBInspectorScreen() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const schemaInfo = useMemo(() => probe ? describeSchema(probe.schema) : null, [probe]);
+
+  const authBanner = useMemo(() => AUTH_BANNER_COPY[classifyAuthBanner(probe?.auth)], [probe]);
+  const authIconColor =
+    authBanner.tone === 'ok' ? C.success : authBanner.tone === 'warn' ? C.warning : C.textTertiary;
+  const authTitleColor =
+    authBanner.tone === 'ok' ? C.textPrimary : authBanner.tone === 'warn' ? C.warning : C.textSecondary;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bgTertiary }}>
@@ -183,22 +285,27 @@ export default function DBInspectorScreen() {
             {/* Auth probe */}
             <Card>
               <Text style={[styles.cardTitle, { color: C.textPrimary }]}>Auth</Text>
-              {probe.auth.is_admin ? (
+              <View>
                 <View style={styles.row}>
-                  <Ionicons name="shield-checkmark" size={18} color={C.success} />
-                  <Text style={[styles.bodyText, { color: C.textPrimary }]}>You are admin — writes are authorized.</Text>
-                </View>
-              ) : (
-                <View>
-                  <View style={styles.row}>
-                    <Ionicons name="warning" size={18} color={C.danger} />
-                    <Text style={[styles.bodyText, { color: C.danger, fontWeight: '600' }]}>You are NOT admin per the JWT.</Text>
-                  </View>
-                  <Text style={[styles.smallText, { color: C.textSecondary, marginTop: 6 }]}>
-                    Brand-catalog P5 RLS gates writes by auth_is_admin(). If you expect to be admin, ALL your CRUD is being silently denied — that is the most likely cause of "delete doesn't reach backend".
+                  <Ionicons name={authBanner.icon} size={18} color={authIconColor} />
+                  <Text
+                    style={[
+                      styles.bodyText,
+                      { color: authTitleColor, flex: 1, fontWeight: authBanner.tone === 'ok' ? '400' : '600' },
+                    ]}
+                  >
+                    {authBanner.title}
                   </Text>
                 </View>
-              )}
+                {!!authBanner.detail && (
+                  <Text style={[styles.smallText, { color: C.textSecondary, marginTop: 6 }]}>
+                    {authBanner.detail}
+                  </Text>
+                )}
+              </View>
+              <Text style={[styles.kvLine, { color: C.textTertiary, marginTop: 6 }]}>
+                is_admin: {fmtFlag(probe.auth.is_admin)} · is_privileged: {fmtFlag(probe.auth.is_privileged)} · is_super_admin: {fmtFlag(probe.auth.is_super_admin)}
+              </Text>
               <Text style={[styles.kvLine, { color: C.textTertiary }]}>app_metadata: {JSON.stringify(probe.auth.app_metadata)}</Text>
               <Text style={[styles.kvLine, { color: C.textTertiary }]}>user_id: {probe.auth.user_id ?? '(none)'}</Text>
             </Card>
