@@ -375,7 +375,12 @@
       "greetingAfternoon": "下午好",
       "greetingEvening": "晚上好",
       "greetingLine": "// {greeting},管理员 · {date} · {count} 家门店",
-      "heroTitle": "全部门店 · 当日进行中",
+      "greetingLineStore": "// {greeting},管理员 · {date} · {store}",
+      "heroTitleScope": "{scope} · 当日进行中",
+      "scopeAllBrand": "{brand} · {count} 家门店",
+      "scopeAllBrandOne": "{brand} · {count} 家门店",
+      "scopeAllFallback": "全部门店 ({count})",
+      "scopePickerA11y": "面板范围",
       "kpi": {
         "totalInvValue": "库存总值",
         "avgFoodCost": "平均食物成本 %",

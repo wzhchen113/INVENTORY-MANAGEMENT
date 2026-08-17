@@ -801,6 +801,85 @@ export async function fetchWasteLog(storeId: string): Promise<WasteEntry[]> {
   }, { kind: 'read', label: 'fetchWasteLog' });
 }
 
+/**
+ * Spec 159 — cross-store waste fan-out for the Dashboard scope picker.
+ * Sibling of fetchEodSubmissionsForStores / fetchPosImportsForStores /
+ * fetchOrderScheduleForStores / fetchOrderSubmissionsForStores.
+ *
+ * AGGREGATE-ONLY SHAPE. Returns WasteEntry[] so it merges with the
+ * `wasteLog` slice, but the joins the single-store fetchWasteLog makes
+ * (profiles + inventory_items→catalog_ingredients) are DELIBERATELY
+ * omitted: the only consumer sums quantity × costPerUnit. `itemName`
+ * and `loggedBy` are '' — same "backfilled by caller if needed"
+ * convention as fetchEodSubmissionsForStores' `storeName: ''`. Do not
+ * render these rows in a list without hydrating them first.
+ *
+ * ASYMMETRY WITH fetchWasteLog (spec 159 Risk R-A), deliberate:
+ * `timestamp` here carries the RAW ISO `logged_at`. fetchWasteLog above
+ * stores `new Date(logged_at).toLocaleString()`, which uses the RUNTIME
+ * locale — under a non-en-US system locale that string reparses to
+ * `Invalid Date`, so a `Date.parse(...) >= cutoff` filter silently drops
+ * the row. That is a PRE-EXISTING bug with its own follow-up (it also
+ * touches WasteLogSection's renderer); this helper is simply not allowed
+ * to inherit it, because every non-focal store's waste flows through
+ * here. Consumers must guard with `Number.isFinite(Date.parse(...))` for
+ * as long as the two halves disagree.
+ *
+ * Single-trip IN(...) select; RLS (auth_can_see_store on waste_log —
+ * per_store_rls_hardening.sql:137-139) silently drops rows the caller
+ * can't see, so we don't pre-filter storeIds — same posture as the four
+ * siblings. Degrade, don't throw: `[]` on empty input or PostgREST error
+ * (a warn, not a toast — none of the cross-store reads toast, and this
+ * fires on every Dashboard mount).
+ *
+ * `sinceISO` is a full ISO-8601 instant, NOT the siblings' date-only
+ * `sinceDate`, because `waste_log.logged_at` is timestamptz while
+ * `eod_submissions.date` / `pos_imports.import_date` are date. The param
+ * name carries that difference to every call site.
+ *
+ * Spec 104 R1: `cost_per_unit` is the FROZEN per-COUNTED-unit snapshot.
+ * It passes through UNBRIDGED — no `× subUnitSize` here or downstream.
+ */
+export async function fetchWasteLogForStores(
+  storeIds: string[],
+  sinceISO: string,
+): Promise<WasteEntry[]> {
+  if (storeIds.length === 0) return [];
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('waste_log')
+      // Spec 159 fix-pass item 5 (security-auditor Low #2) — `notes` and
+      // `logged_by` are dropped: the only consumer sums
+      // `quantity × costPerUnit`, so pulling free-text notes and an actor
+      // uuid across every visible store's rows was unused bytes, not a
+      // rendered field. Sparse-filled below the same way `itemName` /
+      // `loggedBy` already are.
+      .select('id, store_id, item_id, quantity, unit, cost_per_unit, reason, logged_at')
+      .in('store_id', storeIds)
+      .gte('logged_at', sinceISO)
+      .order('logged_at', { ascending: false })
+      .abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] fetchWasteLogForStores:', error.message);
+      return [];
+    }
+    return (data || []).map((w: any) => ({
+      id: w.id,
+      itemId: w.item_id,
+      itemName: '',            // sparse — no catalog join, see docblock
+      quantity: w.quantity,
+      unit: w.unit || '',
+      costPerUnit: w.cost_per_unit,
+      reason: w.reason,
+      loggedBy: '',            // sparse — no profiles join, see docblock
+      loggedByUserId: '',      // sparse — not selected, see docblock
+      timestamp: w.logged_at,  // RAW ISO — see the R-A asymmetry note
+      notes: '',                // sparse — not selected, see docblock
+      storeId: w.store_id,
+    }));
+  }, { kind: 'read', label: 'fetchWasteLogForStores' });
+}
+
 export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void> {
   return useInflight.getState().track(async (signal) => {
     // Spec 104 (R1 option a) — WRITE-SIDE waste snapshot bridge. After the

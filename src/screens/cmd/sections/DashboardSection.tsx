@@ -17,12 +17,23 @@ import { useT } from '../../../hooks/useT';
 import {
   computeAttentionQueue,
   computeStoreFoodCostVariancePp,
-  useCogsForCurrentStore,
-  useTopVarianceItems,
+  computeScopedCogs,
+  computeScopedFoodCostSeries,
+  computeScopedTopVarianceItems,
+  sumScopedWaste,
   AttentionItem,
   TARGET_FOOD_COST_PCT_DEFAULT,
 } from '../../../lib/cmdSelectors';
-import type { EODSubmission, OrderSchedule, OrderSubmission, POSImport, Store, User } from '../../../types';
+import { brandNameFor, visibleStoresFor } from '../../../lib/storeVisibility';
+import type {
+  EODSubmission,
+  OrderSchedule,
+  OrderSubmission,
+  POSImport,
+  Store,
+  User,
+  WasteEntry,
+} from '../../../types';
 
 // Spec 081 D4 — stable empty schedule for a store with no fetched rows.
 // Module-const so the queueByStore loop reuses one identity instead of
@@ -39,9 +50,15 @@ const TARGET_FOOD_COST_PCT = TARGET_FOOD_COST_PCT_DEFAULT;
 // SYNTHETIC_KPI_SERIES — Phase 1 placeholder. No daily KPI rollups exist
 // yet; this paints a sparkline that visually reads but doesn't reflect
 // real history. Ten deterministic points anchored to `current` with a
-// pseudo-variance derived from a stable seed (storeId + label) so the
+// pseudo-variance derived from a stable seed (scope key + label) so the
 // line doesn't reshuffle on every render. Replace with a real
 // daily-rollup query once a kpi_rollups_daily table lands.
+//
+// Spec 159 (R-C) — the seed is now the DASHBOARD SCOPE key (`'all'` or the
+// scoped store id), not the focal store id, so the line is stable per scope
+// and re-seeds when the scope picker moves. The series is still synthetic in
+// BOTH modes; in all-stores mode it is a synthetic line anchored to an
+// AGGREGATED headline number. OQ-4 queues the honest replacement.
 function synthSeries(current: number, seed: string): number[] {
   // Cheap deterministic hash → seed for a tiny LCG. Output stays in a
   // ±10% band around `current` so the sparkline reads as drift, not noise.
@@ -100,6 +117,14 @@ const DAY_TWO_LETTER_KEYS = [
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
+// ─── Spec 159 — Dashboard-local scope ─────────────────────────────────
+// The Dashboard is either ONE store or the WHOLE visible set, never a mix
+// of both (which is what it was before this spec: two KPIs cross-store,
+// two focal-store, under an "All stores" title). Component-local by owner
+// decision D1/PM-2 — it never calls setCurrentStore, never writes
+// `profiles`, and is not persisted anywhere (OQ-3).
+export type DashboardScope = { mode: 'store'; storeId: string } | { mode: 'all' };
+
 function lastNDayLetters(n: number, T: TFn): string[] {
   const out: string[] = [];
   const today = new Date();
@@ -130,6 +155,16 @@ export default function DashboardSection() {
   const currentStore = useStore((s) => s.currentStore);
   const stores = useStore((s) => s.stores);
   const users = useStore((s) => s.users);
+  // Spec 159 — `recipes` was previously read by the (now deleted)
+  // useCogsForCurrentStore hook; computeScopedCogs needs it passed in.
+  const recipes = useStore((s) => s.recipes);
+  // Spec 159 — visibility narrowing (AC-V1) + the OQ-2 brand-named
+  // aggregate label. Read-only inputs: the Dashboard never writes any of
+  // these (AC-P3).
+  const currentUser = useStore((s) => s.currentUser);
+  const currentBrandId = useStore((s) => s.currentBrandId);
+  const brand = useStore((s) => s.brand);
+  const brandsList = useStore((s) => s.brandsList);
   const getItemStatus = useStore((s) => s.getItemStatus);
   // Spec 074 — brand-global timezone used to anchor the per-store
   // attention queue's Monday-reset window. Per-store timezone is a
@@ -151,6 +186,75 @@ export default function DashboardSection() {
     detail: AttentionItem['expiryDetail'];
   } | null>(null);
 
+  // ─── Spec 159 §6.1 — scope state, all of it above the storeLoading /
+  // isPhone early returns so hook order is identical on every tier.
+  const [scope, setScope] = React.useState<DashboardScope>(() => ({
+    mode: 'store',
+    storeId: currentStore.id,
+  }));
+  // AC-P4 — the global title-bar switcher wins: when currentStore.id changes
+  // the Dashboard scope snaps back to that store, including out of `all`
+  // mode. Render-phase adjustment rather than a useEffect on purpose — an
+  // effect would paint one frame of the stale scope first; React re-renders
+  // synchronously before committing, so this costs no extra DOM pass.
+  const [seenStoreId, setSeenStoreId] = React.useState(currentStore.id);
+  if (seenStoreId !== currentStore.id) {
+    setSeenStoreId(currentStore.id);
+    setScope({ mode: 'store', storeId: currentStore.id });
+  }
+
+  // AC-V1 — THE store set for this section. Every enumeration below (picker
+  // options, heatmap rows, card grid, x/N denominator, the mount-time fetch
+  // id list) reads this, never the raw `stores` slice. `currentUser` is null
+  // on first paint and visibleStoresFor fails closed to [] — one frame of an
+  // empty dashboard, then everything re-derives (design R-E).
+  const visibleStores = React.useMemo(
+    () => visibleStoresFor(stores, currentUser, currentBrandId),
+    [stores, currentUser, currentBrandId],
+  );
+
+  const effectiveScope = React.useMemo<DashboardScope>(() => {
+    // OQ-1 / §6.1 — the phone has no picker and is always single-store; pin
+    // it to the focal store unconditionally. This is also what stops a web
+    // resize from carrying an `all` scope down from the desktop tier, and it
+    // deliberately bypasses the AC-P5 fallback below.
+    if (isPhone) return { mode: 'store', storeId: currentStore.id };
+    // AC-P5 — a brand switch can narrow the picked store away. Fall back to
+    // the aggregate rather than rendering an empty dashboard. Derived, not
+    // stated: it can neither fight the AC-P4 reset nor loop.
+    if (scope.mode === 'store' && !visibleStores.some((s) => s.id === scope.storeId)) {
+      return { mode: 'all' };
+    }
+    return scope;
+  }, [isPhone, scope, visibleStores, currentStore.id]);
+
+  const scopedStores = React.useMemo<Store[]>(() => {
+    if (effectiveScope.mode === 'all') return visibleStores;
+    const picked = visibleStores.filter((s) => s.id === effectiveScope.storeId);
+    // Phone-only cushion: the phone bypasses AC-P5, so when visibleStores is
+    // still [] (first paint, no currentUser) fall back to the focal store
+    // rather than rendering a nameless zero-store dashboard.
+    if (picked.length === 0 && isPhone) return [currentStore];
+    return picked;
+    // Filtering visibleStores (rather than mapping ids) preserves its order
+    // for free — that is AC-B8's "in visibleStores order".
+  }, [effectiveScope, visibleStores, isPhone, currentStore]);
+
+  // Membership-stable handles: `scopeIdsKey` only changes when the SET of
+  // scoped stores changes, so the five `scopedInventory`-shaped memos below
+  // don't re-run every time the `stores` array identity rotates (design R-D).
+  const scopeIdsKey = React.useMemo(() => scopedStores.map((s) => s.id).join(','), [scopedStores]);
+  const scopeStoreIds = React.useMemo(
+    () => (scopeIdsKey ? scopeIdsKey.split(',') : []),
+    [scopeIdsKey],
+  );
+  const scopeIdSet = React.useMemo(() => new Set(scopeStoreIds), [scopeStoreIds]);
+  const scopeKey = effectiveScope.mode === 'all' ? 'all' : effectiveScope.storeId;
+  const visibleStoreIdsKey = React.useMemo(
+    () => visibleStores.map((s) => s.id).join(','),
+    [visibleStores],
+  );
+
   // ─── Decision D2 — cross-store EOD + POS held in component-local state.
   // useStore.eodSubmissions / posImports only reflect the focal store;
   // the dashboard fetches the rest at mount via two new db helpers.
@@ -169,13 +273,22 @@ export default function DashboardSection() {
   const [crossStoreOrderSubmissions, setCrossStoreOrderSubmissions] = React.useState<
     OrderSubmission[]
   >([]);
+  // Spec 159 — cross-store waste, same caveat as the slices above. `wasteLog`
+  // in the store is focal-only, so WASTE / WK could never be computed for a
+  // non-focal store or for the brand before this.
+  const [crossStoreWaste, setCrossStoreWaste] = React.useState<WasteEntry[]>([]);
 
   React.useEffect(() => {
-    const storeIds = stores.map((s) => s.id);
+    // Spec 159 AC-V2 — only stores the user may actually see are requested.
+    const storeIds = visibleStoreIdsKey ? visibleStoreIdsKey.split(',') : [];
     if (storeIds.length === 0) return;
     // 14 days back covers both the heatmap (7d) and the food-cost streak
     // attention rule (7d) with a small cushion for prior-EOD lookups.
     const since = isoDay(new Date(Date.now() - 14 * 24 * 3600 * 1000));
+    // waste_log.logged_at is a timestamptz (the four reads above key off
+    // `date` columns), so its cutoff is a full ISO instant — hence the
+    // different param name.
+    const sinceISO = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
     let cancelled = false;
     db.fetchEodSubmissionsForStores(storeIds, since)
       .then((rows) => {
@@ -199,14 +312,21 @@ export default function DashboardSection() {
         if (!cancelled) setCrossStoreOrderSubmissions(rows);
       })
       .catch((e: any) => console.warn('[Dashboard] fetchOrderSubmissionsForStores:', e?.message || e));
+    // Spec 159 — fifth read, same shape/guards as the four above.
+    db.fetchWasteLogForStores(storeIds, sinceISO)
+      .then((rows) => {
+        if (!cancelled) setCrossStoreWaste(rows);
+      })
+      .catch((e: any) => console.warn('[Dashboard] fetchWasteLogForStores:', e?.message || e));
     return () => {
       cancelled = true;
     };
     // currentStore.id is in the dep list per architect's note ("on any
-    // currentStore.id change"). storeIds.join() keeps us stable when the
-    // array reference rotates without an actual change in membership.
+    // currentStore.id change"). visibleStoreIdsKey keeps us stable when the
+    // array reference rotates without an actual change in membership, and
+    // refetches when a brand switch narrows the visible set (spec 159 AC-V2).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores.map((s) => s.id).join(','), currentStore.id]);
+  }, [visibleStoreIdsKey, currentStore.id]);
 
   // Merge focal-store slice into cross-store state so the focal store
   // always reflects realtime updates while the rest are mount-time only.
@@ -228,6 +348,14 @@ export default function DashboardSection() {
     return [...others, ...orderSubmissions];
   }, [crossStoreOrderSubmissions, orderSubmissions, currentStore.id]);
 
+  // Spec 159 — identical shape to allEod / allPos: focal slice LAST so the
+  // focal store's waste stays realtime-fresh on the `store-{id}` channel
+  // while every other store is mount-time only (pre-existing R2/spec-009 R4).
+  const allWaste = React.useMemo<WasteEntry[]>(() => {
+    const others = crossStoreWaste.filter((w) => w.storeId !== currentStore.id);
+    return [...others, ...wasteLog];
+  }, [crossStoreWaste, wasteLog, currentStore.id]);
+
   // Spec 081 (Risk 6) — spread the cross-store map FIRST, then OVERRIDE the
   // focal id with the live focal `orderSchedule` slice so the realtime-fresh
   // focal schedule wins over the (possibly staler) mount-time cross-store copy.
@@ -236,45 +364,69 @@ export default function DashboardSection() {
     [crossStoreOrderSchedule, orderSchedule, currentStore.id],
   );
 
-  // ─── KPI metrics (focal store + cross-store roll-up where data is available)
+  // ─── KPI metrics — every one of them keyed off the SCOPE (spec 159).
   const focalInventory = React.useMemo(
+    // Deliberately still focal: `eodRows` is the CURRENT store's per-vendor
+    // count progress (a phone/EOD affordance), not a scoped KPI.
     () => inventory.filter((i) => i.storeId === currentStore.id),
     [inventory, currentStore.id],
+  );
+  // ONE filter of the (genuinely cross-store) `inventory` slice, reused by the
+  // five consumers below — filtering it five times per render is the naive
+  // read of the spec's AC table and is measurably worse on the prod-sized seed.
+  const scopedInventory = React.useMemo(
+    () => inventory.filter((i) => scopeIdSet.has(i.storeId)),
+    [inventory, scopeIdSet],
   );
   const totalInvValue = React.useMemo(
     // Spec 104 (OQ-5) — per-each costPerUnit × counted currentStock needs the
     // `× subUnitSize` bridge so stock value is unchanged from the pre-flip basis.
-    () => inventory.reduce((sum, i) => sum + i.currentStock * i.costPerUnit * (i.subUnitSize || 1), 0),
-    [inventory],
+    () =>
+      scopedInventory.reduce(
+        (sum, i) => sum + i.currentStock * i.costPerUnit * (i.subUnitSize || 1),
+        0,
+      ),
+    [scopedInventory],
   );
-  const itemCount = inventory.length;
-  const storeCount = stores.length;
+  const itemCount = scopedInventory.length;
+  const storeCount = scopedStores.length;
 
-  const wasteWeek = React.useMemo(() => {
-    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-    // Spec 104 (R1) — `w.costPerUnit` is the FROZEN waste_log snapshot, kept
-    // per-COUNTED-unit on BOTH sides of the flip by the write-side bridge
-    // (logWasteEntry / staff log_waste RPC). Do NOT add `× subUnitSize` here —
-    // this read stays UNBRIDGED (unlike the LIVE-costPerUnit reads above).
-    return wasteLog
-      .filter((w) => new Date(w.timestamp).getTime() >= cutoff)
-      .reduce((sum, w) => sum + w.quantity * w.costPerUnit, 0);
-  }, [wasteLog]);
+  // Spec 104 (R1) — `w.costPerUnit` is the FROZEN waste_log snapshot, kept
+  // per-COUNTED-unit on BOTH sides of the flip by the write-side bridge
+  // (logWasteEntry / staff log_waste RPC). This read stays UNBRIDGED (unlike
+  // the LIVE-costPerUnit reads above).
+  //
+  // Spec 159 (R-A) — the focal half of `allWaste` carries a LOCALE string in
+  // `timestamp` (fetchWasteLog does `toLocaleString()`); the cross-store half
+  // carries raw ISO. `sumScopedWaste`'s isFinite guard makes an unparseable
+  // focal timestamp a visible dropped row rather than a silent NaN comparison.
+  //
+  // Extracted to `sumScopedWaste` (cmdSelectors.ts) so this memo and
+  // `wasteEventCount` below share ONE copy of the filter/window/guard/
+  // unbridged-cost invariant rather than duplicating it (code-reviewer
+  // Should-fix — see the function's own docblock for the full rationale).
+  const scopedWaste = React.useMemo(
+    () => sumScopedWaste(allWaste, scopeIdSet, Date.now()),
+    [allWaste, scopeIdSet],
+  );
+  const wasteWeek = scopedWaste.dollars;
 
   const lowOutAll = React.useMemo(
-    () => inventory.filter((i) => {
+    () => scopedInventory.filter((i) => {
       const s = getItemStatus(i);
       return s === 'low' || s === 'out';
     }),
-    [inventory, getItemStatus],
+    [scopedInventory, getItemStatus],
   );
   const outCount = lowOutAll.filter((i) => getItemStatus(i) === 'out').length;
   const lowCount = lowOutAll.filter((i) => getItemStatus(i) === 'low').length;
 
   const todayISO = isoDay(new Date());
   const eodSubmittedToday = React.useMemo(
-    () => stores.filter((s) => allEod.some((e) => e.storeId === s.id && e.date === todayISO)).length,
-    [stores, allEod, todayISO],
+    () =>
+      scopedStores.filter((s) => allEod.some((e) => e.storeId === s.id && e.date === todayISO))
+        .length,
+    [scopedStores, allEod, todayISO],
   );
 
   // ─── Spec 145 (phone-only) — derived views for PhoneDashboard's model. These
@@ -282,14 +434,19 @@ export default function DashboardSection() {
   // ONLY on the phone path, so the desktop/tablet return subtree is byte-
   // unchanged (AC-REG). They reuse the SAME selectors the desktop KPIs use
   // (getItemStatus / wasteLog / inventory) rather than re-deriving new math.
+  //
+  // Spec 159 (OQ-1) — these now read the SCOPED slices, which on the phone are
+  // pinned to the focal store (§6.1). That closes the phone's own version of
+  // the bug this spec fixes: the header said `currentStore.name` while the
+  // numbers under it were cross-store. PhoneDashboard.tsx is unchanged — the
+  // model literal below passes the same identifiers.
   const outItems = React.useMemo(
-    () => inventory.filter((i) => getItemStatus(i) === 'out'),
-    [inventory, getItemStatus],
+    () => scopedInventory.filter((i) => getItemStatus(i) === 'out'),
+    [scopedInventory, getItemStatus],
   );
-  const wasteEventCount = React.useMemo(() => {
-    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-    return wasteLog.filter((w) => new Date(w.timestamp).getTime() >= cutoff).length;
-  }, [wasteLog]);
+  // Same reducer as wasteWeek above — one pass over allWaste already computed
+  // both the dollar sum and the event count (see scopedWaste).
+  const wasteEventCount = scopedWaste.events;
   // Per-vendor EOD progress for the CURRENT store, today. Vendor↔item membership
   // mirrors EODCountSection's tab derivation (junction `vendorIds`, scalar
   // fallback); "counted" = the item is in any of today's submissions; "submitted"
@@ -336,34 +493,29 @@ export default function DashboardSection() {
     [auditLog, currentStore.id],
   );
 
-  // ─── Real food-cost trend (reused from v1) for the AVG FOOD COST sparkline.
-  // Other 4 KPIs use synthSeries — see SYNTHETIC_KPI_SERIES tag above.
-  const foodCostTrend14 = React.useMemo<Array<number | null>>(() => {
-    const days: Array<number | null> = [];
-    for (let i = 13; i >= 0; i--) {
-      const day = new Date(Date.now() - i * 24 * 3600 * 1000);
-      const key = isoDay(day);
-      const sub = eodSubmissions.find((s) => s.storeId === currentStore.id && s.date === key);
-      // Mock cost % from EOD entry count if no real data — same heuristic
-      // as v1's DashboardSection lines 64-74. Keeps the line non-blank.
-      days.push(sub ? 30 + ((sub.entries?.length || 0) % 5) : null);
-    }
-    return days.some((d) => d != null) ? days : null!;
-  }, [eodSubmissions, currentStore.id]);
+  // ─── Real food-cost trend for the AVG FOOD COST sparkline. Other 4 KPIs use
+  // synthSeries — see SYNTHETIC_KPI_SERIES tag above.
+  //
+  // Spec 159 — the per-store derivation moved VERBATIM into
+  // computeStoreFoodCostSeries (still the `30 + (entries.length % 5)` v1 mock —
+  // PM-3 / OQ-4 / R-C), and computeScopedFoodCostSeries takes the per-day
+  // UNWEIGHTED mean across the scoped stores (AC-B4). Single-store scope
+  // returns the per-store series untouched, so the focal-store rendering is
+  // byte-identical to before this spec (AC-S4). It reads `allEod` (cross-store)
+  // rather than the focal-only `eodSubmissions` slice.
+  const foodCostTrend14 = React.useMemo<Array<number | null>>(
+    () => computeScopedFoodCostSeries(scopeStoreIds, allEod, 14),
+    [scopeStoreIds, allEod],
+  );
 
   const fcSeries = React.useMemo<number[]>(() => {
-    if (!foodCostTrend14) return synthSeries(31.4, `${currentStore.id}:fc`);
     const real = foodCostTrend14.filter((v): v is number => v != null);
-    return real.length >= 2 ? real.slice(-10) : synthSeries(real[0] ?? 31.4, `${currentStore.id}:fc`);
-  }, [foodCostTrend14, currentStore.id]);
+    if (real.length === 0) return synthSeries(31.4, `${scopeKey}:fc`);
+    return real.length >= 2 ? real.slice(-10) : synthSeries(real[0], `${scopeKey}:fc`);
+  }, [foodCostTrend14, scopeKey]);
   const currentFc = fcSeries[fcSeries.length - 1] ?? 0;
 
-  // ─── CoGS card — focal-store this-week CoGS rolled up.
-  // useCogsForCurrentStore wraps computeCogsTheoretical / computeCogsActual.
-  const cogs = useCogsForCurrentStore(7);
-  const topVariance = useTopVarianceItems(7, 5);
-
-  // ─── Heatmap — last 7 days × all visible stores.
+  // ─── Heatmap — last 7 days × the SCOPED stores (spec 159 AC-S8/AC-B8).
   // computeStoreFoodCostVariancePp is a pure function so we call it once per
   // store with the cross-store EOD/POS data we hold locally.
   const heatmapDays = React.useMemo(() => lastNDates(7), []);
@@ -373,9 +525,44 @@ export default function DashboardSection() {
   const heatmapDayLetters = React.useMemo(() => lastNDayLetters(7, T), [T]);
   const startDate = heatmapDays[0];
   const endDate = heatmapDays[heatmapDays.length - 1];
+
+  // ─── CoGS card + top-variance list — scoped (spec 159 AC-S6/S7, AC-B6/B7).
+  // The `useCogsForCurrentStore` / `useTopVarianceItems` hooks are gone: they
+  // were bound to `currentStore` AND to the focal-only eodSubmissions/posImports
+  // slices, i.e. exactly the data the Dashboard must stop using. The pure
+  // functions take the cross-store state this component already holds.
+  // `startDate`/`endDate` are the same trailing-7-day window the hooks used.
+  //
+  // R-B: theoretical CoGS needs `recipes`, and that slice only ever holds the
+  // FOCAL store's brand. For a super-admin whose visible stores span brands,
+  // out-of-brand stores contribute 0 theoretical — AC-B6 reads as "correct
+  // within one brand". The §9.1 label resolver detects exactly that case and
+  // stops the title from claiming a brand it isn't.
+  const cogs = React.useMemo(
+    () => computeScopedCogs(scopeStoreIds, startDate, endDate, inventory, allEod, allPos, recipes),
+    [scopeStoreIds, startDate, endDate, inventory, allEod, allPos, recipes],
+  );
+  const topVariance = React.useMemo(
+    // PM-5 — the store-name column stays in BOTH modes (it shows the same name
+    // on every row in single-store mode). `stores` stays the RAW slice here:
+    // the selector uses it only for a name lookup, and narrowing it could blank
+    // a name. Narrowing the ITERATION (scopeStoreIds) is the whole job.
+    () =>
+      computeScopedTopVarianceItems(
+        scopeStoreIds,
+        startDate,
+        endDate,
+        inventory,
+        allEod,
+        stores,
+        5,
+      ),
+    [scopeStoreIds, startDate, endDate, inventory, allEod, stores],
+  );
+
   const heatmapRows = React.useMemo<HeatmapRow[]>(
     () =>
-      stores.map((s) => ({
+      scopedStores.map((s) => ({
         label: s.name,
         values: computeStoreFoodCostVariancePp(
           s.id,
@@ -387,13 +574,14 @@ export default function DashboardSection() {
           TARGET_FOOD_COST_PCT,
         ),
       })),
-    [stores, startDate, endDate, inventory, allEod, allPos],
+    [scopedStores, startDate, endDate, inventory, allEod, allPos],
   );
 
-  // ─── Per-store attention queues (computed via cross-store data).
+  // ─── Per-store attention queues (computed via cross-store data), one per
+  // SCOPED store (spec 159 AC-S9/AC-B9).
   const queueByStore = React.useMemo<Record<string, AttentionItem[]>>(() => {
     const out: Record<string, AttentionItem[]> = {};
-    for (const s of stores) {
+    for (const s of scopedStores) {
       out[s.id] = computeAttentionQueue(
         s.id,
         inventory,
@@ -404,6 +592,8 @@ export default function DashboardSection() {
         // by storeId inside the selector; the schedule is dereferenced per store.
         allOrderSubmissions,
         scheduleByStore[s.id] ?? EMPTY_ORDER_SCHEDULE,
+        // Spec 159 — the `stores` ARGUMENT stays the raw slice (name lookup
+        // only); it is the ITERATION above that narrows to the scope.
         stores,
         getItemStatus,
         // Spec 074 — Monday-reset window for the unconfirmed_po rule.
@@ -411,11 +601,61 @@ export default function DashboardSection() {
       );
     }
     return out;
-  }, [stores, inventory, allEod, allPos, allOrderSubmissions, scheduleByStore, getItemStatus, timezone]);
+  }, [scopedStores, stores, inventory, allEod, allPos, allOrderSubmissions, scheduleByStore, getItemStatus, timezone]);
 
   const today = new Date();
   const greeting =
     today.getHours() < 12 ? T('section.dashboard.greetingMorning') : today.getHours() < 17 ? T('section.dashboard.greetingAfternoon') : T('section.dashboard.greetingEvening');
+
+  // ─── Spec 159 §9.1 — scope labels (OQ-2: the aggregate is BRAND-NAMED).
+  // One resolver feeds the hero title, the picker trigger and the picker's
+  // aggregate option, so those three can never disagree about what the scope
+  // is called. The `fallbackKey` is the ONLY thing that differs between the
+  // hero ("All stores (3) · day in progress") and the strip ("store: all (3)").
+  const aggregateLabelFor = React.useCallback(
+    (list: Store[], fallbackKey: string): string => {
+      // Spec 159 fix-pass item 5 (architect M-3) — keep `null`/undefined
+      // brandIds IN the distinct set (mapped to `null`, not filtered out).
+      // `stores.brand_id` is nullable, so a scope can legitimately mix a
+      // brand-less store with a brand-A store; dropping the null via
+      // `.filter(Boolean)` collapsed that mix down to ONE distinct id and
+      // printed a confident "2AM PROJECT · 2 stores" over a set that
+      // includes a store outside that brand. Keeping the null means a mixed
+      // set now correctly resolves to >1 distinct id and falls through to
+      // the generic fallback label below.
+      const brandIds = Array.from(new Set(list.map((s) => s.brandId ?? null)));
+      // Not exactly one brand (super-admin on "All brands" spanning several,
+      // a brand-less/mixed set, or an empty set) → no honest brand name to
+      // print. Also covers "the brand slice hasn't loaded yet", via
+      // brandNameFor returning null.
+      const brandName =
+        brandIds.length === 1 && brandIds[0]
+          ? brandNameFor(brandIds[0], brand, brandsList)
+          : null;
+      if (!brandName) return T(fallbackKey, { count: list.length });
+      return T(
+        list.length === 1
+          ? 'section.dashboard.scopeAllBrandOne'
+          : 'section.dashboard.scopeAllBrand',
+        { brand: brandName, count: list.length },
+      );
+    },
+    [brand, brandsList, T],
+  );
+  const scopedStore = effectiveScope.mode === 'store' ? scopedStores[0] : undefined;
+  // Strip + picker aggregate option read the same label; the picker's option
+  // always describes the FULL visible set (which is what picking it selects).
+  const allOptionLabel = aggregateLabelFor(visibleStores, 'section.dashboard.allStores');
+  const stripScopeLabel =
+    effectiveScope.mode === 'store'
+      ? scopedStore?.name ?? currentStore.name
+      : allOptionLabel;
+  // R-F — the hero title naming the scope is the ONLY mitigation for a
+  // Dashboard scope that diverges from the rest of the app's store context.
+  const heroScopeLabel =
+    effectiveScope.mode === 'store'
+      ? scopedStore?.name ?? currentStore.name
+      : aggregateLabelFor(scopedStores, 'section.dashboard.scopeAllFallback');
 
   const fcDeltaPp = currentFc - TARGET_FOOD_COST_PCT;
   const fcTone = fcDeltaPp > 1 ? C.danger : fcDeltaPp > 0 ? C.warn : C.ok;
@@ -449,24 +689,43 @@ export default function DashboardSection() {
 
   return (
     <View testID="dashboard-root" style={{ flex: 1, backgroundColor: C.bg, minWidth: 0 }}>
-      <TabStrip
-        tabs={[{ id: 'overview.tsx', label: 'overview.tsx' }]}
-        activeId={tabId}
-        onChange={setTabId}
-        rightSlot={
-          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-            {T('section.dashboard.storeSelector')} <Text style={{ color: C.fg }}>{T('section.dashboard.allStores', { count: storeCount })}</Text>
-            {'  '}·{'  '}{T('section.dashboard.period')} <Text style={{ color: C.fg }}>{T('section.dashboard.periodToday')}</Text>
-          </Text>
-        }
-      />
+      {/* Spec 159 — the ScopePicker's panel is absolutely positioned inside the
+          strip's rightSlot, so the strip has to paint ABOVE the ScrollView that
+          follows it (later siblings win in RN without an explicit zIndex).
+          TabStrip itself is shared by many sections and is deliberately not
+          modified — the wrapper lives here. */}
+      <View style={{ zIndex: 50 }}>
+        <TabStrip
+          tabs={[{ id: 'overview.tsx', label: 'overview.tsx' }]}
+          activeId={tabId}
+          onChange={setTabId}
+          rightSlot={
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ScopePicker
+                stores={visibleStores}
+                scope={effectiveScope}
+                label={stripScopeLabel}
+                allOptionLabel={allOptionLabel}
+                onSelect={setScope}
+              />
+              <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
+                ·{'  '}{T('section.dashboard.period')} <Text style={{ color: C.fg }}>{T('section.dashboard.periodToday')}</Text>
+              </Text>
+            </View>
+          }
+        />
+      </View>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 22, paddingVertical: 18, gap: 12 }}>
         {/* Hero greeting */}
         <View style={{ gap: 4, marginBottom: 2 }}>
-          <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-            {T('section.dashboard.greetingLine', { greeting, date: today.toDateString().toLowerCase(), count: storeCount })}
+          <Text testID="dashboard-greeting" style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
+            {effectiveScope.mode === 'store'
+              ? T('section.dashboard.greetingLineStore', { greeting, date: today.toDateString().toLowerCase(), store: stripScopeLabel })
+              : T('section.dashboard.greetingLine', { greeting, date: today.toDateString().toLowerCase(), count: storeCount })}
           </Text>
-          <Text style={[Type.h1, { color: C.fg }]}>{T('section.dashboard.heroTitle')}</Text>
+          <Text testID="dashboard-hero-title" style={[Type.h1, { color: C.fg }]}>
+            {T('section.dashboard.heroTitleScope', { scope: heroScopeLabel })}
+          </Text>
         </View>
 
         {/* KPI strip — 5 tiles each with sparkline */}
@@ -482,7 +741,7 @@ export default function DashboardSection() {
             sub={storeCount === 1
               ? T('section.dashboard.kpi.itemsStores', { items: itemCount, count: storeCount })
               : T('section.dashboard.kpi.itemsStoresPlural', { items: itemCount, count: storeCount })}
-            series={synthSeries(totalInvValue, `${currentStore.id}:inv`)}
+            series={synthSeries(totalInvValue, `${scopeKey}:inv`)}
             delta=""
             tone={C.ok}
           />
@@ -498,7 +757,7 @@ export default function DashboardSection() {
             label={T('section.dashboard.kpi.waste')}
             value={`$${wasteWeek.toFixed(0)}`}
             sub={T('section.dashboard.kpi.last7Days')}
-            series={synthSeries(Math.max(wasteWeek, 1), `${currentStore.id}:waste`)}
+            series={synthSeries(Math.max(wasteWeek, 1), `${scopeKey}:waste`)}
             delta=""
             tone={C.warn}
           />
@@ -508,7 +767,7 @@ export default function DashboardSection() {
             sub={eodSubmittedToday === 1
               ? T('section.dashboard.kpi.storeComplete', { count: eodSubmittedToday })
               : T('section.dashboard.kpi.storesComplete', { count: eodSubmittedToday })}
-            series={synthSeries(eodSubmittedToday + 1, `${currentStore.id}:eod`)}
+            series={synthSeries(eodSubmittedToday + 1, `${scopeKey}:eod`)}
             delta={eodSubmittedToday === storeCount ? '' : `${eodSubmittedToday - storeCount}`}
             tone={eodSubmittedToday === storeCount ? C.ok : C.fg3}
           />
@@ -516,7 +775,7 @@ export default function DashboardSection() {
             label={T('section.dashboard.kpi.stockAlerts')}
             value={String(lowOutAll.length)}
             sub={T('section.dashboard.kpi.outLow', { out: outCount, low: lowCount })}
-            series={synthSeries(Math.max(lowOutAll.length, 1), `${currentStore.id}:alerts`)}
+            series={synthSeries(Math.max(lowOutAll.length, 1), `${scopeKey}:alerts`)}
             delta=""
             tone={outCount > 0 ? C.danger : lowCount > 0 ? C.warn : C.ok}
           />
@@ -583,9 +842,11 @@ export default function DashboardSection() {
           </View>
         </View>
 
-        {/* Per-store columns — 4-up wrapping grid with attention queues */}
+        {/* Per-store columns — 4-up wrapping grid with attention queues.
+            Spec 159 — one card per SCOPED store: exactly one in single-store
+            mode (AC-S9), one per visible store in all-stores mode (AC-B9). */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
-          {stores.map((s) => (
+          {scopedStores.map((s) => (
             <View key={s.id} testID={`dashboard-store-card-${s.id}`} style={{ flex: 1, minWidth: 240 }}>
               <StoreCol
                 store={s}
@@ -615,6 +876,127 @@ export default function DashboardSection() {
     </View>
   );
 }
+
+// ─── <ScopePicker /> — spec 159, the Dashboard-local scope control ─────
+//
+// Deliberately NOT `components/cmd/SelectField`: that renders an uppercase
+// label above a 32px bordered box (wrong furniture for a 10.5px mono strip
+// inside a 28px tab row), and its web branch is a native <select> whose
+// <option>s neither Playwright nor RNTL can drive — which AC-P6/T2/T3 all
+// need. Section-local components are the established pattern in this file
+// (Kpi, CogsCard, StoreCol, Mini2 are all local).
+interface ScopePickerProps {
+  /** The visible store set — AC-P1's option list, in visibleStores order. */
+  stores: Store[];
+  scope: DashboardScope;
+  /** Resolved label for the CURRENT scope, rendered in the trigger. */
+  label: string;
+  /** Resolved label for the aggregate option (brand-named per OQ-2). */
+  allOptionLabel: string;
+  onSelect: (scope: DashboardScope) => void;
+}
+const ScopePicker: React.FC<ScopePickerProps> = ({
+  stores,
+  scope,
+  label,
+  allOptionLabel,
+  onSelect,
+}) => {
+  const C = useCmdColors();
+  const T = useT();
+  const [open, setOpen] = React.useState(false);
+
+  const pick = (next: DashboardScope) => {
+    setOpen(false);
+    onSelect(next);
+  };
+
+  const option = (key: string, testID: string, text: string, active: boolean, next: DashboardScope) => (
+    <TouchableOpacity
+      key={key}
+      testID={testID}
+      onPress={() => pick(next)}
+      accessibilityRole="menuitem"
+      activeOpacity={0.75}
+      style={{
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: active ? C.accentBg : 'transparent',
+      }}
+    >
+      <Text
+        style={{
+          fontFamily: mono(active ? 500 : 400),
+          fontSize: 11,
+          color: active ? C.accent : C.fg2,
+        }}
+        numberOfLines={1}
+      >
+        {text}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <TouchableOpacity
+        testID="dashboard-scope-picker"
+        onPress={() => setOpen((o) => !o)}
+        accessibilityRole="button"
+        accessibilityLabel={T('section.dashboard.scopePickerA11y')}
+        activeOpacity={0.75}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
+          paddingHorizontal: 6,
+          paddingVertical: 2,
+          borderRadius: CmdRadius.xs,
+          borderWidth: 1,
+          borderColor: open ? C.borderStrong : 'transparent',
+          backgroundColor: open ? C.panel2 : 'transparent',
+        }}
+      >
+        <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
+          {T('section.dashboard.storeSelector')} <Text style={{ color: C.fg }}>{label}</Text>
+        </Text>
+        <Text style={{ fontFamily: mono(400), fontSize: 8, color: C.fg3 }}>▼</Text>
+      </TouchableOpacity>
+      {open ? (
+        <View
+          testID="dashboard-scope-panel"
+          style={{
+            position: 'absolute',
+            top: 24,
+            right: 0,
+            minWidth: 200,
+            backgroundColor: C.panel,
+            borderWidth: 1,
+            borderColor: C.border,
+            borderRadius: CmdRadius.sm,
+            paddingVertical: 4,
+            zIndex: 50,
+          }}
+        >
+          {/* AC-P7 — the aggregate option always renders, even with 0 or 1
+              visible stores, so the panel is never empty. */}
+          {option('scope-all', 'dashboard-scope-option-all', allOptionLabel, scope.mode === 'all', {
+            mode: 'all',
+          })}
+          {stores.map((s) =>
+            option(
+              s.id,
+              `dashboard-scope-option-${s.id}`,
+              s.name,
+              scope.mode === 'store' && scope.storeId === s.id,
+              { mode: 'store', storeId: s.id },
+            ),
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+};
 
 // ─── <Kpi /> — single tile in the KPI strip ────────────────────────────
 interface KpiProps {

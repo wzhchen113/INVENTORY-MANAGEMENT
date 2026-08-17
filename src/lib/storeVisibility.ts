@@ -50,3 +50,37 @@ export function visibleStoresFor(
   return (isPrivilegedRole(user) ? stores : stores.filter((s) => user?.stores?.includes(s.id)))
     .filter((s) => brandId === null || s.brandId === brandId);
 }
+
+/** Minimal structural shape of a brand for name lookup. Both the `brand`
+ *  slice (`{ id, name } | null`) and `brandsList` (`Brand[]`) satisfy it. */
+type BrandLike = { id: string; name: string };
+
+/**
+ * Spec 159 — display name for `brandId`, or `null` when it can't be resolved.
+ *
+ * The lookup has to merge two slices because neither covers every role:
+ * `brandsList` is populated for super-admins (every brand), while regular
+ * admins/masters only ever load their own single `brand`. `brand` wins on
+ * conflict — it is the brand the session is actually operating in, and it is
+ * the one the optimistic rename path updates.
+ *
+ * Returns `null` (never a placeholder string) for: no `brandId` ("All
+ * brands"), an id neither slice knows, and first paint before the brand
+ * slice hydrates. Callers pick their own fallback copy — the Dashboard's
+ * scope label degrades to the generic "All stores (N)" string, TitleBar
+ * degrades to its legacy `inv` prefix.
+ *
+ * This is a near-duplicate of the inline `brandNameByBrandId` memo in
+ * `TitleBar.tsx` — TitleBar was deliberately NOT refactored onto this in
+ * spec 159 (it needs *initials*, and touching the title bar is out of that
+ * spec's blast radius). Folding it in is a cheap follow-up.
+ */
+export function brandNameFor(
+  brandId: string | null | undefined,
+  brand: BrandLike | null | undefined,
+  brandsList: BrandLike[],
+): string | null {
+  if (!brandId) return null;
+  if (brand?.id === brandId && brand.name) return brand.name;
+  return brandsList.find((b) => b.id === brandId)?.name || null;
+}

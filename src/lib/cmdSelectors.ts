@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import {
   EODSubmission, Recipe, PrepRecipe, InventoryItem, Vendor, AuditEvent, POSImport,
-  Store, OrderSubmission, OrderSchedule, ItemStatus,
+  Store, OrderSubmission, OrderSchedule, ItemStatus, WasteEntry,
 } from '../types';
 import type { SidebarGroup, TreeItem } from './sidebarLayout';
 import type { AdminSectionId } from './adminSections';
@@ -982,76 +982,238 @@ export function computeAttentionQueue(
   return out;
 }
 
-// ─── Hooks (Zustand-shaped wrappers) ─────────────────────────
+// ─── Spec 159: scope-aware rollups for the Dashboard scope picker ────
 //
-// These bind useStore slices to the pure functions above. They cover
-// the CURRENT-STORE use case only — the slice loader (useStore.ts:248)
-// only ever holds one store's eodSubmissions/posImports/orderSubmissions
-// at a time. Callers needing per-store cross-store data (e.g. the
-// All-Stores Dashboard heatmap or per-store attention queues) must
-// fetch via db.fetchEodSubmissionsForStores / fetchPosImportsForStores
-// (spec 009 §5/D2) and call the pure functions above directly with
-// component-local state.
+// The Dashboard can now render for ONE store or for a SET of stores
+// (`visibleStoresFor(...)` under the active brand). Everything below takes
+// `storeIds: string[]` and loops the existing per-store pure functions —
+// no per-store maths is reimplemented here, so single-store mode stays
+// numerically identical to what the deleted `useCogsForCurrentStore` /
+// `useTopVarianceItems` hooks produced (AC-S4 / AC-S6 / AC-S7).
+//
+// These are pure and take their cross-store data as arguments because the
+// Zustand slices are focal-store-only; the caller holds the fan-out reads
+// (db.fetchEodSubmissionsForStores / fetchPosImportsForStores /
+// fetchWasteLogForStores) in component-local state — same house rule as
+// the note on the hooks section below.
 
 /**
- * Top-N variance lines for the current store across the trailing
- * `days` window. Defaults: 7-day window, top 5 (Phase 1 spec lock).
+ * Per-store daily food-cost % series, oldest → newest, `null` on days the
+ * store has no EOD. Length = `days`.
+ *
+ * EXTRACTED VERBATIM from DashboardSection's `foodCostTrend14`: the
+ * `30 + (entries.length % 5)` v1 MOCK and the `.find()` (first-match, not
+ * latest-match) semantics are preserved byte for byte (PM-3 / AC-S4).
+ * This is NOT a real food-cost number — see the SYNTHETIC_KPI_SERIES /
+ * v1-proxy notes in DashboardSection; spec 159 re-scopes the mock, it does
+ * not replace it (that needs daily rollups — its own spec).
+ *
+ * Day keys are UTC (`toISOString().slice(0,10)`), matching the caller's
+ * `isoDay` helper. `now` is injectable so tests are deterministic.
+ *
+ * Note for callers porting the old inline memo: this always returns an
+ * array (never `null`). The v1 "no data at all" collapse is the caller's
+ * business — `series.some((v) => v != null)`.
  */
-export function useTopVarianceItems(days: number = 7, limit: number = 5): VarianceLine[] {
-  const currentStore = useStore((s) => s.currentStore);
-  const inventory = useStore((s) => s.inventory);
-  const eodSubmissions = useStore((s) => s.eodSubmissions);
-  const stores = useStore((s) => s.stores);
-  return useMemo(() => {
-    const today = new Date();
-    const startD = new Date(today);
-    startD.setDate(startD.getDate() - (days - 1));
-    return computeTopVarianceItems(
-      currentStore.id,
-      startD.toISOString().slice(0, 10),
-      today.toISOString().slice(0, 10),
-      inventory,
-      eodSubmissions,
-      stores,
-      limit,
-    );
-  }, [currentStore.id, inventory, eodSubmissions, stores, days, limit]);
+export function computeStoreFoodCostSeries(
+  storeId: string,
+  eodSubmissions: EODSubmission[],
+  days: number = 14,
+  now: Date = new Date(),
+): Array<number | null> {
+  const nowMs = now.getTime();
+  const out: Array<number | null> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const key = new Date(nowMs - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const sub = eodSubmissions.find((s) => s.storeId === storeId && s.date === key);
+    out.push(sub ? 30 + ((sub.entries?.length || 0) % 5) : null);
+  }
+  return out;
 }
 
 /**
- * CoGS rollup for the current store across the trailing `days` window.
- * `pct` is the variance as a percentage of theoretical (signed). When
- * theoretical is 0 the pct collapses to 0 — surfaced as "—" by the
- * renderer.
+ * AC-B4 — per-day UNWEIGHTED mean of `computeStoreFoodCostSeries` across
+ * `storeIds`, counting only the stores that have a value that day. A day
+ * where no scoped store has a value stays `null` (skipped, not zeroed —
+ * a 0% food cost would read as a real, catastrophic number).
+ *
+ * A single-element `storeIds` short-circuits to `computeStoreFoodCostSeries`
+ * verbatim: mean-of-one is the value itself, but going through the sum/count
+ * path would introduce float drift, and AC-S4 requires single-store mode to
+ * be byte-identical to today. Empty `storeIds` → all-`null` series.
+ *
+ * Aggregating a mock is knowingly what this does (spec Risk R4 / R-C): it is
+ * strictly more honest than today's focal-store mock under an "All stores"
+ * title, but it is still not a real brand food-cost figure.
  */
-export function useCogsForCurrentStore(days: number = 7): {
-  theoretical: number;
-  actual: number;
-  delta: number;
-  pct: number;
-} {
-  const currentStore = useStore((s) => s.currentStore);
-  const inventory = useStore((s) => s.inventory);
-  const eodSubmissions = useStore((s) => s.eodSubmissions);
-  const posImports = useStore((s) => s.posImports);
-  const recipes = useStore((s) => s.recipes);
-  return useMemo(() => {
-    const today = new Date();
-    const startD = new Date(today);
-    startD.setDate(startD.getDate() - (days - 1));
-    const startISO = startD.toISOString().slice(0, 10);
-    const endISO = today.toISOString().slice(0, 10);
-    const theoretical = computeCogsTheoretical(
-      currentStore.id, startISO, endISO, posImports, recipes, inventory,
-    );
-    const actual = computeCogsActual(
-      currentStore.id, startISO, endISO, inventory, eodSubmissions,
-    );
-    const delta = +(actual - theoretical).toFixed(2);
-    const pct = theoretical > 0 ? +((delta / theoretical) * 100).toFixed(1) : 0;
-    return { theoretical, actual, delta, pct };
-  }, [currentStore.id, inventory, eodSubmissions, posImports, recipes, days]);
+export function computeScopedFoodCostSeries(
+  storeIds: string[],
+  eodSubmissions: EODSubmission[],
+  days: number = 14,
+  now: Date = new Date(),
+): Array<number | null> {
+  if (storeIds.length === 1) {
+    return computeStoreFoodCostSeries(storeIds[0], eodSubmissions, days, now);
+  }
+  const perStore = storeIds.map((id) => computeStoreFoodCostSeries(id, eodSubmissions, days, now));
+  const out: Array<number | null> = [];
+  for (let d = 0; d < days; d++) {
+    let sum = 0;
+    let n = 0;
+    for (const series of perStore) {
+      const v = series[d];
+      if (v != null) { sum += v; n += 1; }
+    }
+    out.push(n === 0 ? null : sum / n);
+  }
+  return out;
 }
+
+/**
+ * AC-B6 — CoGS rollup across `storeIds` for [startDate, endDate]. Loops the
+ * existing per-store `computeCogsTheoretical` / `computeCogsActual` and sums.
+ * `delta` / `pct` use the SAME expressions as the deleted
+ * `useCogsForCurrentStore`, so a single-element `storeIds` reproduces
+ * today's focal numbers exactly (AC-S6).
+ *
+ * Rounding: the per-store functions already `+x.toFixed(2)` internally, so
+ * the sum can drift from a single-pass sum by at most N × 0.005 (accepted —
+ * the card renders `Math.round`). The `+sum.toFixed(2)` here only clears
+ * binary-float dust from adding already-2dp values; it round-trips a
+ * single-store value unchanged. Do NOT "fix" this by reimplementing the
+ * per-store maths.
+ *
+ * DOCUMENTED LIMITATION (spec 159 Risk R-B) — read AC-B6 as "correct within
+ * ONE brand": `computeCogsTheoretical` needs `recipes`, and the `recipes`
+ * slice only ever holds the FOCAL store's brand (fetchAllForStore →
+ * fetchRecipes(brandId)). A super-admin whose scope spans two brands gets a
+ * full `actual` but a ZERO `theoretical` for the out-of-brand stores, which
+ * inflates `delta` and `pct`. Deliberately NOT fixed here — a cross-brand
+ * recipe fetch is the honest-food-cost follow-up's territory (OQ-4). The
+ * label resolver detects this exact case (>1 distinct brandId) and degrades
+ * the title to the generic "All stores (N)" so the number never claims a
+ * brand it isn't.
+ */
+export function computeScopedCogs(
+  storeIds: string[],
+  startDate: string,
+  endDate: string,
+  inventory: InventoryItem[],
+  eodSubmissions: EODSubmission[],
+  posImports: POSImport[],
+  recipes: Recipe[],
+): { theoretical: number; actual: number; delta: number; pct: number } {
+  let theoreticalSum = 0;
+  let actualSum = 0;
+  for (const storeId of storeIds) {
+    theoreticalSum += computeCogsTheoretical(storeId, startDate, endDate, posImports, recipes, inventory);
+    actualSum += computeCogsActual(storeId, startDate, endDate, inventory, eodSubmissions);
+  }
+  const theoretical = +theoreticalSum.toFixed(2);
+  const actual = +actualSum.toFixed(2);
+  const delta = +(actual - theoretical).toFixed(2);
+  const pct = theoretical > 0 ? +((delta / theoretical) * 100).toFixed(1) : 0;
+  return { theoretical, actual, delta, pct };
+}
+
+/**
+ * AC-B7 / PM-4 — per-store `computeTopVarianceItems(…, limit)` concatenated
+ * in `storeIds` order, re-sorted by |deltaCost| desc, sliced to `limit`.
+ *
+ * Merging N per-store top-`limit` lists is exactly equivalent to a global
+ * top-`limit`: the ranking key is `e.itemId` = `inventory_items.id`, a
+ * PER-STORE row id, so there is no cross-store aggregation to lose — an
+ * item in the global top 5 is necessarily in its own store's top 5.
+ * Corollary the UI must accept: the same catalog ingredient at three stores
+ * yields up to three rows, which is what the retained store-name column
+ * (PM-5) is for.
+ *
+ * Tie-break determinism: `storeIds` is iterated in caller order (i.e.
+ * `visibleStores` order) and `Array.prototype.sort` is stable per spec, so
+ * equal |deltaCost| breaks by store order, then by the per-store function's
+ * own output order. Single-element `storeIds` is a no-op re-sort of an
+ * already-sorted list → identical to `computeTopVarianceItems` (AC-S7).
+ */
+export function computeScopedTopVarianceItems(
+  storeIds: string[],
+  startDate: string,
+  endDate: string,
+  inventory: InventoryItem[],
+  eodSubmissions: EODSubmission[],
+  stores: Store[],
+  limit: number = 5,
+): VarianceLine[] {
+  const merged: VarianceLine[] = [];
+  for (const storeId of storeIds) {
+    merged.push(
+      ...computeTopVarianceItems(storeId, startDate, endDate, inventory, eodSubmissions, stores, limit),
+    );
+  }
+  merged.sort((a, b) => Math.abs(b.deltaCost) - Math.abs(a.deltaCost));
+  return merged.slice(0, limit);
+}
+
+/**
+ * Spec 159 §6.3 / AC-S3 / AC-B3 — the waste-in-window reducer. Extracted so
+ * `wasteWeek` and `wasteEventCount` (DashboardSection.tsx) share ONE copy of
+ * four load-bearing rules instead of duplicating the filter predicate byte
+ * for byte (code-reviewer Should-fix, fix-pass item 1):
+ *
+ *   1. Scoped to `scopeIds` (the current Dashboard scope).
+ *   2. Trailing 7-day window ending at `nowMs`.
+ *   3. The R-A guard — `Number.isFinite(Date.parse(w.timestamp))`. The focal
+ *      half of the merged waste list can carry a locale string
+ *      (`fetchWasteLog`'s `toLocaleString()`); an unparseable timestamp is
+ *      DROPPED explicitly rather than silently losing a `NaN >= cutoff`
+ *      comparison. See db.ts's `fetchWasteLogForStores` docblock (Risk R-A).
+ *   4. UNBRIDGED cost — spec 104 R1. `w.costPerUnit` on a `WasteEntry` is the
+ *      FROZEN per-COUNTED-unit snapshot captured at log time, not the LIVE
+ *      per-each `inventory.costPerUnit` the other KPI cards in this section
+ *      bridge with `× (subUnitSize || 1)` (see `totalInvValue`). Multiplying
+ *      by `subUnitSize` here — even if a caller's row happens to carry that
+ *      field — would be exactly the spec-104 R1 mistake the frozen-snapshot
+ *      invariant exists to prevent. Do NOT add that bridge.
+ *
+ * Returns both the dollar sum (desktop WASTE/WK) and the event count (the
+ * phone's `wasteEventCount`) from one pass over `entries`.
+ */
+export function sumScopedWaste(
+  entries: WasteEntry[],
+  scopeIds: Set<string>,
+  nowMs: number,
+): { dollars: number; events: number } {
+  const cutoff = nowMs - 7 * 24 * 3600 * 1000;
+  let dollars = 0;
+  let events = 0;
+  for (const w of entries) {
+    if (!scopeIds.has(w.storeId)) continue;
+    const t = Date.parse(w.timestamp);
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    dollars += w.quantity * w.costPerUnit;
+    events += 1;
+  }
+  return { dollars, events };
+}
+
+// ─── Hooks (Zustand-shaped wrappers) — deliberately empty ────────────
+//
+// Hooks here used to bind useStore slices to the pure functions above, and
+// they could only ever cover the CURRENT-STORE case: the slice loader
+// (useStore.ts:248) holds one store's eodSubmissions/posImports/
+// orderSubmissions at a time. THE HOUSE RULE STANDS: callers needing
+// per-store cross-store data (the Dashboard heatmap, per-store attention
+// queues, the scoped rollups above) fetch via
+// db.fetchEodSubmissionsForStores / fetchPosImportsForStores /
+// fetchWasteLogForStores (spec 009 §5/D2, spec 159) and call the pure
+// functions directly with component-local state.
+//
+// Spec 159 (D-A) — `useTopVarianceItems` and `useCogsForCurrentStore` lived
+// here until the scope picker landed. Both were `currentStore`-bound and read
+// the focal-only slices, which is precisely the data the Dashboard (their
+// only call site anywhere in the repo) had to stop using. Deleted rather than
+// given a `storeIds` param: keeping a focal-bound hook next to a scoped
+// variant is the drift surface spec 150 was written about. Use
+// `computeScopedCogs` / `computeScopedTopVarianceItems` above instead.
 
 // ─── Spec 011: Responsive sidebar — single source of truth ──────────
 //

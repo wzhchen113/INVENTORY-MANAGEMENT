@@ -55,7 +55,11 @@ jest.mock('./auth', () => ({
   callEdgeFunction: jest.fn(),
 }));
 
-import { fetchOrderScheduleForStores, fetchOrderSubmissionsForStores } from './db';
+import {
+  fetchOrderScheduleForStores,
+  fetchOrderSubmissionsForStores,
+  fetchWasteLogForStores,
+} from './db';
 // Resolves to the jest.mock'd supabase above — used to pin the SOURCE TABLE
 // each helper queries (spec 081 Risk 1: a regression to a wrong/non-existent
 // table name like 'order_submissions' would 42P01 into the warn-and-return-
@@ -233,5 +237,126 @@ describe('fetchOrderSubmissionsForStores', () => {
 
     const result = await fetchOrderSubmissionsForStores(['A'], '2026-05-13');
     expect(result[0].vendorName).toBe('');
+  });
+});
+
+// ── fetchWasteLogForStores (spec 159) ───────────────────────────
+//
+// Third sibling in this family. Load-bearing invariants beyond the shared
+// empty/.in()/error shape:
+//   - `timestamp` is the RAW ISO logged_at, NOT the single-store
+//     fetchWasteLog's `toLocaleString()` (spec 159 Risk R-A). A locale
+//     string reparses to Invalid Date under a non-en-US runtime locale, so
+//     the Dashboard's `Date.parse(...) >= cutoff` filter would silently drop
+//     every cross-store row and WASTE/WK would read $0.
+//   - `costPerUnit` passes through UNBRIDGED (spec 104 R1) — waste_log's
+//     cost_per_unit is the frozen per-COUNTED-unit snapshot and must not be
+//     multiplied by subUnitSize here or downstream.
+//   - `notes` and `logged_by` are NOT selected (spec 159 fix-pass item 5 /
+//     security-auditor Low #2 — data minimization: the only consumer sums
+//     quantity × costPerUnit). `notes` and `loggedByUserId` are always ''
+//     regardless of what the mocked row carries.
+describe('fetchWasteLogForStores', () => {
+  it('returns [] for empty storeIds without touching supabase', async () => {
+    const result = await fetchWasteLogForStores([], '2026-08-02T00:00:00.000Z');
+    expect(result).toEqual([]);
+    expect(mockBuilder.abortSignal).not.toHaveBeenCalled();
+  });
+
+  it('maps snake_case → camelCase per store and keeps logged_at as raw ISO', async () => {
+    mockResult([
+      {
+        id: 'w-a', store_id: 'A', item_id: 'i-1', quantity: 2, unit: 'lb',
+        cost_per_unit: 3.5, reason: 'Expired',
+        logged_at: '2026-08-10T14:03:11.000Z',
+      },
+      {
+        id: 'w-b', store_id: 'B', item_id: 'i-2', quantity: 1, unit: 'ea',
+        cost_per_unit: 10, reason: 'Dropped/spilled',
+        logged_at: '2026-08-09T09:00:00.000Z',
+      },
+    ]);
+
+    const result = await fetchWasteLogForStores(['A', 'B'], '2026-08-02T00:00:00.000Z');
+
+    expect(result).toHaveLength(2);
+    const a = result.find((r) => r.storeId === 'A')!;
+    expect(a).toMatchObject({
+      id: 'w-a', itemId: 'i-1', quantity: 2, unit: 'lb',
+      costPerUnit: 3.5, reason: 'Expired', storeId: 'A',
+    });
+    // R-A: raw ISO, always re-parseable regardless of runtime locale.
+    expect(a.timestamp).toBe('2026-08-10T14:03:11.000Z');
+    expect(Number.isFinite(Date.parse(a.timestamp))).toBe(true);
+    // Not a locale string — this is the regression that would read as $0 waste.
+    expect(a.timestamp).not.toBe(new Date('2026-08-10T14:03:11.000Z').toLocaleString());
+    // notes is never selected → always '' (Low #2 minimization).
+    expect(result.find((r) => r.storeId === 'B')!.notes).toBe('');
+  });
+
+  it('passes cost_per_unit through UNBRIDGED (spec 104 R1)', async () => {
+    // A per-counted-unit snapshot of 12.00 must stay 12.00 — a subUnitSize
+    // bridge anywhere in this mapper would silently inflate WASTE/WK.
+    mockResult([
+      {
+        id: 'w-c', store_id: 'A', item_id: 'i-3', quantity: 1, unit: 'case',
+        cost_per_unit: 12, reason: 'Quality issue',
+        logged_at: '2026-08-10T14:00:00.000Z',
+      },
+    ]);
+
+    const result = await fetchWasteLogForStores(['A'], '2026-08-02T00:00:00.000Z');
+    expect(result[0].costPerUnit).toBe(12);
+  });
+
+  it('leaves the un-joined / unselected fields sparse rather than inventing values', async () => {
+    // No profiles / catalog_ingredients embeds by design (aggregate-only
+    // shape) — itemName and loggedBy are '' and callers must hydrate before
+    // rendering these rows in a list. logged_by and notes are not even
+    // requested in the select list (Low #2), so loggedByUserId/notes are
+    // ALWAYS '' regardless of what the mocked row returns.
+    mockResult([
+      {
+        id: 'w-d', store_id: 'A', item_id: 'i-4', quantity: 1, unit: null,
+        cost_per_unit: 1, reason: 'Theft',
+        logged_at: '2026-08-10T14:00:00.000Z',
+      },
+    ]);
+
+    const result = await fetchWasteLogForStores(['A'], '2026-08-02T00:00:00.000Z');
+    expect(result[0].itemName).toBe('');
+    expect(result[0].loggedBy).toBe('');
+    expect(result[0].loggedByUserId).toBe('');
+    expect(result[0].notes).toBe('');
+    expect(result[0].unit).toBe('');
+  });
+
+  it('does not request notes or logged_by in the select column list (Low #2)', async () => {
+    mockResult([]);
+    await fetchWasteLogForStores(['A'], '2026-08-02T00:00:00.000Z');
+    const selectArg = mockBuilder.select.mock.calls[0][0] as string;
+    expect(selectArg).not.toMatch(/\bnotes\b/);
+    expect(selectArg).not.toMatch(/\blogged_by\b/);
+  });
+
+  it('filters by store_id via .in(), cuts off via .gte(logged_at), returns [] on error', async () => {
+    mockResult(null, { message: 'permission denied for table waste_log' });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await fetchWasteLogForStores(['A', 'B'], '2026-08-02T00:00:00.000Z');
+
+    expect(result).toEqual([]);
+    expect(supabase.from).toHaveBeenCalledWith('waste_log');
+    expect(mockBuilder.in).toHaveBeenCalledWith('store_id', ['A', 'B']);
+    // Full ISO instant, not a date-only string — logged_at is timestamptz.
+    expect(mockBuilder.gte).toHaveBeenCalledWith('logged_at', '2026-08-02T00:00:00.000Z');
+    // R6: a warn, so an RLS denial can't masquerade as "$0 waste this week".
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('returns [] when the query yields no rows', async () => {
+    mockResult([]);
+    expect(await fetchWasteLogForStores(['A'], '2026-08-02T00:00:00.000Z')).toEqual([]);
   });
 });

@@ -375,7 +375,12 @@
       "greetingAfternoon": "buenas tardes",
       "greetingEvening": "buenas noches",
       "greetingLine": "// {greeting}, admin · {date} · {count} tiendas",
-      "heroTitle": "Todas las tiendas · día en curso",
+      "greetingLineStore": "// {greeting}, admin · {date} · {store}",
+      "heroTitleScope": "{scope} · día en curso",
+      "scopeAllBrand": "{brand} · {count} tiendas",
+      "scopeAllBrandOne": "{brand} · {count} tienda",
+      "scopeAllFallback": "Todas las tiendas ({count})",
+      "scopePickerA11y": "Alcance del panel",
       "kpi": {
         "totalInvValue": "VALOR TOTAL INV",
         "avgFoodCost": "% COSTO COMIDA PROM",

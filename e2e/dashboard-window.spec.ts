@@ -55,7 +55,10 @@
 // + attention-row-{item.id} (each queue row; the unconfirmed_po item.id is
 // `${storeId}:po:${vendorKey}:${pastISO}` per cmdSelectors.ts:899, and
 // vendorKey === SEED.vendorUsFoodId here because the fixture sets vendor_id).
-// Plus dashboard-root (078 §7) + nav-Dashboard (079 §6 SIDEBAR_NAV).
+// Plus dashboard-root (078 §7) + nav-Dashboard (079 §6 SIDEBAR_NAV), and —
+// since spec 159 — dashboard-scope-picker + dashboard-scope-option-{storeId}
+// (the Dashboard-local scope control this spec must drive to make the
+// dedicated non-focal store's card render at all; see AC-R4 below).
 
 import { test, expect } from '@playwright/test';
 import { SEED, SIDEBAR_NAV, STORAGE_STATE, WEEKDAYS } from './fixtures/constants';
@@ -226,6 +229,16 @@ test('AC-080-IN/OUT: spec-074 window renders per-store on the dedicated card', a
   await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
   await page.getByTestId(SIDEBAR_NAV.dashboard).click();
   await expect(page.getByTestId('dashboard-root')).toBeVisible();
+
+  // Spec 159 (AC-R4) — the Dashboard now defaults to the SELECTED store's
+  // scope, so the dedicated store's card does NOT render on first paint (it is
+  // deliberately never the focal store — see the fixture note above). Drive the
+  // new Dashboard-local scope picker to the dedicated store before asserting.
+  // Picking that store (rather than `dashboard-scope-option-all`) renders
+  // EXACTLY ONE card, which strengthens the card-scoped `toHaveCount(0)`
+  // absence assertions below against interference from another store's rows.
+  await page.getByTestId('dashboard-scope-picker').click();
+  await page.getByTestId(`dashboard-scope-option-${SEED.e2eWindowStoreId}`).click();
 
   // Scope EVERY row assertion to the dedicated store's card so another store's
   // unconfirmed_po rows can't satisfy or break the assertion.

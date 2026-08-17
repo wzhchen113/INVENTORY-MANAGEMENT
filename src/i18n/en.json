@@ -375,7 +375,12 @@
       "greetingAfternoon": "good afternoon",
       "greetingEvening": "good evening",
       "greetingLine": "// {greeting}, admin · {date} · {count} stores",
-      "heroTitle": "All stores · day in progress",
+      "greetingLineStore": "// {greeting}, admin · {date} · {store}",
+      "heroTitleScope": "{scope} · day in progress",
+      "scopeAllBrand": "{brand} · {count} stores",
+      "scopeAllBrandOne": "{brand} · {count} store",
+      "scopeAllFallback": "All stores ({count})",
+      "scopePickerA11y": "Dashboard scope",
       "kpi": {
         "totalInvValue": "TOTAL INV VALUE",
         "avgFoodCost": "AVG FOOD COST %",

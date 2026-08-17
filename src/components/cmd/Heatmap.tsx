@@ -103,6 +103,13 @@ export const Heatmap: React.FC<HeatmapProps> = ({
       {rows.map((row, rIdx) => (
         <View
           key={`${row.label}-${rIdx}`}
+          // Spec 159 fix-pass item 3 — stable per-row testID so AC-S8/AC-B8
+          // (heatmap row count) is assertable from a component test without
+          // depending on row LABEL text (which is a store name and can
+          // collide with text rendered elsewhere on the card grid). Additive
+          // only — no rendering change; Heatmap has exactly one consumer
+          // (DashboardSection.tsx).
+          testID={`heatmap-row-${rIdx}`}
           style={{ flexDirection: 'row', gap, marginBottom: gap, alignItems: 'center' }}
         >
           <Text

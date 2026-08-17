@@ -10,7 +10,7 @@
 // expression from TitleBar.tsx (which PhoneStoreSwitch.tsx had copied). Do NOT
 // "simplify" it — its whole job is to be the old code.
 
-import { visibleStoresFor, isPrivilegedRole } from './storeVisibility';
+import { visibleStoresFor, isPrivilegedRole, brandNameFor } from './storeVisibility';
 import type { Store, User } from '../types';
 
 /** The pre-spec-150 inline predicate, transcribed unchanged. */
@@ -91,5 +91,44 @@ describe('visibleStoresFor — contract', () => {
   it('fails closed for an unknown user', () => {
     expect(visibleStoresFor(STORES, null, null)).toEqual([]);
     expect(isPrivilegedRole(null)).toBe(false);
+  });
+});
+
+// ── brandNameFor (spec 159) ─────────────────────────────────────
+//
+// The Dashboard's scope label is brand-named (OQ-2) and MUST degrade to a
+// generic string rather than render a wrong or blank brand. Every `null`
+// path below is a real production state, not a defensive nicety.
+describe('brandNameFor', () => {
+  const BRANDS = [
+    { id: 'b1', name: '2AM PROJECT' },
+    { id: 'b2', name: 'BALTIMORE SEAFOOD' },
+  ];
+
+  it('resolves from brandsList (the super-admin case: every brand loaded)', () => {
+    expect(brandNameFor('b2', null, BRANDS)).toBe('BALTIMORE SEAFOOD');
+  });
+
+  it('resolves from the single `brand` slice (the admin/master case: brandsList empty)', () => {
+    expect(brandNameFor('b1', { id: 'b1', name: '2AM PROJECT' }, [])).toBe('2AM PROJECT');
+  });
+
+  it('prefers `brand` over brandsList — it is the session\'s own, freshly-renamed copy', () => {
+    expect(brandNameFor('b1', { id: 'b1', name: 'RENAMED' }, BRANDS)).toBe('RENAMED');
+  });
+
+  it('returns null for "All brands" (no brandId), so callers pick their own fallback', () => {
+    expect(brandNameFor(null, null, BRANDS)).toBeNull();
+    expect(brandNameFor(undefined, null, BRANDS)).toBeNull();
+    expect(brandNameFor('', null, BRANDS)).toBeNull();
+  });
+
+  it('returns null for an unknown id and for first paint before the slices hydrate', () => {
+    expect(brandNameFor('b-unknown', null, BRANDS)).toBeNull();
+    expect(brandNameFor('b1', null, [])).toBeNull();
+  });
+
+  it('returns null rather than an empty string when the loaded name is blank', () => {
+    expect(brandNameFor('b1', { id: 'b1', name: '' }, [{ id: 'b1', name: '' }])).toBeNull();
   });
 });
