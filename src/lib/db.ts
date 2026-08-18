@@ -54,6 +54,7 @@ import {
   LastOrderConfidence, LastOrderSource,
   MenuCapacityRow, OrderSchedule, OrderSubmission,
   WeeklyCountStatus, WeeklyCountStatusValue,
+  ItemLastCounted,
   AdminNotification,
 } from '../types';
 
@@ -1437,6 +1438,47 @@ export async function fetchWeeklyCountStatus(asOfDate: string): Promise<WeeklyCo
       lastCountedAt: row.last_counted_at ?? null,
     }));
   }, { kind: 'read', label: 'fetchWeeklyCountStatus' });
+}
+
+// ─── ITEMS LAST COUNTED (Spec 160) ──────────────────────────────────────
+/**
+ * Per-(store, item) "last physically counted" timestamps for the admin
+ * Inventory column. One RPC per store view (AC-20) — never per item.
+ *
+ * `items_last_counted` returns ONE ROW PER `inventory_items` ROW in the store,
+ * so `lastCountedAt === null` is the never-counted signal; row presence is not.
+ * The value is `max(submitted_at)` over the union of SUBMITTED eod counts and
+ * SUBMITTED `inventory_counts` — byte-identical semantics to the staff
+ * "Updated" badge, which now consumes the same SQL function
+ * (20260817000000_items_last_counted.sql).
+ *
+ * THIS HELPER THROWS ON ERROR. That is a deliberate departure from the
+ * degrade-to-`[]` posture of its neighbour `fetchWeeklyCountStatus` above, and
+ * it is the whole reason AC-9 can be guaranteed: an empty array is
+ * indistinguishable from "this store has no items", so swallowing the error
+ * would hand the store slice a `loaded: true` empty map, and every cell would
+ * then read a missing key as "never counted" — silently asserting, with total
+ * confidence, the exact falsehood this spec was written to remove. Throwing
+ * lets `loadItemsLastCounted` keep `lastCountedLoaded === false`, which renders
+ * the neutral `—` placeholder plus one `notifyBackendError` toast. Same posture
+ * as `fetchMenuCapacity` (`if (error) throw error`).
+ */
+export async function fetchItemsLastCounted(
+  storeId: string,
+): Promise<ItemLastCounted[]> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('items_last_counted', { p_store_id: storeId })
+      .abortSignal(signal);
+
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    return rows.map((r: any): ItemLastCounted => ({
+      itemId: String(r?.item_id ?? ''),
+      // Never coerced to '' — null IS the never-counted value.
+      lastCountedAt: r?.last_counted_at ?? null,
+    }));
+  }, { kind: 'read', label: 'fetchItemsLastCounted' });
 }
 
 /**

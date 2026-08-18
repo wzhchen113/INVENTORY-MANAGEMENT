@@ -461,7 +461,15 @@ export default function InventoryCountSection() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'inventory_counts', filter: `store_id=eq.${storeId}` },
-        () => setRefreshTick((t) => t + 1),
+        () => {
+          setRefreshTick((t) => t + 1);
+          // Spec 160 §5.4: inventory_counts is deliberately off the global
+          // store realtime channel, so a count submitted here (including by
+          // the admin themselves) would otherwise leave the Inventory
+          // page's "last counted" column stale until the next
+          // loadFromSupabase. Piggyback on this section-local subscription.
+          void useStore.getState().loadItemsLastCounted(storeId);
+        },
       )
       .subscribe();
     return () => {

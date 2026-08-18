@@ -1,13 +1,17 @@
-// src/components/cmd/InventoryTable.test.tsx — Spec 112.
+// src/components/cmd/InventoryTable.test.tsx — Spec 112, re-pinned by spec 160.
 //
 // Pins the full-width operational table:
 //   - AC-1 / AC-13 case 1: the operational column HEADERS render at a wide
 //     (≥1400) width, and a data row renders cost + stock-value cells.
-//   - AC-7 / AC-13 case 7: the width-keyed column-collapse tiers
-//     (≥1400 → all 8; 1200–1399 drop last-counted; 1100–1199 drop category,
-//     the 6-column floor). The table takes `width` as an explicit prop, so
-//     each tier is exercised by rendering at that width directly (no need to
-//     drive onLayout through the parent).
+//   - spec 160 AC-13/AC-14: the RE-PRIORITIZED width-keyed collapse tiers
+//     (≥1400 → all 8; 1200–1399 drop CATEGORY; <1200 floor drops category +
+//     VENDOR). `lastCounted` moved to 4th and now survives every tier — the
+//     old tier assertions pinned spec 112's priority order, which is exactly
+//     the product fact AC-13/AC-14 changed. The table takes `width` as an
+//     explicit prop, so each tier is exercised by rendering at that width
+//     directly (no need to drive onLayout through the parent).
+//   - spec 160 AC-7/8/9/10: the last-counted cell for counted / never /
+//     LOADING, the tone grading, and the a11y long form.
 //   - the ★ money cells use the itemMoney helpers (real, un-mocked) so the
 //     cost/each + stock-value strings are pinned here too.
 //
@@ -70,7 +74,30 @@ const VENDORS: Vendor[] = [
 const getItemStatus = (it: InventoryItem): ItemStatus =>
   it.currentStock <= 0 ? 'out' : it.currentStock < it.parLevel ? 'low' : 'ok';
 
-function renderTable(width: number, items: InventoryItem[] = [makeItem()]) {
+// Spec 160 — the last-counted prop bundle. `undefined` (the default) exercises
+// the AC-9 loading path, which is what every pre-existing case lands on.
+const NOW = new Date('2026-08-17T12:00:00Z');
+function lastCountedProp(
+  byItem: Record<string, string | null>,
+  loaded = true,
+) {
+  return {
+    byItem,
+    loaded,
+    timezone: 'America/New_York',
+    locale: 'en',
+    neverLabel: 'never counted',
+    loadingLabel: 'loading',
+    ariaTemplate: 'last counted {date}',
+    now: NOW,
+  };
+}
+
+function renderTable(
+  width: number,
+  items: InventoryItem[] = [makeItem()],
+  lastCounted?: ReturnType<typeof lastCountedProp>,
+) {
   return render(
     <InventoryTable
       items={items}
@@ -81,6 +108,7 @@ function renderTable(width: number, items: InventoryItem[] = [makeItem()]) {
       getItemStatus={getItemStatus}
       displayName={(it) => it.name}
       labels={LABELS}
+      lastCounted={lastCounted}
     />,
   );
 }
@@ -105,49 +133,135 @@ describe('InventoryTable (spec 112)', () => {
     });
   });
 
-  describe('AC-7 — width-keyed column collapse tiers (render)', () => {
-    it('≥1400 shows last-counted (all 8)', () => {
+  describe('spec 160 AC-14 — re-prioritized collapse tiers (render)', () => {
+    it('≥1400 shows all 8, including last-counted and category', () => {
       renderTable(1450);
       expect(screen.getByText('last counted')).toBeTruthy();
       expect(screen.getByText('category')).toBeTruthy();
     });
 
-    it('1200–1399 drops last-counted, keeps category (7)', () => {
+    it('1200–1399 drops CATEGORY and keeps last-counted (7)', () => {
       renderTable(1250);
-      expect(screen.queryByText('last counted')).toBeNull();
-      expect(screen.getByText('category')).toBeTruthy();
+      expect(screen.getByText('last counted')).toBeTruthy();
+      expect(screen.queryByText('category')).toBeNull();
       expect(screen.getByText('vendor')).toBeTruthy();
     });
 
-    it('1100–1199 drops category, keeps the 6-column floor', () => {
+    it('the 1100–1199 floor drops category + vendor and STILL keeps last-counted', () => {
       renderTable(1150);
-      expect(screen.queryByText('last counted')).toBeNull();
+      expect(screen.getByText('last counted')).toBeTruthy();
       expect(screen.queryByText('category')).toBeNull();
-      // Floor survivors: name / on hand / status / cost / stock value / vendor.
+      expect(screen.queryByText('vendor')).toBeNull();
+      // Floor survivors: name / on hand / status / last counted / cost / stock value.
       expect(screen.getByText('name')).toBeTruthy();
       expect(screen.getByText('on hand')).toBeTruthy();
       expect(screen.getByText('status')).toBeTruthy();
       expect(screen.getByText('cost / ea')).toBeTruthy();
       expect(screen.getByText('stock value')).toBeTruthy();
-      expect(screen.getByText('vendor')).toBeTruthy();
+    });
+
+    it('survives a pane-open width well under 1100 (the unbounded floor)', () => {
+      renderTable(920);
+      expect(screen.getByText('last counted')).toBeTruthy();
     });
   });
 
-  describe('AC-7 — visibleColumnsForWidth (pure)', () => {
-    it('≥1400 → all 8 in order', () => {
+  describe('spec 160 AC-13/14 — visibleColumnsForWidth (pure)', () => {
+    it('≥1400 → all 8 in the new display order', () => {
       expect(visibleColumnsForWidth(1400)).toEqual([
-        'name', 'onHand', 'status', 'costEach', 'stockValue', 'vendor', 'category', 'lastCounted',
+        'name', 'onHand', 'status', 'lastCounted', 'costEach', 'stockValue', 'vendor', 'category',
       ]);
     });
-    it('1200–1399 → drop lastCounted', () => {
-      expect(visibleColumnsForWidth(1399)).not.toContain('lastCounted');
-      expect(visibleColumnsForWidth(1200)).toContain('category');
+    it('1200–1399 → drop category, keep lastCounted', () => {
+      expect(visibleColumnsForWidth(1399)).toEqual([
+        'name', 'onHand', 'status', 'lastCounted', 'costEach', 'stockValue', 'vendor',
+      ]);
+      expect(visibleColumnsForWidth(1200)).toContain('lastCounted');
     });
-    it('1100–1199 → drop lastCounted + category (floor)', () => {
+    it('<1200 floor → drop category + vendor, keep lastCounted', () => {
       const cols = visibleColumnsForWidth(1150);
-      expect(cols).not.toContain('lastCounted');
       expect(cols).not.toContain('category');
-      expect(cols).toEqual(['name', 'onHand', 'status', 'costEach', 'stockValue', 'vendor']);
+      expect(cols).not.toContain('vendor');
+      expect(cols).toEqual(['name', 'onHand', 'status', 'lastCounted', 'costEach', 'stockValue']);
+      expect(visibleColumnsForWidth(920)).toEqual(cols);
+    });
+  });
+
+  describe('spec 160 — the last-counted cell', () => {
+    // Tone math uses the INJECTED `now` (stable, pinned to NOW). The relative
+    // fragment comes from the real `relativeTime()`, which anchors on the
+    // system clock — so composition assertions build their fixture off
+    // `Date.now()` and match a SHAPE, never a hard-coded date that would rot.
+    const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
+    const realAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const nowProp = (byItem: Record<string, string | null>) => ({
+      ...lastCountedProp(byItem),
+      now: new Date(),
+    });
+    const DAY = 86_400_000;
+
+    it('AC-9 — renders `—` (never the never-counted words) while unloaded', () => {
+      renderTable(1450, [makeItem()], lastCountedProp({ i1: null }, false));
+      expect(screen.getByText('—')).toBeTruthy();
+      expect(screen.queryByText('never counted')).toBeNull();
+      // a11y announces "loading", not a bare dash.
+      expect(screen.getByLabelText('loading')).toBeTruthy();
+    });
+
+    it('AC-9 — also renders `—` when the prop bundle is absent entirely', () => {
+      renderTable(1450);
+      expect(screen.getByText('—')).toBeTruthy();
+      expect(screen.queryByText('never counted')).toBeNull();
+    });
+
+    it('AC-7 / §0.1 — renders the absolute date AND the relative age together', () => {
+      renderTable(1450, [makeItem()], nowProp({ i1: realAgo(3 * DAY) }));
+      // e.g. "Aug 14 · 3d" — short month + day, separator, terse age.
+      expect(screen.getByText(/^[A-Za-z]{3,4}\.? \d{1,2} · 3d$/)).toBeTruthy();
+    });
+
+    it('AC-10 — the a11y label carries the LONG absolute date', () => {
+      renderTable(1450, [makeItem()], nowProp({ i1: realAgo(3 * DAY) }));
+      // e.g. "last counted August 14, 2026 · 3d".
+      expect(screen.getByLabelText(/^last counted [A-Za-z]+ \d{1,2}, \d{4} · 3d$/)).toBeTruthy();
+    });
+
+    it('AC-5/AC-25 — a null value renders the localized never-counted words', () => {
+      renderTable(1450, [makeItem()], lastCountedProp({ i1: null }));
+      expect(screen.getByText('never counted')).toBeTruthy();
+      expect(screen.getByLabelText('never counted')).toBeTruthy();
+    });
+
+    it('an item MISSING from the map reads as never counted once loaded', () => {
+      renderTable(1450, [makeItem()], lastCountedProp({}));
+      expect(screen.getByText('never counted')).toBeTruthy();
+    });
+
+    it('AC-1 — it does NOT read item.lastUpdatedAt (last EDITED)', () => {
+      // lastUpdatedAt is "just now" while the true last count is 40 days old.
+      // Under the old wiring the cell would read ~0s; it must read ~1mo.
+      renderTable(
+        1450,
+        [makeItem({ lastUpdatedAt: new Date().toISOString() })],
+        nowProp({ i1: realAgo(40 * DAY) }),
+      );
+      expect(screen.getByText(/· 1mo$/)).toBeTruthy();
+    });
+
+    it('AC-8 — grades the tone: fresh muted, stale warn, cold + never danger', () => {
+      const toneOf = (iso: string | null) => {
+        const { unmount } = renderTable(1450, [makeItem()], lastCountedProp({ i1: iso }));
+        const node = screen.getByText(iso === null ? 'never counted' : /·/);
+        const style = Array.isArray(node.props.style) ? Object.assign({}, ...node.props.style) : node.props.style;
+        const color = style.color;
+        unmount();
+        return color;
+      };
+      // Palette from the mock at the top of this file.
+      expect(toneOf(ago(1 * DAY))).toBe('#888888');   // fresh → C.fg3
+      expect(toneOf(ago(10 * DAY))).toBe('#854F0B');  // stale → C.warn
+      expect(toneOf(ago(40 * DAY))).toBe('#791F1F');  // cold  → C.danger
+      expect(toneOf(null)).toBe('#791F1F');           // never → C.danger
     });
   });
 

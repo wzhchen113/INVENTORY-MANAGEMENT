@@ -33,6 +33,7 @@ jest.mock('../../../../../lib/supabase', () => ({
 import { PhoneInventoryList } from '../PhoneInventoryList';
 import { useStore } from '../../../../../store/useStore';
 import { LightCmd } from '../../../../../theme/colors';
+import en from '../../../../../i18n/en.json';
 
 function mkItem(over: Partial<any>): any {
   return {
@@ -101,6 +102,66 @@ describe('PhoneInventoryList — spec 142 chunk b', () => {
     seed([mkItem({ id: 'a' }), mkItem({ id: 'b' })]);
     const { queryByTestId } = render(<PhoneInventoryList />);
     expect(queryByTestId('phone-drill-detail')).toBeNull();
+  });
+
+  // Spec 160 §9.4 — the phone list shares the desktop filter DSL, so the
+  // `counted:` token advertised in its search placeholder has to RESOLVE here.
+  // No column is added; this is filter wiring only.
+  describe('counted: filter (spec 160 §9.4)', () => {
+    const DAY = 86_400_000;
+    const realAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+    it('counted:never keeps only the never-counted rows', () => {
+      seed([mkItem({ id: 'a' }), mkItem({ id: 'b' })]);
+      useStore.setState({
+        lastCountedByItem: { a: realAgo(2 * DAY), b: null },
+        lastCountedLoaded: true,
+        lastCountedStoreId: 'store-1',
+      });
+      const { getByTestId, queryByTestId } = render(<PhoneInventoryList />);
+      fireEvent.changeText(getByTestId('phone-inv-search'), 'counted:never');
+      expect(queryByTestId('phone-inv-row-a')).toBeNull();
+      expect(getByTestId('phone-inv-row-b')).toBeTruthy();
+    });
+
+    it('counted:stale keeps stale, cold AND never — but not fresh', () => {
+      seed([mkItem({ id: 'a' }), mkItem({ id: 'b' }), mkItem({ id: 'c' })]);
+      useStore.setState({
+        lastCountedByItem: { a: realAgo(2 * DAY), b: realAgo(10 * DAY), c: null },
+        lastCountedLoaded: true,
+        lastCountedStoreId: 'store-1',
+      });
+      const { getByTestId, queryByTestId } = render(<PhoneInventoryList />);
+      fireEvent.changeText(getByTestId('phone-inv-search'), 'counted:stale');
+      expect(queryByTestId('phone-inv-row-a')).toBeNull();
+      expect(getByTestId('phone-inv-row-b')).toBeTruthy();
+      expect(getByTestId('phone-inv-row-c')).toBeTruthy();
+    });
+
+    it('matches ZERO rows while the aggregate is unloaded (never every row)', () => {
+      seed([mkItem({ id: 'a' }), mkItem({ id: 'b' })]);
+      useStore.setState({
+        lastCountedByItem: {},
+        lastCountedLoaded: false,
+        lastCountedStoreId: null,
+      });
+      const { getByTestId, queryByTestId } = render(<PhoneInventoryList />);
+      fireEvent.changeText(getByTestId('phone-inv-search'), 'counted:never');
+      expect(queryByTestId('phone-inv-row-a')).toBeNull();
+      expect(queryByTestId('phone-inv-row-b')).toBeNull();
+    });
+  });
+
+  // AC-19 wiring half — content parity is i18n.test.ts's job; this pins that
+  // the `filterPlaceholderItems` string actually reaches the search
+  // TextInput's `placeholder` prop (not the untouched `filterPlaceholder`
+  // key), so a future dropped/reverted prop would fail this suite.
+  it('AC-19 — the search placeholder is filterPlaceholderItems, not the untouched filterPlaceholder key', () => {
+    seed([mkItem({ id: 'a' })]);
+    const { getByTestId } = render(<PhoneInventoryList />);
+    const search = getByTestId('phone-inv-search');
+    expect(search.props.placeholder).toBe(en.section.inventory.filterPlaceholderItems);
+    expect(search.props.placeholder).not.toBe(en.section.inventory.filterPlaceholder);
   });
 
   it('virtualizes 143 items — far fewer than 143 rows render eagerly', () => {

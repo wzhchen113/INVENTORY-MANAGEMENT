@@ -1,17 +1,19 @@
 import { InventoryItem } from '../types';
 import { ItemStatus } from '../types';
 import { matchesQuery } from '../i18n/matchesQuery';
+import type { CountAgeTone } from './countAge';
 
 // Tokens are whitespace-separated. `key:value` (alphanumeric + `-`/`_`) becomes
 // an AND-filter on the key; everything else is a case-insensitive substring
 // match against `name`. No quoted values, no negatives — keep it minimal.
 //
-// Filterable keys: status (ok/low/out), cat / category, vendor.
+// Filterable keys: status (ok/low/out), cat / category, vendor,
+// counted (never/stale — spec 160).
 // Anything else falls through to a name match.
 
 interface ParsedFilter {
   text: string[];           // bare tokens — full-text against name
-  filters: Array<{ key: 'status' | 'category' | 'vendor'; value: string }>;
+  filters: Array<{ key: 'status' | 'category' | 'vendor' | 'counted'; value: string }>;
 }
 
 const KEY_ALIASES: Record<string, ParsedFilter['filters'][number]['key']> = {
@@ -19,6 +21,7 @@ const KEY_ALIASES: Record<string, ParsedFilter['filters'][number]['key']> = {
   cat:      'category',
   category: 'category',
   vendor:   'vendor',
+  counted:  'counted',
 };
 
 const KV_RE = /^([a-z]+):([\w-]+)$/i;
@@ -60,6 +63,13 @@ export function matchesFilter(
    *  Pass `getLocalizedName(item, locale)` from the call site; the locale
    *  itself isn't needed here because the comparison is string-level. */
   localizedName?: string,
+  /** Spec 160 — the row's last-counted tone, precomputed by `countAgeTone` at
+   *  the call site. `undefined` = the last-counted aggregate is unavailable on
+   *  this surface (still loading, load failed, or the surface never wired it),
+   *  which makes every `counted:` token match ZERO rows. Matching every row
+   *  instead would re-enter AC-9's failure mode through the filter ("your
+   *  entire inventory has never been counted"). */
+  countedTone?: CountAgeTone,
 ): boolean {
   for (const { key, value } of parsed.filters) {
     if (key === 'status') {
@@ -69,6 +79,19 @@ export function matchesFilter(
     } else if (key === 'vendor') {
       const vendor = (item.vendorName || '').toLowerCase();
       if (!vendor.includes(value)) return false;
+    } else if (key === 'counted') {
+      // AC-15 / AC-16. Exactly two accepted values; anything else matches zero
+      // rows (same shape as an unknown `status:` value) rather than falling
+      // through to a name search. The thresholds live ONLY in countAge.ts —
+      // this branch never sees a day count (AC-17).
+      if (countedTone === undefined) return false;
+      if (value === 'never') {
+        if (countedTone !== 'never') return false;
+      } else if (value === 'stale') {
+        if (countedTone === 'fresh') return false;
+      } else {
+        return false;
+      }
     }
   }
   if (parsed.text.length > 0) {

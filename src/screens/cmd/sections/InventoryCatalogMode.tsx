@@ -734,7 +734,13 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                         { key: 'avg_par_level', value: selAvgPar > 0 ? selAvgPar.toFixed(1) : '—' },
                         { key: 'safety_stock',  value: String(Math.max(0, ...sel.rows.map((r) => r.safetyStock || 0))) },
                         { key: 'lead_time_days', value: String(selVendor?.leadTimeDays ?? '—') },
-                        { key: 'last_counted',  value: `"${relativeTime(selLastCount) || 'never'}"` },
+                        // Spec 160 — RELABEL ONLY. `selLastCount` is a
+                        // brand-wide max(lastUpdatedAt) reduce, i.e. genuinely
+                        // "last EDITED" (the meta line above already labels the
+                        // same reduce `neverEdited`). A brand-wide last-COUNTED
+                        // roll-up is a different product question and stays out
+                        // of scope; this row was simply mislabelled.
+                        { key: 'last_edited',   value: `"${relativeTime(selLastCount) || T('section.inventory.neverEdited')}"` },
                       ]}
                     />
                   </View>

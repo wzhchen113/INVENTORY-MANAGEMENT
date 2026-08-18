@@ -86,3 +86,59 @@ describe('PhoneInventoryDetail — AC-INV4', () => {
     expect(getByText('no activity recorded')).toBeTruthy();
   });
 });
+
+// ── Spec 160 — the LAST COUNTED row reads count history, not last-edited ──
+describe('PhoneInventoryDetail — LAST COUNTED (spec 160 AC-1 / AC-9 / AC-12)', () => {
+  const DAY = 86_400_000;
+  const realAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+  it('AC-9 — shows the loading phrase, never "never counted", while unloaded', () => {
+    useStore.setState({ lastCountedByItem: {}, lastCountedLoaded: false, lastCountedStoreId: null });
+    const { getByText, queryByText } = render(<PhoneInventoryDetail item={mkItem()} />);
+    expect(getByText('LAST COUNTED')).toBeTruthy();
+    expect(getByText('loading')).toBeTruthy();
+    expect(queryByText('never counted')).toBeNull();
+  });
+
+  it('AC-12 — shows the absolute date AND the relative age once loaded', () => {
+    useStore.setState({
+      lastCountedByItem: { i1: realAgo(3 * DAY) },
+      lastCountedLoaded: true,
+      lastCountedStoreId: 'store-1',
+    });
+    const { getByText } = render(<PhoneInventoryDetail item={mkItem()} />);
+    expect(getByText(/^[A-Za-z]+ \d{1,2}, \d{4} · 3d$/)).toBeTruthy();
+  });
+
+  it('AC-5 — a null value renders "never counted"', () => {
+    useStore.setState({
+      lastCountedByItem: { i1: null },
+      lastCountedLoaded: true,
+      lastCountedStoreId: 'store-1',
+    });
+    const { getByText } = render(<PhoneInventoryDetail item={mkItem()} />);
+    expect(getByText('never counted')).toBeTruthy();
+  });
+
+  it('AC-1 — a fresh lastUpdatedAt (plain EDIT) does not make the row look counted', () => {
+    useStore.setState({
+      lastCountedByItem: { i1: realAgo(40 * DAY) },
+      lastCountedLoaded: true,
+      lastCountedStoreId: 'store-1',
+    });
+    const { getByText } = render(
+      <PhoneInventoryDetail item={mkItem({ lastUpdatedAt: new Date().toISOString() })} />,
+    );
+    expect(getByText(/· 1mo$/)).toBeTruthy();
+  });
+
+  it('guards a cross-store map — another store\'s map falls back to loading', () => {
+    useStore.setState({
+      lastCountedByItem: { i1: realAgo(3 * DAY) },
+      lastCountedLoaded: true,
+      lastCountedStoreId: 'store-2',
+    });
+    const { getByText } = render(<PhoneInventoryDetail item={mkItem()} />);
+    expect(getByText('loading')).toBeTruthy();
+  });
+});

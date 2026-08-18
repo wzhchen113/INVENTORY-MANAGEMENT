@@ -130,12 +130,38 @@ jest.mock('../../../components/cmd/TabStrip', () => {
 
 // Heavy / irrelevant children stubbed to null or a marker.
 jest.mock('../../../components/cmd/StockHistoryChart', () => ({ StockHistoryChart: () => null }));
-jest.mock('../../../components/cmd/PropertiesJson', () => ({ PropertiesJson: () => null }));
+// Spec 160 — echo each properties.json row as `key=value` so the rewired
+// `last_counted` row is assertable. Every string is key-prefixed, so this
+// cannot collide with the bare money/name queries elsewhere in this file.
+jest.mock('../../../components/cmd/PropertiesJson', () => {
+  const React = require('react');
+  const { Text, View } = require('react-native');
+  return {
+    PropertiesJson: ({ entries }: { entries: Array<{ key: string; value: string }> }) => (
+      <View>
+        {entries.map((e) => (
+          <Text key={e.key}>{`${e.key}=${e.value}`}</Text>
+        ))}
+      </View>
+    ),
+  };
+});
 jest.mock('../../../components/cmd/SectionCaption', () => ({ SectionCaption: () => null }));
 jest.mock('../../../components/cmd/ActivityRow', () => ({ ActivityRow: () => null }));
 jest.mock('../../../components/cmd/ComingSoonPanel', () => ({ ComingSoonPanel: () => null }));
 jest.mock('../../../components/cmd/ListSkeleton', () => ({ ListSkeleton: () => null }));
-jest.mock('../../../components/cmd/FilterInput', () => ({ FilterInput: () => null }));
+// Spec 160 AC-19 — echo the `placeholder` prop as text so the wiring (not
+// just the i18n content) is assertable. Previously `() => null`, which meant
+// a dropped/reverted `placeholder` prop on the items.tsv FilterInput had zero
+// regression coverage.
+jest.mock('../../../components/cmd/FilterInput', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    FilterInput: ({ placeholder }: { placeholder?: string }) =>
+      placeholder ? <Text>{`FILTER_PLACEHOLDER=${placeholder}`}</Text> : null,
+  };
+});
 jest.mock('../../../components/cmd/StatusBar', () => ({ CmdStatusBar: () => null }));
 // Marker when open so AC-11 can assert EDIT actually opens the drawer.
 jest.mock('../../../components/cmd/IngredientFormDrawer', () => {
@@ -221,6 +247,12 @@ jest.mock('../../../store/useStore', () => {
       it.currentStock <= 0 ? 'out' : it.currentStock < it.parLevel ? 'low' : 'ok',
     deleteItem: jest.fn(),
     storeLoading: false,
+    // Spec 160 — the last-counted slice. Default = NOT loaded, which is the
+    // AC-9 placeholder path every pre-existing case lands on.
+    lastCountedByItem: {},
+    lastCountedLoaded: false,
+    lastCountedStoreId: null,
+    timezone: 'America/New_York',
     // reads pulled in by DetailPane tab bodies (usage/audit) — kept empty.
     posImports: [],
     recipes: [],
@@ -276,6 +308,9 @@ beforeEach(() => {
   mockIsDesktop.mockReturnValue(true);
   mockState.currentStore = { id: 'store-1', name: 'Store One' };
   mockState.vendors = [{ id: 'v1', name: 'Acme' }];
+  mockState.lastCountedByItem = {};
+  mockState.lastCountedLoaded = false;
+  mockState.lastCountedStoreId = null;
   seed([
     { id: 'i1', name: 'Tomato', costPerUnit: 0.02, currentStock: 3, subUnitSize: 2000 },
     { id: 'i2', name: 'Basil', costPerUnit: 1, currentStock: 5, subUnitSize: 1 },
@@ -448,28 +483,134 @@ describe('InventoryDesktopLayout — items.tsv detail-on-demand (spec 112)', () 
     expect(visibleColCount()).toBe(8);
     expect(screen.getByText('section.inventory.lastCountedCol')).toBeTruthy();
 
-    // Open the pane → tableWidth = 1800 − 260 − 620(PANE) = 920 (<1200 → 6-col
-    // floor). last-counted AND category drop; the always-6 survive. If the
-    // width were frozen (the old onLayout-once bug) this would still be 8.
+    // Open the pane → tableWidth = 1800 − 260 − 620(PANE) = 920 (floor, 6 cols).
+    // Spec 160 re-prioritized WHICH six: category AND vendor drop, and
+    // last-counted SURVIVES (under the spec-112 order it was the first to go,
+    // so opening a row hid the column the operator asked for). If the width
+    // were frozen (the old onLayout-once bug) this would still be 8.
     fireEvent.press(screen.getByText('Tomato'));
     expect(visibleColCount()).toBe(6);
-    expect(screen.queryByText('section.inventory.lastCountedCol')).toBeNull();
+    expect(screen.getByText('section.inventory.lastCountedCol')).toBeTruthy();
     expect(screen.queryByText('section.inventory.categoryCol')).toBeNull();
+    expect(screen.queryByText('section.inventory.vendorCol')).toBeNull();
     // Floor survivors still render.
-    expect(screen.getByText('section.inventory.vendorCol')).toBeTruthy();
     expect(screen.getByText('section.inventory.stockValueCol')).toBeTruthy();
     expect(screen.getByText('section.inventory.costPerUnitCol')).toBeTruthy();
   });
 
-  it('re-tiers by window width — a narrower window drops last-counted (7 cols)', () => {
+  it('re-tiers by window width — a narrower window drops CATEGORY (7 cols)', () => {
     // Fresh render at a smaller window: 1500 − 260 = 1240 → tier 1200–1399 →
-    // last-counted dropped, category kept. Pins that the arithmetic derivation
-    // (not a frozen mount measurement) drives the tier off windowWidth.
+    // spec 160: category dropped, last-counted kept (this is the band the
+    // owner's own window sits in). Pins that the arithmetic derivation (not a
+    // frozen mount measurement) drives the tier off windowWidth.
     mockWindowWidth = 1500;
     renderLayout();
     expect(visibleColCount()).toBe(7);
-    expect(screen.queryByText('section.inventory.lastCountedCol')).toBeNull();
-    expect(screen.getByText('section.inventory.categoryCol')).toBeTruthy();
+    expect(screen.getByText('section.inventory.lastCountedCol')).toBeTruthy();
+    expect(screen.queryByText('section.inventory.categoryCol')).toBeNull();
+    expect(screen.getByText('section.inventory.vendorCol')).toBeTruthy();
+  });
+});
+
+// ── Spec 160 — the detail pane's last_counted row + meta line ──────────
+describe('spec 160 — detail pane last-counted (AC-1 / AC-9 / AC-11)', () => {
+  const DAY = 86_400_000;
+  const realAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+  it('AC-9 — shows the loading phrase (never "never counted") while unloaded', () => {
+    renderLayout();
+    fireEvent.press(screen.getByText('Tomato'));
+    expect(screen.getByText('last_counted="section.inventory.lastCountedLoading"')).toBeTruthy();
+    expect(screen.queryByText('last_counted="section.inventory.neverCounted"')).toBeNull();
+  });
+
+  it('AC-11 — renders the absolute date AND the relative age once loaded', () => {
+    mockState.lastCountedByItem = { i1: realAgo(3 * DAY) };
+    mockState.lastCountedLoaded = true;
+    mockState.lastCountedStoreId = 'store-1';
+    renderLayout();
+    fireEvent.press(screen.getByText('Tomato'));
+    // e.g. last_counted="August 14, 2026 · 3d"
+    expect(screen.getByText(/^last_counted="[A-Za-z]+ \d{1,2}, \d{4} · 3d"$/)).toBeTruthy();
+  });
+
+  it('AC-5 — a null value renders the localized never-counted phrase', () => {
+    mockState.lastCountedByItem = { i1: null };
+    mockState.lastCountedLoaded = true;
+    mockState.lastCountedStoreId = 'store-1';
+    renderLayout();
+    fireEvent.press(screen.getByText('Tomato'));
+    expect(screen.getByText('last_counted="section.inventory.neverCounted"')).toBeTruthy();
+  });
+
+  it('AC-1 — mutating lastUpdatedAt (a plain EDIT) does NOT change the value', () => {
+    mockState.lastCountedByItem = { i1: realAgo(40 * DAY) };
+    mockState.lastCountedLoaded = true;
+    mockState.lastCountedStoreId = 'store-1';
+    seed([
+      { id: 'i1', name: 'Tomato', lastUpdatedAt: new Date().toISOString() },
+      { id: 'i2', name: 'Basil' },
+    ]);
+    renderLayout();
+    fireEvent.press(screen.getByText('Tomato'));
+    // "1mo" — the count age. Under the old wiring this read ~0 seconds.
+    expect(screen.getByText(/^last_counted=".* · 1mo"$/)).toBeTruthy();
+  });
+
+  it('guards a cross-store map — a stale lastCountedStoreId falls back to loading', () => {
+    mockState.lastCountedByItem = { i1: realAgo(3 * DAY) };
+    mockState.lastCountedLoaded = true;
+    mockState.lastCountedStoreId = 'store-2';   // describes ANOTHER store
+    renderLayout();
+    fireEvent.press(screen.getByText('Tomato'));
+    expect(screen.getByText('last_counted="section.inventory.lastCountedLoading"')).toBeTruthy();
+  });
+
+  // Release-coordinator fix #4 (architect S3 + code-reviewer, reconciled):
+  // the meta line composes "last counted {value}" — reads oddly once {value}
+  // itself already says "never counted" or "loading". Never/loading render
+  // the bare phrase; only a genuine counted date still composes.
+  describe('fix #4 — composed meta fragment: never/loading render bare, counted still composes', () => {
+    it('loading: meta reads the bare loading phrase, not "last counted loading"', () => {
+      renderLayout();
+      fireEvent.press(screen.getByText('Tomato'));
+      expect(screen.getByText('Produce · Acme · section.inventory.lastCountedLoading')).toBeTruthy();
+      expect(screen.queryByText('Produce · Acme · section.inventory.lastCountedMeta')).toBeNull();
+    });
+
+    it('never counted: meta reads the bare never-counted phrase, not "last counted never counted"', () => {
+      mockState.lastCountedByItem = { i1: null };
+      mockState.lastCountedLoaded = true;
+      mockState.lastCountedStoreId = 'store-1';
+      renderLayout();
+      fireEvent.press(screen.getByText('Tomato'));
+      expect(screen.getByText('Produce · Acme · section.inventory.neverCounted')).toBeTruthy();
+      expect(screen.queryByText('Produce · Acme · section.inventory.lastCountedMeta')).toBeNull();
+    });
+
+    it('counted: meta STILL composes "last counted {value}" (the wrapper is only skipped for never/loading)', () => {
+      mockState.lastCountedByItem = { i1: realAgo(3 * DAY) };
+      mockState.lastCountedLoaded = true;
+      mockState.lastCountedStoreId = 'store-1';
+      renderLayout();
+      fireEvent.press(screen.getByText('Tomato'));
+      expect(screen.getByText('Produce · Acme · section.inventory.lastCountedMeta')).toBeTruthy();
+    });
+  });
+});
+
+// ── AC-19 — items.tsv FilterInput wiring (spec 160 §9.5) ───────────────
+// Content parity (real, non-English translations) is covered by i18n.test.ts.
+// This pins the WIRING half the coordinator flagged as gap: that
+// `filterPlaceholderItems` actually reaches the `placeholder` prop at this
+// call site, and that the pre-existing `filterPlaceholder` key (which four
+// OTHER surfaces still use, and where `counted:` is a no-op / zero-match) is
+// deliberately left untouched here.
+describe('AC-19 — items.tsv FilterInput advertises the counted: token', () => {
+  it('wires filterPlaceholderItems to the placeholder prop, not the untouched filterPlaceholder key', () => {
+    renderLayout();
+    expect(screen.getByText('FILTER_PLACEHOLDER=section.inventory.filterPlaceholderItems')).toBeTruthy();
+    expect(screen.queryByText('FILTER_PLACEHOLDER=section.inventory.filterPlaceholder')).toBeNull();
   });
 });
 

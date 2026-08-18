@@ -13,9 +13,21 @@
 //
 // The load tests (T4/T5) drive loadFromSupabase to completion. It calls
 // db.fetchStores → db.fetchAllForStore → (fire-and-forget) loadMenuCapacity
-// → db.fetchMenuCapacity, plus db.cleanupOldRecords. db.fetchNotifications
-// fires ONLY when currentUser.id is set, so these tests keep currentUser
-// null to bound the mock surface. `flush()` settles the promise chain.
+// → db.fetchMenuCapacity AND (fire-and-forget) loadItemsLastCounted →
+// db.fetchItemsLastCounted (spec 160), plus db.cleanupOldRecords.
+// db.fetchNotifications fires ONLY when currentUser.id is set, so these
+// tests keep currentUser null to bound the mock surface. `flush()` settles
+// the promise chain.
+//
+// `fetchItemsLastCounted` MUST be stubbed here (not just left undefined):
+// without a mock, the fire-and-forget tail inside `loadItemsLastCounted`
+// throws internally on every test in this file and is silently swallowed by
+// that action's own `catch` — the suite stays green, but the spec-160 path is
+// permanently exercised only as an error case, never its success path. This
+// file doesn't assert on the spec-160 slice itself (see
+// useStore.lastCounted.spec160.test.ts for that); the stub here exists so
+// this file's own T1-T8 assertions aren't incidentally riding on a throwing
+// tail.
 
 jest.mock('../lib/supabase', () => ({
   supabase: {
@@ -60,6 +72,10 @@ jest.mock('../lib/db', () => ({
   cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   // Spec 060 — fire-and-forget capacity tail inside loadFromSupabase.
   fetchMenuCapacity: jest.fn().mockResolvedValue([]),
+  // Spec 160 — fire-and-forget last-counted tail inside loadFromSupabase.
+  // See the file-header note: without this stub the tail throws internally
+  // on every run and is swallowed by loadItemsLastCounted's own catch.
+  fetchItemsLastCounted: jest.fn().mockResolvedValue([]),
   fetchNotifications: jest.fn().mockResolvedValue([]),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),

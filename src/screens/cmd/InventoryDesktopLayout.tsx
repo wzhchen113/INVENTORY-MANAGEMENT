@@ -9,6 +9,7 @@ import { useStockSeries, useRecipesUsingItem } from '../../lib/cmdSelectors';
 import { calculateWeeklyUsageTrend } from '../../utils/usageCalculations';
 import { parseFilter, matchesFilter } from '../../utils/filterParser';
 import { relativeTime } from '../../utils/relativeTime';
+import { countAgeTone, formatLastCounted } from '../../utils/countAge';
 import { formatAuditAction } from '../../utils/formatAuditAction';
 import { useT } from '../../hooks/useT';
 import { useLocale } from '../../hooks/useLocale';
@@ -119,6 +120,13 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   // Spec 055 — first-mount skeleton flag for the Inventory branch
   // specifically. Other sections gate on their own slices internally.
   const storeLoading = useStore((s) => s.storeLoading);
+  // Spec 160 — the per-(store, item) last-counted aggregate. Loaded once per
+  // store view by `loadFromSupabase`'s fire-and-forget tail (AC-20/21/22); this
+  // host only READS it. No component fetches per row.
+  const lastCountedByItem  = useStore((s) => s.lastCountedByItem);
+  const lastCountedLoaded  = useStore((s) => s.lastCountedLoaded);
+  const lastCountedStoreId = useStore((s) => s.lastCountedStoreId);
+  const timezone           = useStore((s) => s.timezone);
 
   const [filterText, setFilterText]   = React.useState('');
   const [editDrawerOpen, setEditDrawerOpen] = React.useState(false);
@@ -162,6 +170,17 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
   );
   const parsed = React.useMemo(() => parseFilter(filterText), [filterText]);
 
+  // Spec 160 — the map may briefly describe the PREVIOUS store during a switch
+  // (between the `set(...)` and the async reload tail resolving). Guarding on
+  // the store id here means the cells fall back to `—`, never to another
+  // store's dates. `now` is re-anchored only when the map reloads — not per
+  // render and not per keystroke (§7.3: no timer, by choice).
+  const lastCountedReady = lastCountedLoaded && lastCountedStoreId === currentStore.id;
+  const lastCountedNow = React.useMemo(
+    () => new Date(),
+    [lastCountedStoreId, lastCountedLoaded],
+  );
+
   // Quick stock-status filter (2026-07 owner ask — "easier to view what's out
   // of stock"). A press-chip that ANDs with the text-filter DSL: null = all,
   // else keep only rows whose derived status matches. Complements the
@@ -178,9 +197,15 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
         parsed,
         getItemStatus,
         getLocalizedName({ name: i.name, i18nNames: i.i18nNames }, locale),
+        // Spec 160 — `undefined` while the aggregate is unloaded/errored, which
+        // makes `counted:` match zero rows rather than every row. This is a
+        // RECOMPUTE on filter change (O(items)), never a refetch.
+        lastCountedReady
+          ? countAgeTone(lastCountedByItem[i.id] ?? null, lastCountedNow)
+          : undefined,
       ),
     ),
-    [storeInventory, parsed, getItemStatus, locale],
+    [storeInventory, parsed, getItemStatus, locale, lastCountedByItem, lastCountedReady, lastCountedNow],
   );
 
   // Spec 040 P3 — display name consults BOTH English `name` and the
@@ -294,6 +319,11 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
         vendor={vendor}
         status={status}
         series={series}
+        // Spec 160 — threaded like `vendor` / `status` / `series` rather than
+        // read from the store inside the pane. AC-11/AC-12: desktop, the phone
+        // detail and the table all read the same slice keyed by item id.
+        lastCountedAt={lastCountedReady ? (lastCountedByItem[item.id] ?? null) : null}
+        lastCountedLoaded={lastCountedReady}
         recipesUsing={recipesUsing}
         auditLog={auditLog}
         currentUserId={currentUser?.id}
@@ -451,7 +481,16 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                   {storeInventory.length} items
                 </Text>
               </View>
-              <FilterInput value={filterText} onChangeText={setFilterText} />
+              {/* Spec 160 — this surface previously fell back to FilterInput's
+                  hardcoded English default; `filterPlaceholderItems` is the
+                  items.tsv-specific key that advertises `counted:`. The older
+                  `section.inventory.filterPlaceholder` belongs to four other
+                  surfaces where `counted:` is a no-op and stays untouched. */}
+              <FilterInput
+                value={filterText}
+                onChangeText={setFilterText}
+                placeholder={T('section.inventory.filterPlaceholderItems')}
+              />
               {/* Quick stock-status filter chips (2026-07). "All" clears the
                   status narrow; each status chip filters to that status and is
                   colored to match its row pill. A status chip is hidden when
@@ -546,6 +585,18 @@ export default function InventoryDesktopLayout({ onPaletteOpen, section, setSect
                       vendor:      T('section.inventory.vendorCol'),
                       category:    T('section.inventory.categoryCol'),
                       lastCounted: T('section.inventory.lastCountedCol'),
+                    }}
+                    lastCounted={{
+                      byItem: lastCountedByItem,
+                      loaded: lastCountedReady,
+                      timezone,
+                      locale,
+                      neverLabel:   T('section.inventory.neverCounted'),
+                      loadingLabel: T('section.inventory.lastCountedLoading'),
+                      // Raw template — `t()` leaves an un-supplied `{date}` in
+                      // place, and the cell interpolates the long-form date.
+                      ariaTemplate: T('section.inventory.lastCountedAria'),
+                      now: lastCountedNow,
                     }}
                   />
                 </View>
@@ -705,14 +756,22 @@ interface DetailProps {
   onEditPress?: () => void;
   onDeletePress?: () => void;
   onCountPress?: () => void;
+  /** Spec 160 — ISO last-counted for THIS item at the active store, or null =
+   *  never counted. Derived from count history, NOT `item.lastUpdatedAt`. */
+  lastCountedAt?: string | null;
+  /** false = the aggregate is still loading or the load failed — show the
+   *  loading phrase, never "never counted" (AC-9). */
+  lastCountedLoaded?: boolean;
 }
 
 function DetailPane({
   item, vendor, status, series, recipesUsing, auditLog, tabId, onTabChange, onEditPress, onDeletePress, onCountPress,
+  lastCountedAt = null, lastCountedLoaded = false,
 }: DetailProps) {
   const C = useCmdColors();
   const T = useT();
   const locale = useLocale();
+  const timezone = useStore((s) => s.timezone);
 
   const itemActivity = React.useMemo(() => {
     return auditLog
@@ -739,6 +798,19 @@ function DetailPane({
     { label: 'Days of cover',      value: daysOfCover,                          sub: 'at avg usage' },
   ];
 
+  // Spec 160 (AC-11) — absolute date AND relative age, from count history.
+  // `item.lastUpdatedAt` is "last EDITED" and is deliberately no longer read
+  // here; it stays honest under its own name in the CSV export.
+  const lastCountedText = !lastCountedLoaded
+    ? T('section.inventory.lastCountedLoading')
+    : formatLastCounted(lastCountedAt, {
+      now: new Date(),
+      locale,
+      timeZone: timezone,
+      neverLabel: T('section.inventory.neverCounted'),
+      style: 'long',
+    });
+
   const props = [
     { key: 'category',         value: `"${item.category}"` },
     { key: 'unit',             value: `"${item.unit}"` },
@@ -748,10 +820,28 @@ function DetailPane({
     { key: 'avg_daily_usage',  value: String(item.averageDailyUsage) },
     { key: 'safety_stock',     value: String(item.safetyStock) },
     { key: 'lead_time_days',   value: String(vendor?.leadTimeDays ?? '—') },
-    { key: 'last_counted',     value: `"${relativeTime(item.lastUpdatedAt) || 'never'}"` },
+    { key: 'last_counted',     value: `"${lastCountedText}"` },
   ];
 
-  const meta = `${item.category} · ${vendor?.name || 'no vendor'} · last counted ${relativeTime(item.lastUpdatedAt) || 'never'} ago`;
+  // Spec 160 — the last-counted fragment is now a catalog lookup carrying the
+  // absolute date AND the relative age, and the pre-existing "…never ago"
+  // string bug is gone (the template no longer appends " ago"). The rest of
+  // this meta line is hardcoded English today and stays that way — pre-existing
+  // and out of this spec's scope.
+  //
+  // Release-coordinator fix #4 (architect S3 + code-reviewer, reconciled):
+  // `lastCountedMeta` = "last counted {value}" reads oddly once {value}
+  // ITSELF already says "never counted" or "loading" ("last counted never
+  // counted", "last counted loading"). Skip the wrapper for both of those
+  // cases and render the bare localized phrase instead; only a genuine
+  // counted date gets the "last counted {date}" composition. Kept as a
+  // localized phrase (not a bare "never"/"loading") so `nunca contado` /
+  // `从未盘点` / `cargando` / `加载中` survive translation.
+  const metaLastCountedFragment =
+    !lastCountedLoaded || lastCountedAt == null
+      ? lastCountedText
+      : T('section.inventory.lastCountedMeta', { value: lastCountedText });
+  const meta = `${item.category} · ${vendor?.name || 'no vendor'} · ${metaLastCountedFragment}`;
 
   return (
     <>

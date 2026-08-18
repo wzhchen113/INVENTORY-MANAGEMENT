@@ -17,6 +17,7 @@ import { useT } from '../../../../hooks/useT';
 import { useLocale } from '../../../../hooks/useLocale';
 import { getLocalizedName } from '../../../../i18n/localizedName';
 import { relativeTime } from '../../../../utils/relativeTime';
+import { formatLastCounted } from '../../../../utils/countAge';
 import { formatAuditAction } from '../../../../utils/formatAuditAction';
 import { StatusPill } from '../../../../components/cmd/StatusPill';
 import { statusFg } from '../../../../theme/statusColors';
@@ -37,6 +38,14 @@ export const PhoneInventoryDetail: React.FC<Props> = ({ item }) => {
   const vendors = useStore((s) => s.vendors);
   const auditLog = useStore((s) => s.auditLog);
   const getItemStatus = useStore((s) => s.getItemStatus);
+  // Spec 160 — the SAME slice the desktop table + detail pane read, keyed by the
+  // same item id, so phone and desktop can never disagree (AC-12). Read here
+  // rather than threaded because this component already reads the store
+  // directly for vendors / auditLog / getItemStatus.
+  const lastCountedByItem  = useStore((s) => s.lastCountedByItem);
+  const lastCountedLoaded  = useStore((s) => s.lastCountedLoaded);
+  const lastCountedStoreId = useStore((s) => s.lastCountedStoreId);
+  const timezone           = useStore((s) => s.timezone);
 
   const status = getItemStatus(item);
   const statusColor = statusFg(C, status);
@@ -69,6 +78,22 @@ export const PhoneInventoryDetail: React.FC<Props> = ({ item }) => {
     usePaletteAction.getState().request({ section: 'Ordering', selectedName: null });
   };
 
+  // Spec 160 — derived from count history, NOT `item.lastUpdatedAt` (last
+  // EDITED). Guarded on the store id so a mid-switch map can't render another
+  // store's date; unloaded/errored shows the loading phrase, never "never
+  // counted" (AC-9). The 'LAST COUNTED' LABEL stays a hardcoded literal — this
+  // whole propRows array is hardcoded English from spec 142.
+  const lastCountedReady = lastCountedLoaded && lastCountedStoreId === item.storeId;
+  const lastCountedText = !lastCountedReady
+    ? T('section.inventory.lastCountedLoading')
+    : formatLastCounted(lastCountedByItem[item.id] ?? null, {
+      now: new Date(),
+      locale,
+      timeZone: timezone,
+      neverLabel: T('section.inventory.neverCounted'),
+      style: 'long',
+    });
+
   const propRows: Array<{ label: string; value: string; tone?: string }> = [
     { label: 'CATEGORY', value: item.category },
     { label: 'VENDOR', value: vendor?.name || 'unset' },
@@ -76,7 +101,7 @@ export const PhoneInventoryDetail: React.FC<Props> = ({ item }) => {
     { label: 'STOCK VALUE', value: formatStockValue(item) },
     { label: 'AVG DAILY USE', value: `${item.averageDailyUsage} ${item.unit}` },
     { label: 'DAYS OF STOCK', value: daysOfCover === null ? '—' : `${daysOfCover.toFixed(1)}d`, tone: daysTone },
-    { label: 'LAST COUNTED', value: relativeTime(item.lastUpdatedAt) || 'never' },
+    { label: 'LAST COUNTED', value: lastCountedText },
   ];
 
   return (

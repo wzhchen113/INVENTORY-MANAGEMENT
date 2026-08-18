@@ -1,8 +1,9 @@
 // src/components/cmd/InventoryTable.tsx — Spec 112.
 //
 // The full-width operational table for the admin Inventory `items.tsv` view on
-// desktop (≥1100). Columns: name, on-hand + par bar, status, cost/each, stock
-// value, vendor, category, last counted. Column collapse is keyed on the LIST
+// desktop (≥1100). Columns (spec 160 AC-13 order): name, on-hand + par bar,
+// status, last counted, cost/each, stock value, vendor, category. Column
+// collapse is keyed on the LIST
 // width (not window width) so opening the detail pane — which narrows the list
 // — correctly drops lower-priority columns instead of overflowing (spec 112
 // AC-7 / the pane-open note).
@@ -23,40 +24,43 @@ import { InventoryItem, ItemStatus, Vendor } from '../../types';
 import { StatusDot } from './StatusDot';
 import { StatusPill } from './StatusPill';
 import { ParBar } from './ParBar';
-import { relativeTime } from '../../utils/relativeTime';
+import { countAgeTone, formatLastCounted } from '../../utils/countAge';
 import {
   formatCostPerEach,
   costPerEachLabel,
   formatStockValue,
 } from '../../screens/cmd/lib/itemMoney';
 
-// Column ids in DISPLAY order. Priority-collapse drops the highest-numbered
-// first (spec 112 AC-7): lastCounted → category → vendor → stockValue →
-// costEach. name / onHand / status always survive.
+// Column ids in DISPLAY order (spec 160 AC-13 re-ordered this: `lastCounted`
+// moved to 4th, right next to the ON HAND / STATUS numbers it qualifies).
+// Priority-collapse now drops `category` first, then `vendor`; name / onHand /
+// status / lastCounted / costEach / stockValue always survive.
 type ColumnId =
   | 'name'
   | 'onHand'
   | 'status'
+  | 'lastCounted'
   | 'costEach'
   | 'stockValue'
   | 'vendor'
-  | 'category'
-  | 'lastCounted';
+  | 'category';
 
-// Width-keyed tiers (spec 112 Design note "Column collapse tiers"). Keyed on
-// the LIST width available to the table, not the window width.
+// Width-keyed tiers. Keyed on the LIST width available to the table, not the
+// window width (spec 112 AC-7 + spec 160 §6.4 re-prioritization):
 //   ≥ 1400            → all 8
-//   1200 – 1399       → drop lastCounted (7)
-//   1100 – 1199       → drop category (6, the floor)
-// < 1100 the table does not render (the caller shows the narrow-tier list).
+//   1200 – 1399       → drop category (7; lastCounted survives)
+//   < 1200 (floor)    → drop category + vendor (6; lastCounted survives)
+// The floor branch is deliberately unbounded below: when the detail pane is
+// open `tableWidth` can fall well under 1100 while the table still renders, and
+// under this ordering the column the operator asked for survives that too.
 export function visibleColumnsForWidth(width: number): ColumnId[] {
   const all: ColumnId[] = [
-    'name', 'onHand', 'status', 'costEach', 'stockValue', 'vendor', 'category', 'lastCounted',
+    'name', 'onHand', 'status', 'lastCounted', 'costEach', 'stockValue', 'vendor', 'category',
   ];
   if (width >= 1400) return all;
-  if (width >= 1200) return all.filter((c) => c !== 'lastCounted');
-  // 1100–1199 floor: drop category + lastCounted.
-  return all.filter((c) => c !== 'lastCounted' && c !== 'category');
+  if (width >= 1200) return all.filter((c) => c !== 'category');
+  // Floor: drop category + vendor.
+  return all.filter((c) => c !== 'category' && c !== 'vendor');
 }
 
 interface Props {
@@ -73,10 +77,39 @@ interface Props {
   displayName: (item: InventoryItem) => string;
   /** Column header labels — passed in so the caller owns the i18n `T`. */
   labels: Record<ColumnId, string>;
+  /** Spec 160 — the per-(store, item) last-counted aggregate + everything the
+   *  cell needs to render it. OPTIONAL: when absent (or `loaded: false`) every
+   *  cell shows the neutral `—` placeholder in the muted tone — NEVER "never
+   *  counted", which during a load would be a false accusation across every
+   *  row (AC-9). This component stays presentational, so the host resolves the
+   *  `T` strings and owns the fetch. */
+  lastCounted?: {
+    /** itemId → ISO timestamp, or null = never counted at this store. */
+    byItem: Record<string, string | null>;
+    /** false = not loaded yet OR the load failed. */
+    loaded: boolean;
+    timezone: string;
+    locale: string;
+    /** T('section.inventory.neverCounted') */
+    neverLabel: string;
+    /** T('section.inventory.lastCountedLoading') — a11y only; the glyph is `—`. */
+    loadingLabel: string;
+    /** T('section.inventory.lastCountedAria') — raw template; `{date}` is
+     *  interpolated here with the long-form absolute date. */
+    ariaTemplate: string;
+    /** Anchor for the tone + same-year test; re-anchored on map reload. */
+    now: Date;
+  };
 }
 
 // Per-column flex/width so header + rows stay aligned. name flexes; the rest
 // are fixed so numerics line up in a tabular grid.
+// `lastCounted` is 124 (not the spec-112 104) because spec 160 renders BOTH the
+// absolute date and the relative age in one cell — the es worst case
+// (`sept 30, 25 · 1y`, ~101px at 6.3px/char mono 10.5) left only ~3px of slack
+// at 104 and would have ellipsised the age away in production. The +20px is
+// absorbed by the flex `name` column at ≥1400; the two narrower tiers gain
+// headroom because `lastCounted` (124) replaces `category` (130) / `vendor` (150).
 const COL_STYLE: Record<ColumnId, { flex?: number; width?: number }> = {
   name:       { flex: 1 },
   onHand:     { width: 200 },
@@ -85,7 +118,7 @@ const COL_STYLE: Record<ColumnId, { flex?: number; width?: number }> = {
   stockValue: { width: 108 },
   vendor:     { width: 150 },
   category:   { width: 130 },
-  lastCounted:{ width: 104 },
+  lastCounted:{ width: 124 },
 };
 
 const RIGHT_ALIGNED = new Set<ColumnId>(['costEach', 'stockValue']);
@@ -99,9 +132,18 @@ export const InventoryTable: React.FC<Props> = ({
   getItemStatus,
   displayName,
   labels,
+  lastCounted,
 }) => {
   const C = useCmdColors();
   const columns = React.useMemo(() => visibleColumnsForWidth(width), [width]);
+
+  // Spec 160 — tone → colour, off the existing Cmd palette (no new tokens).
+  const TONE_COLOR: Record<'fresh' | 'stale' | 'cold' | 'never', string> = {
+    fresh: C.fg3,
+    stale: C.warn,
+    cold:  C.danger,
+    never: C.danger,
+  };
 
   const HeaderRow = (
     <View
@@ -197,12 +239,56 @@ export const InventoryTable: React.FC<Props> = ({
             {it.category || '—'}
           </Text>
         );
-      case 'lastCounted':
+      case 'lastCounted': {
+        // Spec 160 — derived from COUNT HISTORY (eod_submissions ∪
+        // inventory_counts), never from `item.lastUpdatedAt` (which moves on any
+        // row edit and is what made this column lie under the spec-112 wiring).
+        if (!lastCounted || !lastCounted.loaded) {
+          // AC-9 — loading / errored is NOT "never counted".
+          return (
+            <Text
+              style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}
+              numberOfLines={1}
+              accessibilityLabel={lastCounted?.loadingLabel}
+            >
+              —
+            </Text>
+          );
+        }
+        const iso = lastCounted.byItem[it.id] ?? null;
+        const tone = countAgeTone(iso, lastCounted.now);
+        const text = formatLastCounted(iso, {
+          now: lastCounted.now,
+          locale: lastCounted.locale,
+          timeZone: lastCounted.timezone,
+          neverLabel: lastCounted.neverLabel,
+          style: 'short',
+        });
+        // AC-10 — the terse `3d` glyph gets a non-visual long form carrying the
+        // full absolute date.
+        const aria = tone === 'never'
+          ? lastCounted.neverLabel
+          : lastCounted.ariaTemplate.replace(
+            '{date}',
+            formatLastCounted(iso, {
+              now: lastCounted.now,
+              locale: lastCounted.locale,
+              timeZone: lastCounted.timezone,
+              neverLabel: lastCounted.neverLabel,
+              style: 'long',
+            }),
+          );
+        // ONE Text leaf: one truncation unit, one `getByText` target.
         return (
-          <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
-            {relativeTime(it.lastUpdatedAt) || 'never'}
+          <Text
+            style={{ fontFamily: mono(400), fontSize: 10.5, color: TONE_COLOR[tone] }}
+            numberOfLines={1}
+            accessibilityLabel={aria}
+          >
+            {text}
           </Text>
         );
+      }
       default:
         return null;
     }

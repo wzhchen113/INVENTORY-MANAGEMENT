@@ -75,7 +75,10 @@ function CatalogDetail({ group }: { group: CatalogGroup }) {
     { label: 'UNIT', value: group.unit },
     { label: 'CASE PACK', value: `${group.primary.caseQty || '—'}${group.primary.casePrice ? ` · $${group.primary.casePrice.toFixed(2)}/case` : ''}` },
     { label: 'AVG COST', value: avgCost > 0 ? `$${avgCost.toFixed(2)}` : '—' },
-    { label: 'LAST COUNTED', value: relativeTime(lastCount) || 'never' },
+    // Spec 160 — RELABEL ONLY (same reasoning as InventoryCatalogMode): this is
+    // a brand-wide max(lastUpdatedAt) reduce, i.e. "last EDITED". Hardcoded
+    // literal in an already-hardcoded propRows array; no new i18n key.
+    { label: 'LAST EDITED', value: relativeTime(lastCount) || 'never' },
   ];
 
   return (

@@ -1042,6 +1042,24 @@ interface StoreActions {
    */
   loadMenuCapacity: (storeId?: string) => Promise<void>;
 
+  /**
+   * Spec 160 — per-(store, item) "last physically counted" timestamps for the
+   * admin Inventory column. Fires `items_last_counted` via
+   * `db.fetchItemsLastCounted` and reduces the array →
+   * `Record<itemId, ISO | null>` for O(1) lookups in the table cell.
+   *
+   * Called fire-and-forget by `loadFromSupabase` (not awaited, so the
+   * Inventory table's first paint never waits on it — AC-21), and re-fired by
+   * every existing reload path including the 400 ms-debounced realtime sync,
+   * which `eod_submissions` already drives (AC-22).
+   *
+   * On error the slice stays `lastCountedLoaded: false` and the map is cleared,
+   * so every cell renders the neutral `—` placeholder — NEVER "never counted",
+   * never a stale store's dates — plus one `notifyBackendError` toast. Pure
+   * read: no optimistic update, nothing to revert.
+   */
+  loadItemsLastCounted: (storeId?: string) => Promise<void>;
+
   // Computed
   getLowStockItems: () => InventoryItem[];
   getInventoryValue: () => number;
@@ -1104,6 +1122,12 @@ const SIGNED_OUT_DATA_RESET = {
   reorderError: null,
   lastOrderContext: null,
   menuCapacity: {},
+  // Spec 160 — last-counted map is per-store session data; a signed-out store
+  // must not keep the previous user's dates. Back to NOT LOADED, not empty-
+  // and-loaded, so nothing can read the gap as "never counted".
+  lastCountedByItem: {},
+  lastCountedStoreId: null,
+  lastCountedLoaded: false,
   weeklyCountStatus: [],
   weeklyCountStatusLoading: false,
   notifications: [],
@@ -1251,6 +1275,15 @@ export const useStore = create<FullStore>((set, get) => ({
   // slice — so the prior store's numbers never flash in the new
   // store's RecipesSection.
   menuCapacity: {} as Record<string, MenuCapacityRow>,
+  // Spec 160 — per-(store, item) last-counted map for the admin Inventory
+  // column. Empty + NOT LOADED until `loadFromSupabase` triggers the
+  // fire-and-forget `loadItemsLastCounted(sid)` tail. `lastCountedLoaded`
+  // is what makes "still loading" distinguishable from "never counted"
+  // (AC-9); `lastCountedStoreId` is what keeps store A's dates from
+  // rendering against store B's rows mid-switch.
+  lastCountedByItem: {} as Record<string, string | null>,
+  lastCountedStoreId: null as string | null,
+  lastCountedLoaded: false,
   // Spec 012b — super-admin brand context. NULL = "All brands" mode,
   // hidden for non-super-admin (the picker doesn't render).
   currentBrandId: null,
@@ -1930,6 +1963,13 @@ export const useStore = create<FullStore>((set, get) => ({
           // Clear so a switch from a real store to "All Stores" doesn't
           // leave stale numbers visible in RecipesSection's badge.
           menuCapacity: {},
+          // Spec 160 — last-counted is per-store by definition (a brand-wide
+          // roll-up is a different product question), and `loadItemsLastCounted`
+          // bails on `__all__`. Clear to NOT LOADED so the "All Stores" view
+          // can never render the last single store's dates.
+          lastCountedByItem: {},
+          lastCountedStoreId: null,
+          lastCountedLoaded: false,
         });
         return;
       }
@@ -1992,12 +2032,26 @@ export const useStore = create<FullStore>((set, get) => ({
         // `loadMenuCapacity(sid)` below repopulates asynchronously;
         // RecipesSection's badge renders nothing in the gap.
         menuCapacity: {},
+        // Spec 160 — wipe the last-counted map on store switch. Load-bearing
+        // in the same way `lastOrderContext` above is: item ids differ across
+        // stores, so a partially-overlapping map would render one store's
+        // count dates against another store's rows. Cleared to NOT LOADED
+        // (not "loaded and empty") so the Inventory cells fall back to the
+        // neutral `—` placeholder in the gap rather than to "never counted".
+        // The fire-and-forget `loadItemsLastCounted(sid)` below repopulates.
+        lastCountedByItem: {},
+        lastCountedStoreId: null,
+        lastCountedLoaded: false,
       });
       // Spec 060 — fire-and-forget capacity load. NOT awaited so the
       // first paint never blocks on the RPC (typical ~40-50ms on seed,
       // but a slow link could blow past `storeLoading`'s window).
       // Errors route through `notifyBackendError` inside the action.
       get().loadMenuCapacity(sid);
+      // Spec 160 — same posture for the Inventory last-counted map: exactly
+      // one `items_last_counted` RPC per store view (AC-20), NOT awaited so
+      // the Inventory table's time-to-first-row is unchanged (AC-21).
+      get().loadItemsLastCounted(sid);
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
 
@@ -4415,6 +4469,46 @@ export const useStore = create<FullStore>((set, get) => ({
     } catch (e: any) {
       set({ menuCapacity: {} });
       notifyBackendError('Load menu capacity', e);
+    }
+  },
+
+  // Spec 160 — per-(store, item) last-counted map for the admin Inventory
+  // column. One `items_last_counted` RPC per store view; the array is reduced
+  // to a keyed object so the table cell does an O(1) lookup by item id.
+  //
+  // The `__all__` super-admin view skips this load: last-counted is per-store
+  // by definition and `storeInventory` is empty there anyway (mirrors
+  // `loadMenuCapacity`'s bail).
+  //
+  // No optimistic behavior — this is a pure read with no write path, so there
+  // is nothing to revert. The error branch is the deliberate degrade decision:
+  // we do NOT fall back to an empty-but-loaded map (every cell would then read
+  // as "never counted", which is actively false) and we do NOT keep the
+  // previous store's values. We stay NOT LOADED, so the cells render the
+  // neutral `—` placeholder until the next reload, and we fire exactly one
+  // `notifyBackendError` toast so the operator knows the column is unavailable
+  // rather than assuming a column of dashes is the truth.
+  loadItemsLastCounted: async (storeId) => {
+    const sid = storeId || get().currentStore?.id;
+    if (!sid || sid === '__all__') return;
+    try {
+      const rows = await db.fetchItemsLastCounted(sid);
+      const keyed: Record<string, string | null> = {};
+      for (const r of rows) {
+        if (r.itemId) keyed[r.itemId] = r.lastCountedAt;
+      }
+      set({
+        lastCountedByItem: keyed,
+        lastCountedStoreId: sid,
+        lastCountedLoaded: true,
+      });
+    } catch (e: any) {
+      set({
+        lastCountedByItem: {},
+        lastCountedStoreId: null,
+        lastCountedLoaded: false,
+      });
+      notifyBackendError('Load last counted', e);
     }
   },
 

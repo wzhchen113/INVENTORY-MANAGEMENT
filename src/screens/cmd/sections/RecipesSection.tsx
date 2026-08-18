@@ -88,9 +88,11 @@ export default function RecipesSection() {
   const storeRecipes = recipes;
 
   // Same `key:value` syntax as the inventory filter — `cat:appetizer chicken`
-  // narrows by category and substring-matches menuItem. status / vendor are
-  // accepted but no-op (don't apply to recipes), so users can paste a query
-  // copied from the inventory filter without errors.
+  // narrows by category and substring-matches menuItem. status / vendor /
+  // counted are accepted but no-op (don't apply to recipes), so users can paste
+  // a query copied from the inventory filter without errors. `counted:` joined
+  // that set in spec 160 (§9.1): the token is parsed and then ignored here, so
+  // `counted:never` returns the full recipe list rather than 0 name-matches.
   //
   // Spec 040 P3 / Q4 — bare-token text matches the localized menuItem AND
   // the English canonical via matchesQuery (diacritic + case folding).

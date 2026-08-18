@@ -21,6 +21,7 @@ import { useT } from '../../../../hooks/useT';
 import { useLocale } from '../../../../hooks/useLocale';
 import { getLocalizedName } from '../../../../i18n/localizedName';
 import { parseFilter, matchesFilter } from '../../../../utils/filterParser';
+import { countAgeTone } from '../../../../utils/countAge';
 import { StatusPill } from '../../../../components/cmd/StatusPill';
 import { statusFg } from '../../../../theme/statusColors';
 import { applyInventoryStatusView } from '../../lib/inventoryStatusView';
@@ -95,6 +96,13 @@ export const PhoneInventoryList: React.FC = () => {
   const inventory = useStore((s) => s.inventory);
   const currentStore = useStore((s) => s.currentStore);
   const getItemStatus = useStore((s) => s.getItemStatus);
+  // Spec 160 (§9.4) — the phone list shares the desktop text-filter DSL, so
+  // `counted:` has to resolve here too or the token advertised in the search
+  // placeholder would be a visible dead end. This adds NO column to the list —
+  // last-counted DISPLAY on the phone list stays out of scope.
+  const lastCountedByItem  = useStore((s) => s.lastCountedByItem);
+  const lastCountedLoaded  = useStore((s) => s.lastCountedLoaded);
+  const lastCountedStoreId = useStore((s) => s.lastCountedStoreId);
 
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<ItemStatus | null>(null);
@@ -110,10 +118,24 @@ export const PhoneInventoryList: React.FC = () => {
     [inventory, currentStore?.id],
   );
 
+  const lastCountedReady = lastCountedLoaded && lastCountedStoreId === currentStore?.id;
+  const lastCountedNow = React.useMemo(
+    () => new Date(),
+    [lastCountedStoreId, lastCountedLoaded],
+  );
+
   const parsed = React.useMemo(() => parseFilter(query), [query]);
   const textFiltered = React.useMemo(
-    () => storeInventory.filter((i) => matchesFilter(i, parsed, getItemStatus, displayName(i))),
-    [storeInventory, parsed, getItemStatus, displayName],
+    () => storeInventory.filter((i) => matchesFilter(
+      i,
+      parsed,
+      getItemStatus,
+      displayName(i),
+      lastCountedReady
+        ? countAgeTone(lastCountedByItem[i.id] ?? null, lastCountedNow)
+        : undefined,
+    )),
+    [storeInventory, parsed, getItemStatus, displayName, lastCountedByItem, lastCountedReady, lastCountedNow],
   );
 
   // Reuse the pure helper for the stable segment counts + the status-narrowed set.
@@ -212,7 +234,9 @@ export const PhoneInventoryList: React.FC = () => {
           testID="phone-inv-search"
           value={query}
           onChangeText={setQuery}
-          placeholder={T('section.inventory.filterPlaceholder')}
+          // Spec 160 §9.5 — the items-specific placeholder that advertises
+          // `counted:`, which this surface now resolves (§9.4).
+          placeholder={T('section.inventory.filterPlaceholderItems')}
           placeholderTextColor={C.fg3}
           style={{
             height: 44,

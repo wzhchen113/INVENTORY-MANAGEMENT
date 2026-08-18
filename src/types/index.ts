@@ -417,6 +417,20 @@ export interface WeeklyCountStatus {
   lastCountedAt: string | null;
 }
 
+/**
+ * Spec 160 — camelCase mirror of one `items_last_counted` row.
+ *
+ * The RPC returns one row per `inventory_items` row in the store, so row
+ * PRESENCE is never load-bearing: `lastCountedAt === null` is the one and only
+ * "never counted at this store" signal (any kind, any source — nightly EOD plus
+ * spot / open / mid_shift / close / weekly).
+ */
+export interface ItemLastCounted {
+  itemId: string;
+  /** ISO-8601, or null = never counted at this store (any kind, any source). */
+  lastCountedAt: string | null;
+}
+
 export interface InventoryCountEntry {
   id: string;
   countId: string;
@@ -720,6 +734,30 @@ export interface AppState {
    * the `MenuCapacityRow` returned by `db.fetchMenuCapacity`.
    */
   menuCapacity: Record<string, MenuCapacityRow>;
+  /**
+   * Spec 160 — `itemId → ISO last-counted timestamp`, or `null` = never
+   * counted at this store. Populated as a fire-and-forget tail of
+   * `loadFromSupabase` via `loadItemsLastCounted` (one `items_last_counted`
+   * RPC per store view — AC-20); cleared on store switch.
+   *
+   * A MISSING key is NOT "never counted" — read it together with
+   * `lastCountedLoaded` (see below).
+   */
+  lastCountedByItem: Record<string, string | null>;
+  /**
+   * Spec 160 — which store `lastCountedByItem` describes. Guards the window
+   * during a store switch in which the map still holds the PREVIOUS store's
+   * item ids; consumers compare it against `currentStore.id` before rendering.
+   */
+  lastCountedStoreId: string | null;
+  /**
+   * Spec 160 — `false` means "not loaded yet OR the load failed", and drives
+   * AC-9's neutral `—` placeholder. Three fields rather than one because an
+   * empty `Record` alone cannot distinguish "still loading" from "every item
+   * has never been counted", and rendering the latter while the former is true
+   * is exactly the bug this spec exists to fix.
+   */
+  lastCountedLoaded: boolean;
   auditLog: AuditEvent[];
   orderSchedule: OrderSchedule;
   orderSubmissions: OrderSubmission[];
