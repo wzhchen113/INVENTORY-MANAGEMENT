@@ -62,6 +62,7 @@
 
 import { test, expect } from '@playwright/test';
 import { SEED, SIDEBAR_NAV, STORAGE_STATE, WEEKDAYS } from './fixtures/constants';
+import { gotoShell } from './fixtures/storeGate';
 import { serviceRoleClient } from './fixtures/db';
 import {
   getLocalDateISO,
@@ -225,8 +226,8 @@ test('AC-080-IN/OUT: spec-074 window renders per-store on the dedicated card', a
   // Navigate to the Dashboard by the stable nav testID (flake checklist #1 —
   // never getByText). Assert the shell + section root before interacting
   // (flake checklist #3).
-  await page.goto('/');
-  await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
+  // Spec 161 — clears the admin store gate, then asserts the shell.
+  await gotoShell(page);
   await page.getByTestId(SIDEBAR_NAV.dashboard).click();
   await expect(page.getByTestId('dashboard-root')).toBeVisible();
 

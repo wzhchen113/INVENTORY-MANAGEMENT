@@ -267,17 +267,25 @@ function clearActiveBrandLocal() {
   } catch { /* best-effort */ }
 }
 
-// Spec 161 — the store a multi-store user picked at the gate. Lifecycle is a
-// deliberate mirror of ACTIVE_BRAND_KEY above: `localStorage`, per device,
-// dropped by `logout()`. So every real SIGN-IN re-asks (that is the ask), while
-// a refresh — or reopening the tab on a still-live Supabase session, which is a
-// session RESTORE, not a login — resumes on the chosen store instead of nagging.
+// Spec 161 — the store a multi-store user picked at the gate. Deliberately
+// `sessionStorage`, which is the ONE medium whose lifetime matches the owner's
+// rule: it survives a reload of the same tab, and dies when that tab closes.
 //
-// sessionStorage was the first cut and is wrong twice over: it re-asks on a tab
-// reopen the user never experienced as a logout, and Playwright's
-// `storageState` serializes localStorage ONLY — a sessionStorage-backed pick is
-// invisible to `e2e/auth.setup.ts`, so every spec would inherit a signed-in
-// context that lands on the gate instead of `cmd-shell-root`.
+//   refresh mid-shift        → key survives → straight back to work
+//   close the tab, reopen    → key gone     → asked again
+//   sign out / session dies  → key cleared by logout()/handleSessionLost()
+//   different user, same tab → key ignored (it is scoped to the user id)
+//
+// Note this does NOT mirror ACTIVE_BRAND_KEY above, which is localStorage and
+// per-device on purpose. Reopening the app is a session RESTORE rather than a
+// sign-in — Supabase keeps its own token in localStorage — so nothing else in
+// the restore path would ask, and without a tab-scoped key the operator would
+// silently resume on yesterday's store.
+//
+// Cost of this choice, paid in `e2e/fixtures/storeGate.ts`: Playwright's
+// `storageState` serializes cookies + localStorage and NOT sessionStorage, so
+// the saved auth state cannot carry the pick and every spec opens on the gate.
+// The specs clear it explicitly instead.
 //
 // Read SYNCHRONOUSLY inside `login()`, which rules out AsyncStorage: it has no
 // sync read, and the login branch has to decide land-vs-gate on the same tick
@@ -299,8 +307,8 @@ function persistSessionStoreLocal(userId: string | null | undefined, storeId: st
   sessionStoreMemory = v;
   try {
     if (Platform.OS === 'web') {
-      if (v) window.localStorage.setItem(SESSION_STORE_KEY, v);
-      else window.localStorage.removeItem(SESSION_STORE_KEY);
+      if (v) window.sessionStorage.setItem(SESSION_STORE_KEY, v);
+      else window.sessionStorage.removeItem(SESSION_STORE_KEY);
     }
   } catch { /* best-effort — private mode / disabled storage */ }
 }
@@ -309,7 +317,7 @@ function readSessionStoreLocal(userId: string | null | undefined): string | null
   if (!userId) return null;
   let raw: string | null = sessionStoreMemory;
   try {
-    if (Platform.OS === 'web') raw = window.localStorage.getItem(SESSION_STORE_KEY);
+    if (Platform.OS === 'web') raw = window.sessionStorage.getItem(SESSION_STORE_KEY);
   } catch { /* best-effort — keep the in-memory copy */ }
   if (!raw) return null;
   const sep = raw.indexOf(':');
@@ -1516,6 +1524,13 @@ export const useStore = create<FullStore>((set, get) => ({
   handleSessionLost: () => {
     set({ currentUser: null });
     clearActiveBrandLocal();
+    // Spec 161 — the SECOND entrance to the signed-out state has to drop the
+    // store pick for the same reason `logout()` does. Without this, a session
+    // that dies mid-shift bounces to the login form and the very next sign-in
+    // silently restores the dead session's store instead of asking — and the
+    // comment below says exactly why that matters: the "loss" may really be a
+    // SWITCH to a different user.
+    persistSessionStoreLocal(null, null);
     set({
       // Drop the loaded rows too (security-auditor Medium): this is the second
       // entrance to the signed-out state, and the next sign-in must never

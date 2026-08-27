@@ -260,6 +260,23 @@ describe('session store memory', () => {
     expect(useStore.getState().currentStore.id).toBe('');
   });
 
+  it('(f) a DIED session drops the pick too, not just a clean logout', async () => {
+    // `handleSessionLost` is the SECOND entrance to the signed-out state
+    // (spec 152). It bounces to the login form without running `logout()`, so
+    // it has to clear the pick itself — otherwise a session that dies
+    // mid-shift lets the next sign-in silently restore the dead session's
+    // store. Worse, per that function's own comment, the "loss" may really be
+    // a SWITCH to a different user.
+    await signInAndPick('store-b');
+
+    useStore.getState().handleSessionLost();
+    useStore.getState().login(makeUser());
+    await flush();
+
+    expect(useStore.getState().storeGate).toBe('choosing');
+    expect(useStore.getState().currentStore.id).toBe('');
+  });
+
   it('(f) logout drops the pick so the next sign-in re-asks', async () => {
     await signInAndPick('store-b');
 

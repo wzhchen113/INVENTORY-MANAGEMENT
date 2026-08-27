@@ -23,6 +23,7 @@
 
 import { test, expect } from '@playwright/test';
 import { DEMO } from './fixtures/constants';
+import { clearStoreGate } from './fixtures/storeGate';
 
 // Emulate an OS dark preference (AC-DARK1) and start signed-out so the
 // addInitScript-seeded pref is read on the very first app boot.
@@ -48,8 +49,7 @@ test('AC-DARK1: the Cmd shell renders in dark mode', async ({ page, context }) =
   await page.getByTestId('signin-submit').click();
 
   // Spec 161 — clear the admin store gate before the shell exists to measure.
-  await expect(page.getByTestId('store-gate-root')).toBeVisible();
-  await page.getByText('Towson', { exact: true }).click();
+  await clearStoreGate(page);
 
   const shell = page.getByTestId('cmd-shell-root').first();
   await expect(shell).toBeVisible();

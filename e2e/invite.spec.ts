@@ -38,6 +38,7 @@
 
 import { test, expect } from '@playwright/test';
 import { SIDEBAR_NAV, STORAGE_STATE, uniqueInviteEmail } from './fixtures/constants';
+import { gotoShell } from './fixtures/storeGate';
 
 // Master storageState — see the WHY MASTER block in the file header.
 test.use({ storageState: STORAGE_STATE.master });
@@ -46,8 +47,8 @@ test.describe('invite user', () => {
   test('AC-INV1/2: master invites a uniquified user and the drawer confirms', async ({
     page,
   }) => {
-    await page.goto('/');
-    await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
+    // Spec 161 — clears the admin store gate, then asserts the shell.
+    await gotoShell(page);
 
     // Switch to the Users section via the stable nav testID (no section URL,
     // no i18n-fragile label text). nav-Users only renders for master/super-

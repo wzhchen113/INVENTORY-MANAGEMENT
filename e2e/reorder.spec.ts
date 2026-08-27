@@ -30,14 +30,15 @@
 
 import { test, expect } from '@playwright/test';
 import { SIDEBAR_NAV, STORAGE_STATE } from './fixtures/constants';
+import { gotoShell } from './fixtures/storeGate';
 
 test.use({ storageState: STORAGE_STATE.admin });
 
 test('AC-REORD-DEPTH-1: reorder renders, Refresh round-trips, exports gate on payload', async ({
   page,
 }) => {
-  await page.goto('/');
-  await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
+  // Spec 161 — clears the admin store gate, then asserts the shell.
+  await gotoShell(page);
 
   // Spec 138 — the unified Ordering destination is now reorder-only (the PO tab
   // was retired), so selecting Ordering lands DIRECTLY on the reorder pane.

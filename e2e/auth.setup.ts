@@ -18,13 +18,15 @@
 //
 // SPEC 161 — admin and master are BOTH privileged roles, so they see all four
 // seeded stores and sign-in now lands on the store gate, not the shell. Each
-// admin-side setup therefore picks a store before asserting `cmd-shell-root`.
+// admin-side setup therefore clears the gate before asserting `cmd-shell-root`.
 //
-// The pick has to happen HERE, not per-spec, and it only works because the
-// gate remembers via localStorage: Playwright's `storageState` serializes
-// cookies + localStorage and NOT sessionStorage, so a session-scoped pick
-// would be dropped from the saved state and every dependent spec would open on
-// the gate. See the SESSION_STORE_KEY note in src/store/useStore.ts.
+// The pick made here does NOT carry into the dependent specs: the gate keeps it
+// in sessionStorage (deliberately — see the SESSION_STORE_KEY note in
+// src/store/useStore.ts) and Playwright's `storageState` serializes cookies +
+// localStorage only. That is correct app behavior, not a gap — a fresh browser
+// context is a new tab, and a new tab is meant to ask. Each admin-side spec
+// clears its own gate via `gotoShell` (e2e/fixtures/storeGate.ts); what this
+// file saves is the AUTH state, which is all it was ever for.
 //
 // Selector contract (frozen §7): signin-email, signin-password,
 // signin-submit (login screen); cmd-shell-root (admin landing);
@@ -32,24 +34,16 @@
 // not EODCount, per the verified seed fact in design §3); store-gate-root +
 // the store rows (spec 161 admin landing, when >1 store is visible).
 
-import { test as setup, expect, type Page } from '@playwright/test';
+import { test as setup, expect } from '@playwright/test';
 import { DEMO, STORAGE_STATE } from './fixtures/constants';
-
-/** Spec 161 — clear the admin-side store gate by choosing `storeName`. */
-async function pickStore(page: Page, storeName: string) {
-  await expect(page.getByTestId('store-gate-root')).toBeVisible();
-  // The brand pane auto-selects the sole seeded brand, so the store rows are
-  // already listed; filtering keeps the click unambiguous if the seed grows.
-  await page.getByTestId('store-gate-store-filter').fill(storeName);
-  await page.getByText(storeName, { exact: true }).click();
-}
+import { clearStoreGate } from './fixtures/storeGate';
 
 setup('authenticate as admin', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('signin-email').fill(DEMO.adminEmail);
   await page.getByTestId('signin-password').fill(DEMO.password);
   await page.getByTestId('signin-submit').click();
-  await pickStore(page, 'Towson');
+  await clearStoreGate(page);
   // Admin lands on the Cmd shell. cmd-shell-root is the breakpoint-agnostic
   // shell anchor (§7 #4).
   await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
@@ -61,7 +55,7 @@ setup('authenticate as master', async ({ page }) => {
   await page.getByTestId('signin-email').fill(DEMO.masterEmail);
   await page.getByTestId('signin-password').fill(DEMO.password);
   await page.getByTestId('signin-submit').click();
-  await pickStore(page, 'Towson');
+  await clearStoreGate(page);
   // master@local.test lands on the Cmd shell like admin, but ALSO sees the
   // Users & access section (master-gated, Spec 030) + the invite-role chips.
   // The invite spec runs under this storageState. No EOD submit here (OQ-3c).

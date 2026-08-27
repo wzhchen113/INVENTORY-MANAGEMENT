@@ -12,12 +12,13 @@
 
 import { test, expect } from '@playwright/test';
 import { SIDEBAR_NAV, STORAGE_STATE } from './fixtures/constants';
+import { gotoShell } from './fixtures/storeGate';
 
 test.use({ storageState: STORAGE_STATE.admin });
 
 test('AC-AUDIT1: audit log section renders', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
+  // Spec 161 — clears the admin store gate, then asserts the shell.
+  await gotoShell(page);
 
   await page.getByTestId(SIDEBAR_NAV.auditLog).click();
 
