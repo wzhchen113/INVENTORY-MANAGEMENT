@@ -659,6 +659,24 @@ export interface OrderSubmission {
 export interface AppState {
   currentUser: User | null;
   currentStore: Store;
+  /**
+   * Spec 161 — where the session is in choosing its store. `AdminStack` mounts
+   * the Cmd shell ONLY on `'ready'`; the other two render `StoreGatePicker`.
+   * That is what keeps `currentStore` off its `{ id: '' }` placeholder for
+   * every section behind the gate — they dereference `currentStore.`
+   * unconditionally, ~130 sites.
+   *
+   *   'ready'     — a store is settled (or nobody is signed in). The default.
+   *   'resolving' — `login()` fired, the visible store set isn't known yet.
+   *                 Set SYNCHRONOUSLY so the shell never mounts during the
+   *                 `fetchStores` window; the picker shows a spinner.
+   *   'choosing'  — more than one visible store, waiting on the user.
+   *
+   * Never reaches `'choosing'` for a user with 0 or 1 visible stores — those
+   * auto-land, mirroring the staff gate's `stores.length === 1` branch
+   * (`src/screens/staff/navigation/StaffStack.tsx`).
+   */
+  storeGate: 'ready' | 'resolving' | 'choosing';
   /** The brand the current user is operating in. Single-tenant for now. */
   brand: Brand | null;
   /** Brand-level master ingredient list. */

@@ -209,6 +209,15 @@
       }
     }
   },
+  "storeGate": {
+    "title": "Choose a store",
+    "subtitle": "You have access to more than one store. Pick the one you're working in.",
+    "brandFilter": "Enter enterprise name",
+    "storeFilter": "Enter store name",
+    "unnamedBrand": "Enterprise",
+    "noMatches": "No stores match that name.",
+    "signOut": "Sign out"
+  },
   "common": {
     "save": "Save",
     "saveDraft": "SAVE DRAFT",

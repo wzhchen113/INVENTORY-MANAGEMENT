@@ -209,6 +209,15 @@
       }
     }
   },
+  "storeGate": {
+    "title": "Elige una tienda",
+    "subtitle": "Tienes acceso a más de una tienda. Elige en la que estás trabajando.",
+    "brandFilter": "Escribe el nombre de la empresa",
+    "storeFilter": "Escribe el nombre de la tienda",
+    "unnamedBrand": "Empresa",
+    "noMatches": "Ninguna tienda coincide con ese nombre.",
+    "signOut": "Cerrar sesión"
+  },
   "common": {
     "save": "Guardar",
     "saveDraft": "GUARDAR BORRADOR",

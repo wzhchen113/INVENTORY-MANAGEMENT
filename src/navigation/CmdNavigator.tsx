@@ -9,6 +9,7 @@ import { useCmdColors } from '../theme/colors';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
 import { usePaletteAction } from '../lib/paletteAction';
 import { CommandPalette } from '../components/cmd/CommandPalette';
+import { StoreGatePicker } from '../components/cmd/StoreGatePicker';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import ResponsiveCmdShell from '../screens/cmd/ResponsiveCmdShell';
@@ -154,10 +155,20 @@ function CmdPaletteHost() {
  */
 export function AdminStack() {
   const currentUser = useStore((s) => s.currentUser);
+  // Spec 161 — the store gate sits BETWEEN the session and the shell. It has
+  // to replace `AuthedRoot` rather than render inside it: every Cmd section
+  // dereferences `currentStore.` unconditionally, so the shell must not mount
+  // while the store is still the `{ id: '' }` placeholder. Mirrors the staff
+  // gate (`StaffStack` swaps StorePicker in for StaffTabs the same way).
+  const storeGate = useStore((s) => s.storeGate);
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
       {currentUser ? (
-        <RootStack.Screen name="App" component={AuthedRoot} />
+        storeGate !== 'ready' ? (
+          <RootStack.Screen name="StoreGate" component={StoreGatePicker} />
+        ) : (
+          <RootStack.Screen name="App" component={AuthedRoot} />
+        )
       ) : (
         <>
           <RootStack.Screen name="Login" component={LoginScreen} />

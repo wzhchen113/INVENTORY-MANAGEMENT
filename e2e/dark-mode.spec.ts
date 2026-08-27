@@ -47,6 +47,10 @@ test('AC-DARK1: the Cmd shell renders in dark mode', async ({ page, context }) =
   await page.getByTestId('signin-password').fill(DEMO.password);
   await page.getByTestId('signin-submit').click();
 
+  // Spec 161 — clear the admin store gate before the shell exists to measure.
+  await expect(page.getByTestId('store-gate-root')).toBeVisible();
+  await page.getByText('Towson', { exact: true }).click();
+
   const shell = page.getByTestId('cmd-shell-root').first();
   await expect(shell).toBeVisible();
 

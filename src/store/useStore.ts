@@ -267,6 +267,63 @@ function clearActiveBrandLocal() {
   } catch { /* best-effort */ }
 }
 
+// Spec 161 — the store a multi-store user picked at the gate. Lifecycle is a
+// deliberate mirror of ACTIVE_BRAND_KEY above: `localStorage`, per device,
+// dropped by `logout()`. So every real SIGN-IN re-asks (that is the ask), while
+// a refresh — or reopening the tab on a still-live Supabase session, which is a
+// session RESTORE, not a login — resumes on the chosen store instead of nagging.
+//
+// sessionStorage was the first cut and is wrong twice over: it re-asks on a tab
+// reopen the user never experienced as a logout, and Playwright's
+// `storageState` serializes localStorage ONLY — a sessionStorage-backed pick is
+// invisible to `e2e/auth.setup.ts`, so every spec would inherit a signed-in
+// context that lands on the gate instead of `cmd-shell-root`.
+//
+// Read SYNCHRONOUSLY inside `login()`, which rules out AsyncStorage: it has no
+// sync read, and the login branch has to decide land-vs-gate on the same tick
+// the store set resolves. Native therefore keeps the value in the module
+// variable alone — it survives a JS-context-preserving resume but not a cold
+// start, and a cold start showing the picker is the correct outcome anyway.
+//
+// The stored value is `"<userId>:<storeId>"`, never a bare store id. Scoping it
+// to the user is what stops user B from inheriting user A's store on a shared
+// device: `logout()` clears the value, but a session that DIES without a clean
+// logout never runs that path, and the id check makes the stale entry inert
+// instead of load-bearing.
+export const SESSION_STORE_KEY = 'imr.session.storeId';
+
+let sessionStoreMemory: string | null = null;
+
+function persistSessionStoreLocal(userId: string | null | undefined, storeId: string | null) {
+  const v = userId && storeId ? `${userId}:${storeId}` : null;
+  sessionStoreMemory = v;
+  try {
+    if (Platform.OS === 'web') {
+      if (v) window.localStorage.setItem(SESSION_STORE_KEY, v);
+      else window.localStorage.removeItem(SESSION_STORE_KEY);
+    }
+  } catch { /* best-effort — private mode / disabled storage */ }
+}
+
+function readSessionStoreLocal(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  let raw: string | null = sessionStoreMemory;
+  try {
+    if (Platform.OS === 'web') raw = window.localStorage.getItem(SESSION_STORE_KEY);
+  } catch { /* best-effort — keep the in-memory copy */ }
+  if (!raw) return null;
+  const sep = raw.indexOf(':');
+  if (sep < 0) return null;
+  return raw.slice(0, sep) === userId ? raw.slice(sep + 1) : null;
+}
+
+/** Test-only reset for the module-level copy (jest keeps one module instance
+ *  across a file's tests, so a landed store would leak into the next case).
+ *  Mirrors `_resetWarnCache` in `src/i18n/index.ts`. */
+export function _resetSessionStoreLocal() {
+  persistSessionStoreLocal(null, null);
+}
+
 // Spec 150 — the store-visibility predicate now lives in one place
 // (`lib/storeVisibility.ts`) and is shared with the two store switchers that
 // used to carry byte-identical copies of it (TitleBar + PhoneStoreSwitch).
@@ -1100,6 +1157,9 @@ const makeId = (prefix: string, counter: number) => `${prefix}${counter}`;
 // the locale reset, and the rest are device-level, not session data.
 const SIGNED_OUT_DATA_RESET = {
   currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' as const },
+  // Spec 161 — a signed-out store must not carry a pending gate into the
+  // login screen; the next `login()` decides gate-vs-land from scratch.
+  storeGate: 'ready' as const,
   brand: null,
   stores: [],
   users: [],
@@ -1171,6 +1231,7 @@ export const useStore = create<FullStore>((set, get) => ({
   // Initial state — start logged out, all data loaded from Supabase after login
   currentUser: null,
   currentStore: { id: '', brandId: '', name: '', address: '', status: 'active' as const },
+  storeGate: 'ready' as const,
   brand: null,
   catalogIngredients: [],
   stores: [],
@@ -1297,7 +1358,13 @@ export const useStore = create<FullStore>((set, get) => ({
 
   // Auth
   login: (user) => {
-    set({ currentUser: user });
+    // Spec 161 — `currentUser` and the store decision land on DIFFERENT ticks:
+    // this set() is synchronous, the store set only arrives when fetchStores
+    // below resolves. Without arming the gate here, AdminStack would see
+    // `currentUser` with a still-'ready' gate and mount the whole Cmd shell on
+    // the `{ id: '' }` placeholder for the width of that fetch — the exact
+    // stale-store window the gate exists to close. Arm first, decide later.
+    set({ currentUser: user, storeGate: 'resolving' });
     // Spec 012b — clear any stale super-admin active-brand override on
     // login so a fresh session always starts in "All brands" mode.
     // localStorage value persists across tab reloads but not across logins.
@@ -1332,21 +1399,52 @@ export const useStore = create<FullStore>((set, get) => ({
       // could sit in a different brand entirely.
       const activeBrandId = get().reconcileActiveBrand(allStores);
       const visible = visibleStoresFor(allStores, user, activeBrandId);
-      const userStore =
-        visible.find((s) => user.stores.includes(s.id)) ||
-        visible[0] ||
-        // Defensive tail: preserves the pre-spec-150 pick when the predicate
-        // yields nothing (e.g. a user with grants the RLS read didn't return).
-        allStores.find((s) => user.stores.includes(s.id)) ||
-        allStores[0];
-      if (userStore) {
-        set({ currentStore: userStore });
-        get().loadFromSupabase(userStore.id);
+
+      const land = (store: Store) => {
+        set({ currentStore: store, storeGate: 'ready' });
+        persistSessionStoreLocal(user.id, store.id);
+        get().loadFromSupabase(store.id);
+      };
+
+      // Spec 161 — a store the user already picked THIS browser session wins
+      // over both the gate and the auto-pick, so a refresh resumes where it
+      // left off. Re-validated against `visible`: a pick that is no longer
+      // visible (brand switched, grant revoked) falls through to the gate.
+      const cachedId = readSessionStoreLocal(user.id);
+      const cached = cachedId ? visible.find((s) => s.id === cachedId) : undefined;
+
+      if (cached) {
+        land(cached);
+      } else if (visible.length > 1) {
+        // Spec 161 — more than one store in reach: ask instead of guessing.
+        // `currentStore` deliberately stays on its `{ id: '' }` placeholder;
+        // AdminStack holds the shell back until the picker resolves, so no
+        // section ever reads the placeholder.
+        set({ storeGate: 'choosing' });
+      } else {
+        const userStore =
+          visible[0] ||
+          // Defensive tail: preserves the pre-spec-150 pick when the predicate
+          // yields nothing (e.g. a user with grants the RLS read didn't return).
+          allStores.find((s) => user.stores.includes(s.id)) ||
+          allStores[0];
+        if (userStore) land(userStore);
+        // Spec 161 — a user with NO store at all still has to leave
+        // 'resolving', or the gate spins forever. Release to the shell and let
+        // it render its own "no stores" state, exactly as it did pre-161.
+        else set({ storeGate: 'ready' });
       }
     }).catch(() => {
-      // Fallback to local stores
+      // Fallback to local stores. Spec 161 deliberately does NOT gate here:
+      // the fetch failed, so the visible set is unknown and a picker built
+      // from stale local state could offer stores the user can no longer see.
+      // Landing on one keeps the shell usable; the title-bar switcher remains
+      // the escape hatch.
       const localStore = get().stores.find((s) => user.stores.includes(s.id)) || get().stores[0];
-      if (localStore) set({ currentStore: localStore });
+      // `storeGate` is released either way — a failed fetch must not strand the
+      // session on the gate's spinner.
+      if (localStore) set({ currentStore: localStore, storeGate: 'ready' });
+      else set({ storeGate: 'ready' });
     });
     // Spec 012b — super-admin gets the brand picker; preload the full
     // brands list so the dropdown renders immediately on first open.
@@ -1358,6 +1456,10 @@ export const useStore = create<FullStore>((set, get) => ({
     set({ currentUser: null });
     // Spec 012b — drop super-admin brand context on logout.
     clearActiveBrandLocal();
+    // Spec 161 — and drop the session store pick, so the next sign-in on this
+    // tab re-asks. Critical on a shared machine: without this the next user
+    // would silently inherit the previous one's store.
+    persistSessionStoreLocal(null, null);
     set({ currentBrandId: null, brandsList: [], brandStats: [], brandAdminsByBrandId: {}, brandDeletionLog: {} });
     // Spec 038 — reset locale to 'en' so the next sign-in flow starts
     // from English chrome until getSession() resolves and hydrateLocale
@@ -1460,7 +1562,8 @@ export const useStore = create<FullStore>((set, get) => ({
       if (fallback.id !== prev.id && prev.id !== '' && get().switching === null) {
         set({ switching: 'store' });
       }
-      set({ currentStore: fallback });
+      set({ currentStore: fallback, storeGate: 'ready' });
+      persistSessionStoreLocal(get().currentUser?.id, fallback.id);
       get().loadFromSupabase(fallback.id);
       return;
     }
@@ -1468,7 +1571,11 @@ export const useStore = create<FullStore>((set, get) => ({
     if (store.id !== prev.id && prev.id !== '' && get().switching === null) {
       set({ switching: 'store' });
     }
-    set({ currentStore: store });
+    // Spec 161 — this is the ONLY way out of the gate, and it is also the
+    // title-bar switcher's action, so a mid-session switch re-arms the session
+    // memory too (a refresh resumes on the store you switched TO).
+    set({ currentStore: store, storeGate: 'ready' });
+    persistSessionStoreLocal(get().currentUser?.id, store.id);
     get().loadFromSupabase(store.id);
   },
 

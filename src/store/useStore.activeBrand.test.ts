@@ -72,7 +72,7 @@ jest.mock('../lib/db', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as db from '../lib/db';
-import { useStore, ACTIVE_BRAND_KEY } from './useStore';
+import { useStore, ACTIVE_BRAND_KEY, _resetSessionStoreLocal } from './useStore';
 import type { Store, User } from '../types';
 
 const INITIAL_STATE = useStore.getState();
@@ -115,6 +115,10 @@ beforeEach(async () => {
     switching: null,
   });
   await AsyncStorage.clear();
+  // Spec 161 — the session store pick lives in a module-level variable that
+  // jest keeps for the whole file, so a case that lands a store would
+  // otherwise pre-answer the gate for every case after it.
+  _resetSessionStoreLocal();
   fetchStoresMock.mockResolvedValue([storeA, storeB, storeC]);
 });
 
@@ -148,8 +152,12 @@ describe('active-brand restore (Spec 150 D)', () => {
     // …persisted as the empty sentinel, so the NEXT cold start doesn't
     // restore the dead brand (App.tsx's reader maps '' → null)…
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(ACTIVE_BRAND_KEY, '');
-    // …and landed on a real store instead of the `{id:''}` placeholder.
-    expect(useStore.getState().currentStore.id).toBe('store-a');
+    // …and, since "All brands" makes all THREE stores visible to this
+    // super-admin, spec 161 hands off to the gate instead of auto-landing on
+    // `store-a`. The spec-150 rescue above is what this test exists to pin;
+    // the landing store is now the picker's job.
+    expect(useStore.getState().storeGate).toBe('choosing');
+    expect(useStore.getState().currentStore.id).toBe('');
   });
 
   it('(b) keeps a VALID cached brand and lands on a store inside it', async () => {
@@ -163,13 +171,16 @@ describe('active-brand restore (Spec 150 D)', () => {
     expect(useStore.getState().currentStore.id).toBe('store-c');
   });
 
-  it('(b2) a plain login with no cached brand is unchanged', async () => {
+  it('(b2) a plain login with no cached brand stays in "All brands"', async () => {
     useStore.getState().login(makeUser());
 
     await flush();
 
     expect(useStore.getState().currentBrandId).toBeNull();
-    expect(useStore.getState().currentStore.id).toBe('store-a');
+    // Spec 161 — three visible stores, so no auto-landing: the gate opens.
+    // (Pre-161 this asserted `currentStore.id === 'store-a'`.)
+    expect(useStore.getState().storeGate).toBe('choosing');
+    expect(useStore.getState().currentStore.id).toBe('');
   });
 });
 

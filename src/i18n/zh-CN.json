@@ -209,6 +209,15 @@
       }
     }
   },
+  "storeGate": {
+    "title": "选择门店",
+    "subtitle": "您可访问多家门店，请选择当前工作的门店。",
+    "brandFilter": "输入企业名称",
+    "storeFilter": "输入门店名称",
+    "unnamedBrand": "企业",
+    "noMatches": "没有匹配的门店。",
+    "signOut": "退出登录"
+  },
   "common": {
     "save": "保存",
     "saveDraft": "保存草稿",

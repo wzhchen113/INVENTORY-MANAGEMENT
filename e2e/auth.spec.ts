@@ -21,7 +21,25 @@ test.describe('sign-in', () => {
     await page.getByTestId('signin-email').fill(DEMO.adminEmail);
     await page.getByTestId('signin-password').fill(DEMO.password);
     await page.getByTestId('signin-submit').click();
+    // Spec 161 — admin is privileged, so all four seeded stores are visible
+    // and the gate comes first. This spec starts signed-OUT (no storageState),
+    // so there is no remembered pick to skip it.
+    await expect(page.getByTestId('store-gate-root')).toBeVisible();
+    await page.getByText('Towson', { exact: true }).click();
     await expect(page.getByTestId('cmd-shell-root')).toBeVisible();
+  });
+
+  test('AC-S1b: the store gate only appears for a multi-store user', async ({ page }) => {
+    // The staff counterpart (AC-S2 below) proves the same rule on the other
+    // surface; this pins that the admin gate is a real screen, not a flash —
+    // the shell must NOT be mounted underneath it while it is up.
+    await page.goto('/');
+    await page.getByTestId('signin-email').fill(DEMO.adminEmail);
+    await page.getByTestId('signin-password').fill(DEMO.password);
+    await page.getByTestId('signin-submit').click();
+
+    await expect(page.getByTestId('store-gate-root')).toBeVisible();
+    await expect(page.getByTestId('cmd-shell-root')).toHaveCount(0);
   });
 
   test('AC-S2: staff credentials land on the StorePicker', async ({ page }) => {
