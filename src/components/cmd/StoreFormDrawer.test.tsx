@@ -76,6 +76,15 @@ beforeEach(() => {
 const open = () =>
   render(<StoreFormDrawer visible brandId="b1" brandName="2AM PROJECT" onClose={() => {}} />);
 
+// Spec 162 (rev 2) — the ADDRESS joined the name as a required field, because
+// it is the shipping address the cart-filler's auto-place picker offers. Tests
+// below that only care about the ZIP fill both, so a required-field change
+// can't masquerade as a ZIP regression.
+const fillRequired = (name = 'Towson', address = '1234 York Rd, Towson MD 21204') => {
+  fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), name);
+  fireEvent.changeText(screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'), address);
+};
+
 describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
   it('renders the optional postal-code field, empty by default', () => {
     open();
@@ -86,14 +95,14 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 
   it('a filled postal code reaches addStore trimmed', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Frederick');
+    fillRequired('Frederick', '2339 Frederick Ave, Baltimore MD 21223');
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '  21701  ');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
     expect(addStoreMock).toHaveBeenCalledTimes(1);
     expect(addStoreMock.mock.calls[0][0]).toEqual({
       name: 'Frederick',
-      address: '',
+      address: '2339 Frederick Ave, Baltimore MD 21223',
       postalCode: '21701',
       brandId: 'b1',
       status: 'active',
@@ -102,7 +111,7 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 
   it('a blank postal code is persisted as NULL, not an empty string (R-4 safe default)', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fillRequired();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
     expect(addStoreMock.mock.calls[0][0]).toMatchObject({ name: 'Towson', postalCode: null });
@@ -110,7 +119,7 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 
   it('whitespace-only input also clears to NULL', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '   ');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
@@ -119,14 +128,24 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 
   it('the postal code is OPTIONAL — it never satisfies or blocks the required-field gate', () => {
     open();
-    // Only the ZIP filled: name is still the single required field.
+    // Only the ZIP filled: it satisfies neither required field.
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '21701');
-    expect(screen.getByText('0/1 required valid')).toBeTruthy();
+    expect(screen.getByText('0/2 required valid')).toBeTruthy();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
     expect(addStoreMock).not.toHaveBeenCalled();
 
+    // Spec 162 (rev 2) — the name alone no longer opens the gate; the address
+    // is the second required field, and the ZIP is still not either of them.
     fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Frederick');
-    expect(screen.getByText('1/1 required valid')).toBeTruthy();
+    expect(screen.getByText('1/2 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addStoreMock).not.toHaveBeenCalled();
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'),
+      '2339 Frederick Ave, Baltimore MD 21223',
+    );
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
   });
 
   it('reopening the drawer resets the postal code along with the other fields', () => {
@@ -144,11 +163,7 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 
   it('the address field is NOT parsed for the ZIP — the two are independent', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
-    fireEvent.changeText(
-      screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'),
-      '1234 York Rd, Towson MD 21204',
-    );
+    fillRequired();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
     expect(addStoreMock.mock.calls[0][0]).toMatchObject({
@@ -158,30 +173,88 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
   });
 });
 
+// ── Spec 162 (rev 2) — the address is REQUIRED ─────────────────────────────
+//
+// It stopped being decoration the moment the cart-filler extension started
+// offering store addresses as the shipping target for an auto-placed BJ's
+// order: a blank address means that store simply cannot be ordered for. The DB
+// constraint (`stores_address_present`, NOT VALID) is the backstop; this gate
+// is what the operator actually sees, and it matters most on the EDIT path,
+// where a grandfathered addressless store would otherwise hit an opaque
+// constraint error on a save that only touched the name.
+
+describe('StoreFormDrawer — the address is required (spec 162 rev 2)', () => {
+  it('refuses a CREATE with a name but no address', () => {
+    open();
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    expect(screen.getByText('1/2 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addStoreMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a whitespace-only address — blank is blank', () => {
+    open();
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fireEvent.changeText(screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'), '   ');
+    expect(screen.getByText('1/2 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    expect(addStoreMock).not.toHaveBeenCalled();
+  });
+
+  it('drops the "(optional)" from the field label', () => {
+    open();
+    expect(screen.queryByText('Address (optional)')).toBeNull();
+    expect(screen.getByText('Address')).toBeTruthy();
+  });
+
+  it('blocks SAVE on a grandfathered store whose address is blank until one is typed', () => {
+    // The prod state the DB constraint grandfathers: a store that predates the
+    // requirement. The drawer must force the fix rather than let the write hit
+    // the constraint.
+    render(
+      <StoreFormDrawer
+        visible
+        brandId="b1"
+        onClose={() => {}}
+        store={{ id: 's9', name: 'Legacy', address: '', status: 'active', brandId: 'b1' } as Store}
+      />,
+    );
+    expect(screen.getByText('1/2 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('SAVE  ⌘⏎'));
+    expect(updateStoreMock).not.toHaveBeenCalled();
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'),
+      '7000 Reisterstown, Baltimore MD 21215',
+    );
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
+  });
+});
+
 // ── Spec 155 — the shared ZIP validator, on BOTH paths (AC-3) ───────────────
 //
 // DELIBERATE, spec-authorized delta on the create path (§5.1): create used to
 // accept any text, so 'ABCDE' would have been stored and the IDP retailers
 // probe could never use it. The validator now gates both modes. It is
-// deliberately NOT folded into the `n/1 required valid` counter — that string
+// deliberately NOT folded into the `n/2 required valid` counter — that string
 // is asserted verbatim above and stays byte-identical.
 
 describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
   it('an invalid ZIP refuses the CREATE with an inline error and issues NO write', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), 'ABCDE');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
     expect(addStoreMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('store-postal-code-error')).toBeTruthy();
     // The required-field counter is untouched by ZIP validity.
-    expect(screen.getByText('1/1 required valid')).toBeTruthy();
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
   });
 
   it('editing the ZIP clears the inline error, and a corrected value saves', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '2120');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
     expect(screen.getByTestId('store-postal-code-error')).toBeTruthy();
@@ -196,7 +269,7 @@ describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
 
   it('ZIP+4 is accepted on the create path and stored verbatim (OQ-7)', () => {
     open();
-    fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
+    fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '21204-1234');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 

@@ -19,6 +19,19 @@ export interface PendingOrder {
   unmappedCount: number;
 }
 
+/**
+ * Spec 162 (rev 2) — one row of `get_extension_store_addresses`, the source of
+ * the auto-place shipping-address picker. Addressless stores are RETURNED with
+ * `hasAddress: false` rather than filtered out, so a missing address shows up
+ * as a gap to fix instead of a store that mysteriously isn't in the list.
+ */
+export interface StoreAddress {
+  storeId: string;
+  storeName: string;
+  address: string | null;
+  hasAddress: boolean;
+}
+
 /** One raw structured line of `get_extension_order_payload`. */
 export interface PayloadLine {
   itemId: string;

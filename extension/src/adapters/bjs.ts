@@ -14,7 +14,14 @@
 // │ ONLY the constants inside the page* routines. Everything else is stable.   │
 // └────────────────────────────────────────────────────────────────────────────┘
 
-import type { PageActionResult, VendorAdapter } from './types';
+import type {
+  CartReadResult,
+  CheckoutStepResult,
+  ConfirmationResult,
+  PageActionResult,
+  SelectionReadResult,
+  VendorAdapter,
+} from './types';
 
 const BJS_ORIGIN = 'https://www.bjs.com';
 
@@ -257,5 +264,358 @@ export const bjsAdapter: VendorAdapter = {
     } catch (e) {
       return { outcome: 'failed', detail: `BJ’s: search error: ${(e as Error).message}` };
     }
+  },
+
+  // ┌─ SPEC 162 — AUTO-PLACE (the money-spending half) ─────────────────────────┐
+  // │ UNVERIFIED FIRST-PASS SELECTORS. The cart-fill selectors above earned      │
+  // │ their `auto-data` attributes from a live 2026-07-20 DOM inspection in the  │
+  // │ owner's session; NOTHING below has had that pass yet (spec 162 OQ-1).      │
+  // │ Every routine therefore fails LOUD and DIAGNOSTIC — a failure names the    │
+  // │ visible candidate labels it did see, so one screenshot from a failed run   │
+  // │ is enough to re-target. Edit ONLY the selector strings inside these        │
+  // │ routines; the staging, the gate and the audit record are stable.           │
+  // └───────────────────────────────────────────────────────────────────────────┘
+  checkout: {
+    checkoutUrl: `${BJS_ORIGIN}/cart`,
+
+    pageReadCart: async (): Promise<CartReadResult> => {
+      // Read-only by contract: this routine must never click, never change a
+      // quantity, never remove a line. It is the input to the gate that decides
+      // whether money moves, so a WRONG read is worse than no read — every
+      // uncertain path returns null and lets the gate hard-stop.
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      try {
+        // The cart is an SPA route; poll for rows the same way the product page
+        // polls for its add-to-cart button.
+        let rows: HTMLElement[] = [];
+        for (let i = 0; i < 20 && rows.length === 0; i++) {
+          rows = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[auto-data*="cartItem" i], [data-testid*="cart-item" i], [class*="CartItem"], [class*="cart-item"]',
+            ),
+          ).filter((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 2 && r.height > 2;
+          });
+          if (rows.length === 0) await sleep(500);
+        }
+
+        // De-dupe nested matches: a row container AND its inner wrapper can both
+        // match the class probe, which would double the line count and trip the
+        // gate on a cart that is actually correct. Keep only outermost matches.
+        const outermost = rows.filter((el) => !rows.some((other) => other !== el && other.contains(el)));
+
+        // Subtotal — prefer an explicit attribute, else the nearest money string
+        // to a "subtotal" label. Never fall back to the order TOTAL with tax and
+        // fees folded in: the cap is a cart-value cap and mixing the two makes
+        // the cap mean something different run to run.
+        let totalText: string | null = null;
+        const explicit = document.querySelector<HTMLElement>(
+          '[auto-data*="subtotal" i], [data-testid*="subtotal" i], [class*="Subtotal" i]',
+        );
+        if (explicit?.textContent) totalText = explicit.textContent;
+        if (!totalText) {
+          const labelled = Array.from(document.querySelectorAll<HTMLElement>('div, span, p, td, li')).find(
+            (el) => /subtotal/i.test(el.textContent || '') && /\$\s?\d/.test(el.textContent || ''),
+          );
+          if (labelled?.textContent) totalText = labelled.textContent;
+        }
+
+        if (outermost.length === 0) {
+          const seen = [...new Set(
+            Array.from(document.querySelectorAll<HTMLElement>('h1, h2, [class*="empty" i]'))
+              .map((el) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40))
+              .filter(Boolean),
+          )].slice(0, 5);
+          return {
+            lineCount: null,
+            totalText,
+            detail: `BJ’s: no cart rows found within 10s. Page headings: ${seen.length ? seen.join(' | ') : '(none)'}.`,
+          };
+        }
+
+        return {
+          lineCount: outermost.length,
+          totalText,
+          detail: `BJ’s: read ${outermost.length} cart line(s)${totalText ? `, subtotal text "${totalText.trim().replace(/\s+/g, ' ').slice(0, 40)}"` : ', NO subtotal found'}.`,
+        };
+      } catch (e) {
+        return { lineCount: null, totalText: null, detail: `BJ’s: cart read error: ${(e as Error).message}` };
+      }
+    },
+
+    pageStartCheckout: async (): Promise<CheckoutStepResult> => {
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      const visible = (el: HTMLElement): boolean => {
+        const r = el.getBoundingClientRect();
+        return r.width > 2 && r.height > 2;
+      };
+      const dispatchClick = async (el: HTMLElement) => {
+        el.scrollIntoView({ block: 'center' });
+        await sleep(120);
+        const r = el.getBoundingClientRect();
+        const x = r.x + r.width / 2;
+        const y = r.y + r.height / 2;
+        for (const [type, Ctor] of [
+          ['pointerdown', PointerEvent],
+          ['mousedown', MouseEvent],
+          ['pointerup', PointerEvent],
+          ['mouseup', MouseEvent],
+          ['click', MouseEvent],
+        ] as const) {
+          el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+        }
+      };
+      try {
+        // "Checkout" / "Proceed to checkout" — but NOT "continue shopping", and
+        // NOT the place-order control (that is a separate, later, deliberate
+        // step; collapsing the two would place an order without a gate between
+        // the cart read and the click).
+        let btn: HTMLElement | undefined;
+        for (let i = 0; i < 20 && !btn; i++) {
+          btn = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], a'))
+            .filter(visible)
+            .find((el) => {
+              const t = (el.textContent || '').trim();
+              return /check\s?out/i.test(t) && !/continue shopping|place order|submit order/i.test(t);
+            });
+          if (!btn) await sleep(500);
+        }
+        if (!btn) {
+          const labels = [...new Set(
+            Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"], a'))
+              .filter(visible)
+              .map((el) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40))
+              .filter(Boolean),
+          )].slice(0, 10);
+          return { ok: false, detail: `BJ’s: no checkout button appeared within 10s. Visible controls: ${labels.join(' | ') || '(none)'}.` };
+        }
+        if ((btn as HTMLButtonElement).disabled || btn.getAttribute('aria-disabled') === 'true') {
+          return { ok: false, detail: 'BJ’s: the checkout button is DISABLED — the cart may need a delivery/pickup or club selection first.' };
+        }
+        await dispatchClick(btn);
+        await sleep(2500);
+        return { ok: true, detail: 'BJ’s: checkout started.' };
+      } catch (e) {
+        return { ok: false, detail: `BJ’s: checkout navigation error: ${(e as Error).message}` };
+      }
+    },
+
+    pageReadSelections: async (): Promise<SelectionReadResult> => {
+      // READ-ONLY by contract — the gate has not run yet, so this routine must
+      // not click anything or change a selection.
+      //
+      // Reads the checkout review step for (a) where BJ's would ship and (b)
+      // which card it would charge. Both feed a refusal, so an uncertain read
+      // returns null and the gate stops the run; there is no guessing here.
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      const visible = (el: HTMLElement): boolean => {
+        const r = el.getBoundingClientRect();
+        return r.width > 2 && r.height > 2;
+      };
+      const clean = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim();
+      try {
+        let addressText: string | null = null;
+        let cardLast4: string | null = null;
+        const addressOptions: string[] = [];
+
+        for (let i = 0; i < 24 && (!addressText || !cardLast4); i++) {
+          // ── address ──
+          if (!addressText) {
+            const el = Array.from(
+              document.querySelectorAll<HTMLElement>(
+                '[auto-data*="address" i], [data-testid*="address" i], [class*="Address" i], [class*="delivery" i]',
+              ),
+            )
+              .filter(visible)
+              // A street address contains a number followed by words; a section
+              // HEADING ("Delivery address") does not. This is what keeps the
+              // label from being mistaken for the value.
+              .find((e) => /\d{1,6}\s+\w/.test(clean(e.textContent)));
+            if (el) addressText = clean(el.textContent);
+          }
+
+          // ── card ──
+          if (!cardLast4) {
+            const text = clean(document.body?.innerText);
+            const m =
+              text.match(/(?:ending\s+in|ending|•{2,}\s*|\*{2,}\s*|x{4,}\s*)(\d{4})\b/i) ??
+              text.match(/\b(?:card|visa|mastercard|amex|discover)\b[^\d]{0,24}(\d{4})\b/i);
+            if (m?.[1]) cardLast4 = m[1];
+          }
+
+          if (!addressText || !cardLast4) await sleep(500);
+        }
+
+        // ── switchable addresses ──
+        // Only radio/option rows that LOOK like street addresses; a "use a new
+        // address" control is not an option we may silently pick.
+        for (const el of Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[role="radio"], [role="option"], label:has(input[type="radio"]), [class*="AddressOption" i], [class*="address-option" i]',
+          ),
+        ).filter(visible)) {
+          const t = clean(el.textContent);
+          if (/\d{1,6}\s+\w/.test(t) && !/new address|add address/i.test(t) && !addressOptions.includes(t)) {
+            addressOptions.push(t);
+          }
+        }
+
+        return {
+          addressText,
+          cardLast4,
+          addressOptions,
+          detail: `BJ’s: address ${addressText ? `"${addressText.slice(0, 60)}"` : 'NOT FOUND'}, card ${
+            cardLast4 ? `ending ${cardLast4}` : 'NOT FOUND'
+          }, ${addressOptions.length} switchable address option(s).`,
+        };
+      } catch (e) {
+        return {
+          addressText: null,
+          cardLast4: null,
+          addressOptions: [],
+          detail: `BJ’s: selection read error: ${(e as Error).message}`,
+        };
+      }
+    },
+
+    pageSelectAddress: async (target: string): Promise<CheckoutStepResult> => {
+      // Picks a saved address BJ's is ALREADY offering. It never types a new
+      // address and never opens an "add address" flow — the caller re-reads and
+      // re-gates afterwards, so a silent no-op here fails closed rather than
+      // shipping somewhere unverified.
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      const visible = (el: HTMLElement): boolean => {
+        const r = el.getBoundingClientRect();
+        return r.width > 2 && r.height > 2;
+      };
+      const clean = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim();
+      try {
+        const wanted = clean(target);
+        const row = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[role="radio"], [role="option"], label:has(input[type="radio"]), [class*="AddressOption" i], [class*="address-option" i]',
+          ),
+        )
+          .filter(visible)
+          .find((el) => clean(el.textContent) === wanted);
+        if (!row) {
+          return { ok: false, detail: `BJ’s: the saved address "${wanted.slice(0, 60)}" was no longer on the page.` };
+        }
+        row.scrollIntoView({ block: 'center' });
+        await sleep(120);
+        const r = row.getBoundingClientRect();
+        const x = r.x + r.width / 2;
+        const y = r.y + r.height / 2;
+        for (const [type, Ctor] of [
+          ['pointerdown', PointerEvent],
+          ['mousedown', MouseEvent],
+          ['pointerup', PointerEvent],
+          ['mouseup', MouseEvent],
+          ['click', MouseEvent],
+        ] as const) {
+          row.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+        }
+        await sleep(1200);
+        // Some pickers need an explicit confirm; click it only if one is
+        // plainly visible. Never a place-order control.
+        const confirm = Array.from(document.querySelectorAll<HTMLElement>('button'))
+          .filter(visible)
+          .find((b) => /^(use this address|save|apply|continue|deliver here)$/i.test(clean(b.textContent)));
+        if (confirm) {
+          confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          await sleep(1500);
+        }
+        return { ok: true, detail: `BJ’s: switched the delivery address to "${wanted.slice(0, 60)}".` };
+      } catch (e) {
+        return { ok: false, detail: `BJ’s: address switch error: ${(e as Error).message}` };
+      }
+    },
+
+    pagePlaceOrder: async (): Promise<CheckoutStepResult> => {
+      // THE ONE ROUTINE THAT SPENDS MONEY. Everything about it is deliberately
+      // narrow: it matches only an explicit place/submit-order label, it refuses
+      // a disabled control, and it clicks exactly once — no retry loop. A
+      // retried place-order click is how you buy the same order twice.
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      const visible = (el: HTMLElement): boolean => {
+        const r = el.getBoundingClientRect();
+        return r.width > 2 && r.height > 2;
+      };
+      try {
+        let btn: HTMLElement | undefined;
+        for (let i = 0; i < 24 && !btn; i++) {
+          btn = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+            .filter(visible)
+            .find((el) => /place\s+(your\s+)?order|submit\s+order|complete\s+order/i.test((el.textContent || '').trim()));
+          if (!btn) await sleep(500);
+        }
+        if (!btn) {
+          const labels = [...new Set(
+            Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+              .filter(visible)
+              .map((el) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40))
+              .filter(Boolean),
+          )].slice(0, 10);
+          return { ok: false, detail: `BJ’s: no place-order button appeared within 12s. Visible controls: ${labels.join(' | ') || '(none)'}.` };
+        }
+        if ((btn as HTMLButtonElement).disabled || btn.getAttribute('aria-disabled') === 'true') {
+          return { ok: false, detail: 'BJ’s: the place-order button is DISABLED — payment or a delivery slot may still be required.' };
+        }
+        btn.scrollIntoView({ block: 'center' });
+        await sleep(150);
+        const r = btn.getBoundingClientRect();
+        const x = r.x + r.width / 2;
+        const y = r.y + r.height / 2;
+        for (const [type, Ctor] of [
+          ['pointerdown', PointerEvent],
+          ['mousedown', MouseEvent],
+          ['pointerup', PointerEvent],
+          ['mouseup', MouseEvent],
+          ['click', MouseEvent],
+        ] as const) {
+          btn.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+        }
+        return { ok: true, detail: 'BJ’s: place-order clicked — waiting for a confirmation number.' };
+      } catch (e) {
+        return { ok: false, detail: `BJ’s: place-order error: ${(e as Error).message}` };
+      }
+    },
+
+    pageReadConfirmation: async (): Promise<ConfirmationResult> => {
+      // AC-5: the ORDER NUMBER is the only proof of placement. A thank-you
+      // heading with no number is NOT success — BJ's may have rendered an
+      // optimistic page while the payment is still failing behind it, and
+      // reporting that as placed would leave the store waiting on an order that
+      // never existed.
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      try {
+        for (let i = 0; i < 30; i++) {
+          const text = (document.body?.innerText || '').replace(/\s+/g, ' ');
+          const m =
+            text.match(/order\s*(?:#|number|no\.?|confirmation)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{4,})/i) ??
+            text.match(/confirmation\s*(?:#|number)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{4,})/i);
+          if (m?.[1]) {
+            return { orderNumber: m[1], detail: `BJ’s: confirmed order ${m[1]}.` };
+          }
+          // A payment/validation error surfacing on the checkout page is a
+          // terminal failure — stop waiting and report what BJ's said.
+          const err = Array.from(document.querySelectorAll<HTMLElement>('[role="alert"], [class*="error" i]'))
+            .map((el) => (el.textContent || '').trim().replace(/\s+/g, ' '))
+            .find((t) => t.length > 3);
+          if (err) {
+            return { orderNumber: null, detail: `BJ’s reported: "${err.slice(0, 200)}"` };
+          }
+          await sleep(1000);
+        }
+        const heading = (document.querySelector('h1, h2')?.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+        return {
+          orderNumber: null,
+          detail: `BJ’s: no order number appeared within 30s. Page heading: "${heading || '(none)'}". CHECK BJ’S ORDER HISTORY before re-running — the order may or may not have gone through.`,
+        };
+      } catch (e) {
+        return { orderNumber: null, detail: `BJ’s: confirmation read error: ${(e as Error).message}` };
+      }
+    },
   },
 };

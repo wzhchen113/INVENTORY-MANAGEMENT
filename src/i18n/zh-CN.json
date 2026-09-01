@@ -118,7 +118,8 @@
         "po": "采购订单",
         "missed_eod": "未完成的日结盘点",
         "issue": "问题反馈",
-        "order_ready": "订单待审批"
+        "order_ready": "订单待审批",
+        "order_failed": "订单未成功下单"
       },
       "issueCategory": {
         "equipment": "设备",

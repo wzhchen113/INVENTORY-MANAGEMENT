@@ -451,6 +451,18 @@ verify_jwt = false
 [functions.submission-push-fanout]
 verify_jwt = false
 
+# send-order-failure-email (spec 162, AC-8) — SAME posture as
+# submission-push-fanout directly above, for the same reason: it is invoked by
+# pg_net from the record_vendor_order_attempt SECURITY DEFINER path with the
+# SHARED bearer (public._edge_auth.cron_bearer), not a per-user Supabase JWT,
+# so the gateway JWT check would reject every call. It validates the shared
+# bearer itself. Event-driven, not a user-invoked privileged op, so NO
+# ADMIN_ROLES gate — there is no caller JWT to gate on. Note this is the
+# OPPOSITE of the other send-*-email functions, which ARE user-invoked; the
+# difference is who calls it, not that it sends mail.
+[functions.send-order-failure-email]
+verify_jwt = false
+
 # send-po-email (spec 107, OQ-1) is the OPPOSITE posture of the staff-*/cron
 # functions above: it is an admin-triggered action that carries the CALLER's
 # Supabase JWT and gates on it (requireAdminCaller / ADMIN_ROLES mirror of

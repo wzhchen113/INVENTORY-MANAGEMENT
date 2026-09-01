@@ -56,6 +56,12 @@ export function sectionForNotification(type: SubmissionNotificationType): string
     // tap ALSO carries an `orderApproval` payload (see onRowPress). Desktop
     // never imports this map, so the desktop bell is untouched.
     case 'order_ready':
+    // Spec 162 — an `order_failed` row also opens Ordering, where the PO the
+    // extension could not place is still sitting as a draft. It carries NO
+    // `orderApproval` payload: its sourceId is a vendor_order_attempts id, not
+    // an eod_submissions id, so PhoneApproveOrder could not resolve it — the
+    // admin lands on the vendor list and picks up the PO from there.
+    case 'order_failed':
       return 'Ordering';
     case 'issue':
     default:
@@ -315,8 +321,12 @@ export const PhoneNotifications: React.FC = () => {
                       {/* Spec 149 (AC-5) — an `order_ready` row's secondary line
                           names the VENDOR (carried in `body`, the spec-126
                           general-purpose free-text column) instead of the
-                          submitter; every other type is unchanged. */}
-                      {n.type === 'order_ready'
+                          submitter; every other type is unchanged.
+                          Spec 162 — an `order_failed` row does the same, where
+                          `body` is "<vendor> · <what went wrong>": on a phone
+                          the reason IS the notification, and the operator's own
+                          name tells them nothing they don't know. */}
+                      {n.type === 'order_ready' || n.type === 'order_failed'
                         ? (n.body || T('chrome.submissionBell.unknownActor'))
                         : (n.actorName ?? T('chrome.submissionBell.unknownActor'))}
                       {' · '}

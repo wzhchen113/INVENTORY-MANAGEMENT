@@ -37,10 +37,18 @@ function relativeTime(iso: string): { key: string; vars?: Record<string, number>
 // Structural color type — the minimal Cmd-palette subset these branches read.
 type BellColors = { danger: string; accent: string; accentFg: string };
 
-/** True iff there is ≥1 UNREAD `missed_eod` row in the feed. Drives the red
- *  badge fork — red is reserved for misses (spec 121 Q1). */
+/** The types that turn the bell RED. Spec 121 reserved red for `missed_eod`
+ *  ("a count was missed"); spec 162 widens the reservation to "something needs
+ *  you NOW" so a BJ's order that never reached the vendor gets the same
+ *  can't-miss treatment. Routine submissions stay on the neutral accent — the
+ *  point of red is that it is rare. */
+const URGENT_TYPES: ReadonlySet<AdminNotification['type']> = new Set(['missed_eod', 'order_failed']);
+
+/** True iff there is ≥1 UNREAD urgent row in the feed. Drives the red badge
+ *  fork. (Name kept from spec 121 — it is referenced by that spec's tests and
+ *  by the memoized call below; the SET is what widened, not the contract.) */
 export function feedHasUnreadMissed(notifications: AdminNotification[]): boolean {
-  return notifications.some((n) => n.type === 'missed_eod' && !n.read);
+  return notifications.some((n) => URGENT_TYPES.has(n.type) && !n.read);
 }
 
 /** Unread-count badge background: red when an unread miss exists, else the
@@ -56,11 +64,12 @@ export function badgeTextColor(C: BellColors, hasUnreadMissed: boolean): string 
   return hasUnreadMissed ? '#FFFFFF' : C.accentFg;
 }
 
-/** Leading unread dot: transparent when read; red for a `missed_eod` row;
- *  accent for every other (submission) type. */
+/** Leading unread dot: transparent when read; red for an urgent row
+ *  (`missed_eod`, or spec 162's `order_failed`); accent for every other
+ *  (submission) type. */
 export function rowDotColor(C: BellColors, n: AdminNotification): string {
   if (n.read) return 'transparent';
-  return n.type === 'missed_eod' ? C.danger : C.accent;
+  return URGENT_TYPES.has(n.type) ? C.danger : C.accent;
 }
 
 export const NotificationBell: React.FC = () => {
@@ -298,13 +307,32 @@ export const NotificationBell: React.FC = () => {
                                 style={{
                                   fontFamily: mono(n.read ? 400 : 600),
                                   fontSize: 11,
-                                  color: C.fg,
+                                  // Spec 162 — the headline of a failed order is
+                                  // red, not just its dot. "Order NOT placed" in
+                                  // body text reads like every other row; the
+                                  // one thing this notification must not be is
+                                  // skimmable.
+                                  color: n.type === 'order_failed' ? C.danger : C.fg,
                                 }}
                                 numberOfLines={1}
                               >
                                 {typeLabel(n.type)}
                                 {n.storeName ? ` · ${n.storeName}` : ''}
                               </Text>
+                              {/* Spec 162 — `body` carries "<vendor> · <what went
+                                  wrong>". Without it the row says an order
+                                  failed but not which vendor or why, which is
+                                  exactly the two things the operator needs
+                                  before deciding whether to re-run or go order
+                                  by hand. Two lines: the reason can be long. */}
+                              {n.type === 'order_failed' && n.body ? (
+                                <Text
+                                  style={{ fontFamily: mono(400), fontSize: 10, color: C.fg }}
+                                  numberOfLines={2}
+                                >
+                                  {n.body}
+                                </Text>
+                              ) : null}
                               <Text
                                 style={{ fontFamily: mono(400), fontSize: 10, color: C.fg2 }}
                                 numberOfLines={1}

@@ -78,9 +78,9 @@ select has_trigger(
 -- One brand, one store, two vendors, three catalog ingredients + items.
 insert into public.brands (id, name)
   values ('b0000000-0000-0000-0000-000000000001', 'Spec128 Brand');
-insert into public.stores (id, name, brand_id)
+insert into public.stores (id, name, brand_id, address)
   values ('50000000-0000-0000-0000-000000000001', 'Spec128 Store',
-          'b0000000-0000-0000-0000-000000000001');
+          'b0000000-0000-0000-0000-000000000001', '1 Fixture Way');
 insert into public.vendors (id, name, brand_id)
   values ('e0000000-0000-0000-0000-000000000001', 'Vendor A',
           'b0000000-0000-0000-0000-000000000001'),

@@ -118,7 +118,8 @@
         "po": "Purchase order",
         "missed_eod": "Missed EOD count",
         "issue": "Issue reported",
-        "order_ready": "Order ready to approve"
+        "order_ready": "Order ready to approve",
+        "order_failed": "Order NOT placed"
       },
       "issueCategory": {
         "equipment": "Equipment",

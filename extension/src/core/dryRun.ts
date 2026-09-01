@@ -27,3 +27,16 @@ export function actionsToExecute(plan: PlannedAction[], dryRun: boolean): Planne
 export function canMarkOrdered(dryRun: boolean): boolean {
   return !dryRun;
 }
+
+/**
+ * Spec 162 (AC-1) — whether the auto-place arm may click BJ's place-order
+ * button. The THIRD side effect gated by the same boolean, and by far the most
+ * expensive one: a live placement spends real money on the operator's card.
+ *
+ * Kept here rather than inlined at the call site so all three side effects
+ * (cart-fill, mark-ordered, place-order) read off one gate module and a
+ * dry-run regression can only ever be one bug, not three.
+ */
+export function canPlaceOrder(dryRun: boolean): boolean {
+  return !dryRun;
+}

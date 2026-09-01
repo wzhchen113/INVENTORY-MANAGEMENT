@@ -82,13 +82,22 @@ export const StoreFormDrawer: React.FC<Props> = ({
     }
   }, [visible, store?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const requiredValid = name.trim().length > 0;
+  // Spec 162 (rev 2) — the ADDRESS is now required, alongside the name. It is
+  // the shipping address the cart-filler extension's auto-place picker offers,
+  // so a blank one means that store simply cannot be ordered for. The DB backs
+  // this with `stores_address_present` (NOT VALID, so pre-existing addressless
+  // stores are grandfathered at rest) — which means an EDIT of a grandfathered
+  // store would otherwise fail at the constraint with an opaque error. Gating
+  // it here turns that into "fill in the address to save", which is the same
+  // outcome the operator can actually act on.
+  const requiredValid = name.trim().length > 0 && address.trim().length > 0;
+  const REQUIRED_FIELDS = 2;
 
   const handleSave = async () => {
     if (!requiredValid || submitting) return;
     // Spec 155 AC-3 — ONE shared validator, BOTH paths. An invalid ZIP refuses
     // the save with an inline field error and issues NO write. Deliberately NOT
-    // folded into the `n/1 required valid` counter (that string is pinned).
+    // folded into the `n/2 required valid` counter.
     const zip = parsePostalCode(postalCode);
     if (!zip.ok) {
       setPostalError(true);
@@ -199,7 +208,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
       }}
     >
       <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-        {requiredValid ? '1/1 required valid' : '0/1 required valid'}
+        {`${[name.trim().length > 0, address.trim().length > 0].filter(Boolean).length}/${REQUIRED_FIELDS} required valid`}
       </Text>
       <View style={{ flex: 1 }} />
       <TouchableOpacity
@@ -298,7 +307,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
               textTransform: 'uppercase',
             }}
           >
-            Address (optional)
+            Address
           </Text>
           <TextInput
             value={address}

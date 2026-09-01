@@ -1309,7 +1309,23 @@ export type SubmissionNotificationType =
   // eod_submissions row id — which is what the phone sheet's deep link resolves
   // the vendor + business date from. Badge/dot color is UNCHANGED accent
   // (AC-4): red stays reserved for `missed_eod`.
-  | 'order_ready';
+  | 'order_ready'
+  // Spec 162 — the cart-filler extension tried to place a BJ's order and did
+  // NOT get it through. `actor_name` carries the operator who ran it, `body` a
+  // "<vendor> · <what went wrong>" summary, source_id the
+  // vendor_order_attempts row id — the ATTEMPT, not the PO, so a retried order
+  // notifies again instead of being deduped away by
+  // notifications_type_source_uidx.
+  //
+  // `actor_user_id` is deliberately NULL on these rows (see emit_order_failed):
+  // an unattended auto-place means the operator walked away, so the spec-120
+  // "never push the actor about their own action" rule would suppress the push
+  // for exactly the person who needs it.
+  //
+  // Rendered RED (badge + dot), joining `missed_eod`. Spec 121 reserved red for
+  // "a count was missed"; spec 162 widens that reservation to "something needs
+  // you NOW", which an order that never reached the vendor is.
+  | 'order_failed';
 
 export interface AdminNotification {
   id: string;
@@ -1322,7 +1338,9 @@ export interface AdminNotification {
   sourceId: string;
   createdAt: string;
   read: boolean;
-  // Spec 126 — populated only for `issue` rows (NULL/undefined otherwise).
+  // Spec 126 — populated for `issue` rows; reused by spec 149 (`order_ready`,
+  // the vendor name) and spec 162 (`order_failed`, "<vendor> · <what went
+  // wrong>"). NULL/undefined for every other type.
   body?: string;
   category?: string;
 }

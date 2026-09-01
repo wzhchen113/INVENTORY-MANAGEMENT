@@ -57,6 +57,43 @@ describe('derivePushCopy — order_ready (spec 149, AC-7)', () => {
   });
 });
 
+describe('derivePushCopy — order_failed (spec 162, AC-7)', () => {
+  it('reads as an alarm, not as a submission FYI', () => {
+    expect(
+      derivePushCopy({
+        type: 'order_failed',
+        store_name: 'Frederick',
+        body: "BJ's Wholesale · The BJ’s cart total was over the spend cap, so nothing was ordered.",
+        actor_name: 'maria',
+      }),
+    ).toEqual({
+      title: 'Order NOT placed',
+      body: "Frederick · BJ's Wholesale · The BJ’s cart total was over the spend cap, so nothing was ordered.",
+    });
+  });
+
+  it('never uses the word "submitted" — nothing was submitted', () => {
+    const copy = derivePushCopy({ type: 'order_failed', store_name: 'Towson', body: "BJ's · timeout" });
+    expect(copy.title.toLowerCase()).not.toContain('submitted');
+    expect(copy.body.toLowerCase()).not.toContain('submitted');
+  });
+
+  it('truncates a long reason so the OS does not clip it mid-word', () => {
+    const long = `BJ's · ${'x'.repeat(300)}`;
+    const copy = derivePushCopy({ type: 'order_failed', store_name: 'Towson', body: long });
+    expect(copy.body.endsWith('…')).toBe(true);
+    // store name + ' · ' + 120 chars + the ellipsis.
+    expect(copy.body.length).toBe('Towson'.length + 3 + 120 + 1);
+  });
+
+  it('drops the separator when the reason is missing', () => {
+    expect(derivePushCopy({ type: 'order_failed', store_name: 'Towson', body: null })).toEqual({
+      title: 'Order NOT placed',
+      body: 'Towson',
+    });
+  });
+});
+
 describe('derivePushCopy — the branches spec 149 must not disturb', () => {
   it('keeps the spec-120 default copy for a routine eod notification', () => {
     expect(

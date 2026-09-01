@@ -12,7 +12,7 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import { chromeStorageAdapter } from './storageAdapter';
-import type { OrderPayload, PendingOrder } from './types';
+import type { OrderPayload, PendingOrder, StoreAddress } from './types';
 
 let client: SupabaseClient | null = null;
 
@@ -66,6 +66,17 @@ export async function fetchPendingOrders(vendorId: string | null): Promise<RpcRe
   return { data: (data as PendingOrder[]) ?? [], error: null };
 }
 
+/**
+ * 162 rev 2 — the visible stores + their addresses, for the auto-place shipping
+ * picker. SECURITY INVOKER on the DB side, so this returns exactly the stores
+ * the admin can already see.
+ */
+export async function fetchStoreAddresses(): Promise<RpcResult<StoreAddress[]>> {
+  const { data, error } = await getClient().rpc('get_extension_store_addresses');
+  if (error) return { data: null, error: error.message };
+  return { data: (data as StoreAddress[]) ?? [], error: null };
+}
+
 /** 131 RPC 2 — one PO's structured payload (AC-4). */
 export async function fetchOrderPayload(poId: string): Promise<RpcResult<OrderPayload>> {
   const { data, error } = await getClient().rpc('get_extension_order_payload', {
@@ -97,4 +108,47 @@ export async function markOrdered(poId: string): Promise<RpcResult<number>> {
     .select('id');
   if (error) return { data: null, error: error.message };
   return { data: (data as unknown[])?.length ?? 0, error: null };
+}
+
+/** Spec 162 (AC-6) — one terminal auto-place outcome. */
+export interface OrderAttemptInput {
+  poId: string;
+  outcome: 'placed' | 'failed';
+  stage: string;
+  detail: string;
+  cartTotal: number | null;
+  capTotal: number | null;
+  vendorOrderNumber: string | null;
+  /** Idempotency key — the SAME value across retries of one logical attempt. */
+  clientUuid: string;
+}
+
+/**
+ * Spec 162 (AC-6/AC-7) — record the attempt in I.M.R. This ONE call is what
+ * turns a failure into the operator's bell notification and the failure email,
+ * and a success into the guarded `draft → sent` flip; the extension performs
+ * neither of those itself.
+ *
+ * `record_vendor_order_attempt` is SECURITY DEFINER with its own explicit
+ * `auth_can_see_store` gate, so this ride on the admin's JWT is bounded exactly
+ * as the spec-131 RPCs are. It is idempotent on `clientUuid`, which is why a
+ * caller may safely retry it — and why the caller must NOT mint a fresh uuid on
+ * retry.
+ *
+ * NEVER call this in dry-run: the dry-run gate (core/dryRun.ts) governs whether
+ * the auto-place arm runs at all, and no attempt exists to record if it didn't.
+ */
+export async function recordOrderAttempt(input: OrderAttemptInput): Promise<RpcResult<string>> {
+  const { data, error } = await getClient().rpc('record_vendor_order_attempt', {
+    p_po_id: input.poId,
+    p_outcome: input.outcome,
+    p_stage: input.stage,
+    p_detail: input.detail,
+    p_cart_total: input.cartTotal,
+    p_cap_total: input.capTotal,
+    p_vendor_order_number: input.vendorOrderNumber,
+    p_client_uuid: input.clientUuid,
+  });
+  if (error) return { data: null, error: error.message };
+  return { data: (data as string) ?? null, error: null };
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "I.M.R Cart Filler (BJ's / Sam's Club)",
-  "version": "0.1.0",
-  "description": "Spec 132 — fills your BJ's / Sam's Club cart from a pending I.M.R purchase order, in your own logged-in session. Never checks out, never stores vendor credentials, never fights a CAPTCHA.",
+  "version": "0.2.0",
+  "description": "Fills your BJ's / Sam's Club cart from a pending I.M.R purchase order, in your own logged-in session. On BJ's it can also place the order, under a spend cap you set. Never stores vendor credentials, never fights a CAPTCHA.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://www.bjs.com/*",

@@ -24,6 +24,10 @@ export const TYPE_LABEL: Record<string, string> = {
   // branch below renders `${label} submitted`, which is exactly the copy AC-7
   // forbids for this type, so order_ready gets its own branch too.
   order_ready: 'Order ready to approve',
+  // Spec 162 (AC-7) — an ALARM, not an FYI. Same reason order_ready got its own
+  // branch: the default `${label} submitted` copy would read "Order failed
+  // submitted", and nothing here was submitted.
+  order_failed: 'Order NOT placed',
 };
 
 // Spec 126 — short human labels for the issue category badge in the push body.
@@ -65,6 +69,17 @@ export function derivePushCopy(
     return {
       title: 'Order ready to approve',
       body: [notif.store_name ?? '', notif.body ?? ''].filter(Boolean).join(' · '),
+    };
+  }
+  if (notif.type === 'order_failed') {
+    // Spec 162 — `body` is already "<vendor> · <what went wrong>" from
+    // emit_order_failed, and the reason can be long. Truncate like the `issue`
+    // branch does so the push doesn't get silently clipped mid-word by the OS.
+    const raw = (notif.body ?? '') as string;
+    const preview = raw.length > 120 ? `${raw.slice(0, 120)}…` : raw;
+    return {
+      title: 'Order NOT placed',
+      body: [notif.store_name ?? '', preview].filter(Boolean).join(' · '),
     };
   }
   return {

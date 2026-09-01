@@ -30,10 +30,11 @@
       .sub { color: var(--muted); font-size: 11px; margin: 0 0 12px; }
       .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
       label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-      input[type='email'], input[type='password'] {
+      input[type='email'], input[type='password'], input[type='number'], input[type='text'] {
         width: 100%; padding: 7px 8px; border: 1px solid var(--line);
         border-radius: 7px; font-size: 13px; margin-bottom: 8px;
       }
+      button.danger { background: var(--bad); }
       button {
         border: 0; border-radius: 8px; padding: 8px 12px; font-size: 13px;
         font-weight: 600; cursor: pointer; background: var(--accent); color: #fff;
@@ -61,13 +62,18 @@
         background: #ede9fe; color: var(--accent); border-radius: 8px;
         padding: 7px 9px; font-size: 11px; margin-bottom: 10px; line-height: 1.4;
       }
+      .banner.live { background: #fef3c7; color: #92400e; }
+      .outcome { border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; margin-top: 10px; }
+      .outcome.placed { background: #d1fae5; color: var(--ok); }
+      .outcome.failed { background: #fee2e2; color: var(--bad); }
+      .outcome.dry { background: #ede9fe; color: var(--accent); }
       select { width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 8px; }
       .summary { font-size: 11px; color: var(--muted); margin: 8px 0; }
     </style>
   </head>
   <body>
     <h1>I.M.R Cart Filler</h1>
-    <p class="sub">BJ's / Sam's Club — fills your cart from a pending PO. Never checks out, never stores a vendor password.</p>
+    <p class="sub">BJ's / Sam's Club — fills your cart from a pending PO. On BJ's it can also place the order. Never stores a vendor password.</p>
 
     <!-- AUTH -->
     <div class="card" id="auth-card">
@@ -89,8 +95,8 @@
 
     <!-- MAIN (only when signed in) -->
     <div id="main" class="hidden">
-      <div class="banner">
-        Dry-run logs the intended actions without touching your cart or marking the PO ordered. Turn it off for a live run.
+      <div class="banner" id="mode-banner">
+        Dry-run logs the intended actions without touching your cart, marking the PO ordered, or placing an order. Turn it off for a live run.
       </div>
 
       <div class="card">
@@ -103,8 +109,29 @@
         <p class="msg" id="site-status">Checking this tab…</p>
         <select id="po-select" class="hidden"></select>
         <button id="run" class="hidden">Fill cart from PO</button>
+
+        <!-- Spec 162 — the auto-place arm. Hidden entirely on a vendor whose
+             adapter has no checkout block (Sam's Club). -->
+        <div id="place-block" class="hidden" style="margin-top:10px;">
+          <label for="cap-total">Spend cap (this browser)</label>
+          <input type="number" id="cap-total" min="1" step="1" value="500" />
+          <label for="expected-store">Ship to — pick a store</label>
+          <select id="expected-store"></select>
+          <p class="msg" id="expected-address-preview" style="margin:-4px 0 8px;"></p>
+          <label for="expected-card">Card ends in — orders may only charge this card</label>
+          <input type="text" id="expected-card" inputmode="numeric" maxlength="4" placeholder="1234" />
+          <button id="place-order" class="danger">Fill cart + place order</button>
+          <p class="msg" style="margin-top:6px;">
+            Places the order on BJ's. It stops before paying if any PO line is missing from
+            the cart, the total is over your cap, BJ's would charge a different card, or it
+            would ship anywhere but the store address above. Only the last 4 digits are
+            stored, in this browser — never your card number.
+          </p>
+        </div>
+
         <p class="msg err hidden" id="run-error"></p>
         <p class="msg stop hidden" id="run-stop"></p>
+        <div class="outcome hidden" id="place-outcome"></div>
       </div>
 
       <div class="card hidden" id="report-card">

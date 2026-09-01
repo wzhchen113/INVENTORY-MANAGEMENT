@@ -90,7 +90,8 @@ begin
   -- SECOND brand B (admin's brand_id is 2AM → cannot see B).
   insert into public.brands (id, name) values (v_brand_b, '__spec119_brand_b__')
   on conflict (id) do nothing;
-  insert into public.stores (id, brand_id, name) values (v_store_b, v_brand_b, '__spec119_store_b__')
+  insert into public.stores (id, brand_id, name, address)
+    values (v_store_b, v_brand_b, '__spec119_store_b__', '1 Fixture Way')
   on conflict (id) do nothing;
   insert into public.catalog_ingredients (brand_id, name, unit, category)
   values (v_brand_b, '__spec119_ingredient_y__', 'ea', 'test')

@@ -118,7 +118,8 @@
         "po": "Orden de compra",
         "missed_eod": "Conteo de cierre no realizado",
         "issue": "Problema reportado",
-        "order_ready": "Pedido listo para aprobar"
+        "order_ready": "Pedido listo para aprobar",
+        "order_failed": "Pedido NO realizado"
       },
       "issueCategory": {
         "equipment": "Equipo",

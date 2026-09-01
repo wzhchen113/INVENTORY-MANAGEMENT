@@ -1,8 +1,8 @@
 {
   "name": "imr-cart-filler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Spec 132 — Chrome MV3 extension that fills the BJ's / Sam's Club cart from a pending I.M.R purchase order in the admin's own logged-in session. Never checks out, never stores vendor credentials, never fights a CAPTCHA (AC-9).",
+  "description": "Chrome MV3 extension that fills the BJ's / Sam's Club cart from a pending I.M.R purchase order in the admin's own logged-in session (spec 132). On BJ's it can also place the order under a spend cap, reporting every failure back to I.M.R (spec 162). Never stores vendor credentials, never fights a CAPTCHA.",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
@@ -14,6 +14,7 @@
     "@types/chrome": "^0.0.270",
     "@types/node": "^20.19.43",
     "esbuild": "^0.28.0",
+    "jsdom": "^29.1.1",
     "vitest": "^2.1.0"
   },
   "dependencies": {
