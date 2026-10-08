@@ -371,7 +371,11 @@ function UserRow({
           ) : null}
         </View>
         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }} numberOfLines={1}>
-          {user.email || '(email not loaded)'} · {shortId(user.id)}
+          {[
+            user.username ? `@${user.username}` : null,
+            user.email || (user.username ? null : '(email not loaded)'),
+            shortId(user.id),
+          ].filter(Boolean).join(' · ')}
         </Text>
         {/* Store chips */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
@@ -425,7 +429,7 @@ function UserRow({
           <TouchableOpacity
             onPress={onResetPassword}
             accessibilityRole="button"
-            accessibilityLabel={`Send password reset to ${user.name || user.email}`}
+            accessibilityLabel={`Send password reset to ${user.name || user.username || user.email}`}
             style={{
               paddingVertical: 5,
               paddingHorizontal: 9,
@@ -441,7 +445,7 @@ function UserRow({
           <TouchableOpacity
             onPress={onDelete}
             accessibilityRole="button"
-            accessibilityLabel={`Delete ${user.name || user.email}`}
+            accessibilityLabel={`Delete ${user.name || user.username || user.email}`}
             style={{
               paddingVertical: 5,
               paddingHorizontal: 9,
