@@ -19,8 +19,12 @@
 //
 // This file does NOT reuse src/lib/auth.test.ts's module mock (which only stubs
 // supabase.auth.getSession) — inviteUser needs the full from() surface, so a
-// dedicated mock is cleaner than widening the other file's stub. Modeled on
-// src/lib/registerInvitedUser.test.ts (spec 069).
+// dedicated mock is cleaner than widening the other file's stub. Mock shape
+// originally modeled on src/lib/registerInvitedUser.test.ts (spec 069). Since
+// spec 164 the register-time brand stamp is server-side
+// (register_invited_profile()); its coverage lives in pgTAP
+// supabase/tests/profiles_insert_hardening.test.sql arms C-2 (store-resolved
+// brand) and C-6 (explicit brand).
 
 const BRAND_A = '2a000000-0000-0000-0000-000000000001';
 const STORE_IN_BRAND_A = '00000000-0000-0000-0000-000000000001';

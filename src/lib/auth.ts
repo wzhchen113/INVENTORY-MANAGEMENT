@@ -354,7 +354,9 @@ export async function callEdgeFunction(
  * extend without breaking call sites. `brandId` is required for
  * role='admin' invitations per the profiles_role_brand_consistent CHECK
  * from 012a (the §1 migration in this spec adds the brand_id column to
- * the invitations table; registerInvitedUser writes it to profiles).
+ * the invitations table). Spec 164 — the invitation row is the authority;
+ * register_invited_profile() copies role/brand/username/stores into
+ * profiles + user_stores server-side.
  */
 export interface InviteUserOptions {
   email: string;
@@ -376,8 +378,9 @@ export interface InviteUserOptions {
    *  Optional (an invite can omit it; the user then logs in by email until a
    *  username is assigned). Validated client-side via usernameValidation.ts
    *  before this is called; the server-side UNIQUE index is the collision
-   *  authority. `registerInvitedUser` reads it back via get_pending_invitation
-   *  and stamps it onto profiles.username. */
+   *  authority. Spec 164 — the invitation row is the authority;
+   *  register_invited_profile() copies it onto profiles.username
+   *  server-side. */
   username?: string | null;
 }
 
@@ -438,8 +441,9 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       name: opts.name,
       role: opts.role,
       store_ids: opts.storeIds,
-      // Spec 012b — load-bearing: registerInvitedUser will read this back
-      // through get_pending_invitation and write profiles.brand_id from it.
+      // Spec 012b — load-bearing. Spec 164 — the invitation row is the
+      // authority; register_invited_profile() copies role/brand/username/
+      // stores server-side, so this becomes profiles.brand_id.
       // Spec 090 — now the store-derived brand for user/manager invites
       // (resolvedBrandId), not the raw opts.brandId, so the invitation row is
       // no longer written NULL-brand when it carries stores.
@@ -447,7 +451,8 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       // Spec 095 — case-folded on write (mirrors the lower() idiom used for
       // email throughout this codebase and the lower() UNIQUE index on
       // profiles.username). Null when the admin left it blank. The
-      // invitations row carries it; registerInvitedUser stamps profiles.
+      // invitations row carries it; register_invited_profile() (spec 164)
+      // copies it onto profiles.username server-side.
       username: opts.username ? opts.username.trim().toLowerCase() : null,
     });
 
@@ -487,9 +492,9 @@ export async function registerInvitedUser(
 
     // Spec 012b §4 — defensive validation BEFORE auth.signUp creates an
     // orphaned auth user. Catches the migration-window case where a
-    // legacy invitation row has brand_id IS NULL but role='admin' — the
-    // profile INSERT below would fail the profiles_role_brand_consistent
-    // CHECK and leave a dangling auth.users row. Surface a clear error
+    // legacy invitation row has brand_id IS NULL but role='admin' — it
+    // would be refused server-side (register_invited_profile() R6, spec 164)
+    // after signUp, leaving an orphan auth user. Surface a clear error
     // so the operator can re-issue the invite via the new flow.
     if (invitation.role === 'admin' && !invitation.brand_id) {
       return {
@@ -498,67 +503,32 @@ export async function registerInvitedUser(
       };
     }
 
-    // Create the Supabase auth user
+    // Create the Supabase auth user. Spec 164 — no `role` in user metadata:
+    // the client sends no role anywhere in registration.
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name: invitation.name, role: invitation.role } },
+      options: { data: { name: invitation.name } },
     });
 
     if (signUpError) return { user: null, error: signUpError.message };
     if (!authData.user) return { user: null, error: 'Registration failed' };
 
-    // Create profile with real auth user ID. Spec 012b — brand_id is
-    // load-bearing: the profiles_role_brand_consistent CHECK from 012a
-    // requires admin profiles to have a brand_id, and 'user' / NULL roles
-    // accept either.
-    //
-    // Spec 069 — for role='user' (staff) invites the invitation row's
-    // brand_id is NULL (InviteUserDrawer sends brandId: null for staff), which
-    // left staff NULL-brand and unable to read brand-scoped catalog data in the
-    // EOD app (the catalog_ingredients / vendors embeds returned null). We now
-    // stamp brand_id from resolved_brand_id — the brand the invitation's store
-    // assignments resolve to, computed server-side by get_pending_invitation
-    // (SECURITY DEFINER, so it bypasses RLS; a client-side stores read here
-    // would be RLS-blocked because the user_stores rows below are inserted
-    // AFTER this profile INSERT). Admin invites are UNCHANGED: they already
-    // carry a non-NULL invitation.brand_id (and resolved_brand_id COALESCEs to
-    // it), so the role!=='user' branch passes brand_id straight through.
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: authData.user.id,
-      name: invitation.name,
-      role: invitation.role,
-      initials: invitation.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase(),
-      color: '#378ADD',
-      status: 'active',
-      brand_id: invitation.role === 'user'
-        ? (invitation.resolved_brand_id ?? invitation.brand_id ?? null)
-        : (invitation.brand_id ?? null),
-      // Spec 095 — stamp the admin-assigned username (read back via
-      // get_pending_invitation, which the backend added `username` to). Null
-      // when the invite carried no username; the profiles.username column is
-      // nullable so the user logs in by email until one is assigned. The
-      // profiles_username_lower_key UNIQUE index surfaces a 23505 here if the
-      // chosen username collided after the invite was created.
-      username: invitation.username ?? null,
-    });
+    // Spec 164 — finish registration server-side. register_invited_profile()
+    // (SECURITY DEFINER) binds to the calling user (auth.uid() + its
+    // auth.users email), reads the single pending invitation, and atomically
+    // inserts the profile (role, brand_id, username, initials derived from the
+    // invitation row — including the spec 069 store-resolved brand for staff),
+    // the user_stores links, and marks the invitation used. The client no
+    // longer inserts profiles / user_stores or calls consume_invitation; the
+    // profiles INSERT policy no longer admits a self-insert. Requires the fresh
+    // signUp session (anon has no EXECUTE). See
+    // specs/164-profiles-insert-hardening.md.
+    const { error: regError } = await supabase.rpc('register_invited_profile');
 
-    if (profileError) {
-      return { user: null, error: `Account created but profile setup failed: ${profileError.message}` };
+    if (regError) {
+      return { user: null, error: `Account created but profile setup failed: ${regError.message}` };
     }
-
-    // Create store links from invitation
-    const storeIds = invitation.store_ids || [];
-    for (const storeId of storeIds) {
-      await supabase.from('user_stores').insert({ user_id: authData.user.id, store_id: storeId });
-    }
-
-    // Mark invitation as used via SECURITY DEFINER RPC — requires a fresh
-    // authenticated session (auth.uid() must be present).
-    await supabase.rpc('consume_invitation', {
-      p_invitation_id: invitation.id,
-      p_email: email.toLowerCase(),
-    });
 
     // Send welcome email (non-blocking)
     callEdgeFunction('send-welcome-email', { email, name: invitation.name });

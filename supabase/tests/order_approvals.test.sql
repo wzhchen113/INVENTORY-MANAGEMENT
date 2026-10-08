@@ -413,9 +413,9 @@ select is(
         or lower(regexp_replace(coalesce(with_check, ''), '\s+', ' ', 'g'))
           ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
         or lower(regexp_replace(coalesce(qual, ''), '\s+', ' ', 'g'))
-          ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*'
+          ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
         or lower(regexp_replace(coalesce(with_check, ''), '\s+', ' ', 'g'))
-          ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*'
+          ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
       )),
   0,
   '(L1) AC-21 — no order_approvals policy is trivially-wide; permissive_policy_lint stays green with NO allowlist row'

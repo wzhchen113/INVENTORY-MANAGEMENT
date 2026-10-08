@@ -1,171 +1,197 @@
-// src/lib/registerInvitedUser.test.ts — Spec 069 Track 1 (jest).
+// src/lib/registerInvitedUser.test.ts — Spec 164 (jest).
 //
-// Covers the brand-stamp half of the spec 069 fix: registerInvitedUser must
-// write profiles.brand_id from the invitation's resolved_brand_id for
-// role='user' (staff) invites, so newly-invited staff land WITH a brand and can
-// read brand-scoped catalog data in the EOD app (the catalog_ingredients /
-// vendors embeds). Admin invites are unchanged — they already carry a non-NULL
-// invitation.brand_id and resolved_brand_id COALESCEs to it.
+// Pins the spec 164 registration contract: after signUp, registerInvitedUser
+// finishes registration with exactly ONE call to the SECURITY DEFINER RPC
+// register_invited_profile(), which derives role / brand / username / stores
+// server-side from the pending invitation. The client must NOT:
+//   - insert into `profiles` or `user_stores`
+//   - call consume_invitation
+//   - send a `role` in signUp options.data
+//
+// Spec 069 brand-stamp cases that used to live here were deleted: brand
+// derivation is now server-side, and the spec 069 rule (staff brand resolved
+// from store_ids[1] when the invitation brand is NULL; explicit brand wins) is
+// pinned by pgTAP supabase/tests/profiles_insert_hardening.test.sql arms
+// C-2 and C-6.
 //
 // Boundary mocked: `./supabase`. registerInvitedUser touches
 //   - supabase.rpc('get_pending_invitation', …)  → the invitation envelope
-//   - supabase.auth.signUp(…)                     → the new auth user
-//   - supabase.from('profiles').insert(…)         → THE ASSERTION TARGET
-//   - supabase.from('user_stores').insert(…)      → store links (ignored)
-//   - supabase.rpc('consume_invitation', …)       → mark used (ignored)
+//   - supabase.auth.signUp(…)                     → the new auth user (captured)
+//   - supabase.rpc('register_invited_profile')    → per-test { data, error }
 //   - supabase.auth.getSession()                  → via callEdgeFunction for the
-//                                                    fire-and-forget welcome email
-// We record the object passed to the profiles INSERT and assert its brand_id.
+//                                                    fire-and-forget welcome
+//                                                    email (returns no session,
+//                                                    so no network call)
+//   - supabase.from(…)                            → spy only; must NOT be hit
+//                                                    for profiles / user_stores
 //
-// This file does NOT reuse src/lib/auth.test.ts's module mock (which only stubs
-// supabase.auth.getSession) — registerInvitedUser needs rpc + signUp + from, so
-// a dedicated mock with the full surface is cleaner than widening the other
-// file's stub.
+// Welcome-email detection: callEdgeFunction lives in the same module, so it
+// cannot be spied through the import. Its first statement is
+// supabase.auth.getSession(), so "getSession was called" is the observable
+// proxy for "the welcome email was attempted".
 
 const BRAND_A = '2a000000-0000-0000-0000-000000000001';
 
-// Captured payload from the profiles INSERT, per test. Prefixed `mock` so the
-// hoisted jest.mock() factory below is permitted to reference it (jest's
-// out-of-scope-variable guard allows `mock*`-prefixed names).
-let mockProfileInsertPayload: any = null;
-
-// Per-test override for what get_pending_invitation resolves to. Same `mock`
-// prefix rule as above.
+// Per-test fixtures. Prefixed `mock` so the hoisted jest.mock() factory below
+// may reference them (jest's out-of-scope-variable guard allows `mock*`).
 let mockInvitationRow: any = null;
+let mockRegisterResult: { data: unknown; error: { message: string } | null } = {
+  data: null,
+  error: null,
+};
+let mockSignUpResult: { data: { user: { id: string } | null }; error: { message: string } | null } = {
+  data: { user: { id: 'new-user-id-164' } },
+  error: null,
+};
 
 jest.mock('./supabase', () => ({
   supabase: {
     rpc: jest.fn((fn: string) => {
       if (fn === 'get_pending_invitation') {
-        return Promise.resolve({ data: [mockInvitationRow], error: null });
+        return Promise.resolve({
+          data: mockInvitationRow ? [mockInvitationRow] : [],
+          error: null,
+        });
       }
-      // consume_invitation and any other rpc → benign success
+      if (fn === 'register_invited_profile') {
+        return Promise.resolve(mockRegisterResult);
+      }
+      // Anything else (e.g. a regressed consume_invitation call) → benign
+      // success; the assertions below catch it by name.
       return Promise.resolve({ data: null, error: null });
     }),
     auth: {
-      signUp: jest.fn(() =>
-        Promise.resolve({
-          data: { user: { id: 'new-user-id-069' } },
-          error: null,
-        }),
-      ),
-      // callEdgeFunction (send-welcome-email) reads this; return no session so
-      // it short-circuits to { error: 'Not authenticated' } without a network
-      // call. The welcome email is fire-and-forget; registerInvitedUser does
-      // not await or branch on it, so this does not affect the result.
+      signUp: jest.fn(() => Promise.resolve(mockSignUpResult)),
       getSession: jest.fn(() => Promise.resolve({ data: { session: null } })),
     },
-    from: jest.fn((table: string) => ({
-      insert: jest.fn((payload: any) => {
-        if (table === 'profiles') {
-          mockProfileInsertPayload = payload;
-        }
-        return Promise.resolve({ error: null });
-      }),
-      // inviteUser's expired-invite cleanup chain (.delete().lt().eq()) is not
-      // exercised by registerInvitedUser, but keep the stub permissive.
+    from: jest.fn(() => ({
+      insert: jest.fn(() => Promise.resolve({ error: null })),
       delete: jest.fn(() => ({ lt: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) })),
     })),
   },
 }));
 
 import { registerInvitedUser } from './auth';
+import { supabase } from './supabase';
 
-describe('registerInvitedUser brand stamp (spec 069)', () => {
+const rpcMock = supabase.rpc as unknown as jest.Mock;
+const signUpMock = supabase.auth.signUp as unknown as jest.Mock;
+const getSessionMock = supabase.auth.getSession as unknown as jest.Mock;
+const fromMock = supabase.from as unknown as jest.Mock;
+
+function rpcCallsNamed(name: string): unknown[][] {
+  return rpcMock.mock.calls.filter((c: unknown[]) => c[0] === name);
+}
+
+function fromTables(): unknown[] {
+  return fromMock.mock.calls.map((c: unknown[]) => c[0]);
+}
+
+const STAFF_INVITE = {
+  id: 'inv-staff-164',
+  email: 'staff164@test.local',
+  name: 'Staff Member',
+  role: 'user',
+  store_ids: ['00000000-0000-0000-0000-000000000001'],
+  brand_id: null,
+  resolved_brand_id: BRAND_A,
+  username: 'staff164',
+  expires_at: null,
+};
+
+describe('registerInvitedUser (spec 164 — server-side registration RPC)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockProfileInsertPayload = null;
     mockInvitationRow = null;
+    mockRegisterResult = { data: 'new-user-id-164', error: null };
+    mockSignUpResult = { data: { user: { id: 'new-user-id-164' } }, error: null };
   });
 
-  it('stamps profiles.brand_id from resolved_brand_id for a staff (role=user) invite', async () => {
-    // The staff invite carries brand_id: null (InviteUserDrawer sends null for
-    // staff) but get_pending_invitation resolves the brand server-side from the
-    // assigned store. registerInvitedUser must write that resolved brand.
-    mockInvitationRow = {
-      id: 'inv-staff-069',
-      email: 'staff069@test.local',
-      name: 'Staff Member',
-      role: 'user',
-      store_ids: ['00000000-0000-0000-0000-000000000001'],
-      brand_id: null,
-      resolved_brand_id: BRAND_A,
-      expires_at: null,
-    };
+  it('success: signUp without role, then exactly one register_invited_profile call and no direct writes', async () => {
+    mockInvitationRow = STAFF_INVITE;
 
-    const result = await registerInvitedUser('staff069@test.local', 'password', 'Staff Member');
+    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
 
     expect(result.error).toBeNull();
-    expect(mockProfileInsertPayload).not.toBeNull();
-    // THE CORE ASSERTION — brand_id is the resolved brand, NOT null.
-    expect(mockProfileInsertPayload.brand_id).toBe(BRAND_A);
-    expect(mockProfileInsertPayload.role).toBe('user');
+
+    // signUp called once; options.data is exactly { name } — no role key.
+    expect(signUpMock).toHaveBeenCalledTimes(1);
+    const signUpArg = signUpMock.mock.calls[0][0];
+    expect(signUpArg.options.data).toEqual({ name: 'Staff Member' });
+    expect(signUpArg.options.data).not.toHaveProperty('role');
+
+    // Exactly one RPC call, with no args object.
+    const regCalls = rpcCallsNamed('register_invited_profile');
+    expect(regCalls).toHaveLength(1);
+    expect(regCalls[0][1]).toBeUndefined();
+
+    // The RPC runs after signUp.
+    const signUpOrder = signUpMock.mock.invocationCallOrder[0];
+    const regIndex = rpcMock.mock.calls.findIndex((c: unknown[]) => c[0] === 'register_invited_profile');
+    expect(rpcMock.mock.invocationCallOrder[regIndex]).toBeGreaterThan(signUpOrder);
+
+    // No direct table writes, no consume_invitation.
+    expect(fromTables()).not.toContain('profiles');
+    expect(fromTables()).not.toContain('user_stores');
+    expect(rpcCallsNamed('consume_invitation')).toHaveLength(0);
+
+    // Welcome email attempted (callEdgeFunction reads the session first).
+    expect(getSessionMock).toHaveBeenCalled();
   });
 
-  it('falls back to invitation.brand_id then null for a staff invite when resolved_brand_id is absent', async () => {
-    // Defensive: if resolved_brand_id is missing (e.g. a pre-069 cached RPC
-    // shape) the role='user' branch falls through to brand_id ?? null. With a
-    // zero-store staff invite this is null — constraint-legal, a benign no-op.
-    mockInvitationRow = {
-      id: 'inv-staff-069-nostore',
-      email: 'staff069nostore@test.local',
-      name: 'No Store Staff',
-      role: 'user',
-      store_ids: [],
-      brand_id: null,
-      // resolved_brand_id intentionally undefined
-      expires_at: null,
-    };
+  it('RPC error: returns the "profile setup failed" error and does not send the welcome email', async () => {
+    mockInvitationRow = STAFF_INVITE;
+    mockRegisterResult = { data: null, error: { message: 'no pending invitation' } };
 
-    const result = await registerInvitedUser('staff069nostore@test.local', 'password', 'No Store Staff');
+    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
 
-    expect(result.error).toBeNull();
-    expect(mockProfileInsertPayload).not.toBeNull();
-    expect(mockProfileInsertPayload.brand_id).toBeNull();
+    expect(result.error).toBe('Account created but profile setup failed: no pending invitation');
+    expect(result.user).toBeNull();
+    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(1);
+    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(rpcCallsNamed('consume_invitation')).toHaveLength(0);
   });
 
-  it('leaves the admin invite path unchanged — brand_id from invitation.brand_id (resolved == brand_id)', async () => {
-    // Admin invites already require a non-NULL brand_id; resolved_brand_id
-    // COALESCEs to it. The role!=='user' branch passes invitation.brand_id
-    // straight through, so the admin path is byte-for-byte unchanged.
+  it('admin invitation with NULL brand: existing pre-check error; signUp and the RPC are not called', async () => {
     mockInvitationRow = {
-      id: 'inv-admin-069',
-      email: 'admin069@test.local',
+      id: 'inv-admin-164-nobrand',
+      email: 'admin164@test.local',
       name: 'Admin Person',
       role: 'admin',
-      store_ids: ['00000000-0000-0000-0000-000000000001'],
-      brand_id: BRAND_A,
-      resolved_brand_id: BRAND_A,
+      store_ids: [],
+      brand_id: null,
+      resolved_brand_id: null,
+      username: null,
       expires_at: null,
     };
 
-    const result = await registerInvitedUser('admin069@test.local', 'password', 'Admin Person');
+    const result = await registerInvitedUser('admin164@test.local', 'password', 'Admin Person');
 
-    expect(result.error).toBeNull();
-    expect(mockProfileInsertPayload).not.toBeNull();
-    expect(mockProfileInsertPayload.brand_id).toBe(BRAND_A);
-    expect(mockProfileInsertPayload.role).toBe('admin');
+    expect(result.error).toBe(
+      'Invitation is missing a brand assignment. Please ask your admin to re-issue the invite.',
+    );
+    expect(signUpMock).not.toHaveBeenCalled();
+    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
   });
 
-  it('does NOT use resolved_brand_id for an admin invite even if the two ever diverge (admin path reads brand_id only)', async () => {
-    // Guard against a future regression where the admin branch is accidentally
-    // pointed at resolved_brand_id. The admin path must read invitation.brand_id
-    // exclusively. Construct a (contrived) row where they differ and assert the
-    // INSERT used brand_id, not resolved_brand_id.
-    mockInvitationRow = {
-      id: 'inv-admin-069-diverge',
-      email: 'admin069diverge@test.local',
-      name: 'Admin Diverge',
-      role: 'admin',
-      store_ids: ['00000000-0000-0000-0000-000000000001'],
-      brand_id: BRAND_A,
-      resolved_brand_id: 'b1000000-0000-0000-0000-000000000001', // different brand
-      expires_at: null,
-    };
+  it('no invitation: existing "No invitation found" error; signUp is not called', async () => {
+    mockInvitationRow = null;
 
-    const result = await registerInvitedUser('admin069diverge@test.local', 'password', 'Admin Diverge');
+    const result = await registerInvitedUser('nobody164@test.local', 'password', 'Nobody');
 
-    expect(result.error).toBeNull();
-    expect(mockProfileInsertPayload.brand_id).toBe(BRAND_A);
+    expect(result.error).toBe('No invitation found for this email. Please ask an admin to invite you.');
+    expect(signUpMock).not.toHaveBeenCalled();
+    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
+  });
+
+  it('signUp error: returns its message and the RPC is not called', async () => {
+    mockInvitationRow = STAFF_INVITE;
+    mockSignUpResult = { data: { user: null }, error: { message: 'User already registered' } };
+
+    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
+
+    expect(result.error).toBe('User already registered');
+    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
+    expect(fromTables()).not.toContain('profiles');
   });
 });

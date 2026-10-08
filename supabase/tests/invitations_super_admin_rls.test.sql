@@ -14,6 +14,15 @@
 --                                  app_metadata.role='user').
 --   (iii) plain user JWT        → INSERT rejected with SQLSTATE 42501.
 --
+-- Spec 164: all three arms insert role='user' (was 'manager'). The
+-- invitations INSERT policy is now P_INV (privileged AND role in
+-- ('user','admin') AND brand/stores in the caller's scope), so a 'manager'
+-- invite would be refused with 42501. 'manager' was never an app-produced
+-- invite role (InviteUserOptions.role is 'admin' | 'user'). Arm (iii) still
+-- expects 42501, now caused only by the caller not being privileged (the
+-- role value itself is P_INV-legal). Full P_INV coverage lives in
+-- profiles_insert_hardening.test.sql section D.
+--
 -- Hermetic begin; ... rollback; isolation. Mirrors the shape of
 -- supabase/tests/eod_submissions_consistency.test.sql.
 --
@@ -71,7 +80,7 @@ select set_config(
 -- (see information_schema). Reuse the caller's auth.uid() as the
 -- inviter's profile id — same shape the inviteUser flow uses in prod.
 insert into public.invitations (email, name, role, store_ids, profile_id)
-  values ('test-admin@example.invalid', 'Admin Test', 'manager',
+  values ('test-admin@example.invalid', 'Admin Test', 'user',
           array[]::text[],
           current_setting('test.admin_id', true)::uuid);
 
@@ -98,7 +107,7 @@ select set_config(
 );
 
 insert into public.invitations (email, name, role, store_ids, profile_id)
-  values ('test-superadmin@example.invalid', 'Super Test', 'manager',
+  values ('test-superadmin@example.invalid', 'Super Test', 'user',
           array[]::text[],
           current_setting('test.super_id', true)::uuid);
 
@@ -128,7 +137,7 @@ select set_config(
 select throws_ok(
   format(
     $q$insert into public.invitations (email, name, role, store_ids, profile_id)
-       values ('test-user@example.invalid', 'User Test', 'manager',
+       values ('test-user@example.invalid', 'User Test', 'user',
                array[]::text[], %L::uuid)$q$,
     current_setting('test.user_id', true)
   ),

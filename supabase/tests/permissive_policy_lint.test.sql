@@ -19,7 +19,7 @@
 -- `using (true) to authenticated` (cross-brand reference data per
 -- spec 004 / spec 013).
 --
--- Plan (3 arms):
+-- Plan (5 arms):
 --   (1) positive — violation count under allowlist is 0.
 --   (2) positive — string_agg of offending triples is empty (for
 --       log-readability in CI on a fail).
@@ -29,6 +29,17 @@
 --       edit breaks the regex (e.g. a missing parenthesis or a
 --       lost anchor), arm (3) fails because the synthetic policy
 --       no longer trips the detector.
+--   (4) AND-guarded OR-arm is NOT flagged (false-positive guard).
+--   (5) positive OR-tail — synthetic WITH CHECK shaped like the
+--       pre-spec-164 profiles INSERT policy
+--       `((id = auth.uid()) or (auth.uid() is not null))` IS
+--       flagged by the OR-tail branch (spec 164).
+--
+-- Spec 164 word-boundary fix: Postgres ARE syntax spells a word
+-- boundary `\y`. The original spec 053 regexes used backslash-b, which in
+-- ARE is a BACKSPACE character escape, so the OR-tail branch never
+-- matched anything and the profiles INSERT OR-tail hole shipped
+-- undetected. Arm (5) is the regression guard for that branch.
 --
 -- Detection regex (head + OR-tail, two passes — see spec 053 §6):
 --   - Head: `^\s*\(*\s*(auth.uid() is not null | true |
@@ -38,7 +49,7 @@
 --     user_stores OR-tail shape). An AND-tail does NOT match
 --     because the trailing `(\s+or\s+.*)?\s*$` group is anchored
 --     and requires either OR or end-of-string.
---   - OR-tail: `\bor\s+\(*\s*(auth.uid() is not null | true |
+--   - OR-tail: `\yor\s+\(*\s*(auth.uid() is not null | true |
 --             auth.role() = 'authenticated')\s*\)*`
 --     Matches a trivially-wide token in the OR-tail of any
 --     predicate. Catches `(user_id = auth.uid()) OR (auth.uid()
@@ -78,7 +89,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(4);
+select plan(5);
 
 
 -- ─── Allowlist + detection CTE shape (reusable across arms) ─────
@@ -118,8 +129,8 @@ select is(
         nq ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
         or nc ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
         -- OR-tail trivially-wide on USING or WITH CHECK
-        or nq ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
-        or nc ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
+        or nq ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+        or nc ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
     ),
     allowlist (schemaname, tablename, policyname) as (values
       ('public', 'ingredient_categories', 'Authenticated can read ingredient categories'),
@@ -163,8 +174,8 @@ select is(
       where
         nq ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
         or nc ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
-        or nq ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
-        or nc ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
+        or nq ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+        or nc ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
     ),
     allowlist (schemaname, tablename, policyname) as (values
       ('public', 'ingredient_categories', 'Authenticated can read ingredient categories'),
@@ -245,8 +256,8 @@ begin
     where
       nq ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
       or nc ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
-      or nq ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
-      or nc ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
+      or nq ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+      or nc ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
   )
   select count(*)::int into v_hit_count
   from flagged
@@ -280,10 +291,20 @@ select is(
 -- wide. The detector MUST NOT flag it.
 --
 -- This is the regression guard for the OR-tail regex's negative-
--- lookahead `(?!\s+and\b)`. If a future drive-by edit removes the
+-- lookahead `(?!\s+and\y)`. If a future drive-by edit removes the
 -- lookahead, this arm fails. Without this arm, the probe would
 -- silently false-fail on a legitimate AND-guarded OR-arm policy
 -- in CI for the next developer who tries to land that shape.
+--
+-- Spec 164 note: before the backslash-b -> `\y` fix this arm passed
+-- vacuously (the OR-tail regex could not match anything). It is
+-- meaningful now, but be aware that the trailing anchor
+-- `\s*\)*\s*($|\s+or\y)` is what does the work here, not the
+-- lookahead: Postgres deparses `auth.uid() is not null and x` as
+-- `((auth.uid() IS NOT NULL) AND x)`, so after the token the
+-- lookahead `(?!\s+and\y)` sees `)` and never fires; the match then
+-- fails because ` and ...` follows the closing paren instead of
+-- end-of-string or ` or`.
 create table public.__lint_probe_negative_test_and_guarded (id uuid primary key);
 alter table public.__lint_probe_negative_test_and_guarded enable row level security;
 create policy "__lint_probe_negative_and_guarded"
@@ -311,8 +332,8 @@ begin
     where
       nq ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
       or nc ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
-      or nq ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
-      or nc ~ '\bor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\b)\s*\)*\s*($|\s+or\b)'
+      or nq ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+      or nc ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
   )
   select count(*)::int into v_hit_count
   from flagged
@@ -328,8 +349,71 @@ select is(
   current_setting('test.and_guarded_arm_hit_count', true)::int,
   0,
   'arm (4): permissive_policy_lint — AND-guarded OR-arm (`OR (auth.uid() IS NOT NULL AND auth_is_admin())`) is NOT flagged by the detection CTE. ' ||
-  'If this arm fails, the OR-tail regex''s AND-guard exclusion (negative-lookahead `(?!\\s+and\\b)`) has regressed. ' ||
+  'If this arm fails, the OR-tail regex''s AND-guard exclusion (negative-lookahead `(?!\\s+and\\y)`) has regressed. ' ||
   'Restoring the lookahead unblocks legitimate AND-guarded OR-arm policies. See spec 053 §6.'
+);
+
+
+-- ─── Arm (5): positive OR-tail — synthetic WITH CHECK shaped like
+-- the pre-spec-164 profiles INSERT policy IS caught ─────────────
+-- Spec 164. The former profiles INSERT policy "Anyone can insert
+-- own profile or admin can insert any" ended in
+-- `OR (auth.uid() IS NOT NULL)`, which admitted every authenticated
+-- caller. The OR-tail branch never matched it because of the backslash-b
+-- (backspace) bug. This arm recreates that exact shape on a
+-- throwaway table and asserts the detector flags it.
+--
+-- It uses the WITH CHECK side (an INSERT policy) so it exercises the
+-- `nc` branch, which arms (3)/(4) never touch. The head-position
+-- regex cannot match this predicate (it starts `((id = `), so the
+-- hit can only come from the OR-tail branch. Same detect ->
+-- set_config -> drop -> is() pattern as arm (3).
+create table public.__lint_probe_positive_or_tail (id uuid primary key);
+alter table public.__lint_probe_positive_or_tail enable row level security;
+create policy "__lint_probe_positive_or_tail_wide"
+  on public.__lint_probe_positive_or_tail
+  for insert
+  to authenticated
+  with check ((id = auth.uid()) or (auth.uid() is not null));
+
+do $$
+declare
+  v_hit_count int;
+begin
+  with normalized as (
+    select
+      schemaname, tablename, policyname,
+      lower(regexp_replace(coalesce(qual, ''),       '\s+', ' ', 'g')) as nq,
+      lower(regexp_replace(coalesce(with_check, ''), '\s+', ' ', 'g')) as nc
+    from pg_policies
+    where schemaname = 'public'
+      and permissive = 'PERMISSIVE'
+  ),
+  flagged as (
+    select schemaname, tablename, policyname
+    from normalized
+    where
+      nq ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
+      or nc ~ '^\s*\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')\s*\)*(\s+or\s+.*)?\s*$'
+      or nq ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+      or nc ~ '\yor\s+\(*\s*(auth\.uid\(\) is not null|true|auth\.role\(\) = ''authenticated'')(?!\s+and\y)\s*\)*\s*($|\s+or\y)'
+  )
+  select count(*)::int into v_hit_count
+  from flagged
+  where tablename = '__lint_probe_positive_or_tail';
+
+  perform set_config('test.positive_or_tail_hit_count', v_hit_count::text, true);
+end $$;
+
+drop policy "__lint_probe_positive_or_tail_wide" on public.__lint_probe_positive_or_tail;
+drop table public.__lint_probe_positive_or_tail;
+
+select is(
+  current_setting('test.positive_or_tail_hit_count', true)::int,
+  1,
+  'arm (5): permissive_policy_lint — synthetic OR-tail wide WITH CHECK (`(id = auth.uid()) OR (auth.uid() IS NOT NULL)`, ' ||
+  'the pre-spec-164 profiles INSERT shape) IS caught by the OR-tail branch. ' ||
+  'If this arm fails, the OR-tail regex has regressed (e.g. a `\y` word boundary reverted to backslash-b, which is BACKSPACE in Postgres ARE). See spec 164.'
 );
 
 
