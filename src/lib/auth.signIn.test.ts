@@ -40,6 +40,7 @@ jest.mock('./supabase', () => {
 jest.mock('./db', () => ({
   fetchStoreIdsForBrand: jest.fn(),
   fetchInvitationsForUserLookup: jest.fn(),
+  fetchProfileEmails: jest.fn(),
 }));
 
 jest.mock('./recoveryRedirect', () => ({

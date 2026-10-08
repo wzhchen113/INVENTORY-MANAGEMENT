@@ -68,13 +68,28 @@ const mockFetchStoreIds = jest.fn((_brandId: string) =>
   Promise.resolve(new Set<string>()),
 );
 
+// Spec 163 — fetchProfileEmails (get_profile_emails RPC). Default: an empty
+// Map, so the spec-083 cases above exercise invitation inference unchanged.
+// Per-test overrides use mockImplementation (resolve / reject / sync throw).
+const mockFetchProfileEmails = jest.fn(
+  (_ids: string[]): Promise<Map<string, string>> => Promise.resolve(new Map()),
+);
+
 jest.mock('./db', () => ({
   fetchInvitationsForUserLookup: (brandId?: string) => mockFetchInvitations(brandId),
   fetchStoreIdsForBrand: (brandId: string) => mockFetchStoreIds(brandId),
+  fetchProfileEmails: (ids: string[]) => mockFetchProfileEmails(ids),
 }));
 
 jest.mock('./sidebarLayout', () => ({ isValidOverride: () => true }));
 
+// Spec 163 — mocked so the RPC-failure cases can assert NO toast fires.
+jest.mock('react-native-toast-message', () => ({
+  __esModule: true,
+  default: { show: jest.fn(), hide: jest.fn() },
+}));
+
+import Toast from 'react-native-toast-message';
 import { fetchAllUsers } from './auth';
 
 function profileRow(over: Record<string, any>): any {
@@ -99,6 +114,7 @@ beforeEach(() => {
   profilesResult = { data: [], error: null };
   userStoresResult = { data: [], error: null };
   invitationsReturn = [];
+  mockFetchProfileEmails.mockImplementation(() => Promise.resolve(new Map()));
 });
 
 describe('fetchAllUsers — spec 083 NULL-brand email inference', () => {
@@ -142,5 +158,114 @@ describe('fetchAllUsers — spec 083 NULL-brand email inference', () => {
     expect(mockFetchInvitations).toHaveBeenCalledWith(undefined);
     const chuck = result.find((u: User) => u.id === 'p-chuck')!;
     expect(chuck.email).toBe('charles@example.com');
+  });
+});
+
+// Spec 163 — get_profile_emails (auth.users) is the primary email source;
+// invitation inference (profile_id, then name) is the fallback; '' when
+// neither has the user. An RPC failure must NOT blank the list or toast.
+describe('fetchAllUsers — spec 163 auth.users email precedence', () => {
+  it('RPC email beats an invitation email for the same user', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-tow', name: 'Towson Staff', role: 'user' })],
+      error: null,
+    };
+    invitationsReturn = [
+      inviteRow({ name: 'Towson Staff', email: 'stale@example.com', profile_id: 'p-tow' }),
+    ];
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.resolve(new Map([['p-tow', 'towson@example.com']])),
+    );
+
+    const result = await fetchAllUsers();
+
+    expect(mockFetchProfileEmails).toHaveBeenCalledWith(['p-tow']);
+    expect(result.find((u: User) => u.id === 'p-tow')!.email).toBe('towson@example.com');
+  });
+
+  it('falls back to invitation (profile_id, then name) when the RPC map lacks the user', async () => {
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-id', name: 'IdMatch' }),
+        profileRow({ id: 'p-nm', name: 'NameMatch' }),
+        profileRow({ id: 'p-rpc', name: 'RpcOnly' }),
+      ],
+      error: null,
+    };
+    invitationsReturn = [
+      inviteRow({ name: 'Someone Else', email: 'id@example.com', profile_id: 'p-id' }),
+      inviteRow({ name: 'NameMatch', email: 'name@example.com', profile_id: SENTINEL }),
+    ];
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.resolve(new Map([['p-rpc', 'rpc@example.com']])),
+    );
+
+    const result = await fetchAllUsers();
+
+    expect(result.find((u: User) => u.id === 'p-id')!.email).toBe('id@example.com');
+    expect(result.find((u: User) => u.id === 'p-nm')!.email).toBe('name@example.com');
+    expect(result.find((u: User) => u.id === 'p-rpc')!.email).toBe('rpc@example.com');
+  });
+
+  it("returns '' when neither the RPC nor any invitation has the user", async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-none', name: 'Nobody' })],
+      error: null,
+    };
+
+    const result = await fetchAllUsers();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('');
+  });
+
+  it('RPC rejecting still returns the full list with invitation emails, warns, no toast', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-a', name: 'Alpha' }),
+        profileRow({ id: 'p-b', name: 'Beta' }),
+      ],
+      error: null,
+    };
+    invitationsReturn = [inviteRow({ name: 'Alpha', email: 'alpha@example.com', profile_id: 'p-a' })];
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.reject(new Error('PGRST202 function not found')),
+    );
+
+    const result = await fetchAllUsers();
+
+    expect(result).toHaveLength(2);
+    expect(result.find((u: User) => u.id === 'p-a')!.email).toBe('alpha@example.com');
+    expect(result.find((u: User) => u.id === 'p-b')!.email).toBe('');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('fetchProfileEmails failed'),
+      'PGRST202 function not found',
+    );
+    expect(Toast.show).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // Pins the §5 async-wrapper requirement: a SYNCHRONOUS throw (e.g. an
+  // un-mocked export in some other suite) must not escape to fetchAllUsers'
+  // outer catch and blank the Users list.
+  it('fetchProfileEmails throwing synchronously still returns the full list', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    profilesResult = {
+      data: [profileRow({ id: 'p-a', name: 'Alpha' })],
+      error: null,
+    };
+    invitationsReturn = [inviteRow({ name: 'Alpha', email: 'alpha@example.com', profile_id: 'p-a' })];
+    mockFetchProfileEmails.mockImplementation(() => {
+      throw new TypeError('fetchProfileEmails is not a function');
+    });
+
+    const result = await fetchAllUsers();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('alpha@example.com');
+    expect(warn).toHaveBeenCalled();
+    expect(Toast.show).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

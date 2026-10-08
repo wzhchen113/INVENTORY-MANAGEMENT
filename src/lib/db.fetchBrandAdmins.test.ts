@@ -54,8 +54,20 @@ const mockFrom = jest.fn((table: string) => {
   }
 });
 
+// Spec 163 — supabase.rpc('get_profile_emails', …) via the real
+// fetchProfileEmails helper (same module, so it is not mocked). The builder's
+// terminal `.abortSignal()` resolves to the per-test `rpcResult`; `rpcImpl`
+// lets a test make the rpc call itself throw.
+let rpcResult: { data: any[] | null; error: any };
+const mockRpc = jest.fn((_fn: string, _args: any) => ({
+  abortSignal: jest.fn(() => Promise.resolve(rpcResult)),
+}));
+
 jest.mock('./supabase', () => ({
-  supabase: { from: (table: string) => mockFrom(table) },
+  supabase: {
+    from: (table: string) => mockFrom(table),
+    rpc: (fn: string, args: any) => mockRpc(fn, args),
+  },
 }));
 
 jest.mock('./inflight', () => ({
@@ -69,6 +81,13 @@ jest.mock('./inflight', () => ({
 
 jest.mock('./auth', () => ({ callEdgeFunction: jest.fn() }));
 
+// Spec 163 — mocked so the RPC-failure cases can assert NO toast fires.
+jest.mock('react-native-toast-message', () => ({
+  __esModule: true,
+  default: { show: jest.fn(), hide: jest.fn() },
+}));
+
+import Toast from 'react-native-toast-message';
 import { fetchBrandAdmins } from './db';
 
 /** Minimal profiles row (snake_case, as PostgREST returns). */
@@ -97,6 +116,7 @@ beforeEach(() => {
   invitationsResult = { data: [], error: null };
   storesResult = { data: [], error: null };
   userStoresResult = { data: [], error: null };
+  rpcResult = { data: [], error: null };
 });
 
 describe('fetchBrandAdmins — spec 082 email inference', () => {
@@ -315,5 +335,173 @@ describe('fetchBrandAdmins — spec 084 NULL-brand inference + pending pollution
     expect(pendings).toHaveLength(1);
     expect(pendings[0].id).toBe('invitation:inv-pat');
     expect(pendings[0].email).toBe('pat@example.com');
+  });
+});
+
+// Spec 163 — get_profile_emails (auth.users) is the primary email source for
+// ACTIVE rows; invitation inference is the fallback; '' when neither has the
+// user. Pending rows keep the invite's own email. An RPC failure must NOT fail
+// the members list or toast.
+describe('fetchBrandAdmins — spec 163 auth.users email precedence', () => {
+  it('RPC email beats an invitation email for the same active user', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-tow', name: 'Towson Staff', role: 'user' })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-tow', name: 'Towson Staff', email: 'stale@example.com', used: true, profile_id: 'p-tow' })],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-tow', email: 'towson@example.com' }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(mockRpc).toHaveBeenCalledWith('get_profile_emails', { p_user_ids: ['p-tow'] });
+    expect(result.find((u: User) => u.id === 'p-tow')!.email).toBe('towson@example.com');
+    expect(result).toHaveLength(1);
+  });
+
+  it('falls back to invitation (profile_id, then name) when the RPC has no row for the user', async () => {
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-id', name: 'IdMatch' }),
+        profileRow({ id: 'p-nm', name: 'NameMatch' }),
+        profileRow({ id: 'p-rpc', name: 'RpcOnly' }),
+      ],
+      error: null,
+    };
+    invitationsResult = {
+      data: [
+        inviteRow({ id: 'inv-id', name: 'Someone Else', email: 'id@example.com', used: true, profile_id: 'p-id' }),
+        inviteRow({ id: 'inv-nm', name: 'NameMatch', email: 'name@example.com', used: true, profile_id: SENTINEL }),
+      ],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-rpc', email: 'rpc@example.com' }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result.find((u: User) => u.id === 'p-id')!.email).toBe('id@example.com');
+    expect(result.find((u: User) => u.id === 'p-nm')!.email).toBe('name@example.com');
+    expect(result.find((u: User) => u.id === 'p-rpc')!.email).toBe('rpc@example.com');
+  });
+
+  it("returns '' when neither the RPC nor any invitation has the user", async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-none', name: 'Nobody' })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('');
+  });
+
+  it('RPC error still returns the full list with invitation emails, warns, no toast', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-a', name: 'Alpha' }),
+        profileRow({ id: 'p-b', name: 'Beta' }),
+      ],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-a', name: 'Alpha', email: 'alpha@example.com', used: true, profile_id: 'p-a' })],
+      error: null,
+    };
+    rpcResult = { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((u: User) => u.id === 'p-a')!.email).toBe('alpha@example.com');
+    expect(result.find((u: User) => u.id === 'p-b')!.email).toBe('');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('fetchProfileEmails failed'),
+      'function not found',
+    );
+    expect(Toast.show).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('rpc call throwing synchronously still returns the full list', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    profilesResult = {
+      data: [profileRow({ id: 'p-a', name: 'Alpha' })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-a', name: 'Alpha', email: 'alpha@example.com', used: true, profile_id: 'p-a' })],
+      error: null,
+    };
+    mockRpc.mockImplementationOnce(() => {
+      throw new TypeError('network down');
+    });
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('alpha@example.com');
+    expect(warn).toHaveBeenCalled();
+    expect(Toast.show).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('calls the RPC with ONLY profile ids — never synthetic invitation: ids', async () => {
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-one', name: 'One' }),
+        profileRow({ id: 'p-two', name: 'Two' }),
+      ],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-pend', name: 'Pending', email: 'pend@example.com', used: false, profile_id: SENTINEL, brand_id: BRAND })],
+      error: null,
+    };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    const [fn, args] = mockRpc.mock.calls[0];
+    expect(fn).toBe('get_profile_emails');
+    expect(args.p_user_ids).toEqual(['p-one', 'p-two']);
+    expect(args.p_user_ids.some((id: string) => id.startsWith('invitation:'))).toBe(false);
+    // The pending row still exists with its own invite email.
+    const pend = result.find((u: User) => u.id === 'invitation:inv-pend')!;
+    expect(pend.email).toBe('pend@example.com');
+  });
+
+  it('skips the RPC entirely when the brand has no active profiles', async () => {
+    profilesResult = { data: [], error: null };
+
+    await fetchBrandAdmins(BRAND);
+
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  // Expected behaviour change (spec §5): an unconsumed in-brand invite whose
+  // email matches an active user's auth.users email — but which was never
+  // linked by profile_id or name — is now suppressed as a pending row instead
+  // of showing up as a phantom duplicate.
+  it('pending dedup suppresses an unconsumed invite matching an RPC-resolved active email', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-cs', name: 'Charles Staff', role: 'user' })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-dup', name: 'Chuck', email: 'Charles@Example.com', used: false, profile_id: SENTINEL, brand_id: BRAND })],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-cs', email: 'charles@example.com' }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('p-cs');
+    expect(result[0].email).toBe('charles@example.com');
+    expect(result.some((u) => u.status === 'pending')).toBe(false);
   });
 });

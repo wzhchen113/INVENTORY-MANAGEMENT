@@ -236,6 +236,30 @@ export async function fetchInvitationsForUserLookup(
   }, { kind: 'read', label: 'fetchInvitationsForUserLookup' });
 }
 
+/** Spec 163 — real login emails (auth.users) for the given profile ids, limited
+ *  server-side to profiles the caller may see (privileged arm of the spec-043
+ *  profiles SELECT policy). Non-privileged callers get an empty map. Throws on
+ *  RPC error; callers that must degrade gracefully catch it locally.
+ *
+ *  Pass ONLY real profiles.id values — a non-uuid element (e.g. the synthetic
+ *  `invitation:<id>` ids from fetchBrandAdmins' pending rows) fails the whole
+ *  call with 22P02. This is the only `get_profile_emails` call site. */
+export async function fetchProfileEmails(userIds: string[]): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (ids.length === 0) return new Map();
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .rpc('get_profile_emails', { p_user_ids: ids })
+      .abortSignal(signal);
+    if (error) throw error;
+    const out = new Map<string, string>();
+    for (const row of (data || []) as Array<{ user_id: string; email: string | null }>) {
+      if (row.user_id && row.email) out.set(row.user_id, row.email);
+    }
+    return out;
+  }, { kind: 'read', label: 'fetchProfileEmails' });
+}
+
 // ─── INVENTORY ────────────────────────────────────────────────────────────
 // Spec 040 P3: return type widened to expose i18nNames on each row. See the
 // mapItem comment below for the rationale on the structural intersection.
@@ -5426,23 +5450,41 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
 
   // user_stores join for store counts on the active profiles.
   const userIds = profiles.map((p: any) => p.id);
-  let storeLinks: any[] = [];
-  if (userIds.length > 0) {
+
+  // Spec 163 — real auth.users emails, fetched concurrently with the
+  // user_stores read. Only profiles ids go in (never `invitation:<id>` —
+  // 22P02 would fail the whole call). Must be an async try/await wrapper,
+  // not `.catch()` chaining: a synchronous throw (e.g. an un-mocked export)
+  // would otherwise escape Promise.all and fail the whole members list.
+  // No toast on failure — inference falls back to invitation emails.
+  const safeProfileEmails = async (): Promise<Map<string, string>> => {
+    try {
+      return await fetchProfileEmails(userIds);
+    } catch (e: any) {
+      console.warn('[fetchBrandAdmins] fetchProfileEmails failed; falling back to invitation emails:', e?.message || e);
+      return new Map<string, string>();
+    }
+  };
+  const loadStoreLinks = async (): Promise<any[]> => {
+    if (userIds.length === 0) return [];
     const { data: links } = await supabase
       .from('user_stores')
       .select('user_id, store_id')
       .in('user_id', userIds)
       .abortSignal(signal);
-    storeLinks = links || [];
-  }
+    return links || [];
+  };
+  const [storeLinks, rpcEmails] = await Promise.all([loadStoreLinks(), safeProfileEmails()]);
 
-  // Spec 082 — profiles has no email column; we infer each user's email
-  // from the invitation row that registered them. Maps are built from ALL
+  // Spec 082 — profiles has no email column. Spec 163: the real auth.users
+  // email comes from get_profile_emails (rpcEmails above); inference from the
+  // invitation row that registered them is the FALLBACK. Maps are built from ALL
   // invitations (the query no longer filters used=false — spec 082 — and as
   // of spec 084 no longer filters by brand_id either; see comment above), so
   // a used or NULL-brand invite still feeds inference.
   // Precedence below (inviteByProfileId ?? inviteByName): id-match wins.
-  // profile_id is set by consume_invitation on accept as of spec 082, and
+  // profile_id is set on accept (consume_invitation as of spec 082; the
+  // register_invited_profile RPC as of spec 164), and
   // legacy (pre-082) rows are linked by the spec-082 backfill, so the
   // id-match path now does real work and prevents two admins sharing a
   // display name from getting swapped emails. name-match remains the
@@ -5468,7 +5510,8 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       id: p.id,
       name: p.role === 'master' ? 'MASTER' : p.name,
       nickname: p.nickname || '',
-      email: fallback?.email || '',
+      // Spec 163 — auth.users email wins; invitation inference is the fallback.
+      email: rpcEmails.get(p.id) || fallback?.email || '',
       role: p.role,
       stores,
       status: p.status,
@@ -5486,8 +5529,9 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
   // consumed invite never becomes a phantom pending row. (Email inference
   // above still uses ALL invites.) Then skip ones already represented in
   // profiles (matched by email) — consumed-for-active rows are excluded on
-  // two grounds now: they're !used-filtered out AND active rows finally
-  // have emails to dedup against.
+  // two grounds now: they're !used-filtered out AND active rows have emails
+  // to dedup against (spec 163: the resolved auth.users email, so an unused
+  // invite whose email matches an active user's real email is hidden too).
   // Spec 084: gate the pending ROW on the brand too. Inference (above) reads ALL
   // invites; the synthetic pending list must stay brand-scoped or a NULL-brand
   // (or foreign-brand) UNCONSUMED invite would surface as a phantom pending row.

@@ -2,7 +2,7 @@
 import { supabase } from './supabase';
 import { User, SidebarLayoutOverride } from '../types';
 import { isValidOverride } from './sidebarLayout';
-import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup } from './db';
+import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup, fetchProfileEmails } from './db';
 import { resolveRecoveryRedirectUrl } from './recoveryRedirect';
 
 export interface AuthResult {
@@ -578,6 +578,23 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
 
     // Fetch all store links in one query
     const userIds = profiles.map((p: any) => p.id);
+
+    // Spec 163 — real auth.users emails, started now so it overlaps the
+    // user_stores / brand-store / invitation reads below (no extra serial
+    // round-trip). Must be an async try/await wrapper, not `.catch()`
+    // chaining: a synchronous throw (e.g. an un-mocked export) would
+    // otherwise escape to the outer catch and blank the whole Users list.
+    // No toast on failure — emails fall back to invitation inference.
+    const safeProfileEmails = async (): Promise<Map<string, string>> => {
+      try {
+        return await fetchProfileEmails(userIds);
+      } catch (e: any) {
+        console.warn('[fetchAllUsers] fetchProfileEmails failed; falling back to invitation emails:', e?.message || e);
+        return new Map<string, string>();
+      }
+    };
+    const rpcEmailsPromise = safeProfileEmails();
+
     const { data: allStoreLinks } = await supabase
       .from('user_stores')
       .select('user_id, store_id')
@@ -591,7 +608,8 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
       ? await fetchStoreIdsForBrand(opts.brandId)
       : null;
 
-    // Pull invitation rows for email inference. Spec 083 DROPPED the brand
+    // Pull invitation rows: the FALLBACK email source when the spec-163
+    // get_profile_emails RPC has no email for a user. Spec 083 DROPPED the brand
     // filter here: fetchInvitationsForUserLookup now reads ALL invitations
     // (the old cleanup-#16 `.eq('brand_id', …)` narrowing HID NULL-brand
     // invitations from inference — the spec-083 "(email not loaded)" bug).
@@ -600,11 +618,10 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
     // `opts?.brandId` passed here is RETAINED for call-site compatibility but
     // is currently UNUSED by the helper. (Which USERS appear is still
     // brand-scoped: the profiles query above filters by brand_id.)
-    const invitations = await fetchInvitationsForUserLookup(opts?.brandId);
-
-    // Fetch auth users' emails
-    // Note: We can't query auth.users from client, so we use invitations for pending users
-    // For active users, email comes from the session or we store it
+    const [invitations, rpcEmails] = await Promise.all([
+      fetchInvitationsForUserLookup(opts?.brandId),
+      rpcEmailsPromise,
+    ]);
 
     // Cleanup #4 — index invitations by profile_id (set on consume_invitation)
     // first; fall back to name match for legacy invitations whose profile_id
@@ -631,7 +648,8 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
         id: p.id,
         name: p.role === 'master' ? 'MASTER' : p.name,
         nickname: p.nickname || '',
-        email: invitation?.email || '',
+        // Spec 163 — auth.users email (RPC) wins; invitation is the fallback.
+        email: rpcEmails.get(p.id) || invitation?.email || '',
         role: p.role,
         stores,
         status: p.status,
