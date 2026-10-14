@@ -545,6 +545,7 @@
       "lastCountedAria": "last counted {date}",
       "lastCountedLoading": "loading",
       "lastCountedMeta": "last counted {value}",
+      "lastCountedAtStore": "last counted at {store} · {value}",
       "filterPlaceholderItems": "counted:never cat:produce",
       "closeDetailAria": "Close item detail",
       "conversionsTitle": "{name} · conversions",

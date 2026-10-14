@@ -545,6 +545,7 @@
       "lastCountedAria": "上次盘点 {date}",
       "lastCountedLoading": "加载中",
       "lastCountedMeta": "上次盘点 {value}",
+      "lastCountedAtStore": "上次盘点于 {store} · {value}",
       "filterPlaceholderItems": "counted:never cat:蛋白",
       "closeDetailAria": "关闭商品详情",
       "conversionsTitle": "{name} · 换算",

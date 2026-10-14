@@ -2,7 +2,9 @@ import React from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
-import { useStore } from '../../../store/useStore';
+import { useStore, notifyBackendError } from '../../../store/useStore';
+import * as db from '../../../lib/db';
+import { countAgeTone, formatLastCounted, type CountAgeTone } from '../../../utils/countAge';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
@@ -86,6 +88,7 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
   const getItemStatus  = useStore((s) => s.getItemStatus);
   const deleteItem     = useStore((s) => s.deleteItem);
   const brand          = useStore((s) => s.brand);
+  const timezone       = useStore((s) => s.timezone);
   const isSuperAdmin   = useIsSuperAdmin();
   // Spec 142 (chunk b) — phone catalog: full-width list + full-screen drill-in.
   // Read as a hook up top so the guard below all other hooks stays rules-safe
@@ -202,6 +205,41 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
 
   const sel = groups.find((g) => g.key === selectedName);
 
+  // Per-store last-counted maps for the stores.tsv column + hero meta line.
+  // The admin store slice (`lastCountedByItem`) only holds the ACTIVE store,
+  // but this view spans every store the ingredient lives in, so fetch
+  // `items_last_counted` per store, lazily — only the stores the selected
+  // ingredient is in. An entry is stale once `inventory` changes (realtime
+  // reload / EOD submit); stale entries keep rendering while the refetch
+  // runs, so the column doesn't flash back to the loading placeholder.
+  // `byItem === null` = load failed (renders `—`, one toast, no retry until
+  // the next inventory change).
+  const [lastCountedByStore, setLastCountedByStore] = React.useState<
+    Record<string, { byItem: Record<string, string | null> | null; inv: InventoryItem[] }>
+  >({});
+  const lastCountedInflight = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    if (!sel) return;
+    for (const sid of new Set(sel.rows.map((r) => r.storeId))) {
+      if (lastCountedByStore[sid]?.inv === inventory) continue;
+      if (lastCountedInflight.current.has(sid)) continue;
+      lastCountedInflight.current.add(sid);
+      db.fetchItemsLastCounted(sid)
+        .then((rows) => {
+          const byItem: Record<string, string | null> = {};
+          for (const r of rows) if (r.itemId) byItem[r.itemId] = r.lastCountedAt;
+          setLastCountedByStore((prev) => ({ ...prev, [sid]: { byItem, inv: inventory } }));
+        })
+        .catch((e) => {
+          setLastCountedByStore((prev) => ({ ...prev, [sid]: { byItem: prev[sid]?.byItem ?? null, inv: inventory } }));
+          notifyBackendError('Load last counted', e);
+        })
+        .finally(() => lastCountedInflight.current.delete(sid));
+    }
+  }, [sel, inventory, lastCountedByStore]);
+  // Re-anchor "now" whenever a map lands so ages don't drift on a long-open pane.
+  const lastCountedNow = React.useMemo(() => new Date(), [lastCountedByStore]);
+
   const catCounts = React.useMemo(() => {
     const m: Record<string, number> = {};
     for (const g of groups) m[g.category] = (m[g.category] || 0) + 1;
@@ -231,6 +269,38 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
         null,
       )
     : null;
+
+  // undefined = still loading / load failed; null = never counted at that store.
+  const rowLastCounted = (row: InventoryItem): string | null | undefined => {
+    const byItem = lastCountedByStore[row.storeId]?.byItem;
+    return byItem ? (byItem[row.id] ?? null) : undefined;
+  };
+  const lastCountedOpts = (style: 'short' | 'long') => ({
+    now: lastCountedNow,
+    locale,
+    timeZone: timezone,
+    neverLabel: T('section.inventory.neverCounted'),
+    style,
+  });
+  const TONE_COLOR: Record<CountAgeTone, string> = {
+    fresh: C.fg3,
+    stale: C.warn,
+    cold:  C.danger,
+    never: C.danger,
+  };
+  // Hero meta: the most recent count across every store the ingredient is in.
+  // Only shown once every store's map has loaded, so "never counted" can't be
+  // a loading artefact.
+  const selMostRecentCount = (() => {
+    if (!sel) return undefined;
+    let best: { at: string; storeId: string } | null = null;
+    for (const r of sel.rows) {
+      const at = rowLastCounted(r);
+      if (at === undefined) return undefined;
+      if (at && (!best || Date.parse(at) > Date.parse(best.at))) best = { at, storeId: r.storeId };
+    }
+    return best;
+  })();
 
   // Spec 049 — selected groups → catalog ids + names for the dialog.
   // Filter to groups that still exist in the current `groups` view
@@ -636,6 +706,17 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                     {sel.storeCount === 1
                       ? T('section.inventory.suppliedByOne', { category: sel.category.toLowerCase(), vendor: selVendorName, count: sel.storeCount, time: relativeTime(selLastCount) || T('section.inventory.neverEdited') })
                       : T('section.inventory.suppliedBy', { category: sel.category.toLowerCase(), vendor: selVendorName, count: sel.storeCount, time: relativeTime(selLastCount) || T('section.inventory.neverEdited') })}
+                    {selMostRecentCount !== undefined ? (
+                      <Text style={{ color: TONE_COLOR[countAgeTone(selMostRecentCount?.at ?? null, lastCountedNow)] }}>
+                        {' · '}
+                        {selMostRecentCount
+                          ? T('section.inventory.lastCountedAtStore', {
+                              store: stores.find((s) => s.id === selMostRecentCount.storeId)?.name || selMostRecentCount.storeId.slice(0, 6),
+                              value: formatLastCounted(selMostRecentCount.at, lastCountedOpts('short')),
+                            })
+                          : T('section.inventory.neverCounted')}
+                      </Text>
+                    ) : null}
                   </Text>
                 </View>
 
@@ -672,11 +753,14 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 }}>{T('section.inventory.storeCol')}</Text>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 80, textAlign: 'right' }}>{T('section.inventory.onHandCol')}</Text>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>{T('section.inventory.parCol')}</Text>
+                      <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 110, textAlign: 'right' }}>{T('section.inventory.lastCountedCol')}</Text>
                       <Text style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3, letterSpacing: 0.5, textTransform: 'uppercase', width: 50, textAlign: 'right' }}>{T('section.inventory.statusCol')}</Text>
                     </View>
                     {sel.rows.map((row, i) => {
                       const store = stores.find((s) => s.id === row.storeId);
                       const rowStatus = getItemStatus(row);
+                      const countedAt = rowLastCounted(row);
+                      const countTone = countAgeTone(countedAt ?? null, lastCountedNow);
                       return (
                         <View
                           key={row.id}
@@ -703,6 +787,24 @@ export default function InventoryCatalogMode({ selectedName, onSelectName, topSl
                           <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 60, textAlign: 'right' }}>
                             {row.parLevel}
                           </Text>
+                          {countedAt === undefined ? (
+                            <Text
+                              style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, width: 110, textAlign: 'right' }}
+                              accessibilityLabel={T('section.inventory.lastCountedLoading')}
+                            >
+                              —
+                            </Text>
+                          ) : (
+                            <Text
+                              style={{ fontFamily: mono(400), fontSize: 10.5, color: TONE_COLOR[countTone], width: 110, textAlign: 'right' }}
+                              numberOfLines={1}
+                              accessibilityLabel={countTone === 'never'
+                                ? T('section.inventory.neverCounted')
+                                : T('section.inventory.lastCountedAria', { date: formatLastCounted(countedAt, lastCountedOpts('long')) })}
+                            >
+                              {formatLastCounted(countedAt, lastCountedOpts('short'))}
+                            </Text>
+                          )}
                           <View style={{ width: 50, alignItems: 'flex-end' }}>
                             <StatusPill status={rowStatus} />
                           </View>

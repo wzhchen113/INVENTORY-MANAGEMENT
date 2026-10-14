@@ -144,6 +144,11 @@ jest.mock('../../../../store/useStore', () => {
 });
 
 // i18n helpers — return inputs unchanged so we can match by raw text.
+// Last-counted column fetches per store on selection; stub the RPC.
+jest.mock('../../../../lib/db', () => ({
+  fetchItemsLastCounted: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('../../../../i18n/localizedName', () => ({
   getLocalizedName: (row: { name: string }) => row.name,
 }));

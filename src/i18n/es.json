@@ -545,6 +545,7 @@
       "lastCountedAria": "último conteo {date}",
       "lastCountedLoading": "cargando",
       "lastCountedMeta": "último conteo {value}",
+      "lastCountedAtStore": "último conteo en {store} · {value}",
       "filterPlaceholderItems": "counted:never cat:proteína",
       "closeDetailAria": "Cerrar detalle del artículo",
       "conversionsTitle": "{name} · conversiones",
