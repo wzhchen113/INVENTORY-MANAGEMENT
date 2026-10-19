@@ -73,6 +73,14 @@ export interface User {
    * email. Optional because older sessions may not have loaded the column.
    */
   username?: string | null;
+  /**
+   * Spec 165 — how this account signs in. `'username'` marks a username-only
+   * store user whose auth email is a non-deliverable placeholder; the data
+   * layer (fetchAllUsers / fetchBrandAdmins) clears `email` to '' for those
+   * rows so the placeholder is never displayed. Optional so existing fixtures
+   * compile; readers treat `undefined` as `'email'` (see utils/userIdentity).
+   */
+  loginKind?: 'email' | 'username';
 }
 
 export interface Brand {

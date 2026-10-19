@@ -13,6 +13,17 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Spec 165 §6 — username-only store users carry a non-deliverable
+// placeholder address; a self-triggered welcome must never be sent to it.
+// Byte-identical mirror of src/lib/placeholderEmail.ts; enforced by
+// src/lib/placeholderEmail.parity.test.ts.
+// BEGIN placeholder-email (spec 165)
+const PLACEHOLDER_EMAIL_RE = /^u-[0-9a-f]{32}@no-email\.invalid$/;
+function isPlaceholderEmail(email: unknown): boolean {
+  return typeof email === "string" && PLACEHOLDER_EMAIL_RE.test(email.trim().toLowerCase());
+}
+// END placeholder-email (spec 165)
+
 // Proof that this email belongs to a freshly-registered user:
 //   1. caller is authenticated (has a valid user JWT)
 //   2. their auth email matches the `email` arg
@@ -63,6 +74,14 @@ Deno.serve(async (req: Request) => {
     if (gate.status !== 200) {
       return new Response(JSON.stringify({ error: gate.error }), {
         status: gate.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Spec 165 §6: a username-only account holds a placeholder address in its
+    // own session and could invoke this itself — never hand it to Resend.
+    if (isPlaceholderEmail(email)) {
+      return new Response(JSON.stringify({ success: true, skipped: "placeholder" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

@@ -22,6 +22,7 @@ import { Brand, Store, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
 import { useLocale } from '../../../hooks/useLocale';
 import { userStatusLabel, roleLabel } from '../../../utils/enumLabels';
+import { userConfirmText, userIdentityLine } from '../../../utils/userIdentity';
 
 // Spec 038 N-R3-1 — locale-aware plural form selector. `Intl.PluralRules`
 // returns the CLDR plural category ('one' | 'other' | 'two' | 'few' | …)
@@ -828,7 +829,9 @@ function PurgeButton({
 }
 
 // ─── members.tsx ────────────────────────────────────────────────────
-function MembersTab({
+// Exported for jest unit coverage of the spec 165 username-only row rendering
+// (StoresTab precedent below). Not consumed by any other module.
+export function MembersTab({
   admins, loading, brandId, onInvite, onDeleteProfile, superAdminUserId,
 }: {
   admins: User[];
@@ -969,7 +972,11 @@ function MembersTab({
                   {/* No line clamp — the store-name list must stay fully
                       readable for members assigned to many stores. */}
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                    {u.email || '(email not loaded)'} · {memberStoresLabel(u)}
+                    {/* Spec 165 — username-only accounts show @username + the
+                        sign-in marker; their placeholder email is cleared at
+                        the data layer and never rendered. */}
+                    {userIdentityLine(u, T('section.users.usernameSignIn'), { emailFallback: '(email not loaded)' })}
+                    {' · '}{memberStoresLabel(u)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
@@ -1042,19 +1049,29 @@ function MembersTab({
 }
 
 // ─── Delete-profile modal (Q-ARCH-1) ────────────────────────────────
-function DeleteProfileModal({
+// Exported for jest unit coverage of the spec 165 confirm text. Not consumed
+// by any other module.
+export function DeleteProfileModal({
   target, onClose,
 }: {
   target: User;
   onClose: () => void;
 }) {
   const deleteProfile = useStore((s) => s.deleteProfile);
+  const T = useT();
+  // Spec 165 — never interpolate an email for a username-only account; the
+  // confirm text follows the shared userConfirmText rule.
+  const confirmText = userConfirmText(target);
+  const ident = userIdentityLine(target, T('section.users.usernameSignIn'), {
+    emailFallback: 'no email',
+    separator: ', ',
+  });
   return (
     <TypeToConfirmModal
       visible
-      title={`Delete profile "${target.name || target.email}"`}
-      description={`Permanently deletes ${target.name || target.email} (${target.email || 'no email'}). Removes both the profile row AND the auth.users row. The human user will no longer be able to log in. This cannot be undone.`}
-      requiredText={target.name || target.email || ''}
+      title={`Delete profile "${target.name || confirmText}"`}
+      description={`Permanently deletes ${target.name || confirmText} (${ident}). Removes both the profile row AND the auth.users row. The human user will no longer be able to log in. This cannot be undone.`}
+      requiredText={confirmText}
       destructiveLabel="DELETE PROFILE"
       destructiveTone="danger"
       onConfirm={async () => {

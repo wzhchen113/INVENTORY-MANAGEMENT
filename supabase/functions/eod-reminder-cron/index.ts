@@ -15,6 +15,17 @@ type Vendor = { id: string; name: string; order_cutoff_time: string | null };
 type SchedRow = { store_id: string; vendor_id: string };
 type Sub = { user_id: string; endpoint: string; p256dh: string; auth: string };
 
+// Spec 165 §6 — username-only store users carry a non-deliverable
+// placeholder address; the Resend fallback must never target it.
+// Byte-identical mirror of src/lib/placeholderEmail.ts; enforced by
+// src/lib/placeholderEmail.parity.test.ts.
+// BEGIN placeholder-email (spec 165)
+const PLACEHOLDER_EMAIL_RE = /^u-[0-9a-f]{32}@no-email\.invalid$/;
+function isPlaceholderEmail(email: unknown): boolean {
+  return typeof email === "string" && PLACEHOLDER_EMAIL_RE.test(email.trim().toLowerCase());
+}
+// END placeholder-email (spec 165)
+
 function wallPartsInTZ(tz: string, at?: Date) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: tz, weekday: 'long',
@@ -181,7 +192,9 @@ Deno.serve(async (req) => {
       try {
         const { data, error } = await sb.auth.admin.getUserById(userId);
         if (error) { emailCache.set(userId, null); return null; }
-        const email = data?.user?.email || null;
+        const raw = data?.user?.email || null;
+        // Spec 165: placeholder (username-only) account → no email fallback.
+        const email = isPlaceholderEmail(raw) ? null : raw;
         emailCache.set(userId, email);
         return email;
       } catch { emailCache.set(userId, null); return null; }

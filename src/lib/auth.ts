@@ -4,6 +4,7 @@ import { User, SidebarLayoutOverride } from '../types';
 import { isValidOverride } from './sidebarLayout';
 import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup, fetchProfileEmails } from './db';
 import { resolveRecoveryRedirectUrl } from './recoveryRedirect';
+import { isPlaceholderEmail } from './placeholderEmail';
 
 export interface AuthResult {
   user: User | null;
@@ -642,14 +643,24 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
         .map((sl: any) => sl.store_id)
         .filter((sid: string) => !allowedStoreIds || allowedStoreIds.has(sid));
 
-      const invitation = invByProfileId.get(p.id) ?? invByName.get(p.name);
+      // Spec 165 §7 — a placeholder auth email marks a username-only account.
+      // Clear it here so no screen ever renders it, and SKIP the invitation
+      // fallback for these rows: the name-match path could otherwise attach an
+      // unrelated invitation's email (and re-enable email RESET PW against a
+      // stranger's inbox).
+      const rpcEmail = rpcEmails.get(p.id);
+      const usernameLogin = isPlaceholderEmail(rpcEmail);
+      const invitation = usernameLogin
+        ? undefined
+        : (invByProfileId.get(p.id) ?? invByName.get(p.name));
 
       return {
         id: p.id,
         name: p.role === 'master' ? 'MASTER' : p.name,
         nickname: p.nickname || '',
         // Spec 163 — auth.users email (RPC) wins; invitation is the fallback.
-        email: rpcEmails.get(p.id) || invitation?.email || '',
+        email: usernameLogin ? '' : (rpcEmail || invitation?.email || ''),
+        loginKind: usernameLogin ? 'username' : 'email',
         role: p.role,
         stores,
         status: p.status,
@@ -669,6 +680,56 @@ export async function fetchAllUsers(opts?: { brandId?: string }): Promise<User[]
 /** Delete a user fully (profile + store links + auth account via edge function) */
 export async function deleteUser(userId: string): Promise<{ error: string | null }> {
   const { error } = await callEdgeFunction('delete-user', { userId });
+  return { error };
+}
+
+// ─── Spec 165 — username-only store users (manage-store-user) ────────────
+// Both wrappers go through callEdgeFunction (no raw fetch). They never log and
+// never put `password` into any returned string; the error string is the
+// server's stable `{ error }` value (spec 165 §4.6), mapped to human copy in
+// the drawer / modal, not here.
+
+/** Client mirror of the server's PASSWORD_MIN_LENGTH (spec 165 §4.1). */
+export const STORE_USER_PASSWORD_MIN_LENGTH = 8;
+
+export interface CreateStoreUserInput {
+  name: string;
+  username: string;
+  password: string;
+  storeIds: string[];
+}
+
+/** Create a `role='user'` store account that signs in by username. Role,
+ *  brand and email are decided server-side — the body carries only the four
+ *  allowlisted fields. Password is sent verbatim (no trim). */
+export async function createStoreUser(
+  input: CreateStoreUserInput,
+): Promise<{ data: { id: string; username: string } | null; error: string | null }> {
+  const { data, error } = await callEdgeFunction('manage-store-user', {
+    action: 'create',
+    name: input.name.trim(),
+    username: input.username.trim().toLowerCase(),
+    password: input.password,
+    storeIds: Array.from(new Set(input.storeIds)),
+  });
+  if (error) return { data: null, error };
+  const id = typeof data?.id === 'string' ? data.id : null;
+  const username = typeof data?.username === 'string' ? data.username : null;
+  if (!id || !username) return { data: null, error: 'Unexpected response from server' };
+  return { data: { id, username }, error: null };
+}
+
+/** Admin-set a new password on a username-only store account. The server
+ *  refuses self, non-`user` targets, real-email accounts, and other brands. */
+export async function setStoreUserPassword(
+  userId: string,
+  password: string,
+): Promise<{ error: string | null }> {
+  const { error } = await callEdgeFunction('manage-store-user', {
+    action: 'set_password',
+    userId,
+    password,
+  });
   return { error };
 }
 

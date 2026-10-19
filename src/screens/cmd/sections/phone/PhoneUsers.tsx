@@ -24,9 +24,12 @@ import { usePhoneDrill } from './usePhoneDrill';
 import { TwoLineRow, PropertyCard } from './PhoneWidgets';
 import { StatusPill } from '../../../../components/cmd/StatusPill';
 import { InviteUserDrawer } from '../../../../components/cmd/InviteUserDrawer';
+import { AddStoreUserDrawer } from '../../../../components/cmd/AddStoreUserDrawer';
+import { SetStoreUserPasswordModal } from '../../../../components/cmd/SetStoreUserPasswordModal';
 import { TypeToConfirmModal } from '../../../../components/cmd/TypeToConfirmModal';
 import { roleLabel, userStatusLabel } from '../../../../utils/enumLabels';
 import { canDeleteUser, deriveAccessibleStores } from '../../../../utils/userPermissions';
+import { isUsernameLogin, userConfirmText, userIdentityLine } from '../../../../utils/userIdentity';
 import type { Store, User } from '../../../../types';
 
 // ── Role-pill tone ─────────────────────────────────────────────────────────────
@@ -90,6 +93,22 @@ export interface PhoneUsersModel {
   onResetPassword: (u: User) => void;
   /** Host's refresh — re-fetches so a fresh invite lands as an INVITED row. */
   onInvited: () => void;
+  /** Spec 165 — Add-store-user drawer visibility (host state). Its
+   *  onCreated reuses `onInvited` (the host refresh). */
+  addOpen: boolean;
+  setAddOpen: (v: boolean) => void;
+  /** Spec 165 — SET PASSWORD target for a username-only row (host state). */
+  setPasswordTarget: User | null;
+  setSetPasswordTarget: (u: User | null) => void;
+}
+
+// Spec 165 — the email-or-username identity line for a row / detail subtitle.
+// Username-only accounts render `@username · username sign-in`; the data layer
+// already cleared their placeholder email, so it can never appear here.
+function identityLine(u: User, T: (key: string, vars?: Record<string, string | number>) => string): string {
+  return userIdentityLine(u, T('section.users.usernameSignIn'), {
+    emailFallback: T('section.users.phone.noEmail'),
+  });
 }
 
 // ── Detail ───────────────────────────────────────────────────────────────────
@@ -107,6 +126,11 @@ function UserDetail({ user, model }: { user: User; model: PhoneUsersModel }) {
   const canResetPassword = model.isMaster
     ? !isSelf && user.role !== 'master' && user.role !== 'super_admin'
     : user.role === 'user' && !isSelf;
+  // Spec 165 — SET PASSWORD replaces RESET PW for username-only accounts.
+  // Role 'user' only (architect M7) — the server refuses any other target.
+  const usernameLogin = isUsernameLogin(user);
+  const showResetPw = canResetPassword && !usernameLogin;
+  const showSetPassword = canResetPassword && usernameLogin && user.role === 'user';
 
   const accessibleStores = deriveAccessibleStores(user, model.stores);
   const storesValue =
@@ -131,8 +155,8 @@ function UserDetail({ user, model }: { user: User; model: PhoneUsersModel }) {
           ) : null}
         </View>
         <Text style={[PhoneType.detailTitle, { color: C.fg }]}>{user.name || '—'}</Text>
-        <Text style={[PhoneType.metaMono, { color: C.fg3 }]} numberOfLines={1}>
-          {user.email || T('section.users.phone.noEmail')}
+        <Text testID="phone-user-identity" style={[PhoneType.metaMono, { color: C.fg3 }]} numberOfLines={1}>
+          {identityLine(user, T)}
         </Text>
       </View>
 
@@ -142,7 +166,21 @@ function UserDetail({ user, model }: { user: User; model: PhoneUsersModel }) {
           edit form: there is no desktop role-edit affordance to mirror. */}
       {canResetPassword || canDelete ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {canResetPassword ? (
+          {showSetPassword ? (
+            <TouchableOpacity
+              testID="phone-user-set-password"
+              onPress={() => model.setSetPasswordTarget(user)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={T('section.users.phone.setPw')}
+              style={{ flex: 1, height: 48, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.borderStrong, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 12, letterSpacing: 0.5, color: C.fg2 }}>
+                {T('section.users.phone.setPw')}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {showResetPw ? (
             <TouchableOpacity
               testID="phone-user-reset"
               onPress={() => model.onResetPassword(user)}
@@ -217,7 +255,7 @@ export const PhoneUsers: React.FC<{ model: PhoneUsersModel }> = ({ model }) => {
           <TwoLineRow
             testID={`phone-user-row-${u.id}`}
             pill={<RolePill role={u.role} />}
-            name={u.name || u.email || '—'}
+            name={u.name || (isUsernameLogin(u) ? (u.username ? `@${u.username}` : '—') : (u.email || '—'))}
             rightValue={
               <Text style={[PhoneType.metaMono, { color: C.fg3 }]}>
                 {T('section.users.phone.storesTag', { n: storeCount })}
@@ -225,7 +263,7 @@ export const PhoneUsers: React.FC<{ model: PhoneUsersModel }> = ({ model }) => {
             }
             meta={
               <Text style={[PhoneType.metaMono, { color: C.fg3 }]} numberOfLines={1}>
-                {u.email || T('section.users.phone.noEmail')}
+                {identityLine(u, T)}
               </Text>
             }
             line2Right={
@@ -245,15 +283,28 @@ export const PhoneUsers: React.FC<{ model: PhoneUsersModel }> = ({ model }) => {
       {header}
       {listBody}
       {/* + INVITE — 48px primary, thumb-reachable at the bottom (PhoneWasteLog
-          idiom). Opens the reused InviteUserDrawer via host state. */}
-      <View style={{ padding: 14, borderTopWidth: 1, borderTopColor: C.border }}>
+          idiom). Opens the reused InviteUserDrawer via host state. Spec 165
+          adds + ADD USER (outlined, same 48px) beside it. */}
+      <View style={{ padding: 14, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', gap: 10 }}>
+        <TouchableOpacity
+          testID="phone-users-add"
+          onPress={() => model.setAddOpen(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={T('section.users.addUser')}
+          style={{ flex: 1, height: 48, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.accent, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ fontFamily: mono(700), fontSize: 12, letterSpacing: 0.5, color: C.accent }}>
+            {T('section.users.phone.add')}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           testID="phone-users-invite"
           onPress={() => model.setInviteOpen(true)}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel={T('section.users.inviteUser')}
-          style={{ height: 48, borderRadius: CmdRadius.sm, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}
+          style={{ flex: 1, height: 48, borderRadius: CmdRadius.sm, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' }}
         >
           <Text style={{ fontFamily: mono(700), fontSize: 12, letterSpacing: 0.5, color: C.accentFg }}>
             {T('section.users.phone.invite')}
@@ -281,20 +332,32 @@ export const PhoneUsers: React.FC<{ model: PhoneUsersModel }> = ({ model }) => {
         onInvited={model.onInvited}
       />
 
+      <AddStoreUserDrawer
+        visible={model.addOpen}
+        onClose={() => model.setAddOpen(false)}
+        onCreated={model.onInvited}
+      />
+
+      <SetStoreUserPasswordModal
+        target={model.setPasswordTarget}
+        onClose={() => model.setSetPasswordTarget(null)}
+      />
+
       {model.deleteTarget ? (
         <TypeToConfirmModal
           visible
           title={
             model.deleteTarget.id === model.currentUserId
               ? T('section.users.phone.deleteSelfTitle')
-              : T('section.users.phone.deleteTitle', { name: model.deleteTarget.name || model.deleteTarget.email })
+              : T('section.users.phone.deleteTitle', { name: model.deleteTarget.name || userConfirmText(model.deleteTarget) })
           }
           description={
             model.deleteTarget.id === model.currentUserId
               ? T('section.users.phone.deleteSelfBody')
               : T('section.users.phone.deleteBody', { name: model.deleteTarget.name || T('section.users.phone.thisUser') })
           }
-          requiredText={model.deleteTarget.email || model.deleteTarget.name || ''}
+          // Spec 165 — username accounts confirm by username, never email.
+          requiredText={userConfirmText(model.deleteTarget)}
           destructiveLabel={T('section.users.phone.deleteUser')}
           destructiveTone="danger"
           onConfirm={model.onConfirmDelete}

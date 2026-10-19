@@ -8,6 +8,8 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatusPill } from '../../../components/cmd/StatusPill';
 import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { InviteUserDrawer } from '../../../components/cmd/InviteUserDrawer';
+import { AddStoreUserDrawer } from '../../../components/cmd/AddStoreUserDrawer';
+import { SetStoreUserPasswordModal } from '../../../components/cmd/SetStoreUserPasswordModal';
 import { PhoneUsers } from './phone/PhoneUsers';
 import { useIsPhone } from '../../../theme/breakpoints';
 import { fetchAllUsers, sendPasswordReset } from '../../../lib/auth';
@@ -16,6 +18,7 @@ import { useIsMaster } from '../../../hooks/useRole';
 import { canDeleteUser, deriveLastOfRole, deriveAccessibleStores } from '../../../utils/userPermissions';
 import { useT } from '../../../hooks/useT';
 import { roleLabel, userStatusLabel } from '../../../utils/enumLabels';
+import { isUsernameLogin, userConfirmText } from '../../../utils/userIdentity';
 
 // Spec 025 §2 — admin-global users surface. Replaces the legacy
 // UsersScreen from AdminScreens.tsx (master role + admin role + store
@@ -26,6 +29,13 @@ import { roleLabel, userStatusLabel } from '../../../utils/enumLabels';
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 6) : id;
+}
+
+// Spec 165 — the "(…)" identity suffix in the delete-confirm description:
+// `(@username)` for username-only accounts, `(email)` otherwise.
+function deleteIdentSuffix(u: User): string {
+  if (isUsernameLogin(u)) return u.username ? ` (@${u.username})` : '';
+  return u.email ? ` (${u.email})` : '';
 }
 
 export default function UsersSection() {
@@ -41,6 +51,9 @@ export default function UsersSection() {
 
   const [users, setUsers] = React.useState<User[] | null>(null);
   const [inviteOpen, setInviteOpen] = React.useState(false);
+  // Spec 165 — "+ ADD USER" drawer + SET PASSWORD target (username-only rows).
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [setPasswordTarget, setSetPasswordTarget] = React.useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<User | null>(null);
   const [tabId, setTabId] = React.useState('users.tsx');
 
@@ -77,6 +90,9 @@ export default function UsersSection() {
     : rawUsers.filter((u) => u.role !== 'master' && u.role !== 'super_admin');
 
   const handleSendReset = async (u: User) => {
+    // Spec 165 — defense in depth: username-only accounts have no inbox (the
+    // RESET PW button is hidden for them; SET PASSWORD replaces it).
+    if (isUsernameLogin(u)) return;
     if (!u.email) {
       Toast.show({
         type: 'error',
@@ -150,6 +166,10 @@ export default function UsersSection() {
           onConfirmDelete: handleConfirmDelete,
           onResetPassword: handleSendReset,
           onInvited: () => { refresh().catch(() => {}); },
+          addOpen,
+          setAddOpen,
+          setPasswordTarget,
+          setSetPasswordTarget,
         }}
       />
     );
@@ -162,20 +182,38 @@ export default function UsersSection() {
         activeId={tabId}
         onChange={setTabId}
         rightSlot={
-          <TouchableOpacity
-            testID="users-invite-trigger"
-            onPress={() => setInviteOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Invite user"
-            style={{
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              backgroundColor: C.accent,
-              borderRadius: CmdRadius.sm,
-            }}
-          >
-            <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>+ INVITE USER</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            {/* Spec 165 — username + password store user, no email. */}
+            <TouchableOpacity
+              testID="users-add-trigger"
+              onPress={() => setAddOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Add store user"
+              style={{
+                paddingVertical: 3,
+                paddingHorizontal: 9,
+                borderWidth: 1,
+                borderColor: C.accent,
+                borderRadius: CmdRadius.sm,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accent }}>+ ADD USER</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="users-invite-trigger"
+              onPress={() => setInviteOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Invite user"
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                backgroundColor: C.accent,
+                borderRadius: CmdRadius.sm,
+              }}
+            >
+              <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>+ INVITE USER</Text>
+            </TouchableOpacity>
+          </View>
         }
       />
 
@@ -184,7 +222,7 @@ export default function UsersSection() {
         <View>
           <Text style={[Type.h1, { color: C.fg }]}>{T('section.users.title')}</Text>
           <Text style={{ fontFamily: sans(400), fontSize: 13, color: C.fg2 }}>
-            Invite admins and store users, manage role assignments, reset passwords, and remove accounts.
+            Invite admins and store users by email, or add a store user who signs in with a username and password. Manage role assignments, reset passwords, and remove accounts.
           </Text>
         </View>
 
@@ -218,7 +256,7 @@ export default function UsersSection() {
           >
             <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg3, letterSpacing: 0.4 }}>NO USERS</Text>
             <Text style={{ fontFamily: mono(400), fontSize: 11.5, color: C.fg2, textAlign: 'center', maxWidth: 380 }}>
-              Click "+ INVITE USER" to send the first invitation.
+              Click "+ INVITE USER" to send the first invitation, or "+ ADD USER" to create a store user who signs in with a username.
             </Text>
           </View>
         ) : (
@@ -242,6 +280,7 @@ export default function UsersSection() {
                 lastOfRole={lastOfRole}
                 onDelete={() => setDeleteTarget(u)}
                 onResetPassword={() => handleSendReset(u)}
+                onSetPassword={() => setSetPasswordTarget(u)}
                 T={T}
               />
             ))}
@@ -255,20 +294,33 @@ export default function UsersSection() {
         onInvited={() => { refresh().catch(() => {}); }}
       />
 
+      <AddStoreUserDrawer
+        visible={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={() => { refresh().catch(() => {}); }}
+      />
+
+      <SetStoreUserPasswordModal
+        target={setPasswordTarget}
+        onClose={() => setSetPasswordTarget(null)}
+      />
+
       {deleteTarget ? (
         <TypeToConfirmModal
           visible
           title={
             deleteTarget.id === currentUser?.id
               ? 'Delete your account'
-              : `Delete ${deleteTarget.name || deleteTarget.email}`
+              : `Delete ${deleteTarget.name || userConfirmText(deleteTarget)}`
           }
           description={
             deleteTarget.id === currentUser?.id
-              ? `This will permanently delete your account${deleteTarget.email ? ` (${deleteTarget.email})` : ''} and sign you out. This cannot be undone.`
-              : `This will permanently delete ${deleteTarget.name || 'this user'}${deleteTarget.email ? ` (${deleteTarget.email})` : ''}. Both the profile row and the auth user are removed. The human user will no longer be able to log in. This cannot be undone.`
+              ? `This will permanently delete your account${deleteIdentSuffix(deleteTarget)} and sign you out. This cannot be undone.`
+              : `This will permanently delete ${deleteTarget.name || 'this user'}${deleteIdentSuffix(deleteTarget)}. Both the profile row and the auth user are removed. The human user will no longer be able to log in. This cannot be undone.`
           }
-          requiredText={deleteTarget.email || deleteTarget.name || ''}
+          // Spec 165 — username accounts confirm by username, never the
+          // (cleared) placeholder email.
+          requiredText={userConfirmText(deleteTarget)}
           destructiveLabel="DELETE USER"
           destructiveTone="danger"
           onConfirm={handleConfirmDelete}
@@ -281,7 +333,7 @@ export default function UsersSection() {
 
 // ─── User row ───────────────────────────────────────────────────────
 function UserRow({
-  user, isFirst, isMaster, currentUserId, stores, lastOfRole, onDelete, onResetPassword, T,
+  user, isFirst, isMaster, currentUserId, stores, lastOfRole, onDelete, onResetPassword, onSetPassword, T,
 }: {
   user: User;
   isFirst: boolean;
@@ -291,6 +343,7 @@ function UserRow({
   lastOfRole: { super_admin: boolean; master: boolean };
   onDelete: () => void;
   onResetPassword: () => void;
+  onSetPassword: () => void;
   T: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   const C = useCmdColors();
@@ -320,6 +373,13 @@ function UserRow({
   const canResetPassword = isMaster
     ? !isSelf && user.role !== 'master' && user.role !== 'super_admin'
     : user.role === 'user' && !isSelf;
+  // Spec 165 — username-only accounts have no inbox: SET PASSWORD replaces
+  // the email RESET PW (same gate). Real-email rows are unchanged. SET
+  // PASSWORD also requires role 'user' (architect M7): manage-store-user
+  // refuses any other target, so no button is offered for one.
+  const usernameLogin = isUsernameLogin(user);
+  const showResetPw = canResetPassword && !usernameLogin;
+  const showSetPassword = canResetPassword && usernameLogin && user.role === 'user';
 
   // Store-access chips: brand-scoped per the user's role (spec 068 §3).
   //   - super_admin sees every brand → all stores.
@@ -369,11 +429,30 @@ function UserRow({
           {isSelf ? (
             <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>(you)</Text>
           ) : null}
+          {usernameLogin ? (
+            <View
+              testID={`user-username-login-${user.id}`}
+              style={{
+                paddingHorizontal: 6,
+                paddingVertical: 1,
+                borderRadius: CmdRadius.xs,
+                borderWidth: 1,
+                borderColor: C.border,
+                backgroundColor: C.panel2,
+              }}
+            >
+              <Text style={{ fontFamily: mono(500), fontSize: 9.5, color: C.fg3 }}>
+                {T('section.users.usernameSignIn')}
+              </Text>
+            </View>
+          ) : null}
         </View>
         <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }} numberOfLines={1}>
           {[
             user.username ? `@${user.username}` : null,
-            user.email || (user.username ? null : '(email not loaded)'),
+            // Spec 165 — username-only rows never show an email or the
+            // "(email not loaded)" placeholder (the data layer cleared it).
+            usernameLogin ? null : (user.email || (user.username ? null : '(email not loaded)')),
             shortId(user.id),
           ].filter(Boolean).join(' · ')}
         </Text>
@@ -425,8 +504,26 @@ function UserRow({
 
       {/* Actions */}
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-        {canResetPassword ? (
+        {showSetPassword ? (
           <TouchableOpacity
+            testID={`user-set-password-${user.id}`}
+            onPress={onSetPassword}
+            accessibilityRole="button"
+            accessibilityLabel={`Set password for ${user.username ? `@${user.username}` : user.name}`}
+            style={{
+              paddingVertical: 5,
+              paddingHorizontal: 9,
+              borderRadius: CmdRadius.sm,
+              borderWidth: 1,
+              borderColor: C.borderStrong,
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg2 }}>SET PASSWORD</Text>
+          </TouchableOpacity>
+        ) : null}
+        {showResetPw ? (
+          <TouchableOpacity
+            testID={`user-reset-pw-${user.id}`}
             onPress={onResetPassword}
             accessibilityRole="button"
             accessibilityLabel={`Send password reset to ${user.name || user.username || user.email}`}

@@ -33,7 +33,7 @@ npm test
 npm run test:db
 
 # Track 3 — shell smokes (requires `npm run dev:db` running)
-npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh
+npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh, smoke-store-user.sh
 
 # Track 4 — browser E2E (requires `npm run dev:db` running; boots the web
 # server itself via playwright.config.ts `webServer`)
@@ -392,7 +392,7 @@ CONTAINER=supabase_db_some-other-name npm run test:db
 
 ## Track 3 — Shell smokes
 
-Manual-run scripts under `scripts/smoke-*.sh`. v1 ships three:
+Manual-run scripts under `scripts/smoke-*.sh`. `npm run test:smoke` runs four:
 
 - [`scripts/smoke-edge.sh`](../scripts/smoke-edge.sh) — the original; CORS
   + JWT + happy-path checks for `fetch-breadbot-sales` edge function.
@@ -405,11 +405,18 @@ Manual-run scripts under `scripts/smoke-*.sh`. v1 ships three:
   preflight, no-auth 401, admin JWT, super_admin promoted JWT). Refuses
   to run against a non-local `SUPABASE_URL` because Arm 4 mutates state
   (`admin@local.test` → super_admin, reverted via EXIT trap).
+- [`scripts/smoke-store-user.sh`](../scripts/smoke-store-user.sh) — Spec
+  165; smokes the `manage-store-user` edge function (username-only
+  `create` + `set_password`): role/brand gates, validation, compensation
+  rollback, session revocation, and no-leak checks. Refuses to run against
+  a non-local `SUPABASE_URL`; creates `zz_s165*` fixtures and removes them
+  in its EXIT trap.
 
 ```bash
-npm run test:smoke               # runs all three
+npm run test:smoke               # runs all four
 bash scripts/smoke-rpc.sh        # one of them
 bash scripts/smoke-edge-roles.sh # the role-gate smoke
+bash scripts/smoke-store-user.sh # the spec 165 store-user smoke
 ```
 
 Each script accepts `SUPABASE_URL=` to point at a remote stack.

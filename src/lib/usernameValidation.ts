@@ -29,10 +29,18 @@ export const USERNAME_FORMAT_RE = /^[A-Za-z0-9_.]+$/;
  * Reserved usernames blocked on forward admin assignment (spec 095 §(d)).
  * Compared case-insensitively. The backfill is intentionally EXEMPT — a
  * reserved-derived backfilled name (e.g. `admin` from `admin@2am.com`) is
- * acceptable and admins can reassign later — so this list is enforced ONLY in
- * the admin assignment UI, never in the resolver or backfill.
+ * acceptable and admins can reassign later — so this list is enforced on
+ * forward assignment only: in the admin assignment UI and, since spec 165,
+ * server-side in the manage-store-user `create` action. It is never applied
+ * in the resolver or the backfill.
+ *
+ * Spec 165 §3.4: the lines between the `reserved-usernames` markers are
+ * mirrored byte-identically in supabase/functions/manage-store-user/index.ts
+ * (server-side enforcement on the username-only create path); drift is
+ * caught by src/lib/placeholderEmail.parity.test.ts.
  */
 export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
+  // BEGIN reserved-usernames (spec 165)
   'admin',
   'root',
   'master',
@@ -44,6 +52,7 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
   'undefined',
   'me',
   'owner',
+  // END reserved-usernames (spec 165)
 ]);
 
 export type UsernameValidationResult =

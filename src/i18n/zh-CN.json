@@ -1489,6 +1489,8 @@
     "users": {
       "title": "用户与权限",
       "inviteUser": "邀请用户",
+      "addUser": "添加门店用户",
+      "usernameSignIn": "用户名登录",
       "noUsers": "暂无用户",
       "deleteUserConfirm": "删除用户?",
       "deleteUserBody": "档案和登录账户将被移除。",
@@ -1499,7 +1501,7 @@
         "invited": "已邀请",
         "invite": "+ 邀请",
         "loading": "加载中…",
-        "empty": "暂无用户 — 在下方邀请第一位。",
+        "empty": "暂无用户 — 在下方邀请或添加第一位。",
         "noStores": "未分配门店",
         "noEmail": "(邮箱未加载)",
         "you": "你",
@@ -1514,7 +1516,9 @@
         "deleteSelfTitle": "删除你的账户",
         "deleteBody": "这将永久删除 {name}。档案和登录账户都会被移除。此操作无法撤销。",
         "deleteSelfBody": "这将永久删除你的账户并退出登录。此操作无法撤销。",
-        "thisUser": "此用户"
+        "thisUser": "此用户",
+        "add": "+ 添加用户",
+        "setPw": "设置密码"
       }
     },
     "brands": {

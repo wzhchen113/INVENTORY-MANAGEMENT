@@ -486,6 +486,18 @@ verify_jwt = true
 [functions.instacart-cart-link]
 verify_jwt = true
 
+# manage-store-user (spec 165, §4) — admin "Add user" (username + password, no
+# email) and "Set password" for username-only store users. SAME posture as
+# send-po-email / instacart-cart-link, pinned TRUE explicitly: it is an
+# admin-triggered action carrying the CALLER's Supabase JWT, gated by an inline
+# requireAdminCaller() / ADMIN_ROLES set mirroring public.auth_is_privileged()
+# plus the spec 043 brand-match gate. It holds the service-role key and creates
+# auth users / sets other users' passwords, so the gateway JWT check MUST stay
+# on — never flip this to false (it is NOT a staff-* / pwa-catalog
+# service-token function).
+[functions.manage-store-user]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

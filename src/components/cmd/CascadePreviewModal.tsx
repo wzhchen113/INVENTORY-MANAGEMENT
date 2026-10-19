@@ -6,6 +6,8 @@ import { ResponsiveSheet } from './ResponsiveSheet';
 import { TypeToConfirmModal } from './TypeToConfirmModal';
 import { useStore } from '../../store/useStore';
 import { useIsPhone } from '../../theme/breakpoints';
+import { useT } from '../../hooks/useT';
+import { userIdentityLine } from '../../utils/userIdentity';
 import type { BrandCascadePreview } from '../../lib/db';
 
 // Spec 012c §8.6 — two-step purge UI.
@@ -41,6 +43,7 @@ export const CascadePreviewModal: React.FC<CascadePreviewModalProps> = ({
   onManageMembers,
 }) => {
   const C = useCmdColors();
+  const T = useT();
   const isPhone = useIsPhone();
   const previewBrandCascade = useStore((s) => s.previewBrandCascade);
 
@@ -335,7 +338,10 @@ export const CascadePreviewModal: React.FC<CascadePreviewModalProps> = ({
                           {p.name || '—'}
                         </Text>
                         <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
-                          {p.email || '(no email)'} · {p.role}
+                          {/* Spec 165 — placeholder emails are nulled in
+                              mapCascadePreview; show the sign-in marker. */}
+                          {userIdentityLine(p, T('section.users.usernameSignIn'), { emailFallback: '(no email)' })}
+                          {' · '}{p.role}
                         </Text>
                       </View>
                       <TouchableOpacity

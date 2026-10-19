@@ -32,9 +32,14 @@ jest.mock('../../../../../lib/supabase', () => ({
 }));
 
 const mockInviteUser = jest.fn(() => Promise.resolve({ error: null }));
+const mockCreateStoreUser = jest.fn(() => Promise.resolve({ data: { id: 'new', username: 'marcus.l' }, error: null }));
 jest.mock('../../../../../lib/auth', () => ({
   __esModule: true,
   inviteUser: (...args: unknown[]) => (mockInviteUser as (...a: unknown[]) => Promise<{ error: null }>)(...args),
+  // Spec 165 — the Add-user drawer + SET PASSWORD modal are REAL too.
+  STORE_USER_PASSWORD_MIN_LENGTH: 8,
+  createStoreUser: (...args: unknown[]) => (mockCreateStoreUser as (...a: unknown[]) => Promise<unknown>)(...args),
+  setStoreUserPassword: jest.fn(() => Promise.resolve({ error: null })),
 }));
 
 import { PhoneUsers, rolePillTone, type PhoneUsersModel } from '../PhoneUsers';
@@ -73,6 +78,10 @@ function baseModel(over: Partial<PhoneUsersModel> = {}): PhoneUsersModel {
     onConfirmDelete: jest.fn(),
     onResetPassword: jest.fn(),
     onInvited: jest.fn(),
+    addOpen: false,
+    setAddOpen: jest.fn(),
+    setPasswordTarget: null,
+    setSetPasswordTarget: jest.fn(),
     ...over,
   };
 }
@@ -82,7 +91,12 @@ function baseModel(over: Partial<PhoneUsersModel> = {}): PhoneUsersModel {
 function Harness({ model }: { model?: Partial<PhoneUsersModel> }) {
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState<User | null>(null);
-  const m = baseModel({ ...model, inviteOpen, setInviteOpen, deleteTarget, setDeleteTarget });
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [setPasswordTarget, setSetPasswordTarget] = React.useState<User | null>(null);
+  const m = baseModel({
+    ...model, inviteOpen, setInviteOpen, deleteTarget, setDeleteTarget,
+    addOpen, setAddOpen, setPasswordTarget, setSetPasswordTarget,
+  });
   return <PhoneUsers model={m} />;
 }
 
@@ -164,5 +178,76 @@ describe('PhoneUsers — reused InviteUserDrawer send path', () => {
     const b = render(<Harness />);
     fireEvent.press(b.getByTestId('phone-users-invite'));
     expect(b.queryByTestId('invite-role-admin')).toBeNull();
+  });
+});
+
+// Spec 165 — username-only store users on the phone tier.
+describe('PhoneUsers — spec 165 username-only accounts', () => {
+  const marcus = (over: Partial<User> = {}) =>
+    mkUser({
+      id: 'u-m', name: 'Marcus Lee', email: '', role: 'user', username: 'marcus.l',
+      loginKind: 'username', initials: 'ML', ...over,
+    });
+
+  it('the list row meta shows @username + the sign-in marker, never an email or noEmail', () => {
+    const { getByText, queryByText } = render(<Harness model={{ visibleUsers: [marcus()] }} />);
+    expect(getByText('@marcus.l · username sign-in')).toBeTruthy();
+    expect(queryByText('(email not loaded)')).toBeNull();
+  });
+
+  it('list name falls back to @username (not an email) when the name is blank', () => {
+    const { getByText } = render(<Harness model={{ visibleUsers: [marcus({ name: '' })] }} />);
+    expect(getByText('@marcus.l')).toBeTruthy();
+  });
+
+  it('detail subtitle shows @username; SET PASSWORD replaces RESET PW', () => {
+    const { getByTestId, queryByTestId } = render(<Harness model={{ visibleUsers: [marcus()] }} />);
+    fireEvent.press(getByTestId('phone-user-row-u-m'));
+    expect(getByTestId('phone-user-identity').props.children).toBe('@marcus.l · username sign-in');
+    expect(getByTestId('phone-user-set-password')).toBeTruthy();
+    expect(queryByTestId('phone-user-reset')).toBeNull();
+    fireEvent.press(getByTestId('phone-user-set-password'));
+    expect(getByTestId('set-password-input')).toBeTruthy();
+  });
+
+  it("architect M7: no SET PASSWORD on a username-only account whose role is not 'user'", () => {
+    const { getByTestId, queryByTestId } = render(<Harness model={{ visibleUsers: [marcus({ role: 'admin' })] }} />);
+    fireEvent.press(getByTestId('phone-user-row-u-m'));
+    expect(queryByTestId('phone-user-set-password')).toBeNull();
+    expect(queryByTestId('phone-user-reset')).toBeNull();
+  });
+
+  it('delete confirm requires the username, never an email', () => {
+    const { getByTestId, getByText } = render(<Harness model={{ visibleUsers: [marcus()] }} />);
+    fireEvent.press(getByTestId('phone-user-row-u-m'));
+    fireEvent.press(getByTestId('phone-user-delete'));
+    expect(getByText('type "marcus.l" to enable')).toBeTruthy();
+  });
+
+  it('real-email rows are unchanged: email meta, RESET PW, no SET PASSWORD', () => {
+    const { getByTestId, getByText, queryByTestId } = render(
+      <Harness model={{ visibleUsers: [mkUser({ id: 'u-e', role: 'user', email: 'eve@example.com', loginKind: 'email' })] }} />,
+    );
+    expect(getByText('eve@example.com')).toBeTruthy();
+    fireEvent.press(getByTestId('phone-user-row-u-e'));
+    expect(getByTestId('phone-user-reset')).toBeTruthy();
+    expect(queryByTestId('phone-user-set-password')).toBeNull();
+  });
+
+  it('ADD USER opens the add-store-user drawer and a create refreshes via onInvited', async () => {
+    const onInvited = jest.fn();
+    const { getByTestId } = render(<Harness model={{ onInvited }} />);
+    expect(getByTestId('phone-users-invite')).toBeTruthy();
+    fireEvent.press(getByTestId('phone-users-add'));
+    fireEvent.changeText(getByTestId('add-user-name'), 'Marcus Lee');
+    fireEvent.changeText(getByTestId('add-user-username'), 'Marcus.L');
+    fireEvent.changeText(getByTestId('add-user-password'), 'longenough');
+    fireEvent.press(getByTestId('add-user-store-store-1'));
+    fireEvent.press(getByTestId('add-user-submit'));
+    await waitFor(() => expect(mockCreateStoreUser).toHaveBeenCalledTimes(1));
+    expect(mockCreateStoreUser).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'marcus.l', storeIds: ['store-1'] }),
+    );
+    await waitFor(() => expect(onInvited).toHaveBeenCalled());
   });
 });

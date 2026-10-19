@@ -1489,6 +1489,8 @@
     "users": {
       "title": "Users & access",
       "inviteUser": "Invite user",
+      "addUser": "Add store user",
+      "usernameSignIn": "username sign-in",
       "noUsers": "No users",
       "deleteUserConfirm": "Delete user?",
       "deleteUserBody": "Profile and login will be removed.",
@@ -1499,7 +1501,7 @@
         "invited": "INVITED",
         "invite": "+ INVITE",
         "loading": "LOADING…",
-        "empty": "No users yet — invite the first one below.",
+        "empty": "No users yet — invite or add the first one below.",
         "noStores": "no stores assigned",
         "noEmail": "(email not loaded)",
         "you": "YOU",
@@ -1514,7 +1516,9 @@
         "deleteSelfTitle": "Delete your account",
         "deleteBody": "This will permanently delete {name}. Both the profile row and the auth user are removed. This cannot be undone.",
         "deleteSelfBody": "This will permanently delete your account and sign you out. This cannot be undone.",
-        "thisUser": "this user"
+        "thisUser": "this user",
+        "add": "+ ADD USER",
+        "setPw": "SET PASSWORD"
       }
     },
     "brands": {

@@ -1489,6 +1489,8 @@
     "users": {
       "title": "Usuarios y acceso",
       "inviteUser": "Invitar usuario",
+      "addUser": "Agregar usuario de tienda",
+      "usernameSignIn": "acceso con usuario",
       "noUsers": "Sin usuarios",
       "deleteUserConfirm": "¿Eliminar usuario?",
       "deleteUserBody": "El perfil y el acceso serán eliminados.",
@@ -1499,7 +1501,7 @@
         "invited": "INVITADO",
         "invite": "+ INVITAR",
         "loading": "CARGANDO…",
-        "empty": "Aún no hay usuarios — invita al primero abajo.",
+        "empty": "Aún no hay usuarios — invita o agrega al primero abajo.",
         "noStores": "sin tiendas asignadas",
         "noEmail": "(correo no cargado)",
         "you": "TÚ",
@@ -1514,7 +1516,9 @@
         "deleteSelfTitle": "Eliminar tu cuenta",
         "deleteBody": "Esto eliminará permanentemente a {name}. Se eliminan el perfil y el usuario de acceso. Esto no se puede deshacer.",
         "deleteSelfBody": "Esto eliminará permanentemente tu cuenta y cerrará tu sesión. Esto no se puede deshacer.",
-        "thisUser": "este usuario"
+        "thisUser": "este usuario",
+        "add": "+ AGREGAR",
+        "setPw": "FIJAR CONTR."
       }
     },
     "brands": {

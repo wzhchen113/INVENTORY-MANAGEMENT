@@ -35,6 +35,10 @@ jest.mock('../../../../../lib/auth', () => ({
   fetchAllUsers: jest.fn(() => Promise.resolve([])),
   sendPasswordReset: jest.fn(() => Promise.resolve({ error: null })),
   inviteUser: jest.fn(() => Promise.resolve({ error: null })),
+  // Spec 165 — Add-user drawer + SET PASSWORD modal wrappers.
+  STORE_USER_PASSWORD_MIN_LENGTH: 8,
+  createStoreUser: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  setStoreUserPassword: jest.fn(() => Promise.resolve({ error: null })),
 }));
 
 let mockTier: 'phone' | 'tablet' | 'desktop' = 'desktop';

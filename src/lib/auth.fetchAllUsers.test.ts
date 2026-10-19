@@ -269,3 +269,63 @@ describe('fetchAllUsers — spec 163 auth.users email precedence', () => {
     warn.mockRestore();
   });
 });
+
+// Spec 165 §7 — username-only (placeholder-email) accounts. The data layer
+// clears the placeholder, flags loginKind, and SKIPS invitation inference for
+// those rows so a name-match can never attach a stranger's email.
+describe('fetchAllUsers — spec 165 placeholder clearing + loginKind', () => {
+  const PLACEHOLDER = 'u-0123456789abcdef0123456789abcdef@no-email.invalid';
+
+  it("placeholder row whose name matches an unrelated invitation → email '', loginKind 'username'", async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-marcus', name: 'Marcus Lee', role: 'user', username: 'marcus.l' })],
+      error: null,
+    };
+    invitationsReturn = [
+      inviteRow({ name: 'Marcus Lee', email: 'stranger@example.com', profile_id: SENTINEL }),
+    ];
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.resolve(new Map([['p-marcus', PLACEHOLDER]])),
+    );
+
+    const result = await fetchAllUsers({ brandId: BRAND });
+
+    const marcus = result.find((u: User) => u.id === 'p-marcus')!;
+    expect(marcus.email).toBe('');
+    expect(marcus.loginKind).toBe('username');
+    expect(marcus.username).toBe('marcus.l');
+    expect(JSON.stringify(result)).not.toContain('no-email.invalid');
+    expect(JSON.stringify(result)).not.toContain('stranger@example.com');
+  });
+
+  it("real-email rows keep their email and loginKind 'email' (RPC and inference paths)", async () => {
+    profilesResult = {
+      data: [
+        profileRow({ id: 'p-rpc', name: 'Rpc' }),
+        profileRow({ id: 'p-inv', name: 'Inv' }),
+        profileRow({ id: 'p-none', name: 'None' }),
+      ],
+      error: null,
+    };
+    invitationsReturn = [inviteRow({ name: 'Inv', email: 'inv@example.com', profile_id: 'p-inv' })];
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.resolve(new Map([['p-rpc', 'rpc@example.com']])),
+    );
+
+    const result = await fetchAllUsers();
+
+    const byId = (id: string) => result.find((u: User) => u.id === id)!;
+    expect(byId('p-rpc')).toMatchObject({ email: 'rpc@example.com', loginKind: 'email' });
+    expect(byId('p-inv')).toMatchObject({ email: 'inv@example.com', loginKind: 'email' });
+    expect(byId('p-none')).toMatchObject({ email: '', loginKind: 'email' });
+  });
+
+  it("a non-placeholder .invalid address is NOT treated as username-only (strict predicate)", async () => {
+    profilesResult = { data: [profileRow({ id: 'p-x', name: 'X' })], error: null };
+    mockFetchProfileEmails.mockImplementation(() =>
+      Promise.resolve(new Map([['p-x', 'x@no-email.invalid']])),
+    );
+    const result = await fetchAllUsers();
+    expect(result[0]).toMatchObject({ email: 'x@no-email.invalid', loginKind: 'email' });
+  });
+});

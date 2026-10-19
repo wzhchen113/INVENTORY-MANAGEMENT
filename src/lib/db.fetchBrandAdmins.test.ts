@@ -88,7 +88,7 @@ jest.mock('react-native-toast-message', () => ({
 }));
 
 import Toast from 'react-native-toast-message';
-import { fetchBrandAdmins } from './db';
+import { fetchBrandAdmins, previewBrandCascade } from './db';
 
 /** Minimal profiles row (snake_case, as PostgREST returns). */
 function profileRow(over: Record<string, any>): any {
@@ -503,5 +503,93 @@ describe('fetchBrandAdmins — spec 163 auth.users email precedence', () => {
     expect(result[0].id).toBe('p-cs');
     expect(result[0].email).toBe('charles@example.com');
     expect(result.some((u) => u.status === 'pending')).toBe(false);
+  });
+});
+
+// Spec 165 §7 — username-only (placeholder-email) accounts: the placeholder is
+// cleared, loginKind is flagged, invitation inference is skipped, and the
+// pending-invite dedup never treats a placeholder as an active email.
+describe('fetchBrandAdmins — spec 165 placeholder clearing + loginKind', () => {
+  const PLACEHOLDER = 'u-0123456789abcdef0123456789abcdef@no-email.invalid';
+
+  it("clears the placeholder, sets loginKind 'username', and skips name-match inference", async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-marcus', name: 'Marcus Lee', role: 'user', username: 'marcus.l' })],
+      error: null,
+    };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-x', name: 'Marcus Lee', email: 'stranger@example.com', used: true, profile_id: SENTINEL })],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-marcus', email: PLACEHOLDER }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 'p-marcus', email: '', loginKind: 'username', username: 'marcus.l' });
+    expect(JSON.stringify(result)).not.toContain('no-email.invalid');
+    expect(JSON.stringify(result)).not.toContain('stranger@example.com');
+  });
+
+  it("real-email active rows and pending rows carry loginKind 'email'", async () => {
+    profilesResult = { data: [profileRow({ id: 'p-a', name: 'Alpha' })], error: null };
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-p', name: 'Pending P', email: 'p@example.com', used: false, profile_id: SENTINEL, brand_id: BRAND })],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-a', email: 'alpha@example.com' }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result.find((u: User) => u.id === 'p-a')).toMatchObject({ email: 'alpha@example.com', loginKind: 'email' });
+    expect(result.find((u: User) => u.id === 'invitation:inv-p')).toMatchObject({ status: 'pending', loginKind: 'email' });
+  });
+
+  it('activeEmails dedup ignores placeholder rows (a pending invite is not hidden by one)', async () => {
+    profilesResult = {
+      data: [profileRow({ id: 'p-marcus', name: 'Marcus Lee', role: 'user', username: 'marcus.l' })],
+      error: null,
+    };
+    // An (artificial) pending invite whose address equals the placeholder: it
+    // must NOT be deduped away against the cleared placeholder row.
+    invitationsResult = {
+      data: [inviteRow({ id: 'inv-ph', name: 'Someone', email: PLACEHOLDER, used: false, profile_id: SENTINEL, brand_id: BRAND })],
+      error: null,
+    };
+    rpcResult = { data: [{ user_id: 'p-marcus', email: PLACEHOLDER }], error: null };
+
+    const result = await fetchBrandAdmins(BRAND);
+
+    expect(result.find((u: User) => u.id === 'p-marcus')!.email).toBe('');
+    expect(result.some((u: User) => u.id === 'invitation:inv-ph')).toBe(true);
+  });
+});
+
+describe('previewBrandCascade (mapCascadePreview) — spec 165 placeholder clearing', () => {
+  it("nulls a placeholder email and flags loginKind 'username'; real emails pass through", async () => {
+    rpcResult = {
+      data: {
+        brand_id: BRAND,
+        brand_name: 'B',
+        deleted_at: null,
+        blocking_profiles: [
+          { profile_id: 'p-u', name: 'Marcus', email: 'u-0123456789abcdef0123456789abcdef@no-email.invalid', role: 'user', status: 'active' },
+          { profile_id: 'p-e', name: 'Eve', email: 'eve@example.com', role: 'admin', status: 'active' },
+          { profile_id: 'p-n', name: 'Nil', email: null, role: 'user', status: 'active' },
+        ],
+        blocking_profile_counts: { admins: 1, users: 2, super_admins: 0 },
+        counts: {},
+      } as any,
+      error: null,
+    };
+
+    const preview = await previewBrandCascade(BRAND);
+
+    expect(preview.blockingProfiles).toEqual([
+      { profileId: 'p-u', name: 'Marcus', email: null, role: 'user', status: 'active', loginKind: 'username' },
+      { profileId: 'p-e', name: 'Eve', email: 'eve@example.com', role: 'admin', status: 'active', loginKind: 'email' },
+      { profileId: 'p-n', name: 'Nil', email: null, role: 'user', status: 'active', loginKind: 'email' },
+    ]);
+    expect(JSON.stringify(preview)).not.toContain('no-email.invalid');
   });
 });

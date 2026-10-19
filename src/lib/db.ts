@@ -43,6 +43,9 @@ import { piecesPerCase } from '../utils/perEachCost';
 // pure util (which also owns the R-3 precedence resolver). Pure module (no
 // supabase / no React), allowed in db.ts.
 import { isOrderChannel, type OrderChannel } from '../utils/orderChannel';
+// Spec 165 — the single shared placeholder-email predicate (username-only
+// accounts). Pure module, allowed in db.ts.
+import { isPlaceholderEmail } from './placeholderEmail';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -5232,6 +5235,9 @@ export interface BrandCascadePreview {
     email: string | null;
     role: 'super_admin' | 'admin' | 'master' | 'user';
     status: 'active' | 'pending';
+    /** Spec 165 — 'username' when the auth email is a placeholder; `email`
+     *  is then null so the placeholder is never rendered. */
+    loginKind: 'email' | 'username';
   }>;
   blockingProfileCounts: { admins: number; users: number; superAdmins: number };
   /** Per-table row counts (table_name → count). Keys come from the
@@ -5263,13 +5269,18 @@ function mapCascadePreview(p: any): BrandCascadePreview {
     brandId: p?.brand_id ?? '',
     brandName: p?.brand_name ?? '',
     deletedAt: p?.deleted_at ?? null,
-    blockingProfiles: profiles.map((bp: any) => ({
-      profileId: bp.profile_id,
-      name: bp.name ?? '',
-      email: bp.email ?? null,
-      role: bp.role,
-      status: bp.status,
-    })),
+    blockingProfiles: profiles.map((bp: any) => {
+      // Spec 165 §7 — never surface a placeholder address.
+      const usernameLogin = isPlaceholderEmail(bp.email);
+      return {
+        profileId: bp.profile_id,
+        name: bp.name ?? '',
+        email: usernameLogin ? null : (bp.email ?? null),
+        role: bp.role,
+        status: bp.status,
+        loginKind: usernameLogin ? ('username' as const) : ('email' as const),
+      };
+    }),
     blockingProfileCounts: {
       admins: Number(profileCounts.admins ?? 0),
       users: Number(profileCounts.users ?? 0),
@@ -5505,13 +5516,21 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       .filter((sl: any) => sl.user_id === p.id)
       .map((sl: any) => sl.store_id)
       .filter((sid: string) => brandStoreIds.has(sid));
-    const fallback = inviteByProfileId.get(p.id) ?? inviteByName.get(p.name);
+    // Spec 165 §7 — a placeholder auth email marks a username-only account:
+    // clear it and SKIP invitation inference (a name-match could otherwise
+    // attach an unrelated invitation's email to this row).
+    const rpcEmail = rpcEmails.get(p.id);
+    const usernameLogin = isPlaceholderEmail(rpcEmail);
+    const fallback = usernameLogin
+      ? undefined
+      : (inviteByProfileId.get(p.id) ?? inviteByName.get(p.name));
     return {
       id: p.id,
       name: p.role === 'master' ? 'MASTER' : p.name,
       nickname: p.nickname || '',
       // Spec 163 — auth.users email wins; invitation inference is the fallback.
-      email: rpcEmails.get(p.id) || fallback?.email || '',
+      email: usernameLogin ? '' : (rpcEmail || fallback?.email || ''),
+      loginKind: usernameLogin ? 'username' : 'email',
       role: p.role,
       stores,
       status: p.status,
@@ -5554,6 +5573,8 @@ export async function fetchBrandAdmins(brandId: string): Promise<User[]> {
       initials: inv.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase(),
       color: '#378ADD',
       notificationsEnabled: true,
+      // Spec 165 — invitations always carry a real (admin-typed) email.
+      loginKind: 'email' as const,
       brandId: inv.brand_id ?? null,
       // Spec 095 — pending invites may carry an admin-assigned username.
       username: inv.username ?? null,
