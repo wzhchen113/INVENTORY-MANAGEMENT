@@ -260,6 +260,10 @@ otp_expiry = 3600
 # redeemed by verifyOtp instead. This is the LOCAL mirror of the PROD dashboard
 # email-template edit (USER-OWNED — Auth → Email Templates → Reset Password).
 # See spec 085 "Flow decision + manual steps".
+# Spec 166: while [auth.hook.send_email] below is enabled, GoTrue does NOT
+# render this template locally (the auth-email-hook function renders the
+# recovery mail itself, link-identical). It is kept as the mirror of the prod
+# template, which stays the rollback path.
 [auth.email.template.recovery]
 subject = "Reset your password"
 content_path = "./supabase/templates/recovery.html"
@@ -300,6 +304,23 @@ max_frequency = "5s"
 # [auth.hook.custom_access_token]
 # enabled = true
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
+
+# Spec 166 — Send Email hook → supabase/functions/auth-email-hook. GoTrue stops
+# using SMTP/templates and hands every auth mail to the function, which drops
+# spec 165 placeholder recipients and delivers the rest (locally into Mailpit).
+#   * LOCAL-ONLY. The prod hook is configured in the dashboard
+#     (Authentication → Hooks → Send Email), per spec 166 §12.
+#   * NEVER run `supabase config push` against prod: it would push this
+#     host.docker.internal URI and the public dev secret below and break ALL
+#     prod auth mail. Rollback is to disable the hook in the dashboard.
+#   * `secrets` must equal [edge_runtime.secrets] SEND_EMAIL_HOOK_SECRET
+#     byte-for-byte (the smoke preflight checks this).
+#   * To turn it off locally: set enabled = false, then
+#     `npx supabase stop --no-backup && npm run dev:db`.
+[auth.hook.send_email]
+enabled = true
+uri = "http://host.docker.internal:54321/functions/v1/auth-email-hook"
+secrets = "v1,whsec_LOCAL/DEV/ONLY/imr/SendEmailHook/NotForProd/0000"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
@@ -398,8 +419,20 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# Spec 166 — LOCAL-ONLY literals for the auth-email-hook function (GoTrue Send
+# Email hook). These are dev values, public by design, and are NEVER pushed to
+# prod: prod values come from `supabase secrets set` (spec 166 §12). The block
+# is visible to every local function; none of the others reads these names.
+# SEND_EMAIL_HOOK_SECRET must equal [auth.hook.send_email] secrets byte-for-byte
+# (scripts/smoke-send-email-hook.sh preflight checks it). The "LOCAL/DEV/ONLY"
+# marker trips the function's resend-transport refusal, so a leaked copy of
+# this secret can never send real mail.
+[edge_runtime.secrets]
+SEND_EMAIL_HOOK_SECRET = "v1,whsec_LOCAL/DEV/ONLY/imr/SendEmailHook/NotForProd/0000"
+SEND_EMAIL_TRANSPORT = "mailpit"
+MAILPIT_SEND_URL = "http://supabase_inbucket_imr-inventory:8025/api/v1/send"
+SEND_EMAIL_FROM = "no-reply@imr.local.test"
+SEND_EMAIL_FROM_NAME = "I.M.R (local)"
 
 # pwa-catalog uses a service-token bearer (PWA_SERVICE_TOKEN), not a Supabase
 # JWT, so the gateway's JWT check would reject every call. The function does
@@ -461,6 +494,15 @@ verify_jwt = false
 # OPPOSITE of the other send-*-email functions, which ARE user-invoked; the
 # difference is who calls it, not that it sends mail.
 [functions.send-order-failure-email]
+verify_jwt = false
+
+# auth-email-hook (spec 166) — GoTrue Send Email hook. GoTrue calls it with a
+# Standard Webhooks signature (SEND_EMAIL_HOOK_SECRET), NOT a Supabase JWT, so
+# the gateway JWT check would reject every call; the in-function signature check
+# REPLACES it and fails closed. Event-driven, not a user-invoked privileged op,
+# so NO ADMIN_ROLES gate — there is no caller JWT to gate on. Pinned so a CLI
+# redeploy can't silently re-enable JWT and break ALL prod auth mail.
+[functions.auth-email-hook]
 verify_jwt = false
 
 # send-po-email (spec 107, OQ-1) is the OPPOSITE posture of the staff-*/cron

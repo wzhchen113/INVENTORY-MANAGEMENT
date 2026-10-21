@@ -33,7 +33,7 @@ npm test
 npm run test:db
 
 # Track 3 — shell smokes (requires `npm run dev:db` running)
-npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh, smoke-store-user.sh
+npm run test:smoke              # runs smoke-edge.sh, smoke-rpc.sh, smoke-edge-roles.sh, smoke-store-user.sh, smoke-send-email-hook.sh
 
 # Track 4 — browser E2E (requires `npm run dev:db` running; boots the web
 # server itself via playwright.config.ts `webServer`)
@@ -392,7 +392,7 @@ CONTAINER=supabase_db_some-other-name npm run test:db
 
 ## Track 3 — Shell smokes
 
-Manual-run scripts under `scripts/smoke-*.sh`. `npm run test:smoke` runs four:
+Manual-run scripts under `scripts/smoke-*.sh`. `npm run test:smoke` runs five:
 
 - [`scripts/smoke-edge.sh`](../scripts/smoke-edge.sh) — the original; CORS
   + JWT + happy-path checks for `fetch-breadbot-sales` edge function.
@@ -411,12 +411,31 @@ Manual-run scripts under `scripts/smoke-*.sh`. `npm run test:smoke` runs four:
   rollback, session revocation, and no-leak checks. Refuses to run against
   a non-local `SUPABASE_URL`; creates `zz_s165*` fixtures and removes them
   in its EXIT trap.
+- [`scripts/smoke-send-email-hook.sh`](../scripts/smoke-send-email-hook.sh) —
+  Spec 166; smokes the GoTrue Send Email hook (`auth-email-hook`): signature
+  gate, placeholder `/recover` dropped (0 mails), real `/recover` delivered
+  with a redeemable spec 085 link (plain + PKCE), anti-enumeration, signed
+  synthetic payloads for every action type, a real invite and a real secure
+  email change, and log/body hygiene. Needs the hook enabled in
+  `supabase/config.toml` (a clean `npx supabase stop --no-backup && npm run
+  dev:db` after changing it). **Wipes the local Mailpit inbox.** Creates
+  `zz_s166*` fixtures and removes them in its EXIT trap.
+
+Run `smoke-send-email-hook.sh` and `smoke-store-user.sh` **sequentially,
+never concurrently** (including from another session): both use the shared
+local Mailpit inbox, and the spec 166 smoke wipes it mid-run.
+`npm run test:smoke` already runs them one after the other.
+
+[`scripts/probe-auth-email-hook.sh`](../scripts/probe-auth-email-hook.sh) is
+an owner-run prod pre-enable probe (spec 166 runbook §12 step 5b), not a
+test and not part of `test:smoke`.
 
 ```bash
-npm run test:smoke               # runs all four
+npm run test:smoke               # runs all five
 bash scripts/smoke-rpc.sh        # one of them
 bash scripts/smoke-edge-roles.sh # the role-gate smoke
 bash scripts/smoke-store-user.sh # the spec 165 store-user smoke
+bash scripts/smoke-send-email-hook.sh # the spec 166 auth-email-hook smoke
 ```
 
 Each script accepts `SUPABASE_URL=` to point at a remote stack.

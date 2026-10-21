@@ -1,9 +1,10 @@
 // Spec 165 §3.2 / §3.4 / §10 — inline-not-shared parity.
 //
-// The placeholder-email predicate is copied into four Deno edge functions and
-// the reserved-username set into manage-store-user (spec 027 §4.2: shared
+// The placeholder-email predicate is copied into five Deno edge functions
+// (spec 166 added auth-email-hook), and the reserved-username set is copied
+// into manage-store-user. Copies are inline, not shared, per spec 027 §4.2:
 // `_shared/` modules are invisible drift surface because the CLI deploys one
-// function at a time). This suite fails the build if any copy drifts from the
+// function at a time. This suite fails the build if any copy drifts from the
 // TS canonical. Precedent for fs-reading source in jest:
 // src/lib/guide.i18n.test.ts.
 import * as fs from 'fs';
@@ -38,6 +39,7 @@ describe('placeholder-email block parity (spec 165 §3.2)', () => {
     'supabase/functions/eod-reminder-cron/index.ts',
     'supabase/functions/weekly-reminder-cron/index.ts',
     'supabase/functions/send-welcome-email/index.ts',
+    'supabase/functions/auth-email-hook/index.ts',
   ];
   const canonical = extractBlock(read(CANONICAL), 'placeholder-email', CANONICAL);
 

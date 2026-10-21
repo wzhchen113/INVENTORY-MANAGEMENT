@@ -7,11 +7,12 @@
 // reserve `.invalid`, so it can never be delivered).
 //
 // Inline-not-shared (spec 027 §4.2): the block between the BEGIN/END markers
-// below is copied BYTE-IDENTICALLY into four Deno edge functions —
+// below is copied BYTE-IDENTICALLY into five Deno edge functions —
 //   supabase/functions/manage-store-user/index.ts
 //   supabase/functions/eod-reminder-cron/index.ts
 //   supabase/functions/weekly-reminder-cron/index.ts
 //   supabase/functions/send-welcome-email/index.ts
+//   supabase/functions/auth-email-hook/index.ts (spec 166)
 // — and src/lib/placeholderEmail.parity.test.ts fails the build on any drift.
 // `export` stays OUTSIDE the block so the Deno copies can be module-private.
 //
