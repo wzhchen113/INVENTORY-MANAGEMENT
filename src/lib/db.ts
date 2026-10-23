@@ -484,20 +484,35 @@ export async function updateInventoryItem(
     if (updates.eodCountMode !== undefined) catalogUpdates.eod_count_mode = updates.eodCountMode;
     if (Object.keys(catalogUpdates).length > 0) {
       catalogUpdates.updated_at = new Date().toISOString();
-      // Resolve the catalog_id for this row before updating
-      const { data: row } = await supabase
+      // Resolve the catalog_id for this row before updating.
+      // Spec 173 — every catalog failure throws HERE, before the per-store
+      // and item_vendors writes below, so a failed catalog save never
+      // half-writes and the store's optimistic patch reverts + toasts.
+      // A lookup error (incl. PGRST116 for an RLS-hidden / deleted row from
+      // `.single()`) is thrown raw, like every other check in this function.
+      const { data: row, error: lookupError } = await supabase
         .from('inventory_items')
         .select('catalog_id')
         .eq('id', id)
         .abortSignal(signal)
         .single();
+      if (lookupError) throw lookupError;
       const catalogId = row?.catalog_id;
-      if (catalogId) {
-        await supabase
-          .from('catalog_ingredients')
-          .update(catalogUpdates)
-          .eq('id', catalogId)
-          .abortSignal(signal);
+      if (!catalogId) {
+        throw new Error('Catalog change not saved: this ingredient has no catalog link.');
+      }
+      // `.select('id')` returns the affected rows so a 0-row UPDATE — the
+      // shape PostgREST gives an RLS-filtered target (error: null) — is
+      // detectable. A no-op edit still matches its row and returns 1.
+      const { data: updated, error: updateError } = await supabase
+        .from('catalog_ingredients')
+        .update(catalogUpdates)
+        .eq('id', catalogId)
+        .select('id')
+        .abortSignal(signal);
+      if (updateError) throw updateError;
+      if (!updated || updated.length === 0) {
+        throw new Error('Catalog change not saved: no permission to edit this catalog ingredient, or it no longer exists.');
       }
     }
 

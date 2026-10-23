@@ -148,6 +148,7 @@ describe('fetchInventory / mapItem — eod_count_mode (AC-19)', () => {
 describe('updateInventoryItem — eod_count_mode omit-key-to-skip (AC-18)', () => {
   beforeEach(() => {
     singleResults.inventory_items = { data: { catalog_id: CATALOG_ID }, error: null };
+    tableResults.catalog_ingredients = { data: [{ id: CATALOG_ID }], error: null };
   });
 
   const catalogUpdate = () =>
