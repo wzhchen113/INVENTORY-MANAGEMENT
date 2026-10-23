@@ -89,63 +89,110 @@ describe('buildPoQuickOrderText — mapped lines (AC-7), unit vendor verbatim', 
   });
 });
 
+// The `???` sentinel is for a CODE-BASED vendor missing some codes, so each
+// case here carries one mapped sibling line (`M-1`). A vendor with no codes at
+// all gets a plain list — pinned in the "plain name list" suite below.
+const MAPPED = U({ itemId: 'm', itemName: 'Mapped', orderedQty: 1 });
+const MAPPED_TEXT = `M-1${TAB}1`;
+
 describe('buildPoQuickOrderText — unmapped lines surfaced, never dropped (AC-9)', () => {
   it('renders `??? <resolved name>\\t<qty>` for a null code and counts it', () => {
     const res = buildPoQuickOrderText(
-      [U({ itemId: 'a', itemName: 'Mystery Sauce', orderedQty: 4 })],
-      codeById({ a: null }),
+      [MAPPED, U({ itemId: 'a', itemName: 'Mystery Sauce', orderedQty: 4 })],
+      codeById({ m: 'M-1', a: null }),
       nameById({ a: 'Mystery Sauce' }),
       'unit',
     );
-    expect(res.text).toBe(`??? Mystery Sauce${TAB}4`);
+    expect(res.text).toBe([MAPPED_TEXT, `??? Mystery Sauce${TAB}4`].join('\n'));
     expect(res.unmappedCount).toBe(1);
   });
 
   it('treats an empty-string code and a whitespace-only code as unmapped', () => {
     const res = buildPoQuickOrderText(
       [
+        MAPPED,
         U({ itemId: 'a', itemName: 'Empty', orderedQty: 1 }),
         U({ itemId: 'b', itemName: 'Spaces', orderedQty: 2 }),
       ],
-      codeById({ a: '', b: '   ' }),
+      codeById({ m: 'M-1', a: '', b: '   ' }),
       nameById({}),
       'unit',
     );
-    expect(res.text).toBe([`??? Empty${TAB}1`, `??? Spaces${TAB}2`].join('\n'));
+    expect(res.text).toBe([MAPPED_TEXT, `??? Empty${TAB}1`, `??? Spaces${TAB}2`].join('\n'));
     expect(res.unmappedCount).toBe(2);
   });
 
   it('treats a MISSING resolver entry (no link at all) as unmapped', () => {
     const res = buildPoQuickOrderText(
-      [U({ itemId: 'z', itemName: 'No Link', orderedQty: 7 })],
-      codeById({}), // resolver returns undefined
+      [MAPPED, U({ itemId: 'z', itemName: 'No Link', orderedQty: 7 })],
+      codeById({ m: 'M-1' }), // resolver returns undefined for z
       nameById({}),
       'unit',
     );
-    expect(res.text).toBe(`??? No Link${TAB}7`);
+    expect(res.text).toBe([MAPPED_TEXT, `??? No Link${TAB}7`].join('\n'));
     expect(res.unmappedCount).toBe(1);
   });
 
   it('resolves the placeholder name in the current locale via resolveName (OQ-8)', () => {
     const res = buildPoQuickOrderText(
-      [U({ itemId: 'a', itemName: 'Chicken Thigh', orderedQty: 3 })],
-      codeById({ a: null }),
+      [MAPPED, U({ itemId: 'a', itemName: 'Chicken Thigh', orderedQty: 3 })],
+      codeById({ m: 'M-1', a: null }),
       nameById({ a: '鸡腿肉' }), // zh-CN display name
       'unit',
     );
-    expect(res.text).toBe(`??? 鸡腿肉${TAB}3`);
+    expect(res.text).toBe([MAPPED_TEXT, `??? 鸡腿肉${TAB}3`].join('\n'));
     // The plain-English fallback is NOT emitted when the resolver overrides it.
     expect(res.text).not.toContain('Chicken Thigh');
   });
 
   it('falls back to itemName when the resolver has no translation', () => {
     const res = buildPoQuickOrderText(
-      [U({ itemId: 'a', itemName: 'English Only', orderedQty: 2 })],
-      codeById({ a: undefined }),
+      [MAPPED, U({ itemId: 'a', itemName: 'English Only', orderedQty: 2 })],
+      codeById({ m: 'M-1', a: undefined }),
       (_id, fallbackName) => fallbackName,
       'unit',
     );
-    expect(res.text).toBe(`??? English Only${TAB}2`);
+    expect(res.text).toBe([MAPPED_TEXT, `??? English Only${TAB}2`].join('\n'));
+  });
+});
+
+describe('buildPoQuickOrderText — plain name list when NO line has a code', () => {
+  it('emits `<name>\\t<qty>` with no `???` and reports unmappedCount 0 (no warning toast)', () => {
+    const res = buildPoQuickOrderText(
+      [
+        U({ itemId: 'a', itemName: 'Lettuce Iceberg', orderedQty: 4 }),
+        U({ itemId: 'b', itemName: 'Bleach', orderedQty: 1 }),
+      ],
+      codeById({ a: null, b: '' }),
+      nameById({}),
+      'unit',
+    );
+    expect(res.text).toBe([`Lettuce Iceberg${TAB}4`, `Bleach${TAB}1`].join('\n'));
+    expect(res.text).not.toContain('???');
+    expect(res.unmappedCount).toBe(0);
+  });
+
+  it('uses the locale-resolved name and still applies the case conversion + roundedCount', () => {
+    const res = buildPoQuickOrderText(
+      [{ itemId: 'a', itemName: 'Chicken Thigh', orderedQty: 30, caseQty: 24 }],
+      codeById({}),
+      nameById({ a: '鸡腿肉' }),
+      'case',
+    );
+    expect(res.text).toBe(`鸡腿肉${TAB}2`);
+    expect(res.unmappedCount).toBe(0);
+    expect(res.roundedCount).toBe(1);
+  });
+
+  it('keeps the structured core unchanged — every line still flagged unmapped for the extension', () => {
+    const res = computePoQuickOrderLines(
+      [U({ itemId: 'a', itemName: 'Bleach', orderedQty: 1 })],
+      codeById({}),
+      nameById({}),
+      'unit',
+    );
+    expect(res.unmappedCount).toBe(1);
+    expect(res.lines[0]).toMatchObject({ orderCode: null, unmapped: true });
   });
 });
 
@@ -268,12 +315,15 @@ describe('buildPoQuickOrderText — order-unit conversion (W-2, AC-14)', () => {
 
   it("'case' conversion applies to the unmapped `???` line's qty too (still surfaced, converted)", () => {
     const res = buildPoQuickOrderText(
-      [{ itemId: 'a', itemName: 'Mystery', orderedQty: 30, caseQty: 24 }],
-      codeById({ a: null }),
+      [
+        { itemId: 'm', itemName: 'Mapped', orderedQty: 24, caseQty: 24 },
+        { itemId: 'a', itemName: 'Mystery', orderedQty: 30, caseQty: 24 },
+      ],
+      codeById({ m: 'M-1', a: null }),
       nameById({ a: 'Mystery' }),
       'case',
     );
-    expect(res.text).toBe(`??? Mystery${TAB}2`);
+    expect(res.text).toBe([`M-1${TAB}1`, `??? Mystery${TAB}2`].join('\n'));
     expect(res.unmappedCount).toBe(1);
     expect(res.roundedCount).toBe(1); // 30/24 rounded up even on the unmapped line
   });

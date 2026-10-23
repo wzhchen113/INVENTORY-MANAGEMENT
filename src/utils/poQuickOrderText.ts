@@ -227,11 +227,17 @@ export function buildPoQuickOrderText(
     resolveName,
     orderUnit,
   );
+  // A vendor with NO codes on any line (e.g. a distributor ordered by text, not
+  // a quick-order box) gets a plain `<name>\t<qty>` list: there is no code gap
+  // to fail loud about, so no `???` and unmappedCount 0 (no warning toast). The
+  // sentinel stays for a code-based vendor that is missing SOME codes.
+  const plainList = structured.length > 0 && unmappedCount === structured.length;
   const out = structured.map((s) => {
     const qty = formatQty(s.qty); // SAME formatQty; still no $; still TAB delim.
+    if (plainList) return `${s.itemName}${DELIM}${qty}`;
     return s.unmapped
       ? `${UNMAPPED_PREFIX}${s.itemName}${DELIM}${qty}`
       : `${s.orderCode}${DELIM}${qty}`;
   });
-  return { text: out.join('\n'), unmappedCount, roundedCount };
+  return { text: out.join('\n'), unmappedCount: plainList ? 0 : unmappedCount, roundedCount };
 }
