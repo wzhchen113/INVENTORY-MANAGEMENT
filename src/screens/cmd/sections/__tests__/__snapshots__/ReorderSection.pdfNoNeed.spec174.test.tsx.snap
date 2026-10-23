@@ -1,0 +1,151 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Spec 174 — admin jsPDF numeric-only head/body (pre-change pins) AC-7 — en head/body match the f7b2759 pin: tables-en 1`] = `
+[
+  {
+    "body": [
+      [
+        "Wings",
+        "4",
+        "2",
+        "40",
+        "4 cs · 40 bags",
+        "$100.00",
+      ],
+    ],
+    "head": [
+      [
+        "Item",
+        "On Hand",
+        "Pending",
+        "Par",
+        "Suggested",
+        "Est. Cost",
+      ],
+    ],
+  },
+  {
+    "body": [
+      [
+        "Sauce",
+        "12.5",
+        "0",
+        "10",
+        "0 gal",
+        "gal",
+        "$0.00",
+      ],
+    ],
+    "head": [
+      [
+        "Item",
+        "On Hand",
+        "Pending",
+        "Par",
+        "Suggested",
+        "Unit",
+        "Est. Cost",
+      ],
+    ],
+  },
+  {
+    "body": [
+      [
+        "Lemons",
+        "0",
+        "0",
+        "0",
+        "0 each",
+        "each",
+        "$0.00",
+      ],
+    ],
+    "head": [
+      [
+        "Item",
+        "On Hand",
+        "Pending",
+        "Par",
+        "Suggested",
+        "Unit",
+        "Est. Cost",
+      ],
+    ],
+  },
+]
+`;
+
+exports[`Spec 174 — admin jsPDF numeric-only head/body (pre-change pins) AC-7 — es head/body match the f7b2759 pin: tables-es 1`] = `
+[
+  {
+    "body": [
+      [
+        "Alitas",
+        "4",
+        "2",
+        "40",
+        "4 cs · 40 bolsas",
+        "$100.00",
+      ],
+    ],
+    "head": [
+      [
+        "Artículo",
+        "En existencia",
+        "Pendiente",
+        "Par",
+        "Sugerido",
+        "Costo est.",
+      ],
+    ],
+  },
+  {
+    "body": [
+      [
+        "Sauce",
+        "12.5",
+        "0",
+        "10",
+        "0 gal",
+        "gal",
+        "$0.00",
+      ],
+    ],
+    "head": [
+      [
+        "Artículo",
+        "En existencia",
+        "Pendiente",
+        "Par",
+        "Sugerido",
+        "Unidad",
+        "Costo est.",
+      ],
+    ],
+  },
+  {
+    "body": [
+      [
+        "Lemons",
+        "0",
+        "0",
+        "0",
+        "0 ud",
+        "ud",
+        "$0.00",
+      ],
+    ],
+    "head": [
+      [
+        "Artículo",
+        "En existencia",
+        "Pendiente",
+        "Par",
+        "Sugerido",
+        "Unidad",
+        "Costo est.",
+      ],
+    ],
+  },
+]
+`;

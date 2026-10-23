@@ -9,7 +9,7 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store, Vendor, InventoryItem } from '../../../types';
 import { useT } from '../../../hooks/useT';
-import { REORDER_FLAG_NO_NEED } from '../../../lib/eodNoNeed';
+import { REORDER_FLAG_NO_NEED, isReorderNoNeed } from '../../../lib/eodNoNeed';
 import { useLocale } from '../../../hooks/useLocale';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getLocalizedName } from '../../../i18n/localizedName';
@@ -44,6 +44,7 @@ import {
   slugifyStore,
   todayLocalIso,
   buildReorderCsv,
+  reorderNoNeedLabel,
 } from '../../../utils/reorderExport';
 import { dayOfWeekLongLabel } from '../../../utils/enumLabels';
 import { t, type Locale } from '../../../i18n';
@@ -1210,6 +1211,11 @@ export async function handlePdfExport(payload: ReorderPayload, store: Store, loc
     const unitOf = (u: string) => (locale === 'en' ? u : localizeUnit(u, locale));
     const nameOf = (item: ReorderItem) =>
       getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
+    // Spec 174 (AC-5/AC-6) — a NO NEED row's On Hand cell prints the label,
+    // not the stale on-hand. Uses the COERCED `locale`, so zh-CN gets the
+    // English label like the rest of this PDF (no CJK glyph reaches Helvetica).
+    const onHandOf = (item: ReorderItem) =>
+      isReorderNoNeed(item) ? reorderNoNeedLabel(locale) : formatQty(item.onHand);
 
     const doc = new jsPDF({ unit: 'pt' });
     const margin = 40;
@@ -1318,7 +1324,7 @@ export async function handlePdfExport(payload: ReorderPayload, store: Store, loc
           isNeeds
             ? [
                 nameOf(item),
-                formatQty(item.onHand),
+                onHandOf(item),
                 formatQty(item.pendingPoQty),
                 formatQty(item.parLevel),
                 formatSuggestedPdf(item, locale),
@@ -1326,7 +1332,7 @@ export async function handlePdfExport(payload: ReorderPayload, store: Store, loc
               ]
             : [
                 nameOf(item),
-                formatQty(item.onHand),
+                onHandOf(item),
                 formatQty(item.pendingPoQty),
                 formatQty(item.parLevel),
                 formatSuggestedPdf(item, locale),

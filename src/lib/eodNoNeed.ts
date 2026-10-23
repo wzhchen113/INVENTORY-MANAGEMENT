@@ -26,6 +26,11 @@ export const EOD_NO_NEED_AUDIT_VALUE = 'NO NEED';
 /** The reorder flag token emitted by `report_reorder_list` (hunk R4). */
 export const REORDER_FLAG_NO_NEED = 'no_need';
 
+/** Spec 174 — true iff a reorder row was counted NO NEED (flag token R4). Null-safe. */
+export function isReorderNoNeed(item: { flags?: ReadonlyArray<string> | null }): boolean {
+  return (item.flags || []).includes(REORDER_FLAG_NO_NEED);
+}
+
 /** AC-16 counted: `noNeed || eodHasEntry(mode, caseRaw, unitRaw)`. */
 export function eodRowCounted(
   noNeed: boolean | undefined,

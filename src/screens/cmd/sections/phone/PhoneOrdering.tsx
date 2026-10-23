@@ -31,6 +31,7 @@ import { useLocale } from '../../../../hooks/useLocale';
 import { usePaletteAction } from '../../../../lib/paletteAction';
 import { confirmAction } from '../../../../utils/confirmAction';
 import { formatMoney, formatQty } from '../../../../utils/reorderExport';
+import { isReorderNoNeed } from '../../../../lib/eodNoNeed';
 import {
   weekdayName,
   partitionReorderVendors,
@@ -421,6 +422,30 @@ export function VendorOrderCard({
                       <Text style={{ fontFamily: sans(600), fontSize: 14.5, color: C.fg }} numberOfLines={1}>
                         {item.itemName}
                       </Text>
+                      {/* Spec 174 (AC-14/15) — a stepped-up NO NEED row says
+                          so: the manager is overriding a "more than enough"
+                          count. The desktop FlagChip fg3 pill, inline and
+                          localized; UNDER the name so the name keeps its full
+                          width + truncation at 390 px. Non-interactive. */}
+                      {isReorderNoNeed(item) ? (
+                        <View
+                          testID={`phone-order-noneed-${item.itemId}`}
+                          style={{
+                            alignSelf: 'flex-start',
+                            marginTop: 3,
+                            paddingHorizontal: 7,
+                            paddingVertical: 2,
+                            borderRadius: CmdRadius.pill,
+                            borderWidth: 0.5,
+                            borderColor: C.border,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <Text style={{ fontFamily: mono(600), fontSize: 9, letterSpacing: 0.3, color: C.fg3 }} numberOfLines={1}>
+                            {T('section.reorder.noNeed')}
+                          </Text>
+                        </View>
+                      ) : null}
                       <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, marginTop: 2 }} numberOfLines={1}>
                         {sub}
                       </Text>

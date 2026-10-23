@@ -1,0 +1,373 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-10 — buildStaffReorderCsv(en) matches the f7b2759 pin: csv-en 1`] = `
+"Vendor,Needs Order,Item Name,On Hand,Pending PO,Par Level,Suggested Qty,Cases,Units Per Case,Unit,Flags,EOD Counted At
+US Foods,yes,Wings,4,2,40,40,4,10,bags,,2026-10-23T02:00:00Z
+US Foods,no,Sauce,12.5,0,10,0,,,gal,,2026-10-23T02:00:00Z
+Sysco,no,Lemons,0,0,0,0,,,each,no_par,"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-10 — buildStaffReorderCsv(es) matches the f7b2759 pin: csv-es 1`] = `
+"Proveedor,Falta pedir,Nombre del artículo,En existencia,OC pendiente,Nivel par,Cant. sugerida,Cajas,Unidades por caja,Unidad,Indicadores,EOD contado el
+US Foods,sí,Alitas,4,2,40,40,4,10,bolsas,,2026-10-23T02:00:00Z
+US Foods,no,Sauce,12.5,0,10,0,,,gal,,2026-10-23T02:00:00Z
+Sysco,no,Lemons,0,0,0,0,,,ud,no_par,"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-10 — buildStaffReorderCsv(zh-CN) matches the f7b2759 pin: csv-zh-CN 1`] = `
+"供应商,需订购,项目名称,现有,待收订单,标准量,建议数量,箱数,每箱单位数,单位,标记,EOD 盘点时间
+US Foods,是,鸡翅,4,2,40,40,4,10,袋,,2026-10-23T02:00:00Z
+US Foods,否,Sauce,12.5,0,10,0,,,加仑,,2026-10-23T02:00:00Z
+Sysco,否,Lemons,0,0,0,0,,,个,no_par,"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-11 — buildStaffReorderText(en) matches the f7b2759 pin: text-en 1`] = `
+"I.M.R — Reorder list
+Store: Frederick
+As of: 2026-10-23
+
+=== NEEDS TO ORDER ===
+US Foods — EOD
+  next delivery: 2026-10-24
+  - Wings: 4 cases · 40 bags
+
+=== HAVE ENOUGH STOCK ===
+US Foods — EOD
+  next delivery: 2026-10-24
+  - Sauce: on hand 12.5 gal
+
+Sysco — STOCK FALLBACK
+  next delivery: 2026-10-24
+  - Lemons: on hand 0 each
+
+Total items to order: 1"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-11 — buildStaffReorderText(es) matches the f7b2759 pin: text-es 1`] = `
+"I.M.R — Lista de pedidos
+Tienda: Frederick
+A fecha de: 2026-10-23
+
+=== FALTA PEDIR ===
+US Foods — EOD
+  Próxima entrega: 2026-10-24
+  - Alitas: 4 cajas · 40 bolsas
+
+=== STOCK SUFICIENTE ===
+US Foods — EOD
+  Próxima entrega: 2026-10-24
+  - Sauce: en existencia 12.5 gal
+
+Sysco — STOCK DE RESERVA
+  Próxima entrega: 2026-10-24
+  - Lemons: en existencia 0 ud
+
+Artículos que pedir: 1"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-11 — buildStaffReorderText(zh-CN) matches the f7b2759 pin: text-zh-CN 1`] = `
+"I.M.R — 补货清单
+门店: Frederick
+截至: 2026-10-23
+
+=== 需要订购 ===
+US Foods — EOD
+  下次送货: 2026-10-24
+  - 鸡翅: 4 箱 · 40 袋
+
+=== 库存充足 ===
+US Foods — EOD
+  下次送货: 2026-10-24
+  - Sauce: 现有 12.5 加仑
+
+Sysco — 库存回退
+  下次送货: 2026-10-24
+  - Lemons: 现有 0 个
+
+需订购项目: 1"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-12 — buildStaffReorderPdfHtml(en) matches the f7b2759 pin: pdf-html-en 1`] = `
+"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1a1a18; margin: 24px; }
+  h1.title { font-size: 22px; margin: 0 0 2px 0; }
+  .sub { color: #777; font-size: 12px; margin: 0 0 16px 0; }
+  h1.section { font-size: 15px; margin: 22px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  h1.section.needs { color: #b23030; }
+  h1.section.enough { color: #2e7d1e; }
+  h2 { font-size: 13px; margin: 16px 0 6px 0; }
+  h2.needs { color: #b23030; }
+  h2.enough { color: #2e7d1e; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e4e4e4; }
+  th { background: #1a1a18; color: #fff; }
+  table.needs th { background: #b23030; }
+  table.enough th { background: #2e7d1e; }
+  td.num, th.num { text-align: right; }
+  td.strong, .strong { font-weight: 700; }
+  .cs-red { color: #b23030; }
+  .sub-unit { font-weight: 400; font-size: 9px; color: #777; }
+  .none { color: #999; font-size: 11px; margin: 4px 0 0 0; }
+  .footer { margin-top: 20px; font-size: 12px; font-weight: 700; }
+  .gen { margin-top: 28px; font-size: 9px; color: #999; }
+</style>
+</head>
+<body>
+  <h1 class="title">I.M.R — Per-Vendor Reorder Suggestions</h1>
+  <p class="sub">Store: Frederick &nbsp;|&nbsp; As of: 2026-10-23</p>
+  <h1 class="section needs">Needs to Order</h1>
+      <h2 class="needs">US Foods &middot; Source: EOD &middot; Next delivery: 2026-10-24 (tomorrow)</h2>
+      <table class="needs">
+        <thead>
+          <tr>
+            <th>Item</th><th class="num">On Hand</th><th class="num">Pending</th>
+            <th class="num">Par</th><th class="num">Suggested</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Wings</td>
+            <td class="num">4</td>
+            <td class="num">2</td>
+            <td class="num">40</td>
+            <td class="num"><span class="strong cs-red">4 cs</span><span class="sub-unit"> &middot; 40 bags</span></td>
+            
+          </tr></tbody>
+      </table>
+  <h1 class="section enough">Have Enough Stock</h1>
+      <h2 class="enough">US Foods &middot; Source: EOD &middot; Next delivery: 2026-10-24 (tomorrow)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>Item</th><th class="num">On Hand</th><th class="num">Pending</th>
+            <th class="num">Par</th><th class="num">Suggested</th><th>Unit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Sauce</td>
+            <td class="num">12.5</td>
+            <td class="num">0</td>
+            <td class="num">10</td>
+            <td class="num"><span class="strong">0 gal</span></td>
+            <td>gal</td>
+          </tr></tbody>
+      </table>
+      <h2 class="enough">Sysco &middot; Source: STOCK FALLBACK &middot; Next delivery: 2026-10-24 (in 3 days)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>Item</th><th class="num">On Hand</th><th class="num">Pending</th>
+            <th class="num">Par</th><th class="num">Suggested</th><th>Unit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Lemons</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num"><span class="strong">0 each</span></td>
+            <td>each</td>
+          </tr></tbody>
+      </table>
+  <p class="footer">Items to order: 1</p>
+  <p class="gen">Generated by I.M.R — Inventory Management for Restaurant</p>
+</body>
+</html>"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-12 — buildStaffReorderPdfHtml(es) matches the f7b2759 pin: pdf-html-es 1`] = `
+"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1a1a18; margin: 24px; }
+  h1.title { font-size: 22px; margin: 0 0 2px 0; }
+  .sub { color: #777; font-size: 12px; margin: 0 0 16px 0; }
+  h1.section { font-size: 15px; margin: 22px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  h1.section.needs { color: #b23030; }
+  h1.section.enough { color: #2e7d1e; }
+  h2 { font-size: 13px; margin: 16px 0 6px 0; }
+  h2.needs { color: #b23030; }
+  h2.enough { color: #2e7d1e; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e4e4e4; }
+  th { background: #1a1a18; color: #fff; }
+  table.needs th { background: #b23030; }
+  table.enough th { background: #2e7d1e; }
+  td.num, th.num { text-align: right; }
+  td.strong, .strong { font-weight: 700; }
+  .cs-red { color: #b23030; }
+  .sub-unit { font-weight: 400; font-size: 9px; color: #777; }
+  .none { color: #999; font-size: 11px; margin: 4px 0 0 0; }
+  .footer { margin-top: 20px; font-size: 12px; font-weight: 700; }
+  .gen { margin-top: 28px; font-size: 9px; color: #999; }
+</style>
+</head>
+<body>
+  <h1 class="title">I.M.R — Sugerencias de pedido por proveedor</h1>
+  <p class="sub">Tienda: Frederick &nbsp;|&nbsp; A fecha de: 2026-10-23</p>
+  <h1 class="section needs">Falta pedir</h1>
+      <h2 class="needs">US Foods &middot; Origen: EOD &middot; Próxima entrega: 2026-10-24 (mañana)</h2>
+      <table class="needs">
+        <thead>
+          <tr>
+            <th>Artículo</th><th class="num">En existencia</th><th class="num">Pendiente</th>
+            <th class="num">Par</th><th class="num">Sugerido</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Alitas</td>
+            <td class="num">4</td>
+            <td class="num">2</td>
+            <td class="num">40</td>
+            <td class="num"><span class="strong cs-red">4 cs</span><span class="sub-unit"> &middot; 40 bolsas</span></td>
+            
+          </tr></tbody>
+      </table>
+  <h1 class="section enough">Stock suficiente</h1>
+      <h2 class="enough">US Foods &middot; Origen: EOD &middot; Próxima entrega: 2026-10-24 (mañana)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>Artículo</th><th class="num">En existencia</th><th class="num">Pendiente</th>
+            <th class="num">Par</th><th class="num">Sugerido</th><th>Unidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Sauce</td>
+            <td class="num">12.5</td>
+            <td class="num">0</td>
+            <td class="num">10</td>
+            <td class="num"><span class="strong">0 gal</span></td>
+            <td>gal</td>
+          </tr></tbody>
+      </table>
+      <h2 class="enough">Sysco &middot; Origen: STOCK DE RESERVA &middot; Próxima entrega: 2026-10-24 (en 3 días)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>Artículo</th><th class="num">En existencia</th><th class="num">Pendiente</th>
+            <th class="num">Par</th><th class="num">Sugerido</th><th>Unidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Lemons</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num"><span class="strong">0 ud</span></td>
+            <td>ud</td>
+          </tr></tbody>
+      </table>
+  <p class="footer">Artículos que pedir: 1</p>
+  <p class="gen">Generado por I.M.R — Inventory Management for Restaurant</p>
+</body>
+</html>"
+`;
+
+exports[`Spec 174 — staff numeric-only output is byte-identical (pre-change pins) AC-12 — buildStaffReorderPdfHtml(zh-CN) matches the f7b2759 pin: pdf-html-zh-CN 1`] = `
+"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1a1a18; margin: 24px; }
+  h1.title { font-size: 22px; margin: 0 0 2px 0; }
+  .sub { color: #777; font-size: 12px; margin: 0 0 16px 0; }
+  h1.section { font-size: 15px; margin: 22px 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  h1.section.needs { color: #b23030; }
+  h1.section.enough { color: #2e7d1e; }
+  h2 { font-size: 13px; margin: 16px 0 6px 0; }
+  h2.needs { color: #b23030; }
+  h2.enough { color: #2e7d1e; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #e4e4e4; }
+  th { background: #1a1a18; color: #fff; }
+  table.needs th { background: #b23030; }
+  table.enough th { background: #2e7d1e; }
+  td.num, th.num { text-align: right; }
+  td.strong, .strong { font-weight: 700; }
+  .cs-red { color: #b23030; }
+  .sub-unit { font-weight: 400; font-size: 9px; color: #777; }
+  .none { color: #999; font-size: 11px; margin: 4px 0 0 0; }
+  .footer { margin-top: 20px; font-size: 12px; font-weight: 700; }
+  .gen { margin-top: 28px; font-size: 9px; color: #999; }
+</style>
+</head>
+<body>
+  <h1 class="title">I.M.R — 按供应商补货建议</h1>
+  <p class="sub">门店: Frederick &nbsp;|&nbsp; 截至: 2026-10-23</p>
+  <h1 class="section needs">需要订购</h1>
+      <h2 class="needs">US Foods &middot; 来源: EOD &middot; 下次送货: 2026-10-24 (明天)</h2>
+      <table class="needs">
+        <thead>
+          <tr>
+            <th>项目</th><th class="num">现有</th><th class="num">待收</th>
+            <th class="num">标准量</th><th class="num">建议</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>鸡翅</td>
+            <td class="num">4</td>
+            <td class="num">2</td>
+            <td class="num">40</td>
+            <td class="num"><span class="strong cs-red">4 箱</span><span class="sub-unit"> &middot; 40 袋</span></td>
+            
+          </tr></tbody>
+      </table>
+  <h1 class="section enough">库存充足</h1>
+      <h2 class="enough">US Foods &middot; 来源: EOD &middot; 下次送货: 2026-10-24 (明天)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>项目</th><th class="num">现有</th><th class="num">待收</th>
+            <th class="num">标准量</th><th class="num">建议</th><th>单位</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Sauce</td>
+            <td class="num">12.5</td>
+            <td class="num">0</td>
+            <td class="num">10</td>
+            <td class="num"><span class="strong">0 加仑</span></td>
+            <td>加仑</td>
+          </tr></tbody>
+      </table>
+      <h2 class="enough">Sysco &middot; 来源: 库存回退 &middot; 下次送货: 2026-10-24 (3 天后)</h2>
+      <table class="enough">
+        <thead>
+          <tr>
+            <th>项目</th><th class="num">现有</th><th class="num">待收</th>
+            <th class="num">标准量</th><th class="num">建议</th><th>单位</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Lemons</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td class="num"><span class="strong">0 个</span></td>
+            <td>个</td>
+          </tr></tbody>
+      </table>
+  <p class="footer">需订购项目: 1</p>
+  <p class="gen">由 I.M.R — Inventory Management for Restaurant 生成</p>
+</body>
+</html>"
+`;

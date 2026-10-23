@@ -10,6 +10,7 @@
 export {
   EOD_NO_NEED_AUDIT_VALUE,
   REORDER_FLAG_NO_NEED,
+  isReorderNoNeed,
   eodRowCounted,
   eodRowEntryValues,
   eodToggleNoNeed,

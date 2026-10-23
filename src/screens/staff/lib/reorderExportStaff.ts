@@ -25,8 +25,10 @@ import {
   formatSuggested,
   formatSuggestedPdfParts,
   localizeUnit,
+  reorderNoNeedLabel,
   todayLocalIso,
 } from '../../../utils/reorderExport';
+import { isReorderNoNeed } from './eodNoNeed';
 
 // 2026-07 — localized downloads. Same posture as the shared admin builders:
 // `locale === 'en'` yields byte-identical output; es / zh-CN translate the
@@ -83,7 +85,8 @@ export function buildStaffReorderCsv(payload: ReorderPayload, locale: Locale = '
         [cVendor]: vendor.vendorName,
         [cNeeds]: item.needsOrder === false ? no : yes,
         [cItemName]: nameOf(item, locale),
-        [cOnHand]: item.onHand,
+        // Spec 174 (AC-10) — NO NEED label in place of the stale on-hand.
+        [cOnHand]: isReorderNoNeed(item) ? reorderNoNeedLabel(locale) : item.onHand,
         [cPendingPo]: item.pendingPoQty,
         [cParLevel]: item.parLevel,
         [cSuggestedQty]: isCase ? item.suggestedUnits : item.suggestedQty,
@@ -150,13 +153,20 @@ export function buildStaffReorderText(
   section(
     locale === 'en' ? 'HAVE ENOUGH STOCK' : t(locale, 'reorderExport.haveEnough').toUpperCase(),
     (it) => it.needsOrder === false,
+    // Spec 174 (AC-11) — a NO NEED row prints `{name}: {label}` (same `:`
+    // shape as the needs line) with no on-hand number and no unit. The en
+    // path keeps its pre-existing `item.itemName`.
     (item) =>
-      locale === 'en'
-        ? `  - ${item.itemName}: on hand ${formatQty(item.onHand)} ${item.unit}`.trimEnd()
-        : `  - ${nameOf(item, locale)}: ${t(locale, 'reorderExport.onHandLine', {
-            qty: formatQty(item.onHand),
-            unit: unitOf(item.unit, locale),
-          })}`.trimEnd(),
+      isReorderNoNeed(item)
+        ? locale === 'en'
+          ? `  - ${item.itemName}: ${reorderNoNeedLabel('en')}`
+          : `  - ${nameOf(item, locale)}: ${reorderNoNeedLabel(locale)}`
+        : locale === 'en'
+          ? `  - ${item.itemName}: on hand ${formatQty(item.onHand)} ${item.unit}`.trimEnd()
+          : `  - ${nameOf(item, locale)}: ${t(locale, 'reorderExport.onHandLine', {
+              qty: formatQty(item.onHand),
+              unit: unitOf(item.unit, locale),
+            })}`.trimEnd(),
   );
 
   lines.push(`${L('reorderExport.itemsToOrder', 'Total items to order')}: ${payload.kpis.itemCount}`);
@@ -220,10 +230,12 @@ export function buildStaffReorderPdfHtml(
           ? `<span class="${mainCls}">${escapeHtml(main)}</span><span class="sub-unit"> &middot; ${escapeHtml(sub)}</span>`
           : `<span class="${mainCls}">${escapeHtml(main)}</span>`;
         const unitCell = isNeeds ? '' : `<td>${escapeHtml(unitOf(item.unit, locale))}</td>`;
+        // Spec 174 (AC-12) — NO NEED label (escaped, localized) in place of the
+        // stale on-hand; one site covers both the needs and enough boxes.
         return `
           <tr>
             <td>${escapeHtml(nameOf(item, locale))}</td>
-            <td class="num">${formatQty(item.onHand)}</td>
+            <td class="num">${isReorderNoNeed(item) ? escapeHtml(reorderNoNeedLabel(locale)) : formatQty(item.onHand)}</td>
             <td class="num">${formatQty(item.pendingPoQty)}</td>
             <td class="num">${formatQty(item.parLevel)}</td>
             <td class="num">${suggestedCell}</td>

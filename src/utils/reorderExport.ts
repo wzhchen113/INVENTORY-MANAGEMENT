@@ -25,6 +25,7 @@ import type { ReorderItem, ReorderPayload } from '../types';
 import { t, type Locale } from '../i18n';
 import { getLocalizedName } from '../i18n/localizedName';
 import { unitLabel } from './enumLabels';
+import { isReorderNoNeed } from '../lib/eodNoNeed';
 
 // 2026-07 — localized downloads. Every builder takes the active `locale`;
 // with `locale === 'en'` the output stays BYTE-FOR-BYTE identical to the
@@ -47,6 +48,18 @@ export function localizeUnit(unit: string, locale: Locale): string {
 /** Item display name in the active locale (silent English fallback). */
 function itemDisplayName(item: ReorderItem, locale: Locale): string {
   return getLocalizedName({ name: item.itemName, i18nNames: item.i18nNames }, locale);
+}
+
+/**
+ * Spec 174 — the NO NEED label printed in an export's On Hand cell/line, in
+ * place of the stale `current_stock` a NO NEED row carries. Same posture as
+ * the builders' `H()` / `L()`: the en path is the English literal (never the
+ * catalog, so en output cannot drift through a catalog edit); es / zh-CN reuse
+ * the on-screen `section.reorder.noNeed` key. Shared by every export builder,
+ * admin and staff.
+ */
+export function reorderNoNeedLabel(locale: Locale): string {
+  return locale === 'en' ? 'NO NEED' : t(locale, 'section.reorder.noNeed');
 }
 
 // Extracted to ./formatQty (dependency-free) so poQuickOrderText — and the
@@ -240,7 +253,9 @@ export function buildReorderCsv(payload: ReorderPayload, locale: Locale = 'en'):
         [cVendor]: vendor.vendorName,
         [cNeeds]: item.needsOrder === false ? no : yes,
         [cItemName]: itemDisplayName(item, locale),
-        [cOnHand]: item.onHand,
+        // Spec 174 (AC-2) — a NO NEED row's on-hand is a stale figure; print
+        // the label instead. Flags (below) still carries the raw token.
+        [cOnHand]: isReorderNoNeed(item) ? reorderNoNeedLabel(locale) : item.onHand,
         [cPendingPo]: item.pendingPoQty,
         [cParLevel]: item.parLevel,
         // Case rows carry the ordered base-unit total `M`; non-case rows
@@ -345,10 +360,12 @@ export function buildReorderPdfHtml(payload: ReorderPayload, storeName: string):
           const suggestedCell = sub
             ? `<span class="strong">${escapeHtml(main)}</span><span class="sub-unit"> &middot; ${escapeHtml(sub)}</span>`
             : `<span class="strong">${escapeHtml(main)}</span>`;
+          // Spec 174 (AC-8) — On Hand prints the English NO NEED label for a
+          // NO NEED row (this builder is English-only; no `locale` param).
           return `
             <tr>
               <td>${escapeHtml(item.itemName)}</td>
-              <td class="num">${formatQty(item.onHand)}</td>
+              <td class="num">${isReorderNoNeed(item) ? escapeHtml(reorderNoNeedLabel('en')) : formatQty(item.onHand)}</td>
               <td class="num">${formatQty(item.pendingPoQty)}</td>
               <td class="num">${formatQty(item.parLevel)}</td>
               <td class="num">${suggestedCell}</td>
