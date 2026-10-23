@@ -41,7 +41,7 @@ env:
 jobs:
   e2e:
     name: Track 4 — Playwright (web)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Generous budget: supabase cold-boot (~60-90s) + db reset (reseed of
     # the 286 KB seed) + cold Metro bundle + the serial suite.
     timeout-minutes: 30

@@ -30,7 +30,7 @@ env:
 jobs:
   gate:
     name: Migrations applied to prod
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # supabase-CLI cold-boot via setup-cli + one management-API call.
     # No `supabase start`. ~30-60s typical. 5 min is generous.
     timeout-minutes: 5

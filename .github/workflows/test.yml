@@ -49,7 +49,7 @@ env:
 jobs:
   jest:
     name: Track 1 — jest-expo
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Without a job-level timeout the run defaults to 6 hours, so any
     # hung worker (transformIgnorePatterns regression, etc.) burns CI
     # minutes for hours. Closes code-reviewer S2 + test-engineer.
@@ -71,7 +71,7 @@ jobs:
 
   typecheck:
     name: Track 1a — typecheck (test graph)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Typecheck on the test-reachable slice. Cold-start is faster than
     # jest's; 10 minutes is generous.
     timeout-minutes: 10
@@ -92,7 +92,7 @@ jobs:
 
   typecheck-base:
     name: Track 1b — typecheck (full base graph)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Base typecheck (Spec 025). Covers the full active app graph
     # (excludes supabase/functions, scripts, and tests/test files per
     # tsconfig.json `exclude`). Cold-start matches the Track 1a job.
@@ -114,7 +114,7 @@ jobs:
 
   extension:
     name: Track 1c — extension typecheck + unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Spec 132 (D-6 / OQ-4) — the Chrome MV3 cart-filler is a SEPARATE build
     # artifact outside the Expo Metro/jest graph, with its own tsconfig + vitest
     # runner. This arm gates its PURE logic (payload → planned actions, the
@@ -148,7 +148,7 @@ jobs:
 
   db:
     name: Track 2 — Supabase DB tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # `supabase start` cold-boot is ~60-90s; tests themselves are fast.
     # 20 min covers boot variance + a generous test-runtime budget.
     timeout-minutes: 20
