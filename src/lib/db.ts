@@ -46,6 +46,9 @@ import { isOrderChannel, type OrderChannel } from '../utils/orderChannel';
 // Spec 165 — the single shared placeholder-email predicate (username-only
 // accounts). Pure module, allowed in db.ts.
 import { isPlaceholderEmail } from './placeholderEmail';
+// Spec 171 — EOD count-mode normalizer (missing/unknown → 'cases_and_units').
+// Pure module (no supabase / no React), allowed in db.ts.
+import { normalizeEodCountMode } from './eodCountMode';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -287,7 +290,7 @@ export async function fetchInventory(
         item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
                                   order_code, product_page_url, vendor:vendors(id, name)),
         updater:profiles!last_updated_by(name),
-        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path)`)
+        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path, eod_count_mode)`)
       .order('id', { ascending: true });
     if (storeId) query = query.eq('store_id', storeId);
     const { data, error } = await query.abortSignal(signal);
@@ -388,6 +391,10 @@ export async function createInventoryItem(
       // function's default `{}`::jsonb (back-compat — the RPC accepts the
       // shorter argument list).
       p_i18n_names: item.i18nNames ?? {},
+      // Spec 171 — brand-level EOD count mode for a NEW catalog row. The RPC's
+      // find-existing branch deliberately does not overwrite it (same as
+      // case_qty / i18n_names). Normalized so only a CHECK-valid literal is sent.
+      p_eod_count_mode: normalizeEodCountMode(item.eodCountMode),
     }).abortSignal(signal);
     if (error) throw error;
     // The RPC returns a jsonb shaped exactly like a PostgREST embed
@@ -457,7 +464,7 @@ export async function updateInventoryItem(
   if (!id || id.length < 10) return;
 
   return useInflight.getState().track(async (signal) => {
-    // Catalog-level fields (name/unit/category/case_qty/sub_unit_*/i18n_names)
+    // Catalog-level fields (name/unit/category/case_qty/sub_unit_*/i18n_names/eod_count_mode)
     // propagate to ALL stores via catalog_ingredients. Per-store fields (cost,
     // vendor, par, stock) stay on inventory_items.
     const catalogUpdates: any = {};
@@ -472,6 +479,8 @@ export async function updateInventoryItem(
     // existing JSONB untouched (matching the rest of this function's
     // omit-key-to-skip semantics).
     if (updates.i18nNames !== undefined) catalogUpdates.i18n_names = updates.i18nNames;
+    // Spec 171: brand-level EOD count mode; omit-key-to-skip like the rest.
+    if (updates.eodCountMode !== undefined) catalogUpdates.eod_count_mode = updates.eodCountMode;
     if (Object.keys(catalogUpdates).length > 0) {
       catalogUpdates.updated_at = new Date().toISOString();
       // Resolve the catalog_id for this row before updating
@@ -6121,6 +6130,10 @@ function mapItem(row: any): InventoryItem & { i18nNames: Record<string, string> 
     // renders the placeholder. Resolved to a public URL via `ingredientImageUrl`
     // (src/lib/ingredientImage.ts) at render time.
     imagePath: cat.image_path ?? null,
+    // Spec 171 — brand-level EOD count mode (stored, not effective).
+    // Missing/unknown → 'cases_and_units' (AC-19). Also hydrates the RPC
+    // return of create_inventory_item_with_catalog (catalog.eod_count_mode).
+    eodCountMode: normalizeEodCountMode(cat.eod_count_mode),
     // Spec 102 (§6a) — full per-vendor link set + derived membership array.
     vendors: vendorLinks,
     vendorIds: vendorLinks.map((v) => v.vendorId).filter((id) => id.length > 0),

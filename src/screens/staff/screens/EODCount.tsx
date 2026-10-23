@@ -47,7 +47,15 @@ import {
   saveCountOrder,
   resetCountOrder,
 } from '../lib/countOrder';
-import { appendKeypadDigit, activeFieldFor, advanceUncounted } from '../lib/eodKeypad';
+import { appendKeypadDigit, activeFieldFor, advanceUncounted, clampActiveField } from '../lib/eodKeypad';
+import {
+  effectiveEodCountMode,
+  eodHasEntry,
+  eodTotal,
+  eodEntryValues,
+  normalizeEodCountMode,
+  type EodCountMode,
+} from '../lib/eodCountMode';
 import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
 import { fetchSubmittedVendorIds } from '../lib/submittedStatus';
@@ -148,7 +156,7 @@ async function fetchItemsForVendor(
   const { data, error } = await supabase
     .from('item_vendors')
     .select(
-      'vendor_id, item:inventory_items!inner(id, store_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names, image_path))',
+      'vendor_id, item:inventory_items!inner(id, store_id, catalog:catalog_ingredients(name, unit, case_qty, i18n_names, image_path, eod_count_mode))',
     )
     .eq('vendor_id', vendorId)
     .eq('item.store_id', storeId)
@@ -161,6 +169,9 @@ async function fetchItemsForVendor(
     i18n_names: LocalizedNames | null;
     // Spec 127 — brand-level photo object path (nullable).
     image_path: string | null;
+    // Spec 171 — brand-level EOD count mode (NOT NULL in the DB; typed
+    // nullable so a pre-migration DB / partial fixture normalizes to default).
+    eod_count_mode?: string | null;
   };
   type ItemRow = {
     id: string;
@@ -192,6 +203,9 @@ async function fetchItemsForVendor(
         i18nNames: c?.i18n_names ?? undefined,
         // Spec 127 — brand-level photo path; null → placeholder thumbnail.
         imagePath: c?.image_path ?? null,
+        // Spec 171 (AC-15) — STORED mode; unknown/missing → 'cases_and_units'.
+        // Inert when caseQty <= 1 (resolved via effectiveEodCountMode).
+        eodCountMode: normalizeEodCountMode(c?.eod_count_mode),
       },
     ];
   });
@@ -340,20 +354,21 @@ export function EODCount() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
 
-  // Live progress for the "X of N counted" label — a row counts once EITHER
-  // box has a value (the same predicate the red marking + gate use).
-  const countedNum = useMemo(
-    () =>
-      items.filter(
-        (it) =>
-          (caseCounts[it.id] ?? '').trim() !== '' || (unitCounts[it.id] ?? '').trim() !== '',
-      ).length,
-    [items, caseCounts, unitCounts],
-  );
-
   // Spec 129 — SUBMITTED_LOCKED: the selected vendor has an existing submission
   // and we're not editing it. The Cases/Units inputs render read-only.
   const inputsLocked = existing != null && !editing;
+
+  // Spec 171 (design D7) — the per-row EOD count mode. A locked/read-only row
+  // uses the LEGACY layout (no stored mode → 'cases_and_units' iff caseQty > 1)
+  // so a submitted count renders as stored (AC-20); an editable row uses the
+  // live brand-level mode. Every counting site below goes through this.
+  const modeFor = useCallback(
+    (it: EodItem): EodCountMode =>
+      inputsLocked
+        ? effectiveEodCountMode(it.caseQty)
+        : effectiveEodCountMode(it.caseQty, it.eodCountMode),
+    [inputsLocked],
+  );
 
   // ─── Spec 141: keypad-sheet derived state + handlers ──────────────
   // The FULL on-screen order (NOT the search-narrowed `visibleItems`): default
@@ -373,14 +388,17 @@ export function EODCount() {
     () => orderedForAdvance.find((i) => i.id === sheetItemId) ?? null,
     [orderedForAdvance, sheetItemId],
   );
-  // Counted-once predicate (spec 102) — cases OR units non-blank. The single
-  // source feeding the row indicator, the "X of N" label, the gate, isDone, and
-  // advance.
+  // Counted-once predicate (spec 102) — an ENABLED box (spec 171 AC-7) is
+  // non-blank; under the default mode that is cases OR units, as before. The
+  // single source feeding the row indicator, the "X of N" label, the gate,
+  // isDone, and advance.
   const isCounted = useCallback(
-    (it: EodItem) =>
-      (caseCounts[it.id] ?? '').trim() !== '' || (unitCounts[it.id] ?? '').trim() !== '',
-    [caseCounts, unitCounts],
+    (it: EodItem) => eodHasEntry(modeFor(it), caseCounts[it.id], unitCounts[it.id]),
+    [caseCounts, unitCounts, modeFor],
   );
+  // Live progress for the "X of N counted" label — the same predicate the
+  // indicator + gate use.
+  const countedNum = useMemo(() => items.filter(isCounted).length, [items, isCounted]);
   const isDone = useMemo(
     () => firstUncounted(orderedForAdvance, isCounted) === null,
     [orderedForAdvance, isCounted],
@@ -388,13 +406,14 @@ export function EODCount() {
   // Running total for the currently-seated sheet item (existing case/unit math).
   const sheetTotal = useMemo(() => {
     if (!sheetItem) return 0;
-    const casesParsed = parseFloat(caseCounts[sheetItem.id] ?? '');
-    const unitsParsed = parseFloat(unitCounts[sheetItem.id] ?? '');
-    return (
-      (Number.isNaN(casesParsed) ? 0 : casesParsed) * (sheetItem.caseQty || 1) +
-      (Number.isNaN(unitsParsed) ? 0 : unitsParsed)
-    );
-  }, [sheetItem, caseCounts, unitCounts]);
+    return eodTotal(modeFor(sheetItem), sheetItem.caseQty, caseCounts[sheetItem.id], unitCounts[sheetItem.id]);
+  }, [sheetItem, caseCounts, unitCounts, modeFor]);
+  // Spec 171 §9 — clamp the seated field to an ENABLED box (live mode; the
+  // sheet only opens unlocked) so a stale `activeField` can never write into a
+  // hidden map.
+  const seatedField: 'cases' | 'units' = sheetItem
+    ? clampActiveField(activeField, sheetItem.caseQty, sheetItem.eodCountMode)
+    : activeField;
 
   const openSheet = useCallback(
     (item: EodItem, field: 'cases' | 'units') => {
@@ -409,13 +428,13 @@ export function EODCount() {
     (key: string) => {
       if (!sheetItem) return;
       const id = sheetItem.id;
-      if (activeField === 'cases') {
+      if (seatedField === 'cases') {
         setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
       } else {
         setUnitCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
       }
     },
-    [sheetItem, activeField],
+    [sheetItem, seatedField],
   );
   // AC-7 — advance to the next uncounted item with wraparound over the FULL
   // ordered set. SKIP and NEXT ITEM share this; NEXT ITEM closes when nothing
@@ -429,7 +448,8 @@ export function EODCount() {
       return;
     }
     setSheetItemId(res.item.id);
-    setActiveField(activeFieldFor(res.item.caseQty));
+    // Spec 171 (AC-8) — seat the ENABLED box under the item's count mode.
+    setActiveField(activeFieldFor(res.item.caseQty, res.item.eodCountMode));
   }, [sheetItem, orderedForAdvance, isCounted, closeSheet]);
   const onSkip = useCallback(() => advance(), [advance]);
   const onNext = useCallback(() => {
@@ -687,7 +707,7 @@ export function EODCount() {
     const target = orderedForAdvance.find((it) => it.id === pendingFocusId);
     if (target) {
       setSheetItemId(target.id);
-      setActiveField(activeFieldFor(target.caseQty));
+      setActiveField(activeFieldFor(target.caseQty, target.eodCountMode));
     }
     setPendingFocusId(null);
   }, [pendingFocusId, orderedForAdvance]);
@@ -701,8 +721,9 @@ export function EODCount() {
     // any remain, block the submit and jump to the first one (clearing the
     // search first so a searched-out target can render). Checks the full
     // `items` list, never the search-narrowed `visibleItems`.
-    const isBlank = (it: EodItem) =>
-      (caseCounts[it.id] ?? '').trim() === '' && (unitCounts[it.id] ?? '').trim() === '';
+    // Spec 171 (AC-7) — "blank" means no ENABLED box has a value; a stale value
+    // in a now-disabled box does not satisfy the gate (AC-16b).
+    const isBlank = (it: EodItem) => !eodHasEntry(modeFor(it), caseCounts[it.id], unitCounts[it.id]);
     // Completeness COUNT is against the FULL item set, order-independent (AC-9).
     const uncounted = items.filter(isBlank);
     if (uncounted.length > 0) {
@@ -724,28 +745,19 @@ export function EODCount() {
       });
       return;
     }
-    // Build entries — include a row when EITHER its Cases OR its Units
-    // box is non-empty (the admin `hasEntry` rule,
-    // EODCountSection.tsx:397-398). Fully-blank rows are skipped so the
-    // RPC isn't bloated. Each entry carries the converted total
-    // (`cases × (caseQty || 1) + units`, byte-identical to the admin at
-    // EODCountSection.tsx:395,429, with isNaN→0 per input) plus the raw
-    // splits (null when the box is blank).
+    // Build entries — fully-blank rows are skipped so the RPC isn't bloated.
+    // Spec 171 (AC-7 / AC-16c) — `eodEntryValues` applies the row's count
+    // mode: only ENABLED boxes contribute; a disabled box ships null; under the
+    // default mode the result is byte-identical to the pre-spec-171 builder.
     const entries: EodEntry[] = items
-      .map((it) => {
-        const caseRaw = caseCounts[it.id] ?? '';
-        const unitRaw = unitCounts[it.id] ?? '';
-        if (caseRaw.trim() === '' && unitRaw.trim() === '') return null;
-        const casesParsed = parseFloat(caseRaw);
-        const unitsParsed = parseFloat(unitRaw);
-        const cases = Number.isNaN(casesParsed) ? 0 : casesParsed;
-        const units = Number.isNaN(unitsParsed) ? 0 : unitsParsed;
-        const total = cases * (it.caseQty || 1) + units;
+      .map((it): EodEntry | null => {
+        const v = eodEntryValues(modeFor(it), it.caseQty, caseCounts[it.id], unitCounts[it.id]);
+        if (!v) return null;
         return {
           item_id: it.id,
-          actual_remaining: total,
-          actual_remaining_cases: Number.isNaN(casesParsed) ? null : casesParsed,
-          actual_remaining_each: Number.isNaN(unitsParsed) ? null : unitsParsed,
+          actual_remaining: v.total,
+          actual_remaining_cases: v.cases,
+          actual_remaining_each: v.units,
         };
       })
       .filter((x): x is EodEntry => x !== null);
@@ -857,7 +869,7 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, viewMode, savedIds, t]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, viewMode, savedIds, t, modeFor]);
 
   // Spec 103 — one shared row body, rendered by BOTH the default FlatList and
   // the Custom drag list, so the Custom view shows byte-identical rows (the
@@ -868,11 +880,8 @@ export function EODCount() {
       const unitRaw = unitCounts[item.id] ?? '';
       const hasPack = (item.caseQty ?? 0) > 1;
       const counted = isCounted(item);
-      const casesParsed = parseFloat(caseRaw);
-      const unitsParsed = parseFloat(unitRaw);
-      const total =
-        (Number.isNaN(casesParsed) ? 0 : casesParsed) * (item.caseQty || 1) +
-        (Number.isNaN(unitsParsed) ? 0 : unitsParsed);
+      const countMode = modeFor(item);
+      const total = eodTotal(countMode, item.caseQty, caseRaw, unitRaw);
       const displayName = getLocalizedName(
         { name: item.name, i18nNames: item.i18nNames },
         locale,
@@ -886,12 +895,13 @@ export function EODCount() {
           unitValue={unitRaw}
           total={total}
           hasPack={hasPack}
+          countMode={countMode}
           locked={inputsLocked}
           onOpenWell={openSheet}
         />
       );
     },
-    [caseCounts, unitCounts, isCounted, locale, inputsLocked, openSheet],
+    [caseCounts, unitCounts, isCounted, modeFor, locale, inputsLocked, openSheet],
   );
 
   if (!activeStore) {
@@ -1406,7 +1416,7 @@ export function EODCount() {
             ? getLocalizedName({ name: sheetItem.name, i18nNames: sheetItem.i18nNames }, locale)
             : ''
         }
-        activeField={activeField}
+        activeField={seatedField}
         setActiveField={setActiveField}
         caseValue={sheetItem ? caseCounts[sheetItem.id] ?? '' : ''}
         unitValue={sheetItem ? unitCounts[sheetItem.id] ?? '' : ''}

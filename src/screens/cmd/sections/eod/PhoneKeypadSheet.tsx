@@ -14,13 +14,21 @@ import { View, Text, Pressable, TextInput, Platform } from 'react-native';
 import { useCmdColors, CmdRadius } from '../../../../theme/colors';
 import { mono, PhoneType } from '../../../../theme/typography';
 import { useT } from '../../../../hooks/useT';
-import { KEYPAD_BACKSPACE } from '../../../../lib/eodKeypad';
+import { KEYPAD_BACKSPACE, eodBoxesFor } from '../../../../lib/eodKeypad';
+import { eodBoxes, type EodCountMode } from '../../../../lib/eodCountMode';
 import { ResponsiveSheet } from '../../../../components/cmd/ResponsiveSheet';
 import type { InventoryItem } from '../../../../types';
 
 export interface PhoneKeypadSheetProps {
   visible: boolean;
   item: InventoryItem | null;
+  /** Spec 171 (AC-13) — the EFFECTIVE EOD count mode that decides which wells
+   *  render (a disabled well is OMITTED). `PhoneEodCount` passes the item's
+   *  live mode. OMITTED → the legacy layout (both wells iff caseQty > 1, else
+   *  units only), ignoring `item.eodCountMode` — `PhoneWeeklyCount` reuses this
+   *  sheet and is out of scope for spec 171 (owner decision 4 / AC-9), so it
+   *  must never lose a well to the EOD-only mode. */
+  countMode?: EodCountMode;
   /** Which well the pad currently writes to. */
   activeField: 'cases' | 'units';
   setActiveField: (f: 'cases' | 'units') => void;
@@ -42,6 +50,7 @@ const DIGIT_KEYS: string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', 
 export const PhoneKeypadSheet: React.FC<PhoneKeypadSheetProps> = ({
   visible,
   item,
+  countMode,
   activeField,
   setActiveField,
   caseValue,
@@ -61,6 +70,9 @@ export const PhoneKeypadSheet: React.FC<PhoneKeypadSheetProps> = ({
   if (!item) return null;
 
   const hasCase = (item.caseQty || 0) > 1;
+  // Spec 171 (AC-13) — the caller's explicit mode governs which wells render;
+  // without one, the legacy layout (see `countMode` prop doc).
+  const box = countMode ? eodBoxes(countMode) : eodBoxesFor(item.caseQty);
 
   const Well = ({
     field,
@@ -194,8 +206,8 @@ export const PhoneKeypadSheet: React.FC<PhoneKeypadSheetProps> = ({
       <View style={{ paddingHorizontal: 16, paddingTop: 14, gap: 12 }}>
         {/* Field wells — the tapped well is the active field. */}
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {hasCase ? <Well field="cases" label={T('section.eod.phone.casesWell', { qty: item.caseQty })} value={caseValue} /> : null}
-          <Well field="units" label={item.unit} value={unitValue} />
+          {box.cases ? <Well field="cases" label={T('section.eod.phone.casesWell', { qty: item.caseQty })} value={caseValue} /> : null}
+          {box.units ? <Well field="units" label={item.unit} value={unitValue} /> : null}
         </View>
 
         {/* Note input — a real TextInput (text keyboard is correct here). */}

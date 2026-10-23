@@ -14,6 +14,7 @@ import { useIsCompact, useIsPhone } from '../../theme/breakpoints';
 import { InventoryItem, LocalizedNames } from '../../types';
 import { confirmAction } from '../../utils/confirmAction';
 import { useT } from '../../hooks/useT';
+import { DEFAULT_EOD_COUNT_MODE } from '../../lib/eodCountMode';
 
 type Mode = 'edit' | 'new';
 
@@ -60,6 +61,9 @@ const fromItem = (it: InventoryItem, defaultShelfLifeDays: number | null | undef
   // catalog i18n_names. Empty strings = no override; silent fallback applies.
   nameEs: it.i18nNames?.es ?? '',
   nameZh: it.i18nNames?.['zh-CN'] ?? '',
+  // Spec 171 — the STORED brand-level EOD count mode (mapItem always hydrates
+  // it; in-memory rows without it read as the default).
+  eodCountMode: it.eodCountMode ?? DEFAULT_EOD_COUNT_MODE,
   // Spec 102 — hydrate the multi-vendor link rows from the item's
   // `item_vendors` embed. Each row carries its OWN case price; cost/unit is
   // DERIVED (spec 104: per-EACH = case price ÷ (units/case × sub-unit size),
@@ -155,6 +159,11 @@ const toUpdates = (v: IngredientFormValues): ItemUpdatesWithVendors => ({
   // column, so coalesce to null (undefined would be skipped by the PATCH
   // mapper in db.ts and silently keep the old value).
   expiryDate: v.expiryDate || null,
+  // Spec 171 (AC-18) — brand-level EOD count mode. Edit → updateItem →
+  // db.updateInventoryItem catalogUpdates.eod_count_mode; create → addItem →
+  // create_inventory_item_with_catalog(p_eod_count_mode). Sent as stored —
+  // never normalized against the case size (N2).
+  eodCountMode: v.eodCountMode ?? DEFAULT_EOD_COUNT_MODE,
   // Spec 102 — the multi-vendor link set. Empty-vendorId / sentinel rows are
   // dropped; costs cast to numbers. db reconciles item_vendors: upsert each
   // present link (cost/case_price + is_primary mirror of vendorId), delete

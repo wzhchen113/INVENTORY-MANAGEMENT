@@ -20,7 +20,7 @@ import { sans, mono } from '../../theme/typography';
 export const SelectField: React.FC<{
   label: string;
   value: string;
-  options: Array<{ value: string; label: string; disabled?: boolean; group?: string }>;
+  options: ReadonlyArray<{ value: string; label: string; disabled?: boolean; group?: string }>;
   onChange: (next: string) => void;
   placeholder?: string;
   width?: any;

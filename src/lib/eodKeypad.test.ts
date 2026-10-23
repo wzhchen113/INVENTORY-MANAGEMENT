@@ -7,6 +7,8 @@ import {
   appendKeypadDigit,
   activeFieldFor,
   advanceUncounted,
+  clampActiveField,
+  eodBoxesFor,
   KEYPAD_BACKSPACE,
 } from './eodKeypad';
 
@@ -118,5 +120,74 @@ describe('advanceUncounted', () => {
     const counted = new Set<string>();
     const res = advanceUncounted(list, -1, (i) => counted.has(i));
     expect(res).toEqual({ item: 'a', index: 0 });
+  });
+});
+
+// Spec 171 (AC-8 / AC-9) — the optional 2nd arg seats the ENABLED box under the
+// effective count mode. The one-arg assertions above are untouched (AC-9).
+describe('activeFieldFor — spec 171 count-mode arg', () => {
+  it("seats 'cases' for cases_only and 'units' for units_only when caseQty > 1", () => {
+    expect(activeFieldFor(24, 'cases_only')).toBe('cases');
+    expect(activeFieldFor(24, 'units_only')).toBe('units');
+    expect(activeFieldFor(24, 'cases_and_units')).toBe('cases');
+  });
+
+  it('omitting / nulling the mode reproduces the one-arg output for every caseQty', () => {
+    for (const q of [undefined, null, 0, 1, 2, 24]) {
+      expect(activeFieldFor(q, undefined)).toBe(activeFieldFor(q));
+      expect(activeFieldFor(q, null)).toBe(activeFieldFor(q));
+    }
+  });
+
+  it("caseQty <= 1 is always 'units' regardless of the stored mode (mode is inert)", () => {
+    for (const q of [undefined, null, 0, 1]) {
+      expect(activeFieldFor(q, 'cases_only')).toBe('units');
+      expect(activeFieldFor(q, 'cases_and_units')).toBe('units');
+      expect(activeFieldFor(q, 'units_only')).toBe('units');
+    }
+  });
+
+  // Spec 171 review-fix — the shared box-resolution + seated-field clamp.
+  describe('eodBoxesFor', () => {
+    it('resolves the boxes under the effective mode when caseQty > 1', () => {
+      expect(eodBoxesFor(24, 'cases_and_units')).toEqual({ cases: true, units: true });
+      expect(eodBoxesFor(24, 'cases_only')).toEqual({ cases: true, units: false });
+      expect(eodBoxesFor(24, 'units_only')).toEqual({ cases: false, units: true });
+    });
+
+    it('omitted / null stored mode → legacy layout (both iff caseQty > 1)', () => {
+      expect(eodBoxesFor(24)).toEqual({ cases: true, units: true });
+      expect(eodBoxesFor(24, null)).toEqual({ cases: true, units: true });
+      for (const q of [undefined, null, 0, 1]) {
+        expect(eodBoxesFor(q)).toEqual({ cases: false, units: true });
+      }
+    });
+
+    it('caseQty <= 1 → units only regardless of the stored mode', () => {
+      for (const q of [undefined, null, 0, 1]) {
+        expect(eodBoxesFor(q, 'cases_only')).toEqual({ cases: false, units: true });
+      }
+    });
+  });
+
+  describe('clampActiveField', () => {
+    it('keeps an active field whose box is enabled', () => {
+      expect(clampActiveField('cases', 24, 'cases_and_units')).toBe('cases');
+      expect(clampActiveField('units', 24, 'cases_and_units')).toBe('units');
+      expect(clampActiveField('cases', 24, 'cases_only')).toBe('cases');
+      expect(clampActiveField('units', 24, 'units_only')).toBe('units');
+    });
+
+    it("re-seats a stale field onto the mode's enabled box", () => {
+      expect(clampActiveField('cases', 24, 'units_only')).toBe('units');
+      expect(clampActiveField('units', 24, 'cases_only')).toBe('cases');
+      expect(clampActiveField('cases', 1, 'cases_only')).toBe('units');
+      expect(clampActiveField('cases', undefined)).toBe('units');
+    });
+
+    it('legacy layout (no stored mode) never moves a field for caseQty > 1', () => {
+      expect(clampActiveField('cases', 24)).toBe('cases');
+      expect(clampActiveField('units', 24)).toBe('units');
+    });
   });
 });

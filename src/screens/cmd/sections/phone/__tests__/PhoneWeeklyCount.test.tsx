@@ -215,6 +215,68 @@ describe('PhoneWeeklyCount — keypad write-through', () => {
   });
 });
 
+// Spec 171 review-fix (code-reviewer Critical / AC-9) — PhoneWeeklyCount is OUT
+// of scope for the EOD count mode (owner decision 4). It reuses PhoneKeypadSheet
+// with the same InventoryItem (which now carries `eodCountMode`) and seats the
+// field with the one-arg `activeFieldFor(caseQty)`, so the sheet must keep the
+// LEGACY layout here: both wells for caseQty > 1, whatever the stored mode, and
+// the keypad must write into the visibly seated field.
+describe('PhoneWeeklyCount — spec 171 count mode does not leak into the weekly sheet', () => {
+  for (const mode of ['units_only', 'cases_only'] as const) {
+    describe(`caseQty 24 item stored as '${mode}'`, () => {
+      const mkModeItem = () => [mkItem('i1', 'Chicken', 'Proteins', { caseQty: 24, eodCountMode: mode })];
+
+      it('opening the CS well renders BOTH sheet wells and a digit writes to cases', () => {
+        const setCaseCounts = jest.fn();
+        const setUnitCounts = jest.fn();
+        const { getByTestId } = render(
+          <PhoneWeeklyCount model={makeModel({ items: mkModeItem(), setCaseCounts, setUnitCounts })} />,
+        );
+        // The weekly row itself still shows both wells.
+        getByTestId('weekly-well-i1-cases');
+        getByTestId('weekly-well-i1-units');
+        fireEvent.press(getByTestId('weekly-well-i1-cases'));
+        // The seated (cases) well is rendered, and so is the units well.
+        getByTestId('eod-sheet-well-cases');
+        getByTestId('eod-sheet-well-units');
+        fireEvent.press(getByTestId('eod-key-3'));
+        expect(setCaseCounts).toHaveBeenCalledTimes(1);
+        expect(setUnitCounts).not.toHaveBeenCalled();
+        const updater = setCaseCounts.mock.calls[0][0] as (p: Record<string, string>) => Record<string, string>;
+        expect(updater({})).toEqual({ i1: '3' });
+      });
+
+      it('opening the units well renders BOTH sheet wells and a digit writes to units', () => {
+        const setCaseCounts = jest.fn();
+        const setUnitCounts = jest.fn();
+        const { getByTestId } = render(
+          <PhoneWeeklyCount model={makeModel({ items: mkModeItem(), setCaseCounts, setUnitCounts })} />,
+        );
+        fireEvent.press(getByTestId('weekly-well-i1-units'));
+        getByTestId('eod-sheet-well-cases');
+        getByTestId('eod-sheet-well-units');
+        fireEvent.press(getByTestId('eod-key-7'));
+        expect(setUnitCounts).toHaveBeenCalledTimes(1);
+        expect(setCaseCounts).not.toHaveBeenCalled();
+        const updater = setUnitCounts.mock.calls[0][0] as (p: Record<string, string>) => Record<string, string>;
+        expect(updater({})).toEqual({ i1: '7' });
+      });
+
+      it('the blocked-submit seat (one-arg activeFieldFor → cases) lands on a rendered, typeable well', () => {
+        const setCaseCounts = jest.fn();
+        const { getByTestId } = render(
+          <PhoneWeeklyCount model={makeModel({ items: mkModeItem(), setCaseCounts })} />,
+        );
+        fireEvent.press(getByTestId('weekly-submit'));
+        getByTestId('eod-sheet-well-cases');
+        getByTestId('eod-sheet-well-units');
+        fireEvent.press(getByTestId('eod-key-1'));
+        expect(setCaseCounts).toHaveBeenCalledTimes(1);
+      });
+    });
+  }
+});
+
 describe('PhoneWeeklyCount — export-locale cycle', () => {
   it('nextExportLocale cycles EN → ES → 中文 → EN', () => {
     expect(nextExportLocale('en')).toBe('es');

@@ -112,3 +112,31 @@ describe('StaffKeypadSheet', () => {
     expect(UNSAFE_queryAllByType(TextInput)).toHaveLength(0);
   });
 });
+
+// Spec 171 (AC-14) — the sheet renders wells per the item's LIVE count mode.
+describe('StaffKeypadSheet — spec 171 count mode (AC-14)', () => {
+  it('cases_only: only the CS well renders', () => {
+    const { queryByTestId, getByTestId } = setup({
+      item: { ...packItem, eodCountMode: 'cases_only' },
+      activeField: 'cases',
+    });
+    expect(getByTestId('eod-sheet-well-cases')).toBeTruthy();
+    expect(queryByTestId('eod-sheet-well-units')).toBeNull();
+  });
+
+  it('units_only: only the units well renders (even for a pack item)', () => {
+    const { queryByTestId, getByTestId } = setup({
+      item: { ...packItem, eodCountMode: 'units_only' },
+    });
+    expect(queryByTestId('eod-sheet-well-cases')).toBeNull();
+    expect(getByTestId('eod-sheet-well-units')).toBeTruthy();
+  });
+
+  it('a stored mode is inert at caseQty <= 1 (units only)', () => {
+    const { queryByTestId, getByTestId } = setup({
+      item: { ...packItem, caseQty: 1, eodCountMode: 'cases_only' },
+    });
+    expect(queryByTestId('eod-sheet-well-cases')).toBeNull();
+    expect(getByTestId('eod-sheet-well-units')).toBeTruthy();
+  });
+});

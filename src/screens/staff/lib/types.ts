@@ -12,6 +12,7 @@
 // both without drift. Carries `catalog_ingredients.i18n_names` so the
 // count screens can render item names in the active locale.
 import type { LocalizedNames } from '../../../types';
+import type { EodCountMode } from './eodCountMode';
 
 /** Per-store assignment row read from `user_stores` joined with stores. */
 export type UserStore = {
@@ -51,6 +52,12 @@ export type EodItem = {
    *  `staff_items_updated` RPC (via `fetchUpdatedItemIds`) and merged onto the
    *  item before `setItems`. Absent/false → no "Updated" badge. */
   updated?: boolean;
+  /** Spec 171 — the STORED brand-level EOD count mode from
+   *  `catalog_ingredients.eod_count_mode` (normalized at fetch; unknown/missing
+   *  → 'cases_and_units'). Inert when `caseQty <= 1`; the screens resolve the
+   *  effective mode via `effectiveEodCountMode(caseQty, eodCountMode)`.
+   *  Optional so fixtures may omit it (treated as 'cases_and_units'). */
+  eodCountMode?: EodCountMode;
 };
 
 /** Vendor row (id + name) for the vendor switcher. */

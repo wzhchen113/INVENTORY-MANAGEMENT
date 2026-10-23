@@ -124,3 +124,37 @@ describe('StaffEodCountRow — metadata (AC-2)', () => {
     expect(without.queryByTestId('eod-updated-badge-item-1')).toBeNull();
   });
 });
+
+// Spec 171 (AC-14) — the optional `countMode` prop gates each well; a disabled
+// well is OMITTED (the staff convention for today's no-pack CS well). Omitting
+// the prop keeps the pre-spec-171 behavior (the arms above pass unmodified).
+describe('StaffEodCountRow — spec 171 count mode (AC-14)', () => {
+  it("cases_only: the units well is absent, the CS well present", () => {
+    const { queryByTestId, getByTestId } = setup({ countMode: 'cases_only' });
+    expect(getByTestId('eod-well-item-1-cases')).toBeTruthy();
+    expect(queryByTestId('eod-well-item-1-units')).toBeNull();
+  });
+
+  it('units_only: the CS well is absent even for a pack item', () => {
+    const { queryByTestId, getByTestId } = setup({ countMode: 'units_only' });
+    expect(queryByTestId('eod-well-item-1-cases')).toBeNull();
+    expect(getByTestId('eod-well-item-1-units')).toBeTruthy();
+  });
+
+  it('cases_and_units: both wells present', () => {
+    const { getByTestId } = setup({ countMode: 'cases_and_units' });
+    expect(getByTestId('eod-well-item-1-cases')).toBeTruthy();
+    expect(getByTestId('eod-well-item-1-units')).toBeTruthy();
+  });
+
+  it('omitted countMode falls back to hasPack (no-pack → units only)', () => {
+    const { queryByTestId, getByTestId } = setup({ hasPack: false, item: { ...packItem, caseQty: 1 } });
+    expect(queryByTestId('eod-well-item-1-cases')).toBeNull();
+    expect(getByTestId('eod-well-item-1-units')).toBeTruthy();
+  });
+
+  it('cases_only keeps the "case of N" meta + total line (hasPack drives metadata)', () => {
+    const { getByTestId } = setup({ countMode: 'cases_only', counted: true, caseValue: '2', total: 24 });
+    expect(getByTestId('eod-item-total-item-1')).toBeTruthy();
+  });
+});

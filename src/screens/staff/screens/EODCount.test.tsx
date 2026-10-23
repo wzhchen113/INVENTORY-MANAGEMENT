@@ -42,6 +42,7 @@ jest.mock('@react-navigation/native', () => ({
 // ─── mock supabase.from() so vendor/item/existing reads work ─────
 type QueryResult = { data: unknown; error: unknown };
 const mockFromCalls: string[] = [];
+const mockSelectCalls: Array<{ table: string; cols?: string }> = [];
 let mockNextResultStack: QueryResult[] = [];
 // Spec 103 — the per-user saved count order (user_count_orders) is read via a
 // SEPARATE channel so it never consumes a fixture from the vendor/item/existing
@@ -69,7 +70,11 @@ function mockQueryBuilder(table: string) {
   }
   const result = mockNextResultStack.shift() ?? { data: [], error: null };
   const builder: Record<string, unknown> = {
-    select: () => builder,
+    select: (cols?: string) => {
+      // Spec 171 — record the projection so the AC-15 arm can pin the embed.
+      mockSelectCalls.push({ table, cols });
+      return builder;
+    },
     eq: () => builder,
     is: () => builder,
     order: () => builder,
@@ -166,6 +171,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockSubmit.mockReset();
   mockFromCalls.length = 0;
+  mockSelectCalls.length = 0;
   mockNextResultStack = [];
   mockCountOrderResult = { data: null, error: null };
   mockUpdatedResult = { data: [], error: null };
@@ -1162,5 +1168,101 @@ describe('EODCount — spec 129 vendor status + edit flow', () => {
     await api.findByTestId('eod-well-item-2-units');
     await waitFor(() => expect(wellDisabled(api, 'item-2', 'units')).toBe(true));
     expect(api.queryByTestId('eod-cancel-edit')).toBeNull();
+  });
+});
+
+// ─── Spec 171 — per-ingredient EOD count mode (staff) ─────────────────
+describe('EODCount — spec 171 count mode', () => {
+  const vendorRow = { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null };
+  function itemsWith(mode: string | undefined) {
+    return {
+      data: [
+        itemVendorRow({
+          id: 'item-1',
+          catalog: { name: 'Lettuce', unit: 'head', case_qty: 24, ...(mode ? { eod_count_mode: mode } : {}) },
+        }),
+      ],
+      error: null,
+    };
+  }
+
+  it('AC-15: the catalog embed selects eod_count_mode', async () => {
+    mockNextResultStack = [vendorRow, itemsWith('cases_only'), { data: null, error: null }];
+    const api = render(<EODCount />);
+    await api.findByTestId('eod-well-item-1-cases');
+    const itemSelect = mockSelectCalls.find((c) => c.table === 'item_vendors');
+    expect(itemSelect?.cols).toContain('eod_count_mode');
+  });
+
+  it('cases_only: no units well; cases × caseQty submits with each = null (AC-7/AC-14/AC-15)', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-new' });
+    mockNextResultStack = [vendorRow, itemsWith('cases_only'), { data: null, error: null }, { data: null, error: null }];
+    const api = render(<EODCount />);
+    await api.findByTestId('eod-well-item-1-cases');
+    expect(api.queryByTestId('eod-well-item-1-units')).toBeNull();
+    await enterCount(api, 'item-1', 'cases', '2');
+    // The sheet seated cases-only: no units well inside the sheet either.
+    fireEvent.press(api.getByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [{ item_id: 'item-1', actual_remaining: 48, actual_remaining_cases: 2, actual_remaining_each: null }],
+      }),
+    );
+  });
+
+  it('units_only: no CS well; the gate jump seats UNITS so the keypad writes units (AC-8)', async () => {
+    mockNextResultStack = [vendorRow, itemsWith('units_only'), { data: null, error: null }];
+    const api = render(<EODCount />);
+    await api.findByTestId('eod-well-item-1-units');
+    expect(api.queryByTestId('eod-well-item-1-cases')).toBeNull();
+    fireEvent.press(api.getByTestId('eod-submit'));
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled());
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await api.findByTestId('eod-sheet-title');
+    expect(api.queryByTestId('eod-sheet-well-cases')).toBeNull();
+    pressKeys(api, '7');
+    fireEvent.press(api.getByTestId('eod-sheet-close'));
+    expect(wellValue(api, 'item-1', 'units')).toBe('7');
+    expect(api.getByTestId('eod-counted-item-1')).toBeTruthy();
+  });
+
+  it('a missing eod_count_mode behaves exactly as today (both wells)', async () => {
+    mockNextResultStack = [vendorRow, itemsWith(undefined), { data: null, error: null }];
+    const api = render(<EODCount />);
+    expect(await api.findByTestId('eod-well-item-1-cases')).toBeTruthy();
+    expect(api.getByTestId('eod-well-item-1-units')).toBeTruthy();
+  });
+
+  it('AC-20 + AC-16: a locked cases submission on a now-units_only item shows the stored cases; on EDIT the stale cases value is inert and the gate blocks', async () => {
+    mockNextResultStack = [
+      vendorRow,
+      itemsWith('units_only'),
+      {
+        data: {
+          id: 'sub-1',
+          submitted_at: '2026-10-23T18:30:00Z',
+          eod_entries: [
+            { item_id: 'item-1', actual_remaining: 48, actual_remaining_cases: 2, actual_remaining_each: null },
+          ],
+        },
+        error: null,
+      },
+    ];
+    const api = render(<EODCount />);
+    // Locked → legacy layout: the stored 2 cases render; units stay blank.
+    await waitFor(() => expect(wellValue(api, 'item-1', 'cases')).toBe('2'));
+    expect(wellValue(api, 'item-1', 'units')).toBe('—');
+    expect(api.getByTestId('eod-counted-item-1')).toBeTruthy();
+
+    // EDIT → the live mode (units_only) governs: the CS well disappears and the
+    // seeded cases value no longer counts the row.
+    fireEvent.press(api.getByTestId('eod-submit')); // "Edit"
+    await waitFor(() => expect(api.queryByTestId('eod-well-item-1-cases')).toBeNull());
+    expect(api.queryByTestId('eod-counted-item-1')).toBeNull();
+    fireEvent.press(api.getByTestId('eod-submit')); // "Submit"
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled());
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({ text1: 'Count every item first' });
   });
 });

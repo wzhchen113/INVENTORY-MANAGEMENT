@@ -6,6 +6,10 @@ import type { Locale } from '../i18n';
 // every consumer of `src/types` see the same literal set.
 import type { OrderChannel } from '../utils/orderChannel';
 export type { OrderChannel };
+// Spec 171 — the EOD count-mode union is defined once in the pure helper
+// (which also owns the effective-mode resolver) and re-exported here.
+import type { EodCountMode } from '../lib/eodCountMode';
+export type { EodCountMode };
 
 export type UserRole = 'super_admin' | 'master' | 'admin' | 'user';
 
@@ -181,6 +185,15 @@ export interface InventoryItem {
    * no photo → staff count rows render the placeholder.
    */
   imagePath?: string | null;
+  /**
+   * Spec 171 — brand-level EOD count mode, hydrated from the joined catalog
+   * row's `eod_count_mode` by `mapItem` (missing/unknown → 'cases_and_units').
+   * This is the STORED mode: it is inert when `caseQty <= 1`. EOD surfaces
+   * resolve the effective mode via `effectiveEodCountMode(caseQty, eodCountMode)`
+   * (src/lib/eodCountMode.ts). Optional so in-memory/fixture rows may omit it;
+   * readers treat `undefined` as 'cases_and_units'.
+   */
+  eodCountMode?: EodCountMode;
   /**
    * Spec 102 — the full item↔vendor link set from the `item_vendors`
    * junction, hydrated by `db.fetchInventory` / `mapItem`. Each entry

@@ -20,19 +20,29 @@ import { UpdatedBadge } from '../../components/UpdatedBadge';
 import { useI18n } from '../../i18n';
 import { useStaffColors, useStaffTokens, type StaffTokens } from '../../theme';
 import type { EodItem } from '../../lib/types';
+import { eodBoxes, type EodCountMode } from '../../lib/eodCountMode';
 
 export interface StaffEodCountRowProps {
   item: EodItem;
   /** getLocalizedName(...) computed by the orchestrator. */
   displayName: string;
-  /** isCounted(item) — cases OR units non-blank (spec 102). */
+  /** isCounted(item) — an ENABLED box is non-blank under the row's count
+   *  mode (spec 102 / spec 171 AC-7). */
   counted: boolean;
   caseValue: string;
   unitValue: string;
-  /** cases*(caseQty||1)+units (existing math). */
+  /** The row total under its count mode (`eodTotal`, spec 171 AC-7) —
+   *  cases*(caseQty||1)+units for 'cases_and_units', only the enabled box
+   *  otherwise. */
   total: number;
-  /** (caseQty ?? 0) > 1 — show the CS well. */
+  /** (caseQty ?? 0) > 1 — drives the "case of N" meta + total line, and (when
+   *  `countMode` is omitted) whether the CS well renders. */
   hasPack: boolean;
+  /** Spec 171 (AC-14) — the row's resolved EOD count mode. The CS well renders
+   *  iff its box is enabled, the units well likewise (a disabled well is
+   *  OMITTED). Optional: when omitted it falls back to
+   *  `hasPack ? 'cases_and_units' : 'units_only'` (pre-spec-171 behavior). */
+  countMode?: EodCountMode;
   /** inputsLocked (spec 129) — read-only wells, no keypad on tap. */
   locked: boolean;
   onOpenWell: (item: EodItem, field: 'cases' | 'units') => void;
@@ -46,9 +56,11 @@ export function StaffEodCountRow({
   unitValue,
   total,
   hasPack,
+  countMode,
   locked,
   onOpenWell,
 }: StaffEodCountRowProps) {
+  const box = eodBoxes(countMode ?? (hasPack ? 'cases_and_units' : 'units_only'));
   const c = useStaffColors();
   const T = useStaffTokens();
   const { t } = useI18n();
@@ -146,14 +158,16 @@ export function StaffEodCountRow({
       }
       trailing={
         <View style={styles.wells}>
-          {hasPack ? (
+          {box.cases ? (
             <Well
               field="cases"
               label={t('eod.sheet.casesWell', { qty: item.caseQty as number })}
               value={caseValue}
             />
           ) : null}
-          <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+          {box.units ? (
+            <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+          ) : null}
         </View>
       }
     />

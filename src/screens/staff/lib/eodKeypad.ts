@@ -15,5 +15,7 @@ export {
   appendKeypadDigit,
   activeFieldFor,
   advanceUncounted,
+  clampActiveField,
+  eodBoxesFor,
   KEYPAD_BACKSPACE,
 } from '../../../lib/eodKeypad';

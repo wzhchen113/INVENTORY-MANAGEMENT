@@ -19,11 +19,17 @@ import { mono, PhoneType } from '../../../../theme/typography';
 import { useT } from '../../../../hooks/useT';
 import { useLocale } from '../../../../hooks/useLocale';
 import { firstUncounted } from '../../../../lib/countOrder';
-import { advanceUncounted, activeFieldFor, appendKeypadDigit } from '../../../../lib/eodKeypad';
+import {
+  advanceUncounted,
+  activeFieldFor,
+  appendKeypadDigit,
+  clampActiveField,
+} from '../../../../lib/eodKeypad';
+import { effectiveEodCountMode, eodBoxes } from '../../../../lib/eodCountMode';
 import type { DayStatus } from '../../../../lib/eodDayStatus';
 import { dayOfWeekShortLabel, type DayName } from '../../../../utils/enumLabels';
 import OrderScheduleSection from '../OrderScheduleSection';
-import { EODHistoryTab, VarianceLogTab } from '../EODCountSection';
+import { EODHistoryTab, VarianceLogTab, unitsDisplayFor } from '../EODCountSection';
 import type { InventoryItem, Vendor, EODSubmission } from '../../../../types';
 import { PhoneKeypadSheet } from './PhoneKeypadSheet';
 
@@ -106,7 +112,8 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
     const item = model.filteredItems.find((i) => i.id === id);
     if (!item) return;
     setSheetItemId(id);
-    setActiveField(activeFieldFor(item.caseQty));
+    // Spec 171 (AC-8) — seat the ENABLED box under the item's count mode.
+    setActiveField(activeFieldFor(item.caseQty, item.eodCountMode));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model.pendingFocusItem]);
 
@@ -118,10 +125,17 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
     setActiveField(field);
   };
 
+  // Spec 171 §9 — clamp the seated field to an ENABLED box. A stale
+  // `activeField` (e.g. the item's mode flipped to 'units_only' via realtime
+  // while the sheet was open on 'cases') can never write into a hidden map.
+  const seatedField: 'cases' | 'units' = sheetItem
+    ? clampActiveField(activeField, sheetItem.caseQty, sheetItem.eodCountMode)
+    : activeField;
+
   const onKey = (key: string) => {
     if (!sheetItem) return;
     const id = sheetItem.id;
-    if (activeField === 'cases') {
+    if (seatedField === 'cases') {
       model.setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
     } else {
       model.setUnitCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
@@ -149,7 +163,7 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
       return;
     }
     setSheetItemId(res.item.id);
-    setActiveField(activeFieldFor(res.item.caseQty));
+    setActiveField(activeFieldFor(res.item.caseQty, res.item.eodCountMode));
   };
 
   const onNext = () => {
@@ -448,7 +462,11 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
       <PhoneKeypadSheet
         visible={isCountTab && !!sheetItem}
         item={sheetItem}
-        activeField={activeField}
+        // Spec 171 (AC-13) — the sheet only opens on an unlocked row
+        // (`openSheet` guard), so the LIVE mode governs its wells — the same
+        // resolution `seatedField` clamps against.
+        countMode={sheetItem ? effectiveEodCountMode(sheetItem.caseQty, sheetItem.eodCountMode) : undefined}
+        activeField={seatedField}
         setActiveField={setActiveField}
         caseValue={sheetItem ? model.caseCounts[sheetItem.id] || '' : ''}
         unitValue={sheetItem ? model.unitCounts[sheetItem.id] || '' : ''}
@@ -469,7 +487,9 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
 // The indicator square carries the counted/uncounted state (replaces the phone
 // red-name treatment — the name is always `C.fg`). Two wells (62×48): the CS
 // well only when caseQty > 1, plus the unit-label well. Tapping a well opens the
-// keypad sheet on that field.
+// keypad sheet on that field. Spec 171 (AC-13) — each well renders only when its
+// box is enabled under the row's count mode (a disabled well is OMITTED, the
+// phone convention for today's no-case well).
 function CountRow({
   item,
   first,
@@ -485,8 +505,15 @@ function CountRow({
   colors: ReturnType<typeof useCmdColors>;
   T: ReturnType<typeof useT>;
 }) {
+  // Meta-line display info only (· case N) — keyed on the raw case size.
   const hasCase = (item.caseQty || 0) > 1;
   const locked = model.isRestDay || model.isVendorLocked;
+  // Spec 171 (design D7) — locked/read-only rows use the LEGACY layout so a
+  // submitted count renders as stored (AC-20); editable rows use the live mode.
+  const rowMode = model.isVendorLocked
+    ? effectiveEodCountMode(item.caseQty)
+    : effectiveEodCountMode(item.caseQty, item.eodCountMode);
+  const box = eodBoxes(rowMode);
 
   // When locked, read the submitted values; else the live count maps.
   const submittedEntry = model.isVendorLocked
@@ -497,11 +524,10 @@ function CountRow({
       ? String(submittedEntry.actualRemainingCases)
       : ''
     : model.caseCounts[item.id] || '';
+  // Spec 171 OQ-A — units fall back to the total only when BOTH splits are null.
   const uVal = model.isVendorLocked
-    ? submittedEntry?.actualRemainingEach != null
-      ? String(submittedEntry.actualRemainingEach)
-      : submittedEntry?.actualRemaining != null
-      ? String(submittedEntry.actualRemaining)
+    ? submittedEntry
+      ? unitsDisplayFor(submittedEntry)
       : ''
     : model.unitCounts[item.id] || '';
 
@@ -580,8 +606,8 @@ function CountRow({
       </View>
 
       {/* Wells */}
-      {hasCase ? <Well field="cases" label={T('section.eod.phone.casesWell', { qty: item.caseQty })} value={cVal} /> : null}
-      <Well field="units" label={item.unit} value={uVal} />
+      {box.cases ? <Well field="cases" label={T('section.eod.phone.casesWell', { qty: item.caseQty })} value={cVal} /> : null}
+      {box.units ? <Well field="units" label={item.unit} value={uVal} /> : null}
     </View>
   );
 }

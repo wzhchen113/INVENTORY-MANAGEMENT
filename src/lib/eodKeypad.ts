@@ -6,6 +6,8 @@
 // without rendering the heavy section. Consumed by
 // `src/screens/cmd/sections/eod/PhoneKeypadSheet.tsx`.
 
+import { effectiveEodCountMode, eodBoxes, type EodCountMode } from './eodCountMode';
+
 /**
  * The backspace glyph the digit pad renders. Exported so the sheet and the
  * tests refer to the same literal rather than stringly-typing it twice.
@@ -47,9 +49,49 @@ export function appendKeypadDigit(current: string, key: string, maxLen = 5): str
  * Which field the keypad seats as active when a row's sheet opens (AC-7).
  * `caseQty > 1` → the CS well ('cases'); otherwise (undefined / 0 / 1) the unit
  * well ('units'). Pure + total.
+ *
+ * Spec 171 (AC-8 / AC-9) — optional 2nd arg: the item's STORED EOD count mode.
+ * The seated field is the enabled box under the EFFECTIVE mode
+ * (`effectiveEodCountMode`): `'units_only'` → 'units', `'cases_only'` /
+ * `'cases_and_units'` → 'cases'. Omitting `mode` reproduces the pre-spec-171
+ * output for every input (the one-arg effective mode is `'cases_and_units'`
+ * iff `caseQty > 1`), so `PhoneWeeklyCount` is unchanged.
  */
-export function activeFieldFor(caseQty: number | undefined | null): 'cases' | 'units' {
-  return (caseQty ?? 0) > 1 ? 'cases' : 'units';
+export function activeFieldFor(
+  caseQty: number | undefined | null,
+  mode?: EodCountMode | null,
+): 'cases' | 'units' {
+  return effectiveEodCountMode(caseQty, mode) === 'units_only' ? 'units' : 'cases';
+}
+
+/**
+ * Spec 171 (review-fix) — which keypad wells / input boxes are enabled for an
+ * item: `eodBoxes(effectiveEodCountMode(caseQty, stored))` in one place. Omit
+ * `stored` for the LEGACY layout (both boxes iff `caseQty > 1`, else units
+ * only) — the layout `PhoneWeeklyCount` and locked rows use. Pure + total.
+ */
+export function eodBoxesFor(
+  caseQty: number | undefined | null,
+  stored?: EodCountMode | null,
+): { cases: boolean; units: boolean } {
+  return eodBoxes(effectiveEodCountMode(caseQty, stored));
+}
+
+/**
+ * Spec 171 §9 (review-fix) — clamp the keypad's seated field to an ENABLED box.
+ * Returns `active` unchanged when its box is enabled under the item's
+ * effective mode; otherwise the mode's seat (`activeFieldFor(caseQty, stored)`).
+ * Guards against a stale `activeField` (e.g. the item's mode flipped via
+ * realtime while the sheet was open) writing into a hidden count map. With
+ * `stored` omitted the legacy layout applies, under which the seat is always
+ * enabled. Pure + total.
+ */
+export function clampActiveField(
+  active: 'cases' | 'units',
+  caseQty: number | undefined | null,
+  stored?: EodCountMode | null,
+): 'cases' | 'units' {
+  return eodBoxesFor(caseQty, stored)[active] ? active : activeFieldFor(caseQty, stored);
 }
 
 /**

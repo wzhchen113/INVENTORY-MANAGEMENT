@@ -10,6 +10,14 @@ import { useStore } from '../../../store/useStore';
 import { submitEODCount, fetchCountOrder, saveCountOrder, resetCountOrder } from '../../../lib/db';
 import { applyCountOrder, firstUncounted } from '../../../lib/countOrder';
 import { deriveDayStatus, isRestWeekday, type DayStatus } from '../../../lib/eodDayStatus';
+import {
+  effectiveEodCountMode,
+  eodBoxes,
+  eodHasEntry,
+  eodTotal,
+  eodEntryValues,
+  type EodCountMode,
+} from '../../../lib/eodCountMode';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
@@ -71,23 +79,38 @@ const DAY_NAMES: ReadonlyArray<DayName> = [
 // is not a blocking gap (nor painted red, nor jumped-to) under tab V2.
 //
 // Pure — exported for jest (AC-I).
+//
+// Spec 171 (AC-12) — optional `effectiveModeOf` resolver. When supplied, a
+// local value only credits the item if it sits in an ENABLED box under the
+// item's effective EOD count mode, so a stale value in a now-disabled box (e.g.
+// a cases value on an item flipped to 'units_only') cannot mark a shared item
+// counted in another tab. An id the resolver doesn't know (→ undefined) keeps
+// today's either-box rule. Arm (b) — persisted submissions — is unchanged (a
+// persisted entry is a recorded count; spec 171 §10). Omitting the resolver
+// reproduces the pre-spec-171 result byte-for-byte.
 export function deriveCountedItemIds(args: {
   caseCountsByVendor: Record<string, Record<string, string>>;
   unitCountsByVendor: Record<string, Record<string, string>>;
   submissions: ReadonlyArray<{ storeId: string; date: string; status: string; entries: ReadonlyArray<{ itemId: string }> }>;
   storeId: string;
   dateIso: string;
+  effectiveModeOf?: (itemId: string) => EodCountMode | undefined;
 }): Set<string> {
   const counted = new Set<string>();
-  // (a) Any non-blank local entry in ANY vendor tab's input map.
+  const boxEnabled = (itemId: string, box: 'cases' | 'units'): boolean => {
+    const mode = args.effectiveModeOf?.(itemId);
+    return !mode || eodBoxes(mode)[box];
+  };
+  // (a) Any non-blank local entry in ANY vendor tab's input map (in an
+  // enabled box, when a mode resolver is supplied).
   for (const byItem of Object.values(args.caseCountsByVendor)) {
     for (const [itemId, v] of Object.entries(byItem)) {
-      if ((v ?? '').trim() !== '') counted.add(itemId);
+      if ((v ?? '').trim() !== '' && boxEnabled(itemId, 'cases')) counted.add(itemId);
     }
   }
   for (const byItem of Object.values(args.unitCountsByVendor)) {
     for (const [itemId, v] of Object.entries(byItem)) {
-      if ((v ?? '').trim() !== '') counted.add(itemId);
+      if ((v ?? '').trim() !== '' && boxEnabled(itemId, 'units')) counted.add(itemId);
     }
   }
   // (b) Any item already in a submitted submission for this (store, date),
@@ -99,6 +122,24 @@ export function deriveCountedItemIds(args: {
     for (const e of s.entries) counted.add(e.itemId);
   }
   return counted;
+}
+
+// Spec 171 OQ-A (owner-approved 2026-10-23) — the UNITS value to display for a
+// submitted entry (admin read-only view + EDIT prefill, desktop AND phone).
+// Falls back to the total (`actualRemaining`) ONLY for a true legacy row where
+// BOTH splits are null (spec 086 OQ-4). A cases-only entry (cases set, each
+// null) shows blank units — previously it showed the total (e.g. CASES 2 /
+// UNITS 48), and an EDIT → re-submit then double-counted (2×24 + 48). Mirrors
+// the staff seed in src/screens/staff/screens/EODCount.tsx `seedFromExisting`.
+// Pure — exported for jest.
+export function unitsDisplayFor(e: {
+  actualRemaining?: number | null;
+  actualRemainingCases?: number | null;
+  actualRemainingEach?: number | null;
+}): string {
+  if (e.actualRemainingEach != null) return String(e.actualRemainingEach);
+  if (e.actualRemainingCases == null && e.actualRemaining != null) return String(e.actualRemaining);
+  return '';
 }
 
 // Local-day ISO string ("YYYY-MM-DD" in the user's timezone). Avoids the
@@ -210,9 +251,11 @@ export default function EODCountSection() {
   // current vendor/category filter so the user sees their addition.
   const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
   const [pendingFocusItem, setPendingFocusItem] = React.useState<string | null>(null);
-  // Refs to per-row case-count inputs, keyed by itemId. Used by both the
+  // Refs to each row's FOCUS-TARGET input, keyed by itemId. Used by both the
   // AddCountModal jump and the inventory-detail "+ COUNT" button to focus
-  // the right cell after the row mounts.
+  // the right cell after the row mounts. Historically always the case-count
+  // input (hence the name); since spec 171 (AC-11) it is the first ENABLED
+  // input — the units input when the row's cases box is disabled.
   const caseInputRefs = React.useRef<Record<string, TextInput | null>>({});
 
   // Consume cross-section "+ COUNT" navigation from item-detail. The layout
@@ -492,11 +535,7 @@ export default function EODCountSection() {
         ...Object.fromEntries(
           (sub.entries || []).map((e) => [
             e.itemId,
-            e.actualRemainingEach != null
-              ? String(e.actualRemainingEach)
-              : e.actualRemaining != null
-              ? String(e.actualRemaining)
-              : '',
+            unitsDisplayFor(e),
           ]),
         ),
         ...(p[vid] || {}),
@@ -559,15 +598,28 @@ export default function EODCountSection() {
   }, [filteredItems, savedIds, search]);
 
   // ── Counts/totals ───────────────────────────────────────────
-  // total per item = cases × caseQty + loose units. caseQty defaults to 1
+  // Spec 171 — per-item EFFECTIVE EOD count mode (live, from the brand-level
+  // `eodCountMode` + `caseQty`). Built from `storeInventory` (not
+  // `filteredItems`) so items in OTHER vendor tabs resolve too
+  // (deriveCountedItemIds reads every tab's map). A realtime catalog reload
+  // re-resolves this, which is what makes a stale disabled-box value inert
+  // (AC-16).
+  const modeById = React.useMemo(
+    () =>
+      new Map<string, EodCountMode>(
+        storeInventory.map((i) => [i.id, effectiveEodCountMode(i.caseQty, i.eodCountMode)]),
+      ),
+    [storeInventory],
+  );
+  // Fallback for an id missing from the map: 'cases_and_units' keeps today's
+  // either-box rule.
+  const liveModeById = (id: string): EodCountMode => modeById.get(id) ?? 'cases_and_units';
+  // total per item = cases × caseQty + loose units under 'cases_and_units'
+  // (byte-identical to pre-spec-171); only the ENABLED box(es) contribute
+  // under 'cases_only' / 'units_only' (spec 171 AC-7). caseQty defaults to 1
   // for items sold individually (BOX/CASE input is hidden/disabled there).
-  const itemTotal = (i: typeof filteredItems[0]) => {
-    const c = parseFloat(caseCounts[i.id] || '');
-    const u = parseFloat(unitCounts[i.id] || '');
-    const cases = isNaN(c) ? 0 : c;
-    const units = isNaN(u) ? 0 : u;
-    return cases * (i.caseQty || 1) + units;
-  };
+  const itemTotal = (i: typeof filteredItems[0]) =>
+    eodTotal(liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
   // Spec 102 (§6c) — counted-once-globally. `localHasEntry` is the CURRENT
   // tab's typed entry (used by buildSubmission — we only ship what was entered
   // under this vendor). `countedItemIds` is the cross-tab + submitted set for
@@ -582,11 +634,13 @@ export default function EODCountSection() {
         submissions: eodSubmissions,
         storeId: currentStore.id,
         dateIso: selectedIso,
+        // Spec 171 (AC-12) — ignore values sitting in a disabled box.
+        effectiveModeOf: (id) => modeById.get(id),
       }),
-    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso],
+    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso, modeById],
   );
-  const localHasEntry = (id: string) =>
-    (caseCounts[id] ?? '').trim() !== '' || (unitCounts[id] ?? '').trim() !== '';
+  // Spec 171 (AC-7) — counted only when an ENABLED box is non-blank.
+  const localHasEntry = (id: string) => eodHasEntry(liveModeById(id), caseCounts[id], unitCounts[id]);
   const hasEntry = (id: string) => localHasEntry(id) || countedItemIds.has(id);
   const countedNum = filteredItems.filter((i) => hasEntry(i.id)).length;
   const total = filteredItems.length;
@@ -710,18 +764,20 @@ export default function EODCountSection() {
       vendors.find((v) => v.id === selectedVendorId)?.name ||
       '';
     const now = new Date().toISOString();
-    const entries: Omit<EODEntry, 'id'>[] = enteredItems.map((i) => {
-      const cRaw = parseFloat(caseCounts[i.id] || '');
-      const uRaw = parseFloat(unitCounts[i.id] || '');
-      const cases = isNaN(cRaw) ? undefined : cRaw;
-      const units = isNaN(uRaw) ? undefined : uRaw;
-      const total = (cases ?? 0) * (i.caseQty || 1) + (units ?? 0);
-      return {
+    const entries: Omit<EODEntry, 'id'>[] = enteredItems.flatMap((i): Omit<EODEntry, 'id'>[] => {
+      // Spec 171 (AC-7 / AC-16c) — values come from the ENABLED box(es) only;
+      // a disabled or unparseable box ships `undefined` (submitEODCount maps it
+      // to NULL). `enteredItems` already filters on the mode-aware
+      // localHasEntry (the same predicate `eodEntryValues` gates on), so `v` is
+      // never null here; the empty-array arm only narrows the type.
+      const v = eodEntryValues(liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
+      if (!v) return [];
+      return [{
         itemId: i.id,
         itemName: i.name,
-        actualRemaining: total,
-        actualRemainingCases: cases,
-        actualRemainingEach: units,
+        actualRemaining: v.total,
+        actualRemainingCases: v.cases ?? undefined,
+        actualRemainingEach: v.units ?? undefined,
         unit: i.unit,
         submittedBy: currentUser?.name || 'unknown',
         submittedByUserId: currentUser?.id || '',
@@ -729,7 +785,7 @@ export default function EODCountSection() {
         date: selectedIso,
         storeId: currentStore.id,
         notes: notes[i.id] || '',
-      };
+      }];
     });
     // Spec 020: vendorId is required on EODSubmission; vendorName is hydrated
     // client-side for display. submitEOD's local merge + submitEODCount's
@@ -876,15 +932,27 @@ export default function EODCountSection() {
         : ''
       : caseCounts[it.id] || '';
     const uVal = isVendorLocked
-      ? submittedEntry?.actualRemainingEach != null
-        ? String(submittedEntry.actualRemainingEach)
-        : submittedEntry?.actualRemaining != null
-        ? String(submittedEntry.actualRemaining)
+      ? submittedEntry
+        ? unitsDisplayFor(submittedEntry)
         : ''
       : unitCounts[it.id] || '';
     const nVal = isVendorLocked ? submittedEntry?.notes || '' : notes[it.id] || '';
-    const cFocused = cVal.trim() !== '';
-    const uFocused = uVal.trim() !== '';
+    // Spec 171 (design D7) — a locked/read-only row renders with the LEGACY
+    // layout (no stored mode → 'cases_and_units' iff caseQty > 1) so a
+    // submitted count shows exactly what was stored (AC-20); an editable row
+    // uses the live mode. Rest-day is NOT a lock for this purpose.
+    const rowMode = isVendorLocked
+      ? effectiveEodCountMode(it.caseQty)
+      : effectiveEodCountMode(it.caseQty, it.eodCountMode);
+    const box = eodBoxes(rowMode);
+    // Only an ENABLED box's value is shown / counts toward "focused" — a stale
+    // value in a disabled box is inert (AC-16b/d).
+    const cShown = box.cases ? cVal : '';
+    const uShown = box.units ? uVal : '';
+    const cFocused = cShown.trim() !== '';
+    const uFocused = uShown.trim() !== '';
+    // Meta-line display info (· case N / · total) — keyed on the raw case size,
+    // not the input mode.
     const hasCase = (it.caseQty || 0) > 1;
     const total = itemTotal(it);
     const inputsDisabled = isRestDay || isVendorLocked;
@@ -913,13 +981,17 @@ export default function EODCountSection() {
         </View>
         <View style={{ width: cellW, alignItems: 'center' }}>
           <TextInput
+            testID={`eod-case-input-${it.id}`}
             ref={(r) => {
-              if (hasCase) caseInputRefs.current[it.id] = r;
+              // Spec 171 (AC-11) — the gate-jump / + COUNT focus ref lands on
+              // the ENABLED input: cases when the cases box is enabled, else
+              // the units input below.
+              if (box.cases) caseInputRefs.current[it.id] = r;
             }}
-            value={hasCase ? cVal : ''}
-            editable={hasCase && !inputsDisabled}
+            value={cShown}
+            editable={box.cases && !inputsDisabled}
             onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
-            placeholder={hasCase ? '0' : '—'}
+            placeholder={box.cases ? '0' : '—'}
             placeholderTextColor={C.fg3}
             keyboardType="numeric"
             style={{
@@ -928,28 +1000,29 @@ export default function EODCountSection() {
               textAlign: 'center',
               fontFamily: mono(600),
               fontSize: 13,
-              color: hasCase ? (cFocused ? C.fg : C.fg2) : C.fg3,
-              backgroundColor: hasCase ? (cFocused ? C.panel2 : C.panel) : C.panel,
+              color: box.cases ? (cFocused ? C.fg : C.fg2) : C.fg3,
+              backgroundColor: box.cases ? (cFocused ? C.panel2 : C.panel) : C.panel,
               borderWidth: 1,
-              borderColor: cFocused ? C.accent : (hasCase && rowUncounted ? C.danger : C.border),
+              borderColor: cFocused ? C.accent : (box.cases && rowUncounted ? C.danger : C.border),
               borderRadius: CmdRadius.sm,
-              opacity: !hasCase || inputsDisabled ? 0.5 : 1,
+              opacity: !box.cases || inputsDisabled ? 0.5 : 1,
               ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
             }}
           />
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-            {hasCase ? `× ${it.caseQty}` : '—'}
+            {box.cases ? `× ${it.caseQty}` : '—'}
           </Text>
         </View>
         <View style={{ width: cellW, alignItems: 'center' }}>
           <TextInput
+            testID={`eod-unit-input-${it.id}`}
             ref={(r) => {
-              if (!hasCase) caseInputRefs.current[it.id] = r;
+              if (!box.cases) caseInputRefs.current[it.id] = r;
             }}
-            value={uVal}
-            editable={!inputsDisabled}
+            value={uShown}
+            editable={box.units && !inputsDisabled}
             onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
-            placeholder="0"
+            placeholder={box.units ? '0' : '—'}
             placeholderTextColor={C.fg3}
             keyboardType="numeric"
             style={{
@@ -958,17 +1031,17 @@ export default function EODCountSection() {
               textAlign: 'center',
               fontFamily: mono(600),
               fontSize: 13,
-              color: uFocused ? C.fg : C.fg2,
-              backgroundColor: uFocused ? C.panel2 : C.panel,
+              color: box.units ? (uFocused ? C.fg : C.fg2) : C.fg3,
+              backgroundColor: box.units ? (uFocused ? C.panel2 : C.panel) : C.panel,
               borderWidth: 1,
-              borderColor: uFocused ? C.accent : (rowUncounted ? C.danger : C.border),
+              borderColor: uFocused ? C.accent : (box.units && rowUncounted ? C.danger : C.border),
               borderRadius: CmdRadius.sm,
-              opacity: inputsDisabled ? 0.5 : 1,
+              opacity: !box.units || inputsDisabled ? 0.5 : 1,
               ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
             }}
           />
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
-            {it.unit}
+            {box.units ? it.unit : '—'}
           </Text>
         </View>
         <TextInput

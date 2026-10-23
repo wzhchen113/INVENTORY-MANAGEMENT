@@ -13,6 +13,7 @@ import { useT } from '../../hooks/useT';
 import { IngredientPhotoControl } from './IngredientPhotoControl';
 import { unitLabel } from '../../utils/enumLabels';
 import { translateOnSave } from '../../lib/translate';
+import { DEFAULT_EOD_COUNT_MODE, isEodCountMode, type EodCountMode } from '../../lib/eodCountMode';
 
 // Form values held by IngredientFormDrawer. A subset persists to
 // inventory_items today — fields commented `STUB` are read-only displays
@@ -80,6 +81,13 @@ export interface IngredientFormValues {
   // direct product-page link (→ `item_vendors.product_page_url`) the spec-132
   // extension prefers over a search. Free-form, trimmed on save; empty → NULL.
   vendors: Array<{ vendorId: string; costPerUnit: string; casePrice: string; orderCode: string; productPageUrl: string }>;
+  // Spec 171 — brand-level EOD count mode (→ catalog_ingredients.eod_count_mode).
+  // The STORED value: the "EOD count" control is only shown when the case size
+  // is > 1, but the value is never rewritten when the case size drops to <= 1
+  // (AC-17 / N2), so raising it back resurfaces the prior choice. Optional so
+  // typed test fixtures need not carry it; readers treat undefined as
+  // 'cases_and_units'.
+  eodCountMode?: EodCountMode;
 }
 
 export const blankValues = (): IngredientFormValues => ({
@@ -93,7 +101,24 @@ export const blankValues = (): IngredientFormValues => ({
   defaultShelfLifeDays: '', expiryDate: '',
   nameEs: '', nameZh: '',
   vendors: [],
+  eodCountMode: DEFAULT_EOD_COUNT_MODE,
 });
+
+// Spec 171 (AC-17) — the "EOD count" control's options (hardcoded English, N6),
+// in the DB CHECK's order.
+export const EOD_COUNT_MODE_OPTIONS: ReadonlyArray<{ value: EodCountMode; label: string }> = [
+  { value: 'cases_and_units', label: 'Cases + units' },
+  { value: 'cases_only', label: 'Cases only' },
+  { value: 'units_only', label: 'Units only' },
+];
+
+// Spec 171 (AC-17) — the control is shown only when the parsed case size is
+// > 1 (blank / 0 / 1 / unparseable → hidden). `parseFloat` matches the
+// drawer's `toUpdates` (`parseFloat(v.caseQty) || 1`). Pure — exported for jest.
+export function showEodCountModeControl(caseQty: string): boolean {
+  const n = parseFloat(caseQty);
+  return Number.isFinite(n) && n > 1;
+}
 
 // Sentinel value for the "+ new vendor" inline-add option in the vendor
 // dropdown. Picked so it can never collide with a real UUID.
@@ -1068,6 +1093,26 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
             read-only cost via handleSubUnitSizeChange. */}
         <InputLine label="sub-unit / unit" value={values.subUnitSize} onChangeText={handleSubUnitSizeChange} monoFont width="33%" numericOnly help="how many sub-units make up ONE tracking unit (e.g. a bag of 10 each)" />
       </View>
+      {/* Spec 171 (AC-17) — per-ingredient EOD count mode, directly beneath the
+          "units / case" field. Shown only when the case size is > 1 (at <= 1
+          only units are countable, so the setting is moot). Hiding it never
+          rewrites `values.eodCountMode` (handleCaseQtyChange spreads `values`),
+          so the stored choice survives a case-size round-trip (N2). */}
+      {showEodCountModeControl(values.caseQty) ? (
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+          <SelectField
+            label="EOD count"
+            value={values.eodCountMode ?? DEFAULT_EOD_COUNT_MODE}
+            options={EOD_COUNT_MODE_OPTIONS}
+            onChange={(v) => {
+              if (isEodCountMode(v)) set('eodCountMode', v);
+            }}
+            monoFont
+            width="33%"
+            help="which boxes end-of-day counters fill in for this ingredient"
+          />
+        </View>
+      ) : null}
       <View style={{ marginBottom: 6 }}>
         {customMode.pack ? (
           <CustomUnitInput

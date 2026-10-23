@@ -15,7 +15,7 @@ import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BottomSheet } from '../../components/BottomSheet';
 import { useI18n } from '../../i18n';
-import { KEYPAD_BACKSPACE } from '../../lib/eodKeypad';
+import { KEYPAD_BACKSPACE, eodBoxesFor } from '../../lib/eodKeypad';
 import { useStaffColors, useStaffTokens, type StaffTokens } from '../../theme';
 import type { EodItem } from '../../lib/types';
 
@@ -67,6 +67,9 @@ export function StaffKeypadSheet({
   if (!item) return null;
 
   const hasPack = (item.caseQty ?? 0) > 1;
+  // Spec 171 (AC-14) — the sheet only opens on an unlocked row (EODCount
+  // `openSheet` guard), so the LIVE count mode governs which wells render.
+  const box = eodBoxesFor(item.caseQty, item.eodCountMode);
 
   const Well = ({ field, label, value }: { field: 'cases' | 'units'; label: string; value: string }) => {
     const active = activeField === field;
@@ -156,10 +159,12 @@ export function StaffKeypadSheet({
       <ScrollView contentContainerStyle={styles.body}>
         {/* Field wells — the active field takes the pad's digits (AC-6). */}
         <View style={styles.wellRow}>
-          {hasPack ? (
+          {box.cases ? (
             <Well field="cases" label={t('eod.sheet.casesWell', { qty: item.caseQty as number })} value={caseValue} />
           ) : null}
-          <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+          {box.units ? (
+            <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+          ) : null}
         </View>
 
         {/* Running total. */}
