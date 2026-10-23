@@ -5,7 +5,8 @@
 // payload validation, recipient routing (incl. the email_change "swapped hash"
 // pairing), the spec 165 placeholder drop, subjects, links, HTML/Text render,
 // hook-secret parsing, transport-config resolution, transport request
-// building and delivery-outcome classification (spec 168).
+// building, delivery-outcome classification (spec 168) and Standard Webhooks
+// signature verification (spec 169).
 //
 // This module is NOT imported by the edge function (different bundle — Deno
 // vs. the app). The block between the BEGIN/END markers below is copied
@@ -18,6 +19,9 @@
 // export. It references two free identifiers that each side defines OUTSIDE
 // the block: `isPlaceholderEmail` (spec 165 predicate) and `escapeHtml`
 // (spec 028). Here they are imported; in Deno they are the inline copies.
+// It also uses runtime globals that behave identically in Node >= 20 (jest)
+// and the Deno 2 edge runtime: `crypto.subtle`, `TextEncoder`, `atob`, `btoa`.
+// Never import node's `crypto` module here; it would shadow the global.
 //
 // Never write the literal placeholder domain in this file: the spec 165 lint
 // (placeholderEmail.parity.test.ts) forbids it outside the predicate module.
@@ -407,6 +411,167 @@ function parseHookSecrets(raw: string | undefined): string[] | null {
   return out;
 }
 
+// ---- Standard Webhooks verification (spec 169) ----------------------------
+// Everything from here to verifyWebhook is the verifier group: behavioural
+// parity with standardwebhooks@1.0.0 Webhook.verify, built on WebCrypto
+// (crypto.subtle) so the function has no third-party import. The clock is a
+// parameter so jest can pin the ±300 s boundaries; the caller passes the real
+// clock.
+
+// Accepted clock skew either side of nowSeconds, inclusive.
+const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
+// The JS Date range in seconds (8.64e15 ms either side of the epoch). The
+// clock guard in verifyWebhook keeps nowSeconds within this range less the
+// tolerance, so every accepted timestamp lies inside the JS Date range too,
+// which is what makes the signed text equal the library's.
+const MAX_DATE_SECONDS = 8.64e12;
+
+// Header record as received; names are matched case-insensitively.
+type WebhookHeaders = Record<string, string | undefined>;
+
+// Strict padded base64 → bytes. Throws unless [A-Za-z0-9+/]+ with at most two
+// trailing "=" and length % 4 === 0 (the parseHookSecrets shape). On that set
+// atob gives the same bytes as @stablelib/base64@1.0.1 (both drop
+// non-canonical trailing bits).
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length % 4 !== 0) throw new Error("bad base64");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Standard padded base64 of raw bytes.
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+// Constant-time compare of the UTF-8 bytes of two strings; a length mismatch
+// is false at once (signature length is public).
+function timingSafeEqualString(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+// base64(HMAC-SHA256(key, "<id>.<timestamp>.<body>")), UTF-8, without the
+// "v1," prefix. May throw (bad key); verifyWebhook treats that as a non-match.
+// Only typed-array views are handed to crypto.subtle (never a bare buffer).
+async function signWebhook(secret: string, msgId: string, timestamp: number, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    base64ToBytes(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msgId + "." + timestamp + "." + body));
+  return bytesToBase64(new Uint8Array(mac));
+}
+
+// Standard Webhooks gate: true iff the request carries a fresh signature made
+// with ANY of `secrets`. Never throws or rejects: any error is false.
+//
+// Accepts only when all of these hold:
+//   - webhook-id, webhook-timestamp and webhook-signature are present and
+//     non-empty (header names are case-insensitive);
+//   - the parsed timestamp is within ±300 s of nowSeconds, inclusive;
+//   - some "v1,<sig>" entry equals the expected signature under some secret
+//     (secrets tried in order);
+//   - the body is JSON.
+//
+// Library quirks replicated on purpose (each also noted at its line):
+//   - parseInt timestamp: the header is read with parseInt(_, 10) and the
+//     signed text uses that parsed integer, never the raw header text;
+//   - lax commas: only the first two comma fields of an entry count, and a
+//     comma-less "v1" is an empty, never-matching candidate;
+//   - non-JSON → 401: a correctly signed non-JSON body is a verify failure
+//     (401), not a 400 from the payload-shape step.
+//
+// Any divergence from the library must be fail-closed: reject where the
+// library would accept, never accept where it would reject.
+async function verifyWebhook(
+  secrets: readonly string[],
+  body: string,
+  headers: WebhookHeaders,
+  nowSeconds: number,
+): Promise<boolean> {
+  try {
+    // A non-integer or out-of-range clock would open both bounds: refuse.
+    if (
+      !Number.isSafeInteger(nowSeconds) ||
+      Math.abs(nowSeconds) > MAX_DATE_SECONDS - WEBHOOK_TOLERANCE_SECONDS
+    ) {
+      return false;
+    }
+    const lowered = new Map<string, string | undefined>();
+    for (const k of Object.keys(headers)) lowered.set(k.toLowerCase(), headers[k]);
+    const msgId = lowered.get("webhook-id");
+    const msgTs = lowered.get("webhook-timestamp");
+    const msgSig = lowered.get("webhook-signature");
+    if (
+      typeof msgId !== "string" || msgId === "" ||
+      typeof msgTs !== "string" || msgTs === "" ||
+      typeof msgSig !== "string" || msgSig === ""
+    ) {
+      return false;
+    }
+    // parseInt on purpose (library parity): "1700000000abc" parses to
+    // 1700000000, and the signed text below uses this parsed integer, never
+    // the raw header. Tightening it (Number(), a digits-only regex) would
+    // break parity with the library.
+    const ts = parseInt(msgTs, 10);
+    if (Number.isNaN(ts)) return false;
+    if (nowSeconds - ts > WEBHOOK_TOLERANCE_SECONDS) return false; // too old
+    if (ts > nowSeconds + WEBHOOK_TOLERANCE_SECONDS) return false; // too new
+    // Lax like the library: only parts[0] and parts[1] count, so
+    // "v1,<sig>,extra" still offers <sig>, and a comma-less "v1" becomes an
+    // empty candidate that never equals a 44-character MAC. The lax shape also
+    // tolerates GoTrue's ", " join of a repeated signature header.
+    const candidates: string[] = [];
+    for (const entry of msgSig.split(" ")) {
+      const parts = entry.split(",");
+      if (parts[0] !== "v1") continue;
+      candidates.push(parts.length > 1 ? parts[1] : "");
+    }
+    for (const secret of secrets) {
+      // null sentinel, never "": a failed signing must not match a "v1," entry.
+      let expected: string | null = null;
+      try {
+        expected = await signWebhook(secret, msgId, ts, body);
+      } catch {
+        expected = null;
+      }
+      if (expected === null) continue;
+      for (const candidate of candidates) {
+        if (timingSafeEqualString(candidate, expected)) {
+          // The library JSON-parses the payload after a match, so a signed
+          // non-JSON body is a verify failure (401), not a 400 from the
+          // payload-shape step. The parse result is discarded on purpose.
+          // Returning false here instead of trying the next secret is
+          // equivalent: whether the body parses does not depend on the secret.
+          try {
+            JSON.parse(body);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // D7 tripwire: the committed local dev secret is public by design.
 function isLocalDevSecret(raw: string): boolean {
   return raw.indexOf("LOCAL/DEV/ONLY") >= 0;
@@ -510,6 +675,7 @@ export type {
   RenderedBody,
   TransportAttempt,
   DeliveryResult,
+  WebhookHeaders,
 };
 export {
   RESEND_API_URL,
@@ -530,4 +696,8 @@ export {
   resolveLinkAndCode,
   renderBody,
   classifyDelivery,
+  base64ToBytes,
+  timingSafeEqualString,
+  signWebhook,
+  verifyWebhook,
 };

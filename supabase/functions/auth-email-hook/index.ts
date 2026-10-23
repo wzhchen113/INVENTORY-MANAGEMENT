@@ -12,8 +12,12 @@
 // each call with a Standard Webhooks signature (SEND_EMAIL_HOOK_SECRET,
 // "v1,whsec_<base64>", "|"-separated for rotation). verify_jwt = false is
 // pinned in config.toml because there is no Supabase JWT; the signature check
-// below REPLACES the gateway JWT check and FAILS CLOSED (secret unset or
-// malformed → 500; missing / wrong / stale signature → 401). There is
+// REPLACES the gateway JWT check and FAILS CLOSED (secret unset or malformed →
+// 500; missing / wrong / stale signature → 401). The signature is verified by
+// an inline WebCrypto (HMAC-SHA256) verifier in the core block (verifyWebhook):
+// constant-time compare, ±300 s tolerance, every rotated secret tried, parity
+// with standardwebhooks@1.0.0 Webhook.verify. The function has NO third-party
+// imports (spec 169), so a deploy bundles only repo code. There is
 // deliberately NO ADMIN_ROLES gate — there is no caller JWT to gate on.
 //
 // CONTRACT (spec 166 §3): POST only (405 otherwise); body > 64 KiB → 413;
@@ -44,14 +48,8 @@
 // src/lib/placeholderEmail.parity.test.ts and src/lib/authEmailHook.parity.test.ts
 // (inline-not-shared, spec 027 §4.2).
 
-// Transitive deps pinned with ?deps= (security L5): standardwebhooks@1.0.0
-// declares @stablelib/base64 ^1.0.0 and fast-sha256 ^1.3.0, which esm.sh would
-// otherwise resolve at deploy time. Versions = what those ranges resolved to on
-// 2026-10-19 (npm view + esm.sh).
-// Spec 168 item 5: kept on esm.sh ?deps= deliberately. Supabase docs don't
-// confirm a per-function deno.lock is honoured by serve/deploy, and npm: without
-// an honoured lock would let these transitive deps float (weaker than this pin).
-import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0?deps=@stablelib/base64@1.0.1,fast-sha256@1.3.0";
+// No imports (spec 169, security L2): the esm.sh standardwebhooks dependency
+// was removed; the signature is verified by verifyWebhook in the core block.
 
 const SEND_EMAIL_HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET") ?? "";
 const SEND_EMAIL_TRANSPORT = Deno.env.get("SEND_EMAIL_TRANSPORT") ?? "";
@@ -464,6 +462,167 @@ function parseHookSecrets(raw: string | undefined): string[] | null {
   return out;
 }
 
+// ---- Standard Webhooks verification (spec 169) ----------------------------
+// Everything from here to verifyWebhook is the verifier group: behavioural
+// parity with standardwebhooks@1.0.0 Webhook.verify, built on WebCrypto
+// (crypto.subtle) so the function has no third-party import. The clock is a
+// parameter so jest can pin the ±300 s boundaries; the caller passes the real
+// clock.
+
+// Accepted clock skew either side of nowSeconds, inclusive.
+const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
+// The JS Date range in seconds (8.64e15 ms either side of the epoch). The
+// clock guard in verifyWebhook keeps nowSeconds within this range less the
+// tolerance, so every accepted timestamp lies inside the JS Date range too,
+// which is what makes the signed text equal the library's.
+const MAX_DATE_SECONDS = 8.64e12;
+
+// Header record as received; names are matched case-insensitively.
+type WebhookHeaders = Record<string, string | undefined>;
+
+// Strict padded base64 → bytes. Throws unless [A-Za-z0-9+/]+ with at most two
+// trailing "=" and length % 4 === 0 (the parseHookSecrets shape). On that set
+// atob gives the same bytes as @stablelib/base64@1.0.1 (both drop
+// non-canonical trailing bits).
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length % 4 !== 0) throw new Error("bad base64");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Standard padded base64 of raw bytes.
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+// Constant-time compare of the UTF-8 bytes of two strings; a length mismatch
+// is false at once (signature length is public).
+function timingSafeEqualString(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+// base64(HMAC-SHA256(key, "<id>.<timestamp>.<body>")), UTF-8, without the
+// "v1," prefix. May throw (bad key); verifyWebhook treats that as a non-match.
+// Only typed-array views are handed to crypto.subtle (never a bare buffer).
+async function signWebhook(secret: string, msgId: string, timestamp: number, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    base64ToBytes(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msgId + "." + timestamp + "." + body));
+  return bytesToBase64(new Uint8Array(mac));
+}
+
+// Standard Webhooks gate: true iff the request carries a fresh signature made
+// with ANY of `secrets`. Never throws or rejects: any error is false.
+//
+// Accepts only when all of these hold:
+//   - webhook-id, webhook-timestamp and webhook-signature are present and
+//     non-empty (header names are case-insensitive);
+//   - the parsed timestamp is within ±300 s of nowSeconds, inclusive;
+//   - some "v1,<sig>" entry equals the expected signature under some secret
+//     (secrets tried in order);
+//   - the body is JSON.
+//
+// Library quirks replicated on purpose (each also noted at its line):
+//   - parseInt timestamp: the header is read with parseInt(_, 10) and the
+//     signed text uses that parsed integer, never the raw header text;
+//   - lax commas: only the first two comma fields of an entry count, and a
+//     comma-less "v1" is an empty, never-matching candidate;
+//   - non-JSON → 401: a correctly signed non-JSON body is a verify failure
+//     (401), not a 400 from the payload-shape step.
+//
+// Any divergence from the library must be fail-closed: reject where the
+// library would accept, never accept where it would reject.
+async function verifyWebhook(
+  secrets: readonly string[],
+  body: string,
+  headers: WebhookHeaders,
+  nowSeconds: number,
+): Promise<boolean> {
+  try {
+    // A non-integer or out-of-range clock would open both bounds: refuse.
+    if (
+      !Number.isSafeInteger(nowSeconds) ||
+      Math.abs(nowSeconds) > MAX_DATE_SECONDS - WEBHOOK_TOLERANCE_SECONDS
+    ) {
+      return false;
+    }
+    const lowered = new Map<string, string | undefined>();
+    for (const k of Object.keys(headers)) lowered.set(k.toLowerCase(), headers[k]);
+    const msgId = lowered.get("webhook-id");
+    const msgTs = lowered.get("webhook-timestamp");
+    const msgSig = lowered.get("webhook-signature");
+    if (
+      typeof msgId !== "string" || msgId === "" ||
+      typeof msgTs !== "string" || msgTs === "" ||
+      typeof msgSig !== "string" || msgSig === ""
+    ) {
+      return false;
+    }
+    // parseInt on purpose (library parity): "1700000000abc" parses to
+    // 1700000000, and the signed text below uses this parsed integer, never
+    // the raw header. Tightening it (Number(), a digits-only regex) would
+    // break parity with the library.
+    const ts = parseInt(msgTs, 10);
+    if (Number.isNaN(ts)) return false;
+    if (nowSeconds - ts > WEBHOOK_TOLERANCE_SECONDS) return false; // too old
+    if (ts > nowSeconds + WEBHOOK_TOLERANCE_SECONDS) return false; // too new
+    // Lax like the library: only parts[0] and parts[1] count, so
+    // "v1,<sig>,extra" still offers <sig>, and a comma-less "v1" becomes an
+    // empty candidate that never equals a 44-character MAC. The lax shape also
+    // tolerates GoTrue's ", " join of a repeated signature header.
+    const candidates: string[] = [];
+    for (const entry of msgSig.split(" ")) {
+      const parts = entry.split(",");
+      if (parts[0] !== "v1") continue;
+      candidates.push(parts.length > 1 ? parts[1] : "");
+    }
+    for (const secret of secrets) {
+      // null sentinel, never "": a failed signing must not match a "v1," entry.
+      let expected: string | null = null;
+      try {
+        expected = await signWebhook(secret, msgId, ts, body);
+      } catch {
+        expected = null;
+      }
+      if (expected === null) continue;
+      for (const candidate of candidates) {
+        if (timingSafeEqualString(candidate, expected)) {
+          // The library JSON-parses the payload after a match, so a signed
+          // non-JSON body is a verify failure (401), not a 400 from the
+          // payload-shape step. The parse result is discarded on purpose.
+          // Returning false here instead of trying the next secret is
+          // equivalent: whether the body parses does not depend on the secret.
+          try {
+            JSON.parse(body);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // D7 tripwire: the committed local dev secret is public by design.
 function isLocalDevSecret(raw: string): boolean {
   return raw.indexOf("LOCAL/DEV/ONLY") >= 0;
@@ -586,18 +745,6 @@ function logOutcome(entry: {
   console.log(JSON.stringify(line));
 }
 
-function verifySignature(secrets: string[], body: string, headers: Record<string, string>): boolean {
-  for (const secret of secrets) {
-    try {
-      new Webhook(secret).verify(body, headers);
-      return true;
-    } catch {
-      // try the next secret (rotation); never log the error detail
-    }
-  }
-  return false;
-}
-
 // Sends the planned mails sequentially, in plan order; the first failure stops
 // the remaining legs (worst case ~2 × 2 s, inside GoTrue's hook timeout).
 // buildTransportRequest stays outside the try: a throw there propagates to the
@@ -660,9 +807,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse(413, { error: "payload too large" });
     }
 
-    // 4. Standard Webhooks signature (constant-time compare + ±5 min tolerance).
+    // 4. Standard Webhooks signature: verifyWebhook in the core block (inline
+    // WebCrypto HMAC-SHA256, constant-time compare, ±300 s tolerance, every
+    // rotated secret). It never throws; any failure, including a signed body
+    // that is not JSON, is false → 401.
     const headers = Object.fromEntries(req.headers);
-    if (!verifySignature(secrets, body, headers)) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (!(await verifyWebhook(secrets, body, headers, nowSeconds))) {
       logOutcome({ action, outcome: "rejected", recipients, dropped, reason: "signature" });
       return jsonResponse(401, { error: "invalid signature" });
     }
