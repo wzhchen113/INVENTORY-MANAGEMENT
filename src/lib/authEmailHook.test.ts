@@ -6,6 +6,7 @@
 import {
   RESEND_API_URL,
   buildTransportRequest,
+  classifyDelivery,
   isLocalDevSecret,
   isTransportSuccess,
   logAction,
@@ -13,13 +14,16 @@ import {
   parsePayload,
   planMails,
   recoveryLink,
+  renderBody,
+  resolveLinkAndCode,
+  resolveRedirect,
   resolveTransport,
   routeLegs,
   subjectFor,
   verifyBase,
   verifyLink,
 } from './authEmailHook';
-import type { HookPayload, PlannedMail, TransportConfig } from './authEmailHook';
+import type { HookPayload, Leg, PlannedMail, TransportConfig } from './authEmailHook';
 
 const PH_A = `u-${'a'.repeat(32)}@no-email.invalid`;
 const PH_B = `u-${'0123456789abcdef'.repeat(2)}@no-email.invalid`;
@@ -486,5 +490,95 @@ describe('logAction', () => {
     expect(logAction('')).toBe('unknown');
     expect(logAction(42)).toBe('unknown');
     expect(logAction(undefined)).toBe('unknown');
+  });
+});
+
+// Spec 168 §1.6 — the renderMail split, covered directly.
+describe('resolveRedirect (spec 168)', () => {
+  it('returns a usable redirect_to raw, else a usable site_url, else null', () => {
+    expect(resolveRedirect(REDIRECT, API_SITE)).toBe(REDIRECT);
+    expect(resolveRedirect('', 'https://site.example.com')).toBe('https://site.example.com');
+    expect(resolveRedirect('javascript:alert(1)', 'https://site.example.com')).toBe('https://site.example.com');
+    expect(resolveRedirect('', '')).toBeNull();
+    expect(resolveRedirect('javascript:alert(1)', 'not a url')).toBeNull();
+    expect(resolveRedirect('imr://reset-password', '')).toBe('imr://reset-password');
+  });
+});
+
+describe('resolveLinkAndCode (spec 168)', () => {
+  const leg = (over: Partial<Leg> = {}): Leg => ({ to: REAL, hash: 'hash-main', code: '123456', ...over });
+  const data = (over: Record<string, string> = {}) => payload('magiclink', { data: over }).email_data;
+  const verify = (action: string) =>
+    `${API_SITE}/verify?token=hash-main&type=${action}&redirect_to=${encodeURIComponent(REDIRECT)}`;
+
+  it('a notification has no link and no code, even with a non-empty leg hash and code', () => {
+    expect(resolveLinkAndCode('password_changed_notification', leg(), data(), SUPABASE_URL)).toStrictEqual({ link: '', code: '' });
+  });
+
+  it('reauthentication is code only', () => {
+    expect(resolveLinkAndCode('reauthentication', leg(), data(), SUPABASE_URL)).toStrictEqual({ link: '', code: '123456' });
+  });
+
+  it('recovery is the spec 085 link with no code; an empty hash is unlinkable', () => {
+    expect(resolveLinkAndCode('recovery', leg(), data(), SUPABASE_URL)).toStrictEqual({
+      link: `${REDIRECT}?token_hash=hash-main&type=recovery`,
+      code: '',
+    });
+    expect(resolveLinkAndCode('recovery', leg({ hash: '' }), data(), SUPABASE_URL)).toBeNull();
+  });
+
+  it('signup / invite are link-only; an empty hash is unlinkable', () => {
+    expect(resolveLinkAndCode('signup', leg({ hash: '' }), data(), SUPABASE_URL)).toBeNull();
+    expect(resolveLinkAndCode('invite', leg({ hash: '' }), data(), SUPABASE_URL)).toBeNull();
+    expect(resolveLinkAndCode('signup', leg(), data(), SUPABASE_URL)).toStrictEqual({ link: verify('signup'), code: '' });
+  });
+
+  it('magiclink with an empty hash shows the code with no link', () => {
+    expect(resolveLinkAndCode('magiclink', leg({ hash: '' }), data(), SUPABASE_URL)).toStrictEqual({ link: '', code: '123456' });
+  });
+
+  it('a link type with no usable redirect base, or no usable verify base, is unlinkable', () => {
+    expect(resolveLinkAndCode('magiclink', leg(), data({ redirect_to: '', site_url: '' }), SUPABASE_URL)).toBeNull();
+    expect(resolveLinkAndCode('magiclink', leg(), data({ site_url: 'http://127.0.0.1:3000' }), '')).toBeNull();
+  });
+
+  it('an unknown type with a hash and a token gets both', () => {
+    expect(resolveLinkAndCode('zz_future_type', leg(), data(), SUPABASE_URL)).toStrictEqual({
+      link: verify('zz_future_type'),
+      code: '123456',
+    });
+  });
+});
+
+describe('renderBody (spec 168)', () => {
+  it('a notification omits the ignore line; an empty link renders no anchor', () => {
+    const b = renderBody('password_changed_notification', '', '', '');
+    expect(b.subject).toBe('Your password was changed');
+    for (const part of [b.html, b.text]) expect(part).not.toContain('If you did not request this');
+    expect(b.html).not.toContain('<a href');
+    const withCode = renderBody('magiclink', '', '', '123456');
+    expect(withCode.html).not.toContain('<a href');
+    expect(withCode.text).toContain('If you did not request this');
+    expect(withCode.text).toContain('Your code: 123456');
+  });
+});
+
+describe('classifyDelivery (spec 168 item 2)', () => {
+  it('a timeout / abort throw is "timeout" with no status', () => {
+    expect(classifyDelivery({ kind: 'threw', errorName: 'TimeoutError' })).toStrictEqual({ ok: false, reason: 'timeout' });
+    expect(classifyDelivery({ kind: 'threw', errorName: 'AbortError' })).toStrictEqual({ ok: false, reason: 'timeout' });
+  });
+
+  it('any other throw is "transport" with no status', () => {
+    expect(classifyDelivery({ kind: 'threw', errorName: 'TypeError' })).toStrictEqual({ ok: false, reason: 'transport' });
+    expect(classifyDelivery({ kind: 'threw', errorName: '' })).toStrictEqual({ ok: false, reason: 'transport' });
+  });
+
+  it.each([199, 300, 500])('status %i is "transport" with that status', (status) => {
+    expect(classifyDelivery({ kind: 'status', status })).toStrictEqual({ ok: false, reason: 'transport', status });
+  });
+
+  it.each([200, 299])('status %i is ok', (status) => {
+    expect(classifyDelivery({ kind: 'status', status })).toStrictEqual({ ok: true });
   });
 });

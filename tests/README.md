@@ -416,7 +416,9 @@ Manual-run scripts under `scripts/smoke-*.sh`. `npm run test:smoke` runs five:
   gate, placeholder `/recover` dropped (0 mails), real `/recover` delivered
   with a redeemable spec 085 link (plain + PKCE), anti-enumeration, signed
   synthetic payloads for every action type, a real invite and a real secure
-  email change, and log/body hygiene. Needs the hook enabled in
+  email change, and log/body hygiene. Spec 168 added a transport-rejected
+  real recipient → 500 `delivery failed`, 0 mails (S10); S9 redemption
+  SKIPs unless `GOTRUE_MAILER_AUTOCONFIRM=true`. Needs the hook enabled in
   `supabase/config.toml` (a clean `npx supabase stop --no-backup && npm run
   dev:db` after changing it). **Wipes the local Mailpit inbox.** Creates
   `zz_s166*` fixtures and removes them in its EXIT trap.
@@ -428,7 +430,8 @@ local Mailpit inbox, and the spec 166 smoke wipes it mid-run.
 
 [`scripts/probe-auth-email-hook.sh`](../scripts/probe-auth-email-hook.sh) is
 an owner-run prod pre-enable probe (spec 166 runbook §12 step 5b), not a
-test and not part of `test:smoke`.
+test and not part of `test:smoke`. It requires `node` (spec 168: node computes
+the HMAC with the key on stdin, never on argv).
 
 ```bash
 npm run test:smoke               # runs all five

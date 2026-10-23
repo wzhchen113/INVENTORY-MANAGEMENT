@@ -19,15 +19,26 @@
 #    S4  anti-enumeration: placeholder / real / unknown → identical status + body
 #    S6  signed synthetic payloads: every action type (real → 1 message with the
 #        §3.3 subject; placeholder → 0), the email_change swap, mixed legs
+#    S10 (spec 168) signed synthetic payload to a real recipient the transport
+#        (Mailpit) rejects → 500 {"error":"delivery failed"}, Mailpit total 0,
+#        hook logged outcome:failed reason:transport status:<Mailpit's code>
 #    S6b real GoTrue invite → the /verify link redeems (records the D11 branch)
 #    S9  real secure email change → both legs' hashes match GoTrue's stored tokens
-#        and each leg redeems on its own (two rounds), auth.users.email updated
+#        and each leg redeems on its own (two rounds), auth.users.email updated.
+#        Spec 168: the redemption half needs GOTRUE_MAILER_AUTOCONFIRM=true and
+#        SKIPs otherwise; the hash-equality half always runs
 #    S7  hygiene: no token / hash / placeholder in hook bodies or edge logs;
 #        hook log lines carry only the §5 key set
 #    S8  SKIP — prod (Resend) transport is proven in jest (spec 166 D10)
 #
 # Usage:
 #   bash scripts/smoke-send-email-hook.sh   # local stack only (refuses remote)
+#
+# TEST-ONLY knob (spec 168): S9_AUTOCONFIRM_OVERRIDE=<value> replaces the
+# GOTRUE_MAILER_AUTOCONFIRM value read from the auth container, so any value
+# other than `true` forces the S9 redemption SKIP branch. It only reduces
+# coverage, its use is printed in S9's output, and it is never set in
+# `npm run test:smoke`.
 #
 # NOTE: this smoke WIPES the local Mailpit inbox (DELETE /api/v1/messages).
 #
@@ -234,7 +245,7 @@ fi
 case "$EDGE_SECRET" in
   *'|'*) fail "local hook secret has rotation parts; the smoke signs with a single secret"; exit 1 ;;
 esac
-HOOK_KEY_HEX=$(printf '%s' "${EDGE_SECRET#v1,whsec_}" | openssl base64 -d -A | od -An -tx1 | tr -d ' \n')
+HOOK_KEY_HEX=$(printf '%s' "${EDGE_SECRET#v1,whsec_}" | openssl base64 -d -A | od -An -v -tx1 | tr -d ' \n')
 if [[ -z "$HOOK_KEY_HEX" ]]; then
   fail "could not decode the local hook secret"
   exit 1
@@ -531,6 +542,58 @@ else
 fi
 
 ################################################################################
+step "S10: transport rejects a real recipient → 500 delivery failed, 0 mails"
+# Spec 168 item 3 — the handler's fail-closed delivery path, live. The
+# recipient "not-an-address" is real (not the spec 165 placeholder shape), a
+# non-empty string, passes parsePayload and routeLegs, and renders (recovery:
+# syn_payload supplies a usable redirect_to and the hash), so the request
+# genuinely reaches the transport. Mailpit's /api/v1/send rejects it with
+# HTTP 400 {"Error":"invalid To address: not-an-address"} — established
+# 2026-10-21 from the host and from inside the stack's Docker network (the
+# hook's own MAILPIT_SEND_URL host). No config.toml, hook-code or Mailpit
+# change manufactures the failure. If Mailpit ever accepts the address, the
+# precondition below FAILs loudly instead of passing falsely.
+# Signed synthetic payload, no GoTrue → no /recover rate-limit pressure. The
+# remembered address / hash / code let S7 prove none leaks on this path.
+BAD_TO="not-an-address"
+SH="synhash$(rand_hex 12)"; SC=$(rand_code)
+remember "$BAD_TO" "$SH" "$SC"
+EDGE_FROM=$(docker exec "$EDGE_CONTAINER" printenv SEND_EMAIL_FROM 2>/dev/null)
+MP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${MAILPIT_URL}/api/v1/send" -H "Content-Type: application/json" \
+  -d "$(jq -cn --arg f "$EDGE_FROM" --arg t "$BAD_TO" '{From:{Email:$f}, To:[{Email:$t}], Subject:"s168 probe", Text:"x"}')" 2>/dev/null)
+# An empty From would make Mailpit reject the probe for the wrong reason.
+if [[ -z "$EDGE_FROM" ]]; then
+  fail "precondition: could not read SEND_EMAIL_FROM from ${EDGE_CONTAINER}, so the Mailpit probe proves nothing"
+elif [[ -z "$MP_CODE" || "$MP_CODE" == "000" ]]; then
+  fail "precondition: direct Mailpit /api/v1/send probe got no HTTP response"
+elif [[ "$MP_CODE" == 2* ]]; then
+  fail "Mailpit now accepts '${BAD_TO}' (HTTP ${MP_CODE}) — spec 168 item 3 needs a new rejected recipient; return to the architect"
+else
+  pass "precondition: Mailpit /api/v1/send rejects '${BAD_TO}' → HTTP ${MP_CODE}"
+  mp_clear
+  [[ "$(mp_total)" == "0" ]] && pass "Mailpit cleared before S10" || fail "Mailpit not empty before S10"
+  S10_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  sleep 1
+  hook_signed "$(syn_payload recovery "$BAD_TO" "" "$SC" "$SH" "" "")"
+  [[ "$CODE" == "500" && "$(printf '%s' "$BODY" | jq -c '.' 2>/dev/null)" == '{"error":"delivery failed"}' ]] \
+    && pass "signed recovery to '${BAD_TO}' → 500 {\"error\":\"delivery failed\"}" \
+    || fail "signed recovery to '${BAD_TO}' → HTTP $CODE body=$BODY (expected 500 delivery failed)"
+  mp_wait 0 && pass "Mailpit total = 0 after the rejected send" || fail "Mailpit total = $(mp_total) after the rejected send"
+  S10_N=0
+  for ((i = 0; i < 20; i++)); do
+    S10_N=$(docker logs --since "$S10_START" "$EDGE_CONTAINER" 2>&1 | sed -E 's/^[^{]*//' | grep '{' \
+      | jq -cR --argjson st "$MP_CODE" 'fromjson? | select(.hook=="auth-email-hook" and .action=="recovery"
+          and .outcome=="failed" and .reason=="transport" and (.status|type)=="number" and .status==$st
+          and .recipients==1 and .dropped==0)' 2>/dev/null | grep -c '{')
+    [[ "$S10_N" == "1" ]] && break
+    sleep 0.25
+  done
+  [[ "$S10_N" == "1" ]] \
+    && pass "hook logged outcome:failed reason:transport status:${MP_CODE} (recipients 1, dropped 0)" \
+    || fail "expected exactly 1 matching outcome:failed/transport/status:${MP_CODE} log line, found ${S10_N}"
+fi
+
+################################################################################
 step "S6b: real GoTrue invite → the /verify link redeems"
 mp_clear
 INV="zz_s166_inv${SFX}@local.test"
@@ -579,6 +642,12 @@ step "S9: real secure email change → both legs' hashes are GoTrue's and each r
 # email_change_token_current, new-leg hash = email_change_token_new), then
 # runs two changes: one redeemed via the current-address leg, one via the
 # new-address leg. Each leg's hash must redeem on its own.
+# Spec 168 (architect m4): that mechanics needs autoconfirm, so the arm reads
+# GOTRUE_MAILER_AUTOCONFIRM first. Exactly `true` → the two rounds above,
+# unchanged. Anything else (empty / unreadable included) → ONE hash-equality
+# round (no redemption) plus a SKIP for the redemption half; there is no
+# second round because it would start from the changed address. The pending
+# change is removed with the fixture by the EXIT trap.
 NEW_FX="zz_s166_n${SFX}@local.test"
 NEW_FX2="zz_s166_m${SFX}@local.test"
 remember "$NEW_FX" "$NEW_FX2"
@@ -586,14 +655,20 @@ FX_BEARER=$(curl -sS -X POST "${SUPABASE_URL}/auth/v1/token?grant_type=password"
   -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" \
   -d "$(jq -cn --arg e "$REAL_FX" --arg p "$REAL_FX_PW" '{email:$e,password:$p}')" | jq -r '.access_token // empty')
 
-# email_change_round <from> <to> <redeem: old|new>
+S9_AC_NOTE=""
+[[ -n "${S9_AUTOCONFIRM_OVERRIDE+x}" ]] && S9_AC_NOTE=" (S9_AUTOCONFIRM_OVERRIDE)"
+AC="${S9_AUTOCONFIRM_OVERRIDE-$(docker exec "$AUTH_CONTAINER" printenv GOTRUE_MAILER_AUTOCONFIRM 2>/dev/null)}"
+printf '         S9 precondition: GOTRUE_MAILER_AUTOCONFIRM=%s%s\n' "'${AC}'" "$S9_AC_NOTE"
+
+# email_change_round <from> <to> <redeem: old|new|none>  (none = hash-equality only)
 email_change_round() {
-  local from="$1" to="$2" which="$3" put_code old_h new_h db_cur db_new db_email h
+  local from="$1" to="$2" which="$3" put_code old_h new_h db_cur db_new db_email h label
+  [[ "$which" == "none" ]] && label="hash-equality round" || label="${which}-leg round"
   mp_clear
   put_code=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT "${SUPABASE_URL}/auth/v1/user" \
     -H "apikey: ${ANON_KEY}" -H "Authorization: Bearer ${FX_BEARER}" -H "Content-Type: application/json" \
     -d "$(jq -cn --arg e "$to" '{email:$e}')")
-  [[ "$put_code" == "200" ]] && pass "PUT /auth/v1/user {email} (${which}-leg round) → 200" || { fail "PUT /auth/v1/user → HTTP $put_code"; return; }
+  [[ "$put_code" == "200" ]] && pass "PUT /auth/v1/user {email} (${label}) → 200" || { fail "PUT /auth/v1/user → HTTP $put_code"; return; }
   if ! mp_wait 2; then fail "email change: Mailpit total = $(mp_total) (expected 2)"; return; fi
   old_h=$(mp_msg "$from" | jq -r '.Text' | sed -nE 's/.*\/verify\?token=([^&]+)&type=email_change.*/\1/p' | head -1)
   new_h=$(mp_msg "$to" | jq -r '.Text' | sed -nE 's/.*\/verify\?token=([^&]+)&type=email_change.*/\1/p' | head -1)
@@ -605,6 +680,7 @@ email_change_round() {
   [[ "$old_h" == "$db_cur" && "$new_h" == "$db_new" ]] \
     && pass "old-leg hash = email_change_token_current, new-leg hash = email_change_token_new (swap matches GoTrue)" \
     || fail "email_change hash pairing does not match GoTrue's stored tokens"
+  [[ "$which" == "none" ]] && return
   [[ "$which" == "old" ]] && h="$old_h" || h="$new_h"
   verify_hash email_change "$h"
   [[ "$CODE" == "200" ]] && pass "${which}-leg token_hash redeems (/verify → 200)" || fail "${which}-leg /verify → HTTP $CODE"
@@ -613,9 +689,14 @@ email_change_round() {
 }
 
 if [[ -n "$FX_BEARER" ]]; then
-  email_change_round "$REAL_FX" "$NEW_FX" old
-  sleep 2
-  email_change_round "$NEW_FX" "$NEW_FX2" new
+  if [[ "$AC" == "true" ]]; then
+    email_change_round "$REAL_FX" "$NEW_FX" old
+    sleep 2
+    email_change_round "$NEW_FX" "$NEW_FX2" new
+  else
+    email_change_round "$REAL_FX" "$NEW_FX" none
+    skip "S9 redemption" "GOTRUE_MAILER_AUTOCONFIRM='${AC}'${S9_AC_NOTE}; the first-leg-completes-change mechanics need autoconfirm"
+  fi
 else
   fail "could not sign in the real-email fixture"
 fi

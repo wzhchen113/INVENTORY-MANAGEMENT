@@ -22,10 +22,13 @@
 # (single part, no "|" rotation list). It is never echoed. Not part of `npm
 # run test:smoke`.
 #
-# Exposure note (security L1): the decoded key is passed to openssl as
-# `-macopt hexkey:<hex>`, so it is visible in `ps` to other local users for the
-# few milliseconds the openssl process runs. Acceptable on a single-user
-# machine; do not run this on a shared host.
+# Key handling (spec 168, closes security L1): the secret comes from the env or
+# the no-echo prompt and only ever travels through pipes: `openssl base64 -d`
+# decodes it from stdin, and the decoded key reaches `node` (which computes the
+# HMAC-SHA256) only on stdin. Neither the secret nor the key is on any
+# process's argv. HOOK_SECRET is unset as soon as it is copied, and SECRET
+# before node runs, so node's environment never holds it.
+# Requires node, openssl, jq and curl.
 #
 # Exit code: 0 on HTTP 200 {}, non-zero otherwise.
 
@@ -37,7 +40,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --to) TO="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) printf 'unknown argument: %s (see --help)\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -54,8 +57,15 @@ TO_NORM=$(printf '%s' "$TO" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]
 [[ "$TO_NORM" =~ ^[^[:space:]@\<\>\"]+@[^[:space:]@\<\>\"]+$ ]] || die "--to is not an email address"
 # Spec 165 placeholder shape: the hook would (correctly) drop it, which proves nothing.
 [[ "$TO_NORM" =~ ^u-[0-9a-f]{32}@no-email\.invalid$ ]] && die "--to is a username-only placeholder address; use a real owner inbox"
+# Checked before the secret is read or prompted for, so the owner is never
+# asked for a secret that then cannot be used.
+command -v node >/dev/null 2>&1 || die "node is required on PATH to sign the probe"
 
+# A SECRET / KEY_HEX already exported by the caller's shell would stay exported
+# after reassignment and leak into child environments; drop them first.
+unset SECRET KEY_HEX
 SECRET="${HOOK_SECRET:-}"
+unset HOOK_SECRET
 if [[ -z "$SECRET" ]]; then
   [[ -t 0 ]] || die "HOOK_SECRET is not set and stdin is not a terminal to prompt for it"
   read -rs -p 'HOOK_SECRET (input hidden): ' SECRET
@@ -68,7 +78,7 @@ case "$SECRET" in
     case "$URL" in https://*) die "HOOK_SECRET is the committed LOCAL dev secret; prod uses the dashboard-generated one" ;; esac ;;
 esac
 
-KEY_HEX=$(printf '%s' "${SECRET#v1,whsec_}" | openssl base64 -d -A 2>/dev/null | od -An -tx1 | tr -d ' \n')
+KEY_HEX=$(printf '%s' "${SECRET#v1,whsec_}" | openssl base64 -d -A 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
 [[ -n "$KEY_HEX" ]] || die "HOOK_SECRET did not base64-decode"
 unset SECRET HOOK_SECRET
 
@@ -78,8 +88,20 @@ BODY=$(jq -cn --arg e "$TO_NORM" \
                 site_url:"", token_new:"", token_hash_new:"", old_email:""}}')
 MSG_ID="msg_probe_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 TS=$(date +%s)
-SIG=$(printf '%s' "${MSG_ID}.${TS}.${BODY}" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${KEY_HEX}" -binary | openssl base64 -A)
+# stdin = <lower-hex key> LF <message bytes>; split at the FIRST LF and HMAC the
+# raw message bytes. stdout = padded base64, no newline (as `openssl base64 -A`).
+# A bad key line exits non-zero with nothing on stdout. No secret in this text.
+HMAC_JS='
+const d = require("fs").readFileSync(0);
+const nl = d.indexOf(10);
+if (nl < 0) process.exit(2);
+const k = d.subarray(0, nl).toString("latin1");
+if (k === "" || !/^[0-9a-f]+$/.test(k) || k.length % 2 !== 0) process.exit(2);
+process.stdout.write(require("crypto").createHmac("sha256", Buffer.from(k, "hex")).update(d.subarray(nl + 1)).digest("base64"));
+'
+SIG=$(printf '%s\n%s' "$KEY_HEX" "${MSG_ID}.${TS}.${BODY}" | node -e "$HMAC_JS")
 unset KEY_HEX
+[[ -n "$SIG" ]] || die "could not compute the signature"
 
 OUT=$(curl -sS --max-time 15 -w '\n%{http_code}' -X POST "$URL" -H "Content-Type: application/json" \
   -H "webhook-id: ${MSG_ID}" -H "webhook-timestamp: ${TS}" -H "webhook-signature: v1,${SIG}" \

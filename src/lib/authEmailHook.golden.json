@@ -1,0 +1,1651 @@
+{
+  "baseline": "227436c",
+  "baselineBlockSha256": "8a27aa0f7612d4191a4aa1da457d998fbf6e0e5e59860c87ce7cf4e6c8e414ec",
+  "cases": [
+    {
+      "name": "A.recovery",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: http://localhost:8081/reset-password?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.signup",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "signup",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm your email address to finish setting up your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm your email address to finish setting up your I.M.R account.\n\nConfirm email: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.invite",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "invite",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "invite",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "You have been invited to I.M.R",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">You have been invited to join I.M.R. Use the link below to accept the invitation and set up your account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=invite&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Accept invitation</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=invite&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYou have been invited to join I.M.R. Use the link below to accept the invitation and set up your account.\n\nAccept invitation: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=invite&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.magiclink",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nSign in: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=magiclink&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in code",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the code below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=email&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=email&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the code below to sign in to I.M.R.\n\nSign in: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=email&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.reauthentication",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "reauthentication",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "reauthentication",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your verification code",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Enter this code in I.M.R to confirm it is you.</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nEnter this code in I.M.R to confirm it is you.\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.password_changed_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "password_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "password_changed_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your password was changed",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Your password was changed. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYour password was changed. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.email_changed_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_changed_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your email address was changed",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Your email address was changed. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYour email address was changed. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.phone_changed_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "phone_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "phone_changed_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your phone number was changed",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Your phone number was changed. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYour phone number was changed. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.identity_linked_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "identity_linked_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "identity_linked_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "A sign-in method was linked to your account",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">A sign-in method was linked to your account. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nA sign-in method was linked to your account. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.identity_unlinked_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "identity_unlinked_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "identity_unlinked_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "A sign-in method was removed from your account",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">A sign-in method was removed from your account. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nA sign-in method was removed from your account. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.mfa_factor_enrolled_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "mfa_factor_enrolled_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "mfa_factor_enrolled_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "A verification method was added to your account",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">A verification method was added to your account. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nA verification method was added to your account. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.mfa_factor_unenrolled_notification",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "mfa_factor_unenrolled_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "mfa_factor_unenrolled_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "A verification method was removed from your account",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">A verification method was removed from your account. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nA verification method was removed from your account. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "A.zz_future_type",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "zz_future_type",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "zz_future_type",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Account notification",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">There is an update about your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=zz_future_type&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Open link</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=zz_future_type&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nThere is an update about your I.M.R account.\n\nOpen link: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=zz_future_type&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "B.secure_both_real",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": "new.manager@example.com"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to new.manager@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">111111</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to new.manager@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 111111\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          },
+          {
+            "to": "new.manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to new.manager@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">222222</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to new.manager@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 222222\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "B.single_pair_token",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": "new.manager@example.com"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "new.manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to new.manager@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">111111</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to new.manager@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 111111\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "B.single_pair_token_new",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": "new.manager@example.com"
+        },
+        "email_data": {
+          "token": "",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "new.manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to new.manager@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">222222</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to new.manager@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 222222\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "B.placeholder_current_real_new",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "u-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@no-email.invalid",
+          "new_email": "new.manager@example.com"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "new.manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to new.manager@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">222222</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to new.manager@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 222222\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 1
+      }
+    },
+    {
+      "name": "B.real_current_placeholder_new",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": "u-0123456789abcdef0123456789abcdef@no-email.invalid"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to u-0123456789abcdef0123456789abcdef@no-email.invalid.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">111111</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to u-0123456789abcdef0123456789abcdef@no-email.invalid.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 111111\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 1
+      }
+    },
+    {
+      "name": "B.both_placeholder",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "u-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@no-email.invalid",
+          "new_email": "u-0123456789abcdef0123456789abcdef@no-email.invalid"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [],
+        "dropped": 2
+      }
+    },
+    {
+      "name": "B.no_new_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "invalid_payload"
+      }
+    },
+    {
+      "name": "C.recovery_redirect_no_query",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: http://localhost:8081/reset-password?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "C.recovery_redirect_with_query",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "https://app.example.com/r?x=1",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://app.example.com/r?x=1&amp;token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://app.example.com/r?x=1&amp;token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: https://app.example.com/r?x=1&token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "C.recovery_pkce_hash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "pkce_a/b+c=",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://localhost:8081/reset-password?token_hash=pkce_a%2Fb%2Bc%3D&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://localhost:8081/reset-password?token_hash=pkce_a%2Fb%2Bc%3D&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: http://localhost:8081/reset-password?token_hash=pkce_a%2Fb%2Bc%3D&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "C.recovery_javascript_redirect_site_fallback",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "javascript:alert(1)",
+          "email_action_type": "recovery",
+          "site_url": "https://site.example.com",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://site.example.com?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://site.example.com?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: https://site.example.com?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "C.recovery_not_a_url_redirect_site_fallback",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "not a url",
+          "email_action_type": "recovery",
+          "site_url": "https://site.example.com",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://site.example.com?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://site.example.com?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: https://site.example.com?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "C.recovery_both_unusable",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "",
+          "email_action_type": "recovery",
+          "site_url": "",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "unlinkable"
+      }
+    },
+    {
+      "name": "C.recovery_native_scheme",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "imr://reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"imr://reset-password?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: imr://reset-password?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: imr://reset-password?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "D.signup_empty_hash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "unlinkable"
+      }
+    },
+    {
+      "name": "D.invite_empty_hash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "invite",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "unlinkable"
+      }
+    },
+    {
+      "name": "E.magiclink_redirect_and_site_empty",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "",
+          "email_action_type": "magiclink",
+          "site_url": "",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "unlinkable"
+      }
+    },
+    {
+      "name": "E.invite_site_and_supabase_url_empty",
+      "supabaseUrl": "",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "invite",
+          "site_url": "",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "unlinkable"
+      }
+    },
+    {
+      "name": "F.magiclink_api_site",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nSign in: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=magiclink&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.signup_api_site",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "signup",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm your email address to finish setting up your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm your email address to finish setting up your I.M.R account.\n\nConfirm email: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.magiclink_api_site_trailing_slash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "https://abc.supabase.co/auth/v1/",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nSign in: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=magiclink&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.signup_api_site_trailing_slash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "https://abc.supabase.co/auth/v1/",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "signup",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm your email address to finish setting up your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm your email address to finish setting up your I.M.R account.\n\nConfirm email: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.magiclink_app_site",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "http://127.0.0.1:3000",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://kong:8000/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://kong:8000/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nSign in: http://kong:8000/auth/v1/verify?token=hash-main&type=magiclink&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.signup_app_site",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "http://127.0.0.1:3000",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "signup",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm your email address to finish setting up your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://kong:8000/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://kong:8000/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm your email address to finish setting up your I.M.R account.\n\nConfirm email: http://kong:8000/auth/v1/verify?token=hash-main&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.magiclink_app_site_supabase_url_slash",
+      "supabaseUrl": "https://abc.supabase.co/",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "http://127.0.0.1:3000",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Sign in</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=magiclink&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nSign in: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=magiclink&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "F.signup_app_site_supabase_url_slash",
+      "supabaseUrl": "https://abc.supabase.co/",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "signup",
+          "site_url": "http://127.0.0.1:3000",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "signup",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm your email address to finish setting up your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-main&amp;type=signup&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm your email address to finish setting up your I.M.R account.\n\nConfirm email: https://abc.supabase.co/auth/v1/verify?token=hash-main&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "G.email_change_script_new_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": "\"><script>alert(1)</script>@example.com"
+        },
+        "email_data": {
+          "token": "111111",
+          "token_hash": "hash-for-new",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_change",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "222222",
+          "token_hash_new": "hash-for-current",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_change",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to &quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">111111</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to \"><script>alert(1)</script>@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-current&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 111111\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          },
+          {
+            "to": "\"><script>alert(1)</script>@example.com",
+            "subject": "Confirm your email change",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Confirm that you want to change the email address on your I.M.R account to &quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;@example.com.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Confirm email change</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&amp;type=email_change&amp;redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">222222</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nConfirm that you want to change the email address on your I.M.R account to \"><script>alert(1)</script>@example.com.\n\nConfirm email change: https://abc.supabase.co/auth/v1/verify?token=hash-for-new&type=email_change&redirect_to=http%3A%2F%2Flocalhost%3A8081%2Freset-password\n\nYour code: 222222\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "G.recovery_script_redirect",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "https://x.example.com/\"><script>",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"https://x.example.com/&quot;&gt;&lt;script&gt;?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: https://x.example.com/&quot;&gt;&lt;script&gt;?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: https://x.example.com/\"><script>?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "H.email_changed_notification_old_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": "old@example.com"
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_changed_notification",
+        "mails": [
+          {
+            "to": "old@example.com",
+            "subject": "Your email address was changed",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Your email address was changed. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYour email address was changed. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "H.email_changed_notification_no_old_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_changed_notification",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your email address was changed",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Your email address was changed. If you did not make this change, contact your administrator right away.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nYour email address was changed. If you did not make this change, contact your administrator right away.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "H.email_changed_notification_placeholder_old_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "email_changed_notification",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": "u-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@no-email.invalid"
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "email_changed_notification",
+        "mails": [],
+        "dropped": 1
+      }
+    },
+    {
+      "name": "I.recovery_all_placeholder",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "u-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@no-email.invalid",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [],
+        "dropped": 1
+      }
+    },
+    {
+      "name": "I.recovery_trimmed_recipient",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "  manager@example.com ",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "recovery",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Reset your password",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">We received a request to reset the password for your I.M.R account. Use the link below to choose a new password.</p>\n<p style=\"margin:0 0 16px;\"><a href=\"http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery\" style=\"display:inline-block;padding:10px 18px;background:#111;color:#ffffff;text-decoration:none;border-radius:6px;\">Set a new password</a></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;word-break:break-all;\">If the button does not work, open this link: http://localhost:8081/reset-password?token_hash=hash-main&amp;type=recovery</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nWe received a request to reset the password for your I.M.R account. Use the link below to choose a new password.\n\nSet a new password: http://localhost:8081/reset-password?token_hash=hash-main&type=recovery\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "I.reauthentication_empty_token",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "reauthentication",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "reauthentication",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your verification code",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Enter this code in I.M.R to confirm it is you.</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nEnter this code in I.M.R to confirm it is you.\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "I.magiclink_empty_hash_with_token",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "magiclink",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "magiclink",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Your sign-in link",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">Use the link below to sign in to I.M.R.</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nUse the link below to sign in to I.M.R.\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "I.unknown_type_token_no_hash",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "zz_future_type",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "zz_future_type",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Account notification",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">There is an update about your I.M.R account.</p>\n<p style=\"margin:0 0 16px;\">Your code: <strong style=\"font-size:18px;letter-spacing:2px;\">123456</strong></p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nThere is an update about your I.M.R account.\n\nYour code: 123456\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "I.zz_preflight_probe_all_empty",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "id": "00000000-0000-0000-0000-000000000000",
+          "email": "manager@example.com",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "",
+          "token_hash": "",
+          "redirect_to": "",
+          "site_url": "",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": "",
+          "email_action_type": "zz_preflight_probe"
+        }
+      },
+      "output": {
+        "ok": true,
+        "action": "zz_preflight_probe",
+        "mails": [
+          {
+            "to": "manager@example.com",
+            "subject": "Account notification",
+            "html": "<!doctype html><html><body style=\"margin:0;padding:0;background:#f6f6f6;\">\n<div style=\"max-width:520px;margin:0 auto;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;background:#ffffff;\">\n<h2 style=\"margin:0 0 16px;font-size:20px;\">I.M.R</h2>\n<p style=\"margin:0 0 16px;line-height:1.5;\">There is an update about your I.M.R account.</p>\n<p style=\"margin:0 0 16px;font-size:12px;color:#555;\">If you did not request this, you can safely ignore this email.</p>\n<hr style=\"border:none;border-top:1px solid #ddd;margin:24px 0 12px;\">\n<p style=\"margin:0;font-size:12px;color:#888;\">I.M.R — Inventory Management for Restaurant</p>\n</div></body></html>",
+            "text": "I.M.R\n\nThere is an update about your I.M.R account.\n\nIf you did not request this, you can safely ignore this email.\n\n--\nI.M.R — Inventory Management for Restaurant"
+          }
+        ],
+        "dropped": 0
+      }
+    },
+    {
+      "name": "I.recovery_blank_user_email",
+      "supabaseUrl": "http://kong:8000",
+      "input": {
+        "user": {
+          "email": "   ",
+          "new_email": ""
+        },
+        "email_data": {
+          "token": "123456",
+          "token_hash": "hash-main",
+          "redirect_to": "http://localhost:8081/reset-password",
+          "email_action_type": "recovery",
+          "site_url": "https://abc.supabase.co/auth/v1",
+          "token_new": "",
+          "token_hash_new": "",
+          "old_email": ""
+        }
+      },
+      "output": {
+        "ok": false,
+        "reason": "invalid_payload"
+      }
+    }
+  ]
+}

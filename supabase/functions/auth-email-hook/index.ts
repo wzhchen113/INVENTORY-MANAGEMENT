@@ -47,7 +47,10 @@
 // Transitive deps pinned with ?deps= (security L5): standardwebhooks@1.0.0
 // declares @stablelib/base64 ^1.0.0 and fast-sha256 ^1.3.0, which esm.sh would
 // otherwise resolve at deploy time. Versions = what those ranges resolved to on
-// 2026-10-19 (npm view + esm.sh). Follow-up: npm: specifier + deno.lock.
+// 2026-10-19 (npm view + esm.sh).
+// Spec 168 item 5: kept on esm.sh ?deps= deliberately. Supabase docs don't
+// confirm a per-function deno.lock is honoured by serve/deploy, and npm: without
+// an honoured lock would let these transitive deps float (weaker than this pin).
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0?deps=@stablelib/base64@1.0.1,fast-sha256@1.3.0";
 
 const SEND_EMAIL_HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET") ?? "";
@@ -246,9 +249,18 @@ function usableRedirect(s: string): string | null {
   }
 }
 
-// D11 — base for GoTrue /verify links: the payload's site_url when it is the
-// API external URL (path ends in /auth/v1), else the function's own
-// SUPABASE_URL + "/auth/v1". Never any other host.
+// The redirect fallback rule, defined once: redirect_to if usable, else
+// site_url if usable, else null.
+function resolveRedirect(redirectTo: string, siteUrl: string): string | null {
+  return usableRedirect(redirectTo) ?? usableRedirect(siteUrl);
+}
+
+// D11 — base for GoTrue /verify links. GoTrue's hook site_url is the APP Site
+// URL (spec 166 architect m1, proven by smoke S6b on GoTrue v2.189.0), so in
+// practice the SUPABASE_URL + "/auth/v1" fallback is the live branch, and it is
+// correct for prod (the function's SUPABASE_URL is the project API URL). The
+// API-shaped site_url branch (path ends in /auth/v1) remains as a defensive
+// branch. Never any other host.
 function verifyBase(siteUrl: string, supabaseUrl: string): string | null {
   const site = parseHttpUrl(siteUrl);
   if (site !== null && /\/auth\/v1\/?$/.test(site.pathname)) {
@@ -262,7 +274,7 @@ function verifyBase(siteUrl: string, supabaseUrl: string): string | null {
 // Spec 085 parity: `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery`.
 function recoveryLink(redirectTo: string, siteUrl: string, hash: string): string | null {
   if (hash === "") return null;
-  const base = usableRedirect(redirectTo) ?? usableRedirect(siteUrl);
+  const base = resolveRedirect(redirectTo, siteUrl);
   if (base === null) return null;
   const sep = base.indexOf("?") >= 0 ? "&" : "?";
   return base + sep + "token_hash=" + encodeURIComponent(hash) + "&type=recovery";
@@ -323,34 +335,40 @@ function linkLabelFor(action: string): string {
   }
 }
 
-function renderMail(action: string, leg: Leg, p: HookPayload, supabaseUrl: string): PlannedMail | null {
-  const d = p.email_data;
-  let link = "";
-  let code = "";
+type LinkAndCode = { link: string; code: string };
+type RenderedBody = { subject: string; html: string; text: string };
+
+// Why the action types differ (spec 166 §3.3):
+//   * recovery: the spec 085 link <redirect>?token_hash=…&type=recovery, which
+//     the app redeems itself, NOT a /verify link; no code.
+//   * reauthentication: code only; GoTrue has no /verify link for it.
+//   * signup / invite: link-only (/verify). With no hash the mail is useless,
+//     so it is unlinkable rather than an empty notice.
+//   * *_notification: a plain notice with no link and no code (routeLegs also
+//     blanks both).
+//   * magiclink / email / email_change / unknown future types: a /verify link
+//     when a hash exists AND the code when present.
+// null = unlinkable (planMails → 500 "delivery failed").
+function resolveLinkAndCode(action: string, leg: Leg, d: HookEmailData, supabaseUrl: string): LinkAndCode | null {
   if (action === "recovery") {
-    const l = recoveryLink(d.redirect_to, d.site_url, leg.hash);
-    if (l === null) return null;
-    link = l;
-  } else if (action === "reauthentication") {
-    code = leg.code;
-  } else if (isNotificationAction(action)) {
-    // Plain notice: no link, no code.
-  } else {
-    // signup / invite are link-only: without a hash the mail is useless, so it
-    // fails loudly (unlinkable) instead of shipping an empty notice.
-    if ((action === "signup" || action === "invite") && leg.hash === "") return null;
-    if (leg.hash !== "") {
-      const base = verifyBase(d.site_url, supabaseUrl);
-      const redirect = usableRedirect(d.redirect_to) ?? usableRedirect(d.site_url);
-      if (base === null || redirect === null) return null;
-      link = verifyLink(base, leg.hash, action, redirect);
-    }
-    // magiclink / email / email_change / unknown future types also show the
-    // code when present; signup and invite are link-only.
-    if (action !== "signup" && action !== "invite") code = leg.code;
+    const link = recoveryLink(d.redirect_to, d.site_url, leg.hash);
+    if (link === null) return null;
+    return { link, code: "" };
   }
+  if (action === "reauthentication") return { link: "", code: leg.code };
+  if (isNotificationAction(action)) return { link: "", code: "" };
+  const linkOnly = action === "signup" || action === "invite";
+  if (leg.hash === "") return linkOnly ? null : { link: "", code: leg.code };
+  const base = verifyBase(d.site_url, supabaseUrl);
+  const redirect = resolveRedirect(d.redirect_to, d.site_url);
+  if (base === null || redirect === null) return null;
+  return { link: verifyLink(base, leg.hash, action, redirect), code: linkOnly ? "" : leg.code };
+}
+
+// Subject + HTML/Text body for one mail. An empty link or code is omitted.
+function renderBody(action: string, newEmail: string, link: string, code: string): RenderedBody {
   const subject = subjectFor(action);
-  const intro = introFor(action, p.user.new_email);
+  const intro = introFor(action, newEmail);
   const label = linkLabelFor(action);
 
   const html: string[] = [];
@@ -390,7 +408,14 @@ function renderMail(action: string, leg: Leg, p: HookPayload, supabaseUrl: strin
   if (!isNotificationAction(action)) text.push("If you did not request this, you can safely ignore this email.", "");
   text.push("--", HOOK_FOOTER);
 
-  return { to: leg.to.trim(), subject, html: html.join("\n"), text: text.join("\n") };
+  return { subject, html: html.join("\n"), text: text.join("\n") };
+}
+
+function renderMail(action: string, leg: Leg, p: HookPayload, supabaseUrl: string): PlannedMail | null {
+  const lc = resolveLinkAndCode(action, leg, p.email_data, supabaseUrl);
+  if (lc === null) return null;
+  const b = renderBody(action, p.user.new_email, lc.link, lc.code);
+  return { to: leg.to.trim(), subject: b.subject, html: b.html, text: b.text };
 }
 
 // Routes the legs, DROPS placeholder legs before any render, then renders only
@@ -511,6 +536,24 @@ function buildTransportRequest(
 function isTransportSuccess(status: number): boolean {
   return status >= 200 && status <= 299;
 }
+
+// One transport attempt, reduced to runtime-neutral facts: the name of the
+// error the network call threw, or the HTTP status it answered with.
+type TransportAttempt = { kind: "threw"; errorName: string } | { kind: "status"; status: number };
+type DeliveryResult = { ok: true } | { ok: false; reason: "timeout" | "transport"; status?: number };
+
+// A timeout / abort is "timeout"; any other throw is "transport" with no
+// status; a non-2xx answer is "transport" with its status.
+function classifyDelivery(attempt: TransportAttempt): DeliveryResult {
+  if (attempt.kind === "threw") {
+    if (attempt.errorName === "TimeoutError" || attempt.errorName === "AbortError") {
+      return { ok: false, reason: "timeout" };
+    }
+    return { ok: false, reason: "transport" };
+  }
+  if (isTransportSuccess(attempt.status)) return { ok: true };
+  return { ok: false, reason: "transport", status: attempt.status };
+}
 // END auth-email-hook-core (spec 166)
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -553,6 +596,36 @@ function verifySignature(secrets: string[], body: string, headers: Record<string
     }
   }
   return false;
+}
+
+// Sends the planned mails sequentially, in plan order; the first failure stops
+// the remaining legs (worst case ~2 × 2 s, inside GoTrue's hook timeout).
+// buildTransportRequest stays outside the try: a throw there propagates to the
+// handler's outer catch (500 internal error), as before spec 168.
+async function deliver(cfg: TransportConfig, mails: PlannedMail[], webhookId: string): Promise<DeliveryResult> {
+  for (let i = 0; i < mails.length; i++) {
+    const r = buildTransportRequest(cfg, mails[i], webhookId + ":" + i);
+    let res: Response;
+    try {
+      res = await fetch(r.url, {
+        method: "POST",
+        headers: r.headers,
+        body: r.body,
+        signal: AbortSignal.timeout(TRANSPORT_TIMEOUT_MS),
+      });
+    } catch (e) {
+      return classifyDelivery({ kind: "threw", errorName: e instanceof DOMException ? e.name : "" });
+    }
+    // Never read the provider body into a log; just release it.
+    try {
+      await res.body?.cancel();
+    } catch {
+      // ignore
+    }
+    const c = classifyDelivery({ kind: "status", status: res.status });
+    if (!c.ok) return c;
+  }
+  return { ok: true };
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -641,33 +714,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse(500, { error: "delivery failed" });
     }
 
-    // 9. Deliver sequentially (worst case ~2 × 2 s, inside GoTrue's hook timeout).
+    // 9. Deliver sequentially (see deliver()).
     const webhookId = req.headers.get("webhook-id") ?? "";
-    for (let i = 0; i < plan.mails.length; i++) {
-      const r = buildTransportRequest(cfg, plan.mails[i], webhookId + ":" + i);
-      let res: Response;
-      try {
-        res = await fetch(r.url, {
-          method: "POST",
-          headers: r.headers,
-          body: r.body,
-          signal: AbortSignal.timeout(TRANSPORT_TIMEOUT_MS),
-        });
-      } catch (e) {
-        const timedOut = e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError");
-        logOutcome({ action, outcome: "failed", recipients, dropped, reason: timedOut ? "timeout" : "transport" });
-        return jsonResponse(500, { error: "delivery failed" });
-      }
-      // Never read the provider body into a log; just release it.
-      try {
-        await res.body?.cancel();
-      } catch {
-        // ignore
-      }
-      if (!isTransportSuccess(res.status)) {
-        logOutcome({ action, outcome: "failed", recipients, dropped, status: res.status, reason: "transport" });
-        return jsonResponse(500, { error: "delivery failed" });
-      }
+    const result = await deliver(cfg, plan.mails, webhookId);
+    if (!result.ok) {
+      logOutcome({ action, outcome: "failed", recipients, dropped, status: result.status, reason: result.reason });
+      return jsonResponse(500, { error: "delivery failed" });
     }
 
     // 10. All sent.
