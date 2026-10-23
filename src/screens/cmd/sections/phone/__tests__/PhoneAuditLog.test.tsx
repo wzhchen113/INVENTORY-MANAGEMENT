@@ -62,6 +62,22 @@ describe('PhoneAuditLog', () => {
     expect(queryByTestId('phone-auditlog-row-e2')).toBeNull();
   });
 
+  // Spec 167 AC-11 — the store-user rows (item_ref = username, empty value)
+  // render as "<translated verb> <username>" with no " · " suffix.
+  it('renders store-user audit rows as translated verb + username', () => {
+    useStore.setState({
+      auditLog: [
+        { id: 's1', storeId: 'store-1', timestamp: now, action: 'Store user created', userName: 'Alice', itemRef: 'frontdesk', value: '' },
+        { id: 's2', storeId: 'store-1', timestamp: now, action: 'Store user password set', userName: 'Alice', itemRef: 'backdesk', value: '' },
+      ],
+    } as any);
+    const { getByTestId, getByText } = render(<PhoneAuditLog />);
+    expect(getByTestId('phone-auditlog-row-s1')).toBeTruthy();
+    expect(getByTestId('phone-auditlog-row-s2')).toBeTruthy();
+    expect(getByText('created store user frontdesk')).toBeTruthy();
+    expect(getByText('set store user password backdesk')).toBeTruthy();
+  });
+
   it('shows the empty state when the store has no events', () => {
     useStore.setState({ auditLog: [] } as any);
     const { getByText } = render(<PhoneAuditLog />);

@@ -1734,7 +1734,9 @@
       "prepRecipeSaved": "guardó receta de prep",
       "prepRecipeDeleted": "eliminó receta de prep",
       "stockAdjusted": "ajustó stock",
-      "orderMissed": "pedido omitido"
+      "orderMissed": "pedido omitido",
+      "storeUserCreated": "creó usuario de tienda",
+      "storeUserPasswordSet": "estableció contraseña de usuario de tienda"
     },
     "inventoryCountKind": {
       "spot": "Puntual",

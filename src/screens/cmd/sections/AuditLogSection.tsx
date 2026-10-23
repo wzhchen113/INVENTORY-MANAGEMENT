@@ -18,7 +18,7 @@ import { PhoneAuditLog } from './phone/PhoneAuditLog';
 const inferInitials = (name: string): string =>
   name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
-const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info' | 'muted'>> = {
+export const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info' | 'muted'>> = {
   'EOD entry':        'info',
   'Item edit':        'muted',
   'Item added':       'ok',
@@ -32,6 +32,8 @@ const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info'
   'Prep recipe deleted':'danger',
   'Stock adjusted':   'ok',
   'Order missed':     'warn',
+  'Store user created':      'ok',
+  'Store user password set': 'warn',
 };
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -55,7 +57,7 @@ const formatTime = (iso: string): string => new Date(iso).toTimeString().slice(0
 
 // Coarse entity kind inference. The audit_log doesn't carry an explicit
 // "kind" column, but the action verb correlates strongly with one.
-function inferKind(e: AuditEvent): string {
+export function inferKind(e: AuditEvent): string {
   const a = e.action;
   if (a.startsWith('Item')) return 'item';
   if (a.startsWith('Recipe')) return 'recipe';
@@ -66,6 +68,7 @@ function inferKind(e: AuditEvent): string {
   if (a === 'Stock adjusted') return 'stock';
   if (a === 'User invite') return 'user';
   if (a === 'Order missed') return 'order';
+  if (a === 'Store user created' || a === 'Store user password set') return 'user';
   return 'other';
 }
 

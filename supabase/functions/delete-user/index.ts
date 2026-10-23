@@ -18,6 +18,13 @@ const corsHeaders = {
 // remain (pre-existing risk surface — flagged for security-auditor).
 const ADMIN_ROLES = new Set(["admin", "master", "super_admin"]);
 
+// Spec 167 (S1 / security M1) — canonical lowercase, hyphenated uuid only.
+// Byte-identical to supabase/functions/manage-store-user/index.ts UUID_RE
+// (inline-not-shared, spec 027 §4.2). supabase-js auth.admin.deleteUser
+// throws on anything else, while Postgres accepts braces / no hyphens, so a
+// non-canonical id would reach the cleanup deletes and then 500 mid-way.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 // Discriminated-union return so the outer handler can narrow on
 // `status === 200` and reach `userId` / `appRole` without `!` non-null
 // assertions.
@@ -156,16 +163,27 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { userId } = await req.json();
+    // Spec 167 (L7) — normalize once: trim + lowercase. Postgres uuid
+    // comparison is case-insensitive but JS string === is not, so an
+    // uppercased self id used to slip past the self-guard. A non-string
+    // userId (or a null / array body) normalizes to "" → "userId required"
+    // instead of throwing. The normalized value is used for every later
+    // read / guard / delete (uuid columns parse case-insensitively).
+    const body: unknown = await req.json();
+    const rawUserId =
+      body && typeof body === "object" ? (body as Record<string, unknown>).userId : undefined;
+    const userId = typeof rawUserId === "string" ? rawUserId.trim().toLowerCase() : "";
 
-    if (!userId) {
+    // Empty, or not the canonical uuid form (braces, no hyphens, etc.) →
+    // refuse BEFORE the self-guard and before any read / side effect.
+    if (!userId || !UUID_RE.test(userId)) {
       return new Response(JSON.stringify({ error: "userId required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (userId === gate.userId) {
+    if (userId === gate.userId.toLowerCase()) {
       return new Response(JSON.stringify({ error: "cannot delete self" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

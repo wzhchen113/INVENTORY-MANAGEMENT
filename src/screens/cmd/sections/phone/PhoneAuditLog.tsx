@@ -36,7 +36,7 @@ import { AuditAction, AuditEvent } from '../../../../types';
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 // Same action→tone map + day label helper as the desktop AuditLogSection.
-const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info' | 'muted'>> = {
+export const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info' | 'muted'>> = {
   'EOD entry': 'info',
   'Item edit': 'muted',
   'Item added': 'ok',
@@ -50,6 +50,8 @@ const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' | 'info'
   'Prep recipe deleted': 'danger',
   'Stock adjusted': 'ok',
   'Order missed': 'warn',
+  'Store user created': 'ok',
+  'Store user password set': 'warn',
 };
 
 const formatTime = (iso: string): string => new Date(iso).toTimeString().slice(0, 5);

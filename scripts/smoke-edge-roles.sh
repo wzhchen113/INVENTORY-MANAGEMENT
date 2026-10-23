@@ -38,6 +38,11 @@
 #      brand_id='2a000000-0000-0000-0000-000000000001' \
 #      where id=(select id from auth.users where email='admin@local.test' limit 1);"
 #
+# Arm 8 (spec 167) creates a disposable same-brand admin and removes it in
+# the same EXIT trap. If interrupted with kill -9, recover with:
+#   docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -c \
+#     "delete from auth.users where email like 'zz_s167_selfdel_%@local.test';"
+#
 # Exit code: non-zero on failure.
 
 set -u
@@ -74,6 +79,7 @@ ORIGIN="${ORIGIN:-https://hopeful-lewin.vercel.app}"
 FN_URL="${SUPABASE_URL}/functions/v1/send-invite-email"
 FAILED=0
 PROMOTED=0  # tracks whether Arm 4 ran the promotion (so trap knows to restore)
+SELFDEL_CREATED=0  # tracks whether Arm 8 created its disposable admin (trap removes it)
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
@@ -94,6 +100,17 @@ restore_admin() {
       pass "restored ${ADMIN_EMAIL} to admin role"
     else
       printf '  \033[31mWARN\033[0m could not restore %s — recover manually (see header)\n' "$ADMIN_EMAIL"
+    fi
+  fi
+  # Spec 167 Arm 8 — remove the disposable admin (profiles cascade).
+  if [[ "$SELFDEL_CREATED" == "1" ]]; then
+    printf '\n== remove Arm 8 disposable admin ==\n'
+    if docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+      "delete from auth.users where email like 'zz_s167_selfdel_%@local.test';" \
+      >/dev/null 2>&1; then
+      pass "removed zz_s167_selfdel disposable admin"
+    else
+      printf '  \033[31mWARN\033[0m could not remove zz_s167_selfdel admin — recover manually (see header)\n'
     fi
   fi
   exit "$exit_code"
@@ -468,6 +485,106 @@ else
     else
       fail "post-check: admin mutated (role ${PRE_ROLE}→${POST_ROLE}, brand ${PRE_BRAND}→${POST_BRAND})"
     fi
+  fi
+fi
+
+################################################################################
+# Arm 8 — delete-user self-guard is case-insensitive (spec 167 AC-13 / L7).
+#
+# The caller sends its OWN id uppercased (and padded) to delete-user; the
+# function must refuse with HTTP 400 'cannot delete self' (exact string).
+# Braced and hyphenless spellings of its own id must refuse with HTTP 400
+# 'userId required' (canonical UUID_RE gate, spec 167 S1).
+# Pre-fix the comparison was case-sensitive, so the uppercased id slipped
+# past the self-guard; the brand gate then passes (same brand) and the
+# last-of-role guard no-ops for role='admin' — the caller WOULD be deleted.
+# So the caller is a DISPOSABLE same-brand admin created here (never
+# admin@local.test), and this arm runs LAST so even a regression cannot
+# poison Arms 3-7. The "profile still exists" post-check fails loudly then.
+################################################################################
+step "Arm 8: delete-user refuses an uppercased self id (spec 167)"
+DELETE_USER_URL="${SUPABASE_URL}/functions/v1/delete-user"
+SELFDEL_SERVICE_KEY="$(docker exec supabase_edge_runtime_imr-inventory printenv SUPABASE_SERVICE_ROLE_KEY 2>/dev/null || true)"
+
+# sd_psql <sql> → prints the result with spaces stripped and RETURNS psql's
+# exit status (capture first, then strip — a bare `| tr` would return tr's
+# status and swallow ON_ERROR_STOP, hiding fixture failures).
+sd_psql() {
+  local o
+  o=$(docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -v ON_ERROR_STOP=1 -tAc "$1" 2>/dev/null) || return 1
+  printf '%s' "$o" | tr -d ' '
+}
+
+# sd_call <json body> → sets CODE and BODY
+sd_call() {
+  local out
+  out=$(curl -sS -w '\n%{http_code}' -X POST \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${SELFDEL_BEARER}" \
+    -H "Content-Type: application/json" \
+    -d "$1" \
+    "$DELETE_USER_URL")
+  CODE=$(printf '%s' "$out" | tail -1)
+  BODY=$(printf '%s' "$out" | sed '$d')
+}
+# sd_expect <label> <want error string>
+sd_expect() {
+  local got_err
+  got_err=$(printf '%s' "$BODY" | jq -r '.error // empty' 2>/dev/null)
+  if [[ "$CODE" == "400" && "$got_err" == "$2" ]]; then
+    pass "$1 → 400 '$2'"
+  else
+    fail "$1 → HTTP $CODE error '$got_err' (expected 400 '$2')"
+  fi
+}
+
+if [[ -z "$SELFDEL_SERVICE_KEY" ]]; then
+  skip "uppercase self-delete arm" "could not read SUPABASE_SERVICE_ROLE_KEY from the edge runtime (no local stack?)"
+else
+  SELFDEL_EMAIL="zz_s167_selfdel_${RANDOM}${RANDOM}@local.test"
+  SELFDEL_PASSWORD="zz-s167-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  SELFDEL_ID=$(curl -sS -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
+    -H "apikey: ${SELFDEL_SERVICE_KEY}" -H "Authorization: Bearer ${SELFDEL_SERVICE_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -cn --arg e "$SELFDEL_EMAIL" --arg p "$SELFDEL_PASSWORD" '{email:$e, password:$p, email_confirm:true}')" \
+    | jq -r '.id // empty' 2>/dev/null)
+  [[ -n "$SELFDEL_ID" ]] && SELFDEL_CREATED=1
+  if [[ -n "$SELFDEL_ID" ]] && sd_psql "insert into public.profiles (id, name, role, brand_id) values ('${SELFDEL_ID}', 'zz_s167 selfdel', 'admin', '${BRAND_A}')" >/dev/null; then
+    SELFDEL_BEARER=$(curl -sS -X POST \
+      -H "apikey: ${SUPABASE_ANON_KEY}" -H "Content-Type: application/json" \
+      -d "$(jq -cn --arg e "$SELFDEL_EMAIL" --arg p "$SELFDEL_PASSWORD" '{email:$e, password:$p}')" \
+      "${SUPABASE_URL}/auth/v1/token?grant_type=password" | jq -r '.access_token // empty' 2>/dev/null)
+    if [[ -z "$SELFDEL_BEARER" ]]; then
+      fail "could not sign in the disposable admin"
+    else
+      pass "disposable same-brand admin created ($SELFDEL_ID)"
+      SELFDEL_UPPER=$(printf '%s' "$SELFDEL_ID" | tr 'a-f' 'A-F')
+      US_BEFORE=$(sd_psql "select count(*) from public.user_stores where user_id='${SELFDEL_ID}'")
+
+      sd_call "$(jq -cn --arg id "$SELFDEL_UPPER" '{userId:$id}')"
+      sd_expect "own id uppercased" "cannot delete self"
+      sd_call "$(jq -cn --arg id "  ${SELFDEL_UPPER}  " '{userId:$id}')"
+      sd_expect "own id uppercased + padded" "cannot delete self"
+      sd_call '{"userId": 12345}'
+      sd_expect "non-string userId" "userId required"
+      # Postgres accepts these non-canonical uuid spellings but they defeat a
+      # string self-guard; pre-fix they reached the cleanup deletes and then
+      # 500'd in supabase-js validateUUID (half-delete). The canonical UUID_RE
+      # gate must refuse them before the self-guard (spec 167 S1 / M1).
+      sd_call "$(jq -cn --arg id "{${SELFDEL_ID}}" '{userId:$id}')"
+      sd_expect "own id in braces" "userId required"
+      sd_call "$(jq -cn --arg id "${SELFDEL_ID//-/}" '{userId:$id}')"
+      sd_expect "own id without hyphens" "userId required"
+
+      [[ "$(sd_psql "select count(*) from public.profiles where id='${SELFDEL_ID}'")" == "1" ]] \
+        && pass "post-check: caller profile still exists" || fail "post-check: caller profile was DELETED (L7 regression)"
+      [[ "$(sd_psql "select count(*) from auth.users where id='${SELFDEL_ID}'")" == "1" ]] \
+        && pass "post-check: caller auth user still exists" || fail "post-check: caller auth user was DELETED (L7 regression)"
+      [[ "$(sd_psql "select count(*) from public.user_stores where user_id='${SELFDEL_ID}'")" == "$US_BEFORE" ]] \
+        && pass "post-check: caller user_stores unchanged (${US_BEFORE})" || fail "post-check: caller user_stores changed"
+    fi
+  else
+    fail "could not create the disposable admin fixture"
   fi
 fi
 

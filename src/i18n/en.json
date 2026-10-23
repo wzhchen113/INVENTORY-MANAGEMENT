@@ -1734,7 +1734,9 @@
       "prepRecipeSaved": "saved prep recipe",
       "prepRecipeDeleted": "deleted prep recipe",
       "stockAdjusted": "adjusted stock",
-      "orderMissed": "order missed"
+      "orderMissed": "order missed",
+      "storeUserCreated": "created store user",
+      "storeUserPasswordSet": "set store user password"
     },
     "inventoryCountKind": {
       "spot": "Spot",

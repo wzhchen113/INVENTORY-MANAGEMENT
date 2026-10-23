@@ -21,7 +21,9 @@
 //
 // Log hygiene (spec 165 §4.5): never log the request body, the password, the
 // generated email, or GoTrue request objects. Only error code/status and the
-// compensation orphan id are logged.
+// compensation orphan id are logged. The spec 167 audit lines add only the
+// caller id, target id, action name and error code (or exception class name)
+// — never the error message, the rows or the username.
 //
 // JSON only — no HTML, so no escapeHtml() concern.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -209,6 +211,108 @@ async function compensate(serviceClient: SupabaseClient, newId: string): Promise
   console.error("[manage-store-user] compensation incomplete; orphan auth user", newId);
 }
 
+// ── Audit trail (spec 167) ────────────────────────────────────────────────
+// Server-side public.audit_log rows for store-user create / set-password,
+// written with the service-role client strictly after the last successful
+// side effect. Best-effort: these helpers NEVER throw, and an audit failure
+// never changes the action's response or triggers compensation.
+//
+// Log hygiene (spec 167 AC-4/AC-6): log lines carry only static text plus
+// caller id, target id, action and the error code (or the exception class
+// name for a throw). Never the error message/details, the rows, the
+// username, the request body, the password or the placeholder email.
+
+type StoreUserAuditAction = "Store user created" | "Store user password set";
+type AuditCtx = { callerId: string; targetId: string; action: StoreUserAuditAction };
+type AuditRow = {
+  store_id: string;
+  user_id: string;
+  action: StoreUserAuditAction;
+  item_ref: string | null;
+  value: string;
+  detail: string;
+};
+
+const AUDIT_TIMEOUT_MS = 3000;
+
+// Pure. One row per store id. ctx.targetId is already lowercase.
+function buildStoreUserAuditRows(
+  storeIds: string[],
+  ctx: AuditCtx,
+  username: string | null,
+  brandId: string | null,
+): AuditRow[] {
+  const detail = JSON.stringify({ target_id: ctx.targetId, brand_id: brandId });
+  return storeIds.map((store_id) => ({
+    store_id,
+    user_id: ctx.callerId,
+    action: ctx.action,
+    item_ref: username,
+    value: "",
+    detail,
+  }));
+}
+
+// NEVER throws / rejects. One bulk INSERT (atomic: all rows or none).
+async function writeStoreUserAudit(
+  serviceClient: SupabaseClient,
+  rows: AuditRow[],
+  ctx: AuditCtx,
+): Promise<void> {
+  if (rows.length === 0) {
+    console.warn(
+      "[manage-store-user] audit skipped: target has no stores",
+      ctx.callerId,
+      ctx.targetId,
+      ctx.action,
+    );
+    return;
+  }
+  try {
+    const { error } = await serviceClient
+      .from("audit_log")
+      .insert(rows)
+      .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+    if (error) {
+      console.error("[manage-store-user] audit write failed", ctx.callerId, ctx.targetId, ctx.action, error.code);
+    }
+  } catch (e) {
+    console.error(
+      "[manage-store-user] audit write failed",
+      ctx.callerId,
+      ctx.targetId,
+      ctx.action,
+      e instanceof Error ? e.name : typeof e,
+    );
+  }
+}
+
+// NEVER throws. The target's current store ids, or null if the read failed
+// (already logged).
+async function readTargetStoreIds(serviceClient: SupabaseClient, ctx: AuditCtx): Promise<string[] | null> {
+  try {
+    const { data, error } = await serviceClient
+      .from("user_stores")
+      .select("store_id")
+      .eq("user_id", ctx.targetId)
+      .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+    if (error) {
+      console.error("[manage-store-user] audit store read failed", ctx.callerId, ctx.targetId, ctx.action, error.code);
+      return null;
+    }
+    return ((data ?? []) as { store_id: string }[]).map((r) => r.store_id);
+  } catch (e) {
+    console.error(
+      "[manage-store-user] audit store read failed",
+      ctx.callerId,
+      ctx.targetId,
+      ctx.action,
+      e instanceof Error ? e.name : typeof e,
+    );
+    return null;
+  }
+}
+
 // ── action: create (spec 165 §4.2) ────────────────────────────────────────
 
 async function handleCreate(
@@ -361,6 +465,11 @@ async function handleCreate(
     return json(500, { error: "could not create account" });
   }
 
+  // 9b. audit (spec 167) — strictly after the last successful side effect,
+  //     outside the compensating try; best-effort, never throws.
+  const auditCtx: AuditCtx = { callerId: gate.userId, targetId: newId, action: "Store user created" };
+  await writeStoreUserAudit(service, buildStoreUserAuditRows(ids, auditCtx, username, derivedBrand), auditCtx);
+
   // 10. no email, no password, no brand in the response
   return json(201, { id: newId, username });
 }
@@ -396,14 +505,14 @@ async function handleSetPassword(
   // 4. target + caller brand reads (no side effects)
   const [callerBrand, targetRes] = await Promise.all([
     readCallerBrand(service, gate.userId, gate.appRole),
-    service.from("profiles").select("brand_id, role").eq("id", userId).maybeSingle(),
+    service.from("profiles").select("brand_id, role, username").eq("id", userId).maybeSingle(),
   ]);
   if (!callerBrand.ok) return json(callerBrand.status, { error: callerBrand.error });
   if (targetRes.error) {
     console.error("[manage-store-user] target read failed", targetRes.error.code);
     return json(500, { error: "could not update password" });
   }
-  const target = targetRes.data as { brand_id: string | null; role: string } | null;
+  const target = targetRes.data as { brand_id: string | null; role: string; username: string | null } | null;
   // Deliberate difference from requireSameBrandOrSuperAdmin: a missing
   // target profile is REFUSED, not allowed through.
   if (!target) return json(403, { error: "forbidden: target is not a store user" });
@@ -438,6 +547,20 @@ async function handleSetPassword(
     }
     console.error("[manage-store-user] updateUserById failed", updErr.code, updErr.status);
     return json(500, { error: "could not update password" });
+  }
+
+  // 7. audit (spec 167) — after updateUserById succeeded; best-effort. The
+  //    store read runs only on success so refused paths do zero extra I/O.
+  //    Zero stores → no row (never a store_id IS NULL row); read failure →
+  //    already logged, no row.
+  const auditCtx: AuditCtx = { callerId: gate.userId, targetId: userId, action: "Store user password set" };
+  const auditStoreIds = await readTargetStoreIds(service, auditCtx);
+  if (auditStoreIds !== null) {
+    await writeStoreUserAudit(
+      service,
+      buildStoreUserAuditRows(auditStoreIds, auditCtx, target.username, target.brand_id),
+      auditCtx,
+    );
   }
 
   return json(200, { success: true });

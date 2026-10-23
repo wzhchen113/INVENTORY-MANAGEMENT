@@ -1734,7 +1734,9 @@
       "prepRecipeSaved": "保存备菜配方",
       "prepRecipeDeleted": "删除备菜配方",
       "stockAdjusted": "调整库存",
-      "orderMissed": "漏单"
+      "orderMissed": "漏单",
+      "storeUserCreated": "创建门店用户",
+      "storeUserPasswordSet": "设置门店用户密码"
     },
     "inventoryCountKind": {
       "spot": "抽查",

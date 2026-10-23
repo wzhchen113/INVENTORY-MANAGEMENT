@@ -19,6 +19,9 @@
 #    9 happy path → 201 + DB assertions      19 mail catcher has zero messages
 #   10 role:"admin" in body ignored          C  compensation (forced user_stores failure)
 #  14b set_password on a placeholder user whose app_metadata.role != 'user' → 403
+#    A audit trail (spec 167): server-side audit_log rows for create /
+#      set_password (A1-A9), zero rows for refused paths, no secrets
+#   AF AC-4 failure injection (spec 167): forced audit_log insert failure
 #
 # Usage:
 #   bash scripts/smoke-store-user.sh            # local stack only (refuses remote)
@@ -28,10 +31,15 @@
 #   - brand "zz_s165 brand B" + one store in it (docker psql)
 #   - every auth user whose profile username or email starts with zz_s165
 #   - a temporary trigger public.zz_s165_fail_user_stores (arm C only)
+#   - a temporary trigger public.zz_s167_fail_audit_log (arm AF only)
 # If interrupted with kill -9, recover with:
 #   docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -c \
 #     "drop trigger if exists zz_s165_fail_user_stores on public.user_stores;
 #      drop function if exists public.zz_s165_fail_user_stores();
+#      drop trigger if exists zz_s167_fail_audit_log on public.audit_log;
+#      drop function if exists public.zz_s167_fail_audit_log();
+#      delete from public.audit_log where action in ('Store user created','Store user password set')
+#         and item_ref like 'zz_s165%';
 #      delete from auth.users where id in (select id from public.profiles where username like 'zz_s165%')
 #         or email like 'zz_s165%';
 #      delete from public.stores where name = 'zz_s165 store B';
@@ -69,6 +77,7 @@ USER_PASSWORD="${USER_PASSWORD:-password}"
 FAILED=0
 BODIES_FILE="$(mktemp -t smoke-store-user.XXXXXX)"
 TRIGGER_INSTALLED=0
+AUDIT_TRIGGER_INSTALLED=0
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
@@ -85,7 +94,13 @@ cleanup() {
       && pass "dropped temporary failure trigger" \
       || printf '  \033[31mWARN\033[0m could not drop zz_s165_fail_user_stores — see header\n'
   fi
-  psql_q "delete from auth.users where id in (select id from public.profiles where username like 'zz_s165%') or email like 'zz_s165%';
+  if [[ "$AUDIT_TRIGGER_INSTALLED" == "1" ]]; then
+    psql_q "drop trigger if exists zz_s167_fail_audit_log on public.audit_log; drop function if exists public.zz_s167_fail_audit_log();" >/dev/null \
+      && pass "dropped temporary audit_log failure trigger" \
+      || printf '  \033[31mWARN\033[0m could not drop zz_s167_fail_audit_log — see header\n'
+  fi
+  psql_q "delete from public.audit_log where action in ('Store user created','Store user password set') and item_ref like 'zz_s165%';
+          delete from auth.users where id in (select id from public.profiles where username like 'zz_s165%') or email like 'zz_s165%';
           delete from public.stores where name = 'zz_s165 store B';
           delete from public.brands where name = 'zz_s165 brand B';" >/dev/null \
     && pass "removed zz_s165 users, store B, brand B" \
@@ -171,6 +186,11 @@ if [[ -z "$STORE_A1" || -z "$STORE_A2" || -z "$STORE_B" ]]; then
   exit 1
 fi
 pass "fixtures: brand A stores $STORE_A1, $STORE_A2; brand B store $STORE_B"
+
+# Spec 167 audit baseline (Arm A7 asserts the exact delta) + log window (A9).
+AUDIT_ACTIONS_SQL="action in ('Store user created','Store user password set')"
+AUDIT_BASE=$(psql_q "select count(*) from public.audit_log where $AUDIT_ACTIONS_SQL")
+SMOKE_T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 SUFFIX=$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')
 U_MAIN="zz_s165_${SUFFIX}"        # 14 chars
@@ -400,6 +420,179 @@ SESS_AFTER=$(psql_q "select count(*) from auth.sessions where user_id='${NEW_ID}
 step "Arm 17: old password fails, new password works"
 [[ "$(login_code "$RESOLVED" "$PW1")" == "400" ]] && pass "old password → 400" || fail "old password still works"
 [[ "$(login_code "$RESOLVED" "$PW2")" == "200" ]] && pass "new password → 200" || fail "new password rejected"
+
+################################################################################
+# Arm A (spec 167 §8.1): server-side audit trail. Arms 1-17 have run, so each
+# assertion below is a scoped TOTAL — a refused path that wrote a row would
+# push a count above its exact expected value (AC-12d before/after proof).
+step "Arm A: server-side audit trail (spec 167)"
+
+# audit_rows <action> <item_ref> → "store_id|user_id|value|target_id|brand_id|keys" per row
+audit_rows() {
+  psql_q "select store_id, user_id, coalesce(value,''), detail::jsonb->>'target_id', coalesce(detail::jsonb->>'brand_id','<null>'),
+                 (select array_agg(k order by k) from jsonb_object_keys(detail::jsonb) k)
+            from public.audit_log where action='$1' and item_ref='$2' order by store_id"
+}
+audit_count() { # <action> <item_ref>
+  psql_q "select count(*) from public.audit_log where action='$1' and item_ref='$2'"
+}
+# check_audit <label> <action> <item_ref> <want_count> <want_target_id> <want_brand> <want_store_ids (sorted, space-sep)>
+check_audit() {
+  local label="$1" action="$2" ref="$3" want_n="$4" want_tid="$5" want_brand="$6" want_stores="$7"
+  local rows n got_stores bad=0 s_id u_id val tid bid keys
+  n=$(audit_count "$action" "$ref")
+  if [[ "$n" != "$want_n" ]]; then
+    fail "$label: $n row(s) (expected exactly $want_n)"
+    return
+  fi
+  pass "$label: exactly $want_n row(s)"
+  rows=$(audit_rows "$action" "$ref")
+  got_stores=$(printf '%s\n' "$rows" | cut -d'|' -f1 | sort | tr '\n' ' ' | sed 's/ $//')
+  [[ "$got_stores" == "$want_stores" ]] && pass "$label: store_id set matches" || fail "$label: store_ids '$got_stores' (expected '$want_stores')"
+  while IFS='|' read -r s_id u_id val tid bid keys; do
+    [[ -z "$s_id" ]] && continue
+    [[ "$u_id" == "$ADMIN_ID" ]] || { bad=1; fail "$label: user_id $u_id (expected caller $ADMIN_ID)"; }
+    [[ -z "$val" ]] || { bad=1; fail "$label: value not empty"; }
+    [[ "$tid" == "$want_tid" ]] || { bad=1; fail "$label: detail.target_id $tid (expected $want_tid)"; }
+    [[ "$bid" == "$want_brand" ]] || { bad=1; fail "$label: detail.brand_id $bid (expected $want_brand)"; }
+    [[ "$keys" == "{brand_id,target_id}" ]] || { bad=1; fail "$label: detail keys $keys (expected {brand_id,target_id})"; }
+  done <<<"$rows"
+  [[ "$bad" == "0" ]] && pass "$label: user_id=caller, value='', detail={target_id,brand_id} correct"
+}
+
+A_STORES_12=$(printf '%s\n%s\n' "$STORE_A1" "$STORE_A2" | sort | tr '\n' ' ' | sed 's/ $//')
+
+# A1 (AC-12a): multi-store create. Exactly 2 also proves the Arm 9 duplicate
+# store id was deduped and the Arm 11 409s wrote nothing.
+check_audit "A1 create @$U_MAIN" "Store user created" "$U_MAIN" 2 "$NEW_ID" "$BRAND_A" "$A_STORES_12"
+# A2: Arm 10's injected brand_id (brand B) is ignored in the audit too.
+check_audit "A2 create @$U_ROLE" "Store user created" "$U_ROLE" 1 "${ROLE_ID:-}" "$BRAND_A" "$STORE_A1"
+# A3: only the post-fault retry wrote a row; the compensated attempt wrote none.
+if [[ "$TRIGGER_INSTALLED" == "0" ]]; then
+  U_COMP_ID=$(psql_q "select id from public.profiles where username='${U_COMP}'")
+  check_audit "A3 create @$U_COMP (compensated attempt wrote none)" "Store user created" "$U_COMP" 1 "$U_COMP_ID" "$BRAND_A" "$STORE_A1"
+else
+  skip "A3" "Arm C trigger still installed"
+fi
+# A4 (AC-12b): set_password → one row per current user_stores store. Exactly 2
+# also proves Arm 8b (short password on the same target) wrote nothing.
+check_audit "A4 password set @$U_MAIN" "Store user password set" "$U_MAIN" 2 "$NEW_ID" "$BRAND_A" "$A_STORES_12"
+# A5: Arm 14b refusal wrote nothing.
+[[ "$(audit_count "Store user password set" "$U_ROLE")" == "0" ]] \
+  && pass "A5 refused set_password (@$U_ROLE, 14b) → 0 rows" || fail "A5 refused set_password wrote an audit row"
+
+# A6 (AC-12e): store-less target → 200, zero rows, never a NULL-store row.
+U_NOST="zz_s165_n${SUFFIX}"       # 15 chars
+call "$ADMIN_BEARER" "$(create_body "$U_NOST" "$PW1" "[\"$STORE_A1\"]")"
+expect "A6 create @$U_NOST" 201
+NOST_ID=$(printf '%s' "$BODY" | jq -r '.id // empty')
+if [[ -n "$NOST_ID" ]]; then
+  psql_q "delete from public.user_stores where user_id='${NOST_ID}'" >/dev/null
+  call "$ADMIN_BEARER" "$(jq -cn --arg id "$NOST_ID" --arg p "$PW2" '{action:"set_password", userId:$id, password:$p}')"
+  expect "A6 set_password on a store-less target" 200
+  [[ "$(printf '%s' "$BODY" | jq -c '.' 2>/dev/null)" == '{"success":true}' ]] \
+    && pass "A6 response is exactly {success:true}" || fail "A6 response: $BODY"
+  [[ "$(audit_count "Store user password set" "$U_NOST")" == "0" ]] \
+    && pass "A6 store-less set_password → 0 rows" || fail "A6 store-less set_password wrote a row"
+else
+  fail "A6 could not create the store-less fixture"
+fi
+[[ "$(psql_q "select count(*) from public.audit_log where $AUDIT_ACTIONS_SQL and store_id is null")" == "0" ]] \
+  && pass "A6 no store_id IS NULL audit rows for these actions" || fail "A6 found a store_id IS NULL audit row"
+
+# AF (AC-4): best-effort under a forced audit failure. A temporary BEFORE
+# INSERT trigger on public.audit_log raises P0001 for rows whose item_ref is
+# U_AUD only (so nothing else in the run is affected). create must still
+# return 201 and set_password 200, the account must be KEPT (an audit
+# failure never compensates), zero audit rows land for U_AUD, and the edge
+# logs carry the code (P0001) but never the trigger's message.
+step "Arm AF: forced audit_log failure does not change the response (spec 167 AC-4)"
+U_AUD="zz_s165_f${SUFFIX}"        # 15 chars
+AUD_TRIGGER_MSG="zz_s167 forced audit failure"
+AUD_ID=""
+if psql_q "create function public.zz_s167_fail_audit_log() returns trigger language plpgsql as \$f\$
+             begin
+               if new.item_ref = '${U_AUD}' then
+                 raise exception '${AUD_TRIGGER_MSG}' using errcode = 'P0001';
+               end if;
+               return new;
+             end \$f\$;
+           create trigger zz_s167_fail_audit_log before insert on public.audit_log
+             for each row execute function public.zz_s167_fail_audit_log();" >/dev/null; then
+  AUDIT_TRIGGER_INSTALLED=1
+  AF_T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  call "$ADMIN_BEARER" "$(create_body "$U_AUD" "$PW1" "[\"$STORE_A1\"]")"
+  expect "AF create under forced audit failure" 201
+  AUD_ID=$(printf '%s' "$BODY" | jq -r '.id // empty' 2>/dev/null)
+  [[ "$(printf '%s' "$BODY" | jq -c 'keys' 2>/dev/null)" == '["id","username"]' ]] \
+    && pass "AF create response keys are exactly {id, username}" || fail "AF create response: $BODY"
+  if [[ -n "$AUD_ID" ]]; then
+    [[ "$(psql_q "select count(*) from public.profiles p join auth.users u on u.id=p.id where p.id='${AUD_ID}' and p.username='${U_AUD}'")" == "1" ]] \
+      && pass "AF account kept (profile + auth user; no compensation)" || fail "AF account was compensated / removed after the audit failure"
+    [[ "$(psql_q "select count(*) from public.user_stores where user_id='${AUD_ID}'")" == "1" ]] \
+      && pass "AF user_stores row kept" || fail "AF user_stores row missing"
+    call "$ADMIN_BEARER" "$(jq -cn --arg id "$AUD_ID" --arg p "$PW2" '{action:"set_password", userId:$id, password:$p}')"
+    expect "AF set_password under forced audit failure" 200
+    [[ "$(printf '%s' "$BODY" | jq -c '.' 2>/dev/null)" == '{"success":true}' ]] \
+      && pass "AF set_password response is exactly {success:true}" || fail "AF set_password response: $BODY"
+    AUD_EMAIL=$(psql_q "select email from auth.users where id='${AUD_ID}'")
+    [[ "$(login_code "$AUD_EMAIL" "$PW2")" == "200" ]] \
+      && pass "AF new password works (password change kept)" || fail "AF new password rejected"
+  else
+    fail "AF no id in create response; skipping account / set_password checks"
+  fi
+  [[ "$(psql_q "select count(*) from public.audit_log where item_ref='${U_AUD}'")" == "0" ]] \
+    && pass "AF zero audit rows for @$U_AUD" || fail "AF an audit row landed despite the forced failure"
+  psql_q "drop trigger zz_s167_fail_audit_log on public.audit_log; drop function public.zz_s167_fail_audit_log();" >/dev/null \
+    && AUDIT_TRIGGER_INSTALLED=0
+  [[ "$AUDIT_TRIGGER_INSTALLED" == "0" ]] && pass "AF temporary audit_log trigger dropped" || fail "AF could not drop the audit_log trigger (cleanup retries)"
+  if [[ -n "$AUD_ID" ]] && AF_LOGS=$(docker logs --since "$AF_T0" "$EDGE_CONTAINER" 2>&1); then
+    AF_FAIL_LINES=$(printf '%s\n' "$AF_LOGS" | grep -F "audit write failed" | grep -F "$AUD_ID" | grep -cF "P0001")
+    [[ "$AF_FAIL_LINES" -ge 2 ]] \
+      && pass "AF edge logs: $AF_FAIL_LINES 'audit write failed ... P0001' lines for the target" \
+      || fail "AF edge logs: expected 2 'audit write failed ... P0001' lines for $AUD_ID, found $AF_FAIL_LINES"
+    if printf '%s' "$AF_LOGS" | grep -qF -- "$AUD_TRIGGER_MSG"; then
+      fail "AF edge logs contain the trigger's error message"
+    else
+      pass "AF edge logs never contain the trigger's error message"
+    fi
+  else
+    skip "AF log checks" "no target id or docker logs unavailable for $EDGE_CONTAINER"
+  fi
+else
+  skip "Arm AF" "could not install temporary audit_log trigger"
+fi
+
+# A7 (AC-5 catch-all): created U_MAIN 2 + U_ROLE 1 + U_COMP 1 + U_NOST 1,
+# plus password set U_MAIN 2 = 7 (Arm AF adds 0 by design). Catches a row
+# from ANY refused path in the script (self, admin target, unknown/malformed
+# id), whatever its item_ref.
+# UPDATE THIS TALLY whenever a success arm that writes audit rows is added.
+AUDIT_DELTA=$(( $(psql_q "select count(*) from public.audit_log where $AUDIT_ACTIONS_SQL") - AUDIT_BASE ))
+[[ "$AUDIT_DELTA" == "7" ]] && pass "A7 audit rows added by this run = 7" || fail "A7 audit rows added by this run = $AUDIT_DELTA (expected 7)"
+
+# A8 (AC-12c / AC-6): no column of any audit row holds a password or the
+# placeholder. Matching happens in bash so the password never enters SQL.
+AUDIT_DUMP=$(psql_q "select concat_ws('|', store_id, user_id, action, item_ref, value, detail)
+                       from public.audit_log where $AUDIT_ACTIONS_SQL and item_ref like 'zz_s165%'")
+A_LEAK=0
+for SECRET in "$PW1" "$PW2" "no-email.invalid" "${NEW_EMAIL:-}"; do
+  [[ -z "$SECRET" ]] && continue
+  if printf '%s' "$AUDIT_DUMP" | grep -qF -- "$SECRET"; then A_LEAK=1; fail "A8 an audit row contains '${SECRET:0:6}…'"; fi
+done
+[[ "$A_LEAK" == "0" ]] && pass "A8 no password / placeholder in $(printf '%s\n' "$AUDIT_DUMP" | grep -c . | tr -d ' ') audit rows"
+
+# A9 (AC-6 log hygiene, passwords only — other functions in this run may
+# legitimately mention the placeholder domain).
+if EDGE_LOGS=$(docker logs --since "$SMOKE_T0" "$EDGE_CONTAINER" 2>&1); then
+  L_LEAK=0
+  for SECRET in "$PW1" "$PW2"; do
+    if printf '%s' "$EDGE_LOGS" | grep -qF -- "$SECRET"; then L_LEAK=1; fail "A9 edge runtime logs contain '${SECRET:0:6}…'"; fi
+  done
+  [[ "$L_LEAK" == "0" ]] && pass "A9 edge runtime logs since $SMOKE_T0 contain neither password"
+else
+  skip "A9" "docker logs unavailable for $EDGE_CONTAINER"
+fi
 
 ################################################################################
 step "Arm 18: response bodies never leak the password or placeholder"
