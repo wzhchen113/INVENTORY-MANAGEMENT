@@ -50,12 +50,17 @@ import {
 import { appendKeypadDigit, activeFieldFor, advanceUncounted, clampActiveField } from '../lib/eodKeypad';
 import {
   effectiveEodCountMode,
-  eodHasEntry,
   eodTotal,
-  eodEntryValues,
   normalizeEodCountMode,
   type EodCountMode,
 } from '../lib/eodCountMode';
+import {
+  eodRowCounted,
+  eodRowEntryValues,
+  eodSetNoNeed,
+  eodToggleNoNeed,
+  type EodRowState,
+} from '../lib/eodNoNeed';
 import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
 import { fetchSubmittedVendorIds } from '../lib/submittedStatus';
@@ -219,7 +224,7 @@ async function fetchExistingSubmission(
   const { data, error } = await supabase
     .from('eod_submissions')
     .select(
-      'id, submitted_at, eod_entries(item_id, actual_remaining, actual_remaining_cases, actual_remaining_each)',
+      'id, submitted_at, eod_entries(item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, no_need)',
     )
     .eq('store_id', storeId)
     .eq('date', dateIso)
@@ -237,6 +242,9 @@ async function fetchExistingSubmission(
     actual_remaining: number | string | null;
     actual_remaining_cases: number | string | null;
     actual_remaining_each: number | string | null;
+    // Spec 172 (§3.5) — NOT NULL DEFAULT false in the DB; nullable here only
+    // for defensive reads.
+    no_need: boolean | null;
   };
   type Row = {
     id: string;
@@ -248,13 +256,20 @@ async function fetchExistingSubmission(
   // (units ← actual_remaining when actual_remaining_each is NULL) is
   // applied at the SCREEN seed step (per OQ-4), not here, so this stays
   // a faithful read of what the DB holds.
+  // Spec 172 (§3.5) — a NO NEED row maps to a null total (never 0) plus
+  // `no_need: true`; non-NO-NEED rows are unchanged (no `no_need` key).
   const entries: EodEntry[] = (row.eod_entries ?? []).map((e) => ({
     item_id: e.item_id,
-    actual_remaining: e.actual_remaining == null ? 0 : Number(e.actual_remaining),
+    actual_remaining: e.no_need
+      ? null
+      : e.actual_remaining == null
+        ? 0
+        : Number(e.actual_remaining),
     actual_remaining_cases:
       e.actual_remaining_cases == null ? null : Number(e.actual_remaining_cases),
     actual_remaining_each:
       e.actual_remaining_each == null ? null : Number(e.actual_remaining_each),
+    ...(e.no_need ? { no_need: true as const } : {}),
   }));
   return {
     submission_id: row.id,
@@ -336,6 +351,10 @@ export function EODCount() {
   // to one selected vendor at a time).
   const [caseCounts, setCaseCounts] = useState<Record<string, string>>({});
   const [unitCounts, setUnitCounts] = useState<Record<string, string>>({});
+  // Spec 172 — per-item NO NEED marks ("more than enough; not counted
+  // numerically") for the selected vendor. An absent key means "not marked".
+  // Invariant (eodNoNeed.ts): a marked item has blank case/unit text.
+  const [noNeed, setNoNeed] = useState<Record<string, boolean>>({});
   // Spec: every item must be counted (even "0") before submit. On a blocked
   // submit we jump to the first uncounted row — spec 141 re-expresses the jump
   // as OPENING the keypad sheet seated on that item (the old caseInputRefs
@@ -392,9 +411,10 @@ export function EODCount() {
   // non-blank; under the default mode that is cases OR units, as before. The
   // single source feeding the row indicator, the "X of N" label, the gate,
   // isDone, and advance.
+  // Spec 172 (AC-32) — a NO NEED mark also counts.
   const isCounted = useCallback(
-    (it: EodItem) => eodHasEntry(modeFor(it), caseCounts[it.id], unitCounts[it.id]),
-    [caseCounts, unitCounts, modeFor],
+    (it: EodItem) => eodRowCounted(noNeed[it.id], modeFor(it), caseCounts[it.id], unitCounts[it.id]),
+    [caseCounts, unitCounts, noNeed, modeFor],
   );
   // Live progress for the "X of N counted" label — the same predicate the
   // indicator + gate use.
@@ -428,6 +448,13 @@ export function EODCount() {
     (key: string) => {
       if (!sheetItem) return;
       const id = sheetItem.id;
+      // Spec 172 (AC-29) — any key (backspace included) clears NO NEED first.
+      setNoNeed((p) => {
+        if (p[id] !== true) return p;
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
       if (seatedField === 'cases') {
         setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
       } else {
@@ -435,6 +462,36 @@ export function EODCount() {
       }
     },
     [sheetItem, seatedField],
+  );
+  // Spec 172 — write one row's NO NEED transition (rules in the pure
+  // `eodNoNeed.ts`) back to the three maps. A map key is written only when its
+  // value changes, so an untouched box keeps today's "absent key" shape.
+  const commitRow = useCallback((id: string, next: EodRowState) => {
+    setCaseCounts((p) => ((p[id] ?? '') === next.caseRaw ? p : { ...p, [id]: next.caseRaw }));
+    setUnitCounts((p) => ((p[id] ?? '') === next.unitRaw ? p : { ...p, [id]: next.unitRaw }));
+    setNoNeed((p) => {
+      if ((p[id] === true) === next.noNeed) return p;
+      const n = { ...p };
+      if (next.noNeed) n[id] = true;
+      else delete n[id];
+      return n;
+    });
+  }, []);
+  const rowStateOf = useCallback(
+    (id: string): EodRowState => ({
+      caseRaw: caseCounts[id] ?? '',
+      unitRaw: unitCounts[id] ?? '',
+      noNeed: noNeed[id] === true,
+    }),
+    [caseCounts, unitCounts, noNeed],
+  );
+  // Row button (AC-31): on ↔ off, both boxes cleared (OQ-1).
+  const onToggleNoNeed = useCallback(
+    (item: EodItem) => {
+      if (inputsLocked) return;
+      commitRow(item.id, eodToggleNoNeed(rowStateOf(item.id)));
+    },
+    [inputsLocked, commitRow, rowStateOf],
   );
   // AC-7 — advance to the next uncounted item with wraparound over the FULL
   // ordered set. SKIP and NEXT ITEM share this; NEXT ITEM closes when nothing
@@ -456,6 +513,23 @@ export function EODCount() {
     if (isDone) closeSheet();
     else advance();
   }, [isDone, closeSheet, advance]);
+  // Spec 172 (AC-31 / AC-29 semantics, OQ-5) — sheet NO NEED: mark the seated
+  // item, then advance like NEXT ITEM. The just-marked id is in the counted
+  // predicate because the mark is not committed to state yet — otherwise the
+  // wraparound would re-seat the same item. None left → close.
+  const onSheetNoNeed = useCallback(() => {
+    if (!sheetItem) return;
+    const id = sheetItem.id;
+    commitRow(id, eodSetNoNeed(rowStateOf(id)));
+    const idx = orderedForAdvance.findIndex((i) => i.id === id);
+    const res = advanceUncounted(orderedForAdvance, idx, (i) => i.id === id || isCounted(i));
+    if (!res) {
+      closeSheet();
+      return;
+    }
+    setSheetItemId(res.item.id);
+    setActiveField(activeFieldFor(res.item.caseQty, res.item.eodCountMode));
+  }, [sheetItem, commitRow, rowStateOf, orderedForAdvance, isCounted, closeSheet]);
 
   // Spec 129 — seed the Cases/Units maps from an existing submission. Shared by
   // the vendor-change load effect and the EDIT→Cancel revert so the two paths
@@ -464,8 +538,12 @@ export function EODCount() {
   const seedFromExisting = useCallback((ex: ExistingSubmission | null) => {
     const caseSeed: Record<string, string> = {};
     const unitSeed: Record<string, string> = {};
+    const noNeedSeed: Record<string, boolean> = {};
     if (ex) {
       for (const e of ex.entries) {
+        // Spec 172 (AC-33) — restore the NO NEED mark; its numerics are null,
+        // so the seeds below stay blank (never "0").
+        if (e.no_need === true) noNeedSeed[e.item_id] = true;
         if (e.actual_remaining_cases != null) {
           caseSeed[e.item_id] = String(e.actual_remaining_cases);
         }
@@ -482,6 +560,7 @@ export function EODCount() {
     }
     setCaseCounts(caseSeed);
     setUnitCounts(unitSeed);
+    setNoNeed(noNeedSeed);
   }, []);
 
   // Spec 129 — Cancel an in-progress edit: revert the inputs to the last
@@ -592,6 +671,7 @@ export function EODCount() {
       setExisting(null);
       setCaseCounts({});
       setUnitCounts({});
+      setNoNeed({});
       return;
     }
     setLoading(true);
@@ -623,6 +703,7 @@ export function EODCount() {
         setExisting(null);
         setCaseCounts({});
         setUnitCounts({});
+        setNoNeed({});
       })
       .finally(() => setLoading(false));
   }, [activeStore, selectedVendorId, countIso, seedFromExisting]);
@@ -723,7 +804,9 @@ export function EODCount() {
     // `items` list, never the search-narrowed `visibleItems`.
     // Spec 171 (AC-7) — "blank" means no ENABLED box has a value; a stale value
     // in a now-disabled box does not satisfy the gate (AC-16b).
-    const isBlank = (it: EodItem) => !eodHasEntry(modeFor(it), caseCounts[it.id], unitCounts[it.id]);
+    // Spec 172 (AC-32) — a NO NEED mark satisfies the gate.
+    const isBlank = (it: EodItem) =>
+      !eodRowCounted(noNeed[it.id], modeFor(it), caseCounts[it.id], unitCounts[it.id]);
     // Completeness COUNT is against the FULL item set, order-independent (AC-9).
     const uncounted = items.filter(isBlank);
     if (uncounted.length > 0) {
@@ -749,10 +832,21 @@ export function EODCount() {
     // Spec 171 (AC-7 / AC-16c) — `eodEntryValues` applies the row's count
     // mode: only ENABLED boxes contribute; a disabled box ships null; under the
     // default mode the result is byte-identical to the pre-spec-171 builder.
+    // Spec 172 (AC-32) — a NO NEED item ships the §6.3 NO NEED shape (no
+    // quantity); numeric entries are unchanged (no `no_need` key).
     const entries: EodEntry[] = items
       .map((it): EodEntry | null => {
-        const v = eodEntryValues(modeFor(it), it.caseQty, caseCounts[it.id], unitCounts[it.id]);
+        const v = eodRowEntryValues(noNeed[it.id], modeFor(it), it.caseQty, caseCounts[it.id], unitCounts[it.id]);
         if (!v) return null;
+        if (v.noNeed) {
+          return {
+            item_id: it.id,
+            actual_remaining: null,
+            actual_remaining_cases: null,
+            actual_remaining_each: null,
+            no_need: true,
+          };
+        }
         return {
           item_id: it.id,
           actual_remaining: v.total,
@@ -869,7 +963,7 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, submit, submitting, search, viewMode, savedIds, t, modeFor]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, noNeed, submit, submitting, search, viewMode, savedIds, t, modeFor]);
 
   // Spec 103 — one shared row body, rendered by BOTH the default FlatList and
   // the Custom drag list, so the Custom view shows byte-identical rows (the
@@ -898,10 +992,12 @@ export function EODCount() {
           countMode={countMode}
           locked={inputsLocked}
           onOpenWell={openSheet}
+          noNeed={noNeed[item.id] === true}
+          onToggleNoNeed={onToggleNoNeed}
         />
       );
     },
-    [caseCounts, unitCounts, isCounted, modeFor, locale, inputsLocked, openSheet],
+    [caseCounts, unitCounts, noNeed, isCounted, modeFor, locale, inputsLocked, openSheet, onToggleNoNeed],
   );
 
   if (!activeStore) {
@@ -1421,6 +1517,8 @@ export function EODCount() {
         caseValue={sheetItem ? caseCounts[sheetItem.id] ?? '' : ''}
         unitValue={sheetItem ? unitCounts[sheetItem.id] ?? '' : ''}
         runningTotal={sheetTotal}
+        noNeed={sheetItem ? noNeed[sheetItem.id] === true : false}
+        onNoNeed={onSheetNoNeed}
         isDone={isDone}
         onKey={onKey}
         onSkip={onSkip}

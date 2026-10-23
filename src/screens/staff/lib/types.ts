@@ -80,12 +80,18 @@ export type Vendor = {
  *  `actual_remaining` is the computed total (the number the reports
  *  read); the raw splits are null when the corresponding box is blank
  *  (mirrors the admin's `actualRemainingCases` / `actualRemainingEach`
- *  on `src/types/index.ts`). */
+ *  on `src/types/index.ts`).
+ *
+ *  Spec 172 — NO NEED ("more than enough", not counted numerically):
+ *  `no_need === true` ⇒ all three numerics are null (mirrors the DB CHECK
+ *  eod_entries_no_need_no_quantity_check). `no_need` is ABSENT on numeric
+ *  entries, so their shape is byte-identical to pre-172. */
 export type EodEntry = {
   item_id: string;
-  actual_remaining: number;
+  actual_remaining: number | null;
   actual_remaining_cases: number | null;
   actual_remaining_each: number | null;
+  no_need?: boolean;
 };
 
 /** Canonical shape persisted to AsyncStorage. Single source of truth

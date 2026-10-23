@@ -44,6 +44,11 @@ export interface CountExportItem {
   countedCases?: number | null; // parsed entered value; null/undefined = blank
   countedUnits?: number | null;
   note?: string;
+  /** Spec 172 (AC-39) — EOD "NO NEED" (more than enough, no quantity). The
+   *  Counted Cases / Units cells render blank and Counted Total renders the
+   *  localized NO NEED label. Only the EOD screen sets it; ignored for
+   *  `inventoryCount`. */
+  noNeed?: boolean;
 }
 
 export interface CountExportGroup {
@@ -125,6 +130,8 @@ function columnsFor(params: CountExportParams): Column[] {
   const { screen, locale } = params;
   const ns = screen === 'eod' ? 'section.eod.export' : 'section.inventoryCount.export';
   const H = (k: string, en: string): string => (locale === 'en' ? en : t(locale, `${ns}.${k}`));
+  // Spec 172 (AC-39 / OQ-6) — EOD-only NO NEED row.
+  const isNoNeed = (it: CountExportItem): boolean => screen === 'eod' && it.noNeed === true;
 
   const colItemName: Column = {
     header: H('colItemName', 'Item Name'),
@@ -144,15 +151,15 @@ function columnsFor(params: CountExportParams): Column[] {
   };
   const colCountedCases: Column = {
     header: H('colCountedCases', 'Counted Cases'),
-    cell: (it) => countCell(it.countedCases),
+    cell: (it) => (isNoNeed(it) ? '' : countCell(it.countedCases)),
   };
   const colCountedUnits: Column = {
     header: H('colCountedUnits', 'Counted Units'),
-    cell: (it) => countCell(it.countedUnits),
+    cell: (it) => (isNoNeed(it) ? '' : countCell(it.countedUnits)),
   };
   const colCountedTotal: Column = {
     header: H('colCountedTotal', 'Counted Total'),
-    cell: (it) => countedTotalCell(it),
+    cell: (it) => (isNoNeed(it) ? H('noNeed', 'NO NEED') : countedTotalCell(it)),
   };
   const colNote: Column = {
     header: H('colNote', 'Note'),

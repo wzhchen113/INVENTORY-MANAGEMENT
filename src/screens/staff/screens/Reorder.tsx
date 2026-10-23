@@ -39,6 +39,7 @@ import {
 } from '../lib/shareReorder';
 import { useStaffStore } from '../store/useStaffStore';
 import { todayIso } from '../lib/date';
+import { REORDER_FLAG_NO_NEED } from '../lib/eodNoNeed';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import type { Locale } from '../../../i18n';
 import { t, useI18n } from '../i18n';
@@ -111,6 +112,9 @@ function suggestedSubLabel(item: ReorderItem): string | null {
 // items (owner request 2026-07: show how many cases are in stock), else the
 // base-unit on-hand. Mirrors suggestedMainLabel's case-noun localization.
 function inStockLabel(item: ReorderItem, tt: typeof t): string {
+  // Spec 172 (AC-38 / OQ-3) — a NO NEED row's on-hand is the stale
+  // `current_stock` (the mark never updates it): show the label instead.
+  if ((item.flags || []).includes(REORDER_FLAG_NO_NEED)) return tt('reorder.item.noNeed');
   if (item.caseQty > 1) {
     const cases = item.onHand / item.caseQty;
     const key = cases === 1 ? 'reorder.unit.case' : 'reorder.unit.cases';
@@ -259,7 +263,10 @@ function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder:
               </Text>
               <Text style={[styles.itemBreakdown, { color: c.textSecondary }]}>
                 {t('reorder.item.breakdown', {
-                  onHand: `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim(),
+                  // Spec 172 (AC-38) — never the stale figure on a NO NEED row.
+                  onHand: (item.flags || []).includes(REORDER_FLAG_NO_NEED)
+                    ? t('reorder.item.noNeed')
+                    : `${formatQty(item.onHand)} ${normalizeUnit(item.unit)}`.trim(),
                   par: `${formatQty(item.parLevel)} ${normalizeUnit(item.unit)}`.trim(),
                 })}
               </Text>

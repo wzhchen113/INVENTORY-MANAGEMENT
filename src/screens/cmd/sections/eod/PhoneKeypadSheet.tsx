@@ -36,6 +36,13 @@ export interface PhoneKeypadSheetProps {
   unitValue: string;
   noteValue: string;
   runningTotal: number;
+  /** Spec 172 — the seated item is marked NO NEED: the running-total line
+   *  shows the localized NO NEED label instead of `0`. */
+  noNeed?: boolean;
+  /** Spec 172 (AC-29) — the NO NEED button renders iff this is set. Only the
+   *  EOD screen opts in (same opt-in pattern as `countMode`); `PhoneWeeklyCount`
+   *  reuses this sheet without it, so the weekly count never shows the button. */
+  onNoNeed?: () => void;
   /** True when nothing uncounted remains → NEXT ITEM relabels to DONE ✓. */
   isDone: boolean;
   onKey: (key: string) => void;
@@ -57,6 +64,8 @@ export const PhoneKeypadSheet: React.FC<PhoneKeypadSheetProps> = ({
   unitValue,
   noteValue,
   runningTotal,
+  noNeed,
+  onNoNeed,
   isDone,
   onKey,
   onNote,
@@ -230,10 +239,36 @@ export const PhoneKeypadSheet: React.FC<PhoneKeypadSheetProps> = ({
           }}
         />
 
-        {/* Running total. */}
-        <Text style={{ ...PhoneType.metaMono, color: C.fg2 }}>
-          {T('section.eod.phone.runningTotal', { total: runningTotal, unit: item.unit })}
+        {/* Running total (spec 172 — the NO NEED label while marked). */}
+        <Text testID="eod-sheet-total" style={{ ...PhoneType.metaMono, color: noNeed ? C.ok : C.fg2 }}>
+          {noNeed
+            ? T('section.eod.noNeed')
+            : T('section.eod.phone.runningTotal', { total: runningTotal, unit: item.unit })}
         </Text>
+
+        {/* Spec 172 (AC-29 / OQ-5) — mark NO NEED and advance (EOD only). */}
+        {onNoNeed ? (
+          <Pressable
+            testID="eod-sheet-noneed"
+            onPress={onNoNeed}
+            accessibilityRole="button"
+            accessibilityLabel={T('section.eod.noNeedAria', { item: item.name })}
+            accessibilityState={{ selected: !!noNeed }}
+            style={{
+              height: 44,
+              borderWidth: 1,
+              borderColor: noNeed ? C.ok : C.borderStrong,
+              backgroundColor: noNeed ? C.okBg : 'transparent',
+              borderRadius: CmdRadius.sm,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ fontFamily: mono(700), fontSize: 12.5, color: noNeed ? C.ok : C.fg2 }}>
+              {T('section.eod.noNeed')}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* 3-column digit pad (flex-wrap rows, no CSS grid). */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

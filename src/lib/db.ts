@@ -49,6 +49,7 @@ import { isPlaceholderEmail } from './placeholderEmail';
 // Spec 171 — EOD count-mode normalizer (missing/unknown → 'cases_and_units').
 // Pure module (no supabase / no React), allowed in db.ts.
 import { normalizeEodCountMode } from './eodCountMode';
+import { isNumericEodEntry } from './eodNoNeed';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -1007,12 +1008,18 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
 
     if (submission.entries.length > 0) {
       const ins = await supabase.from('eod_entries').insert(
+        // Spec 172 — `no_need` rides on EVERY row (never omitted for false):
+        // supabase-js bulk insert defaults missing keys to NULL across a
+        // batch, which would violate NOT NULL (23502) on a mixed NO NEED +
+        // numeric submission. A NO NEED row forces all three numerics to
+        // null (defense in depth for eod_entries_no_need_no_quantity_check).
         submission.entries.map((e) => ({
           submission_id: data.id,
           item_id: e.itemId,
-          actual_remaining: e.actualRemaining,
-          actual_remaining_cases: e.actualRemainingCases ?? null,
-          actual_remaining_each: e.actualRemainingEach ?? null,
+          actual_remaining:       e.noNeed ? null : e.actualRemaining,
+          actual_remaining_cases: e.noNeed ? null : (e.actualRemainingCases ?? null),
+          actual_remaining_each:  e.noNeed ? null : (e.actualRemainingEach ?? null),
+          no_need:                e.noNeed === true,
           notes: e.notes || '',
         }))
       ).abortSignal(signal);
@@ -1066,6 +1073,13 @@ export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Pro
       );
 
       for (const entry of submission.entries) {
+        // Spec 172 (AC-22): a NO NEED entry carries no quantity → never
+        // writes the on-hand. Mirrors staff_submit_eod hunk S3 and the
+        // store's optimistic skip in useStore.submitEOD. Gated on the same
+        // isNumericEodEntry predicate as the store (review-fix SF-3) so a
+        // non-NO-NEED entry with a null total can never write
+        // current_stock = NULL; it also narrows actualRemaining to number.
+        if (!isNumericEodEntry(entry)) continue;
         // Escape-hatch: no link to the submitting vendor → skip the on-hand
         // write (the eod_entries row above still persisted). Mirrors the
         // staff RPC's EXISTS(item_vendors …) gate and the prior
@@ -1112,7 +1126,7 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
     .select(`
       id, store_id, date, vendor_id, status, submitted_at, submitted_by,
       submitter:profiles!submitted_by(name),
-      eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+      eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, no_need, notes, created_at,
                   item:inventory_items(catalog:catalog_ingredients(name, unit)))
     `)
     .in('store_id', storeIds)
@@ -1138,7 +1152,9 @@ export async function fetchTodaysEODForStores(storeIds: string[], dateISO: strin
       id: e.id,
       itemId: e.item_id,
       itemName: e.item?.catalog?.name || '',
-      actualRemaining: Number(e.actual_remaining) || 0,
+      // Spec 172 — null ONLY for NO NEED rows; numeric rows unchanged.
+      actualRemaining: e.no_need === true ? null : (Number(e.actual_remaining) || 0),
+      ...(e.no_need === true ? { noNeed: true } : {}),
       actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
       actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
       unit: e.item?.catalog?.unit || '',
@@ -1163,7 +1179,7 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
       .from('eod_submissions')
       .select(`id, store_id, date, vendor_id, submitted_by, submitted_at, status,
                submitter:profiles!submitted_by(name),
-               eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+               eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, no_need, notes, created_at,
                            item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
       .eq('store_id', storeId)
       .gte('date', cutoffISO)
@@ -1187,7 +1203,9 @@ export async function fetchRecentEODSubmissions(storeId: string, days = 14): Pro
         id: e.id,
         itemId: e.item_id,
         itemName: e.item?.catalog?.name || '',
-        actualRemaining: Number(e.actual_remaining) || 0,
+        // Spec 172 — null ONLY for NO NEED rows; numeric rows unchanged.
+        actualRemaining: e.no_need === true ? null : (Number(e.actual_remaining) || 0),
+        ...(e.no_need === true ? { noNeed: true } : {}),
         actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
         actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
         unit: e.item?.catalog?.unit || '',
@@ -1226,7 +1244,7 @@ export async function fetchEodSubmissionsForStores(
       .from('eod_submissions')
       .select(`id, store_id, date, vendor_id, submitted_by, submitted_at, status,
                submitter:profiles!submitted_by(name),
-               eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, notes, created_at,
+               eod_entries(id, item_id, actual_remaining, actual_remaining_cases, actual_remaining_each, no_need, notes, created_at,
                            item:inventory_items(catalog:catalog_ingredients(name, unit)))`)
       .in('store_id', storeIds)
       .gte('date', sinceDate)
@@ -1252,7 +1270,9 @@ export async function fetchEodSubmissionsForStores(
         id: e.id,
         itemId: e.item_id,
         itemName: e.item?.catalog?.name || '',
-        actualRemaining: Number(e.actual_remaining) || 0,
+        // Spec 172 — null ONLY for NO NEED rows; numeric rows unchanged.
+        actualRemaining: e.no_need === true ? null : (Number(e.actual_remaining) || 0),
+        ...(e.no_need === true ? { noNeed: true } : {}),
         actualRemainingCases: e.actual_remaining_cases != null ? Number(e.actual_remaining_cases) : undefined,
         actualRemainingEach: e.actual_remaining_each != null ? Number(e.actual_remaining_each) : undefined,
         unit: e.item?.catalog?.unit || '',

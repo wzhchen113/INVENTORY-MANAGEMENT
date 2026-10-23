@@ -9,6 +9,7 @@ import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { ReorderVendor, ReorderItem, ReorderPayload, Store, Vendor, InventoryItem } from '../../../types';
 import { useT } from '../../../hooks/useT';
+import { REORDER_FLAG_NO_NEED } from '../../../lib/eodNoNeed';
 import { useLocale } from '../../../hooks/useLocale';
 import { confirmAction } from '../../../utils/confirmAction';
 import { getLocalizedName } from '../../../i18n/localizedName';
@@ -153,7 +154,12 @@ export function narrowReorderToVendor(payload: ReorderPayload, vendor: ReorderVe
 // `order:` figure red (needs) / green (enough) to match the section.
 function BreakdownLine({ item, tone }: { item: ReorderItem; tone: string }) {
   const C = useCmdColors();
+  const T = useT();
   const suggested = formatSuggestedParts(item);
+  // Spec 172 (AC-38 / OQ-3) — a NO NEED row's on-hand is the stale
+  // `current_stock` (a NO NEED mark never updates it), so show the label
+  // instead of a figure that may be days old.
+  const noNeed = item.flags.includes(REORDER_FLAG_NO_NEED);
   const seg = (label: string, value: string) => (
     <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2, fontVariant: ['tabular-nums'] }}>
       <Text style={{ color: C.fg3 }}>{label}:</Text> {value}
@@ -161,7 +167,7 @@ function BreakdownLine({ item, tone }: { item: ReorderItem; tone: string }) {
   );
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-      {seg('on hand', `${formatQty(item.onHand)} ${item.unit}`.trim())}
+      {seg('on hand', noNeed ? T('section.reorder.noNeed') : `${formatQty(item.onHand)} ${item.unit}`.trim())}
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>|</Text>
       {seg('inbound', `${formatQty(item.pendingPoQty)} ${item.unit}`.trim())}
       <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>|</Text>
@@ -232,6 +238,8 @@ function FlagChip({ token }: { token: string }) {
     no_par: { label: 'NO PAR', tone: 'warn' },
     no_usage_rate: { label: 'NO USAGE', tone: 'fg3' },
     eod_missing_for_item: { label: 'EOD MISS', tone: 'warn' },
+    // Spec 172 (AC-36) — counted "more than enough" at EOD → suggest 0.
+    [REORDER_FLAG_NO_NEED]: { label: 'NO NEED', tone: 'fg3' },
     truncated: { label: 'TRUNC', tone: 'fg3' },
   };
   const entry = map[token];

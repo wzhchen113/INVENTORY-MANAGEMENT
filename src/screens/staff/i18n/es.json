@@ -80,6 +80,8 @@
       "moveDown": "Bajar"
     },
     "countedOfTotal": "{counted} de {total} contados",
+    "noNeed": "No hace falta",
+    "noNeedAria": "{item}: no hace falta — hay de sobra",
     "submit": "Enviar",
     "submitting": "Enviando...",
     "edit": "Editar",
@@ -148,7 +150,8 @@
       "order": "Pedir: {suggested}",
       "alsoFromOne": "también disponible de {vendors} — pida a uno",
       "alsoFromMany": "también disponible de {count} otros proveedores ({vendors}) — pida a uno",
-      "inStock": "En stock: {qty}"
+      "inStock": "En stock: {qty}",
+      "noNeed": "No hace falta"
     },
     "export": {
       "label": "Exportar / compartir",

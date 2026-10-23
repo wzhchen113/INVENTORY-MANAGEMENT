@@ -45,12 +45,28 @@ const GC_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 /** Validates a single v2 `entries` element — the spec 086 shape. A v1
  *  `{ item_id, count }` element fails here (no `actual_remaining`), so a
  *  stale-shape payload that somehow lands under the v2 key is rejected
- *  on hydrate rather than drained with an `undefined` total. */
+ *  on hydrate rather than drained with an `undefined` total.
+ *
+ *  Spec 172 extends v2 COMPATIBLY (no queue-key bump) to exactly two
+ *  shapes:
+ *    • numeric (unchanged): `actual_remaining` number, splits number|null,
+ *      `no_need` absent or false;
+ *    • NO NEED: `no_need === true` and all three numerics `=== null`.
+ *  `no_need: true` with any number is REJECTED — it could only ever fail
+ *  the server CHECK (23514) and poison the queue. */
 function isValidEodEntry(x: unknown): boolean {
   if (typeof x !== 'object' || x === null) return false;
   const e = x as Record<string, unknown>;
+  if (typeof e.item_id !== 'string') return false;
+  if (e.no_need === true) {
+    return (
+      e.actual_remaining === null &&
+      e.actual_remaining_cases === null &&
+      e.actual_remaining_each === null
+    );
+  }
   return (
-    typeof e.item_id === 'string' &&
+    (e.no_need === undefined || e.no_need === false) &&
     typeof e.actual_remaining === 'number' &&
     (e.actual_remaining_cases === null || typeof e.actual_remaining_cases === 'number') &&
     (e.actual_remaining_each === null || typeof e.actual_remaining_each === 'number')

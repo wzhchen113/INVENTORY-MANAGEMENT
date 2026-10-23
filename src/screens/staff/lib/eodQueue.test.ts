@@ -322,3 +322,73 @@ describe('eodQueue', () => {
     });
   });
 });
+
+// ─── Spec 172 — NO NEED entry shape (AC-34) ─────────────────────────
+// v2 is extended COMPATIBLY (no key bump): exactly two element shapes are
+// valid — numeric (unchanged) and NO NEED (`no_need: true` + all three
+// numerics null). Existing arms above are untouched.
+describe('eodQueue — NO NEED entries (spec 172)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const NO_NEED = {
+    item_id: 'item-nn',
+    actual_remaining: null,
+    actual_remaining_cases: null,
+    actual_remaining_each: null,
+    no_need: true,
+  };
+
+  async function hydrateWithEntries(entries: unknown[]): Promise<QueuedSubmission[]> {
+    const item = { ...makeItem(), entries };
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify([item]));
+    return hydrateQueue();
+  }
+
+  it('a queued NO NEED submission survives hydrate', async () => {
+    const out = await hydrateWithEntries([NO_NEED]);
+    expect(out).toHaveLength(1);
+    expect(out[0].entries).toEqual([NO_NEED]);
+  });
+
+  it('a mixed numeric + NO NEED submission survives hydrate', async () => {
+    const numeric = makeItem().entries[0];
+    const out = await hydrateWithEntries([numeric, NO_NEED]);
+    expect(out).toHaveLength(1);
+    expect(out[0].entries).toEqual([numeric, NO_NEED]);
+  });
+
+  it('a numeric entry with an explicit no_need: false is still valid', async () => {
+    const out = await hydrateWithEntries([{ ...makeItem().entries[0], no_need: false }]);
+    expect(out).toHaveLength(1);
+  });
+
+  it.each([
+    ['actual_remaining', { actual_remaining: 3 }],
+    ['actual_remaining_cases', { actual_remaining_cases: 1 }],
+    ['actual_remaining_each', { actual_remaining_each: 2 }],
+  ])('rejects no_need: true carrying %s (would only fail the server CHECK)', async (_k, over) => {
+    const out = await hydrateWithEntries([{ ...NO_NEED, ...over }]);
+    expect(out).toEqual([]);
+  });
+
+  it('rejects a NO NEED element missing its null numerics', async () => {
+    const out = await hydrateWithEntries([{ item_id: 'item-nn', no_need: true }]);
+    expect(out).toEqual([]);
+  });
+
+  it('rejects a null total without the no_need flag (unchanged numeric rule)', async () => {
+    const out = await hydrateWithEntries([{ ...NO_NEED, no_need: undefined }]);
+    expect(out).toEqual([]);
+  });
+
+  it('rejects a non-boolean no_need on a numeric element', async () => {
+    const out = await hydrateWithEntries([{ ...makeItem().entries[0], no_need: 'yes' }]);
+    expect(out).toEqual([]);
+  });
+});

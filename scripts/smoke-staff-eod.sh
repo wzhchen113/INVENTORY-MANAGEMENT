@@ -10,6 +10,12 @@
 # auth_can_see_store gate in the RPC body). Also smokes the deprecated
 # edge functions return HTTP 410.
 #
+# Spec 172 (step 8b): primes a linked item's on-hand to 7 with a numeric
+# count, then submits a NO NEED entry for it and asserts 200, an empty
+# stock_updates, current_stock unchanged (7 — not 0, not NULL), and the
+# persisted row is no_need=true with NULL numerics. Like the rest of this
+# smoke it is non-transactional: it leaves that item's local on-hand at 7.
+#
 # Why a real per-user JWT: spec 061 GRANTed staff_submit_eod to
 # `authenticated` (not service_role) and added a server-side
 # auth_can_see_store(p_store_id) gate that needs a real auth.uid()
@@ -313,6 +319,115 @@ if [[ "$NEG_ROW_COUNT" == "0" ]]; then
   pass "no eod_submissions row at NEG_CLIENT_UUID (from staff POV)"
 else
   fail "unexpected NEG_ROW_COUNT=${NEG_ROW_COUNT} (parse error or row leaked through)"
+fi
+
+################################################################################
+# 8b. Spec 172 — NO NEED entry: 200, current_stock unchanged, no
+#     stock_updates, and the persisted row is no_need=true with NULL total.
+#     Uses an item LINKED (item_vendors) to its vendor at STORE_ID so the
+#     RPC's junction-membership on-hand write WOULD fire for a numeric
+#     entry — that is what makes "current_stock unchanged" meaningful.
+################################################################################
+step "POST /rpc/staff_submit_eod with a NO NEED entry (spec 172)"
+NN_LINK=$(curl -sS \
+  -H "apikey: ${SUPABASE_ANON_KEY}" \
+  -H "Authorization: Bearer ${STAFF_TOKEN}" \
+  "${SUPABASE_URL}/rest/v1/item_vendors?select=item_id,vendor_id,item:inventory_items!inner(store_id)&item.store_id=eq.${STORE_ID}&limit=1")
+NN_ITEM_ID=$(printf '%s' "$NN_LINK" | jq -r '.[0].item_id // empty' 2>/dev/null || echo "")
+NN_VENDOR_ID=$(printf '%s' "$NN_LINK" | jq -r '.[0].vendor_id // empty' 2>/dev/null || echo "")
+if [[ -z "${NN_ITEM_ID}" || -z "${NN_VENDOR_ID}" ]]; then
+  fail "could not discover a linked (item, vendor) pair at ${STORE_ID}: ${NN_LINK:0:300}"
+else
+  pass "linked pair item=${NN_ITEM_ID} vendor=${NN_VENDOR_ID}"
+
+  stock_of() {
+    curl -sS \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Authorization: Bearer ${STAFF_TOKEN}" \
+      "${SUPABASE_URL}/rest/v1/inventory_items?id=eq.$1&select=current_stock,eod_remaining" \
+      | jq -c '.[0] // empty' 2>/dev/null || echo ""
+  }
+  NN_CLIENT_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  NN_HEX=${NN_CLIENT_UUID//-/}
+  NN_OFFSET=$(( (16#${NN_HEX:0:6}) % 9000 + 1000 ))
+  if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
+    NN_DATE=$(date -v-${NN_OFFSET}d +%Y-%m-%d)
+  else
+    NN_DATE=$(date -d "${NN_OFFSET} days ago" +%Y-%m-%d)
+  fi
+
+  # Prime a known NON-ZERO on-hand (7) with a numeric count first, so the
+  # unchanged-check catches a regression that writes 0 as well as NULL.
+  PRIME_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  CODE_PRIME=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${STAFF_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"p_client_uuid\": \"${PRIME_UUID}\",
+      \"p_store_id\": \"${STORE_ID}\",
+      \"p_date\": \"${NN_DATE}\",
+      \"p_submitted_by\": null,
+      \"p_status\": \"submitted\",
+      \"p_entries\": [{\"ingredient_id\": \"${NN_ITEM_ID}\", \"actual_remaining\": 7}],
+      \"p_vendor_id\": \"${NN_VENDOR_ID}\"
+    }" \
+    "${SUPABASE_URL}/rest/v1/rpc/staff_submit_eod")
+  NN_BEFORE=$(stock_of "${NN_ITEM_ID}")
+  if [[ "$CODE_PRIME" == "200" && "$(printf '%s' "$NN_BEFORE" | jq '.current_stock == 7' 2>/dev/null)" == "true" ]]; then
+    pass "primed on-hand to 7 with a numeric count (${NN_BEFORE})"
+  else
+    fail "could not prime on-hand (HTTP ${CODE_PRIME}, stock=${NN_BEFORE})"
+  fi
+
+  RESPONSE_NN=$(curl -sS -w '\n%{http_code}' -X POST \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${STAFF_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"p_client_uuid\": \"${NN_CLIENT_UUID}\",
+      \"p_store_id\": \"${STORE_ID}\",
+      \"p_date\": \"${NN_DATE}\",
+      \"p_submitted_by\": null,
+      \"p_status\": \"submitted\",
+      \"p_entries\": [{\"ingredient_id\": \"${NN_ITEM_ID}\", \"no_need\": true}],
+      \"p_vendor_id\": \"${NN_VENDOR_ID}\"
+    }" \
+    "${SUPABASE_URL}/rest/v1/rpc/staff_submit_eod")
+  CODE_NN=$(printf '%s' "$RESPONSE_NN" | tail -1)
+  BODY_NN=$(printf '%s' "$RESPONSE_NN" | sed '$d')
+
+  if [[ "$CODE_NN" != "200" ]]; then
+    fail "NO NEED call returned ${CODE_NN} (expected 200). Body: ${BODY_NN:0:300}"
+  else
+    pass "NO NEED call returns 200"
+
+    NN_UPDATES=$(printf '%s' "$BODY_NN" | jq -c '.stock_updates' 2>/dev/null || echo "parse-error")
+    if [[ "$NN_UPDATES" == "[]" ]]; then
+      pass "stock_updates is empty (NO NEED item omitted)"
+    else
+      fail "stock_updates should be [] for a NO NEED-only call, got: ${NN_UPDATES}"
+    fi
+
+    NN_AFTER=$(stock_of "${NN_ITEM_ID}")
+    if [[ -n "${NN_BEFORE}" && "${NN_AFTER}" == "${NN_BEFORE}" ]]; then
+      pass "current_stock / eod_remaining unchanged (${NN_AFTER})"
+    else
+      fail "on-hand changed by a NO NEED entry: before=${NN_BEFORE} after=${NN_AFTER}"
+    fi
+
+    NN_SUB_ID=$(printf '%s' "$BODY_NN" | jq -r '.submission_id // empty' 2>/dev/null || echo "")
+    NN_ROW=$(curl -sS \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Authorization: Bearer ${STAFF_TOKEN}" \
+      "${SUPABASE_URL}/rest/v1/eod_entries?submission_id=eq.${NN_SUB_ID}&item_id=eq.${NN_ITEM_ID}&select=no_need,actual_remaining,actual_remaining_cases,actual_remaining_each" \
+      | jq -c '.[0] // empty' 2>/dev/null || echo "")
+    if [[ "$NN_ROW" == '{"no_need":true,"actual_remaining":null,"actual_remaining_cases":null,"actual_remaining_each":null}' ]]; then
+      pass "eod_entries row persisted as no_need=true with NULL numerics"
+    else
+      fail "unexpected NO NEED eod_entries row: ${NN_ROW:0:300}"
+    fi
+  fi
 fi
 
 ################################################################################

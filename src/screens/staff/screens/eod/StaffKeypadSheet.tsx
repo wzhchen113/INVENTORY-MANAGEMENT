@@ -28,6 +28,12 @@ export interface StaffKeypadSheetProps {
   caseValue: string;
   unitValue: string;
   runningTotal: number;
+  /** Spec 172 — the seated item is marked NO NEED: `eod-sheet-total` shows the
+   *  localized NO NEED label instead of the numeric total. */
+  noNeed?: boolean;
+  /** Spec 172 (AC-31 / AC-29 semantics) — the NO NEED button renders iff this
+   *  is set: marks the seated item and advances like NEXT ITEM. */
+  onNoNeed?: () => void;
   /** True when nothing uncounted remains → NEXT ITEM relabels to DONE ✓. */
   isDone: boolean;
   onKey: (key: string) => void;
@@ -53,6 +59,8 @@ export function StaffKeypadSheet({
   caseValue,
   unitValue,
   runningTotal,
+  noNeed = false,
+  onNoNeed,
   isDone,
   onKey,
   onSkip,
@@ -167,10 +175,32 @@ export function StaffKeypadSheet({
           ) : null}
         </View>
 
-        {/* Running total. */}
-        <Text testID="eod-sheet-total" style={[styles.total, { color: c.text }]}>
-          {t('eod.sheet.runningTotal', { total: runningTotal, unit: item.unit })}
+        {/* Running total (spec 172 — the NO NEED label while marked). */}
+        <Text testID="eod-sheet-total" style={[styles.total, { color: noNeed ? c.success : c.text }]}>
+          {noNeed ? t('eod.noNeed') : t('eod.sheet.runningTotal', { total: runningTotal, unit: item.unit })}
         </Text>
+
+        {/* Spec 172 — mark NO NEED and advance (only when the caller opts in). */}
+        {onNoNeed ? (
+          <Pressable
+            testID="eod-sheet-noneed"
+            onPress={onNoNeed}
+            accessibilityRole="button"
+            accessibilityState={{ selected: noNeed }}
+            accessibilityLabel={t('eod.noNeedAria', { item: displayName })}
+            style={[
+              styles.noNeedBtn,
+              {
+                borderColor: noNeed ? c.success : c.borderStrong,
+                backgroundColor: noNeed ? c.successBg : 'transparent',
+              },
+            ]}
+          >
+            <Text style={[styles.noNeedText, { color: noNeed ? c.success : c.textSecondary }]}>
+              {t('eod.noNeed')}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* 3-column digit pad (flex-wrap rows, no CSS grid). */}
         <View style={styles.pad}>
@@ -253,6 +283,17 @@ const makeStyles = (T: StaffTokens) =>
     total: {
       fontSize: T.typography.body,
       fontWeight: T.typography.semibold,
+    },
+    noNeedBtn: {
+      minHeight: T.touchTarget.min,
+      borderWidth: 1,
+      borderRadius: T.radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    noNeedText: {
+      fontSize: T.typography.body,
+      fontWeight: T.typography.bold,
     },
     pad: {
       flexDirection: 'row',

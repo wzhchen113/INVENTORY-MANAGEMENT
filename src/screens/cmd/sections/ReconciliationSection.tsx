@@ -7,6 +7,7 @@ import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { useStockSeries, computeVarianceLines } from '../../../lib/cmdSelectors';
+import { isNumericEodEntry } from '../../../lib/eodNoNeed';
 import { useT } from '../../../hooks/useT';
 import { useIsPhone } from '../../../theme/breakpoints';
 import { PhoneReconciliation } from './phone/PhoneReconciliation';
@@ -90,6 +91,9 @@ export default function ReconciliationSection() {
   const favorable = rows.filter((r) => r.diff > 0).length;
   const short = rows.filter((r) => r.diff < 0).length;
   const largest = rows[0];
+  // Spec 172 (AC-27): NO NEED entries are not numeric counts, so they are
+  // excluded from the "items reconciled" stat (review-fix SF-4: computed once).
+  const reconciled = latest?.entries?.filter(isNumericEodEntry).length ?? 0;
 
   const toneFor = (r: VarianceRow): string => {
     if (Math.abs(r.pct) >= 25) return C.danger;
@@ -153,7 +157,7 @@ export default function ReconciliationSection() {
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <StatCard
             label={T('section.reconciliation.itemsReconciled')}
-            value={`${latest?.entries?.length ?? 0} / ${latest?.entries?.length ?? 0}`}
+            value={`${reconciled} / ${reconciled}`}
             sub={latest ? T('section.reconciliation.percentComplete', { pct: 100 }) : T('section.reconciliation.noEod')}
           />
           <StatCard
@@ -282,6 +286,8 @@ function ReconByCategoryTab() {
     const map = new Map<string, { delta: number; deltaCost: number; n: number }>();
     if (!todaySub?.entries) return [];
     for (const entry of todaySub.entries) {
+      // Spec 172 (AC-27): a NO NEED entry has no count — treat as absent.
+      if (!isNumericEodEntry(entry)) continue;
       const item = inventory.find((i) => i.id === entry.itemId);
       if (!item) continue;
       const expected = item.parLevel || 0;
@@ -371,6 +377,8 @@ function ReconTimelineTab() {
       }
       let delta = 0;
       for (const entry of sub.entries || []) {
+        // Spec 172 (AC-27): a NO NEED entry has no count — treat as absent.
+        if (!isNumericEodEntry(entry)) continue;
         const item = inventory.find((it) => it.id === entry.itemId);
         // Spec 104 (OQ-5) — per-each costPerUnit × counted delta → `× subUnitSize` bridge.
         if (item) delta += (entry.actualRemaining - (item.parLevel || 0)) * (item.costPerUnit || 0) * (item.subUnitSize || 1);

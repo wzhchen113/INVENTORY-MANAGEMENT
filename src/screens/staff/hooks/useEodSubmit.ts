@@ -69,19 +69,26 @@ function isForbidden(err: unknown): boolean {
 
 function entriesForRpc(entries: EodEntry[]): Array<{
   ingredient_id: string;
-  actual_remaining: number;
+  actual_remaining: number | null;
   actual_remaining_cases: number | null;
   actual_remaining_each: number | null;
+  no_need?: true;
 }> {
   // Spec 086 — near-identity map. The entry already carries the
   // snake_case column names; only item_id → ingredient_id is renamed.
   // The two split fields ride inside p_entries; the RPC reads them via
   // jsonb_to_recordset (NULL when absent, so older callers stay valid).
+  //
+  // Spec 172 — `no_need: true` is forwarded ONLY for NO NEED entries, so a
+  // numeric payload stays byte-identical. The queued item carries
+  // `entries` verbatim, so a drained NO NEED submission sends it too
+  // (AC-34).
   return entries.map((e) => ({
     ingredient_id: e.item_id,
     actual_remaining: e.actual_remaining,
     actual_remaining_cases: e.actual_remaining_cases,
     actual_remaining_each: e.actual_remaining_each,
+    ...(e.no_need === true ? { no_need: true as const } : {}),
   }));
 }
 

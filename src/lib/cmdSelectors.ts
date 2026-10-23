@@ -9,6 +9,7 @@ import type { AdminSectionId } from './adminSections';
 import { useIsSuperAdmin, useIsMaster } from '../hooks/useRole';
 import { useT } from '../hooks/useT';
 import { getWeekWindow, isoDateRange, getLocalDateISO } from '../utils/weekWindow';
+import { numericEodSubmissions, type NumericEODSubmission } from './eodNoNeed';
 
 // ── getStockSeries ──────────────────────────────────────────────────
 // Derives a daily stock-level series for a given inventory item from
@@ -24,9 +25,11 @@ export function getStockSeries(
   days: number,
   eodSubmissions: EODSubmission[],
 ): Array<number | null> {
-  // Step 1: collect entries for this item, latest per date
+  // Step 1: collect entries for this item, latest per date. Spec 172 —
+  // NO NEED entries carry no quantity, so they are stripped first (AC-27):
+  // the series treats them exactly like an absent entry.
   const byDate = new Map<string, { ts: number; value: number }>();
-  for (const sub of eodSubmissions) {
+  for (const sub of numericEodSubmissions(eodSubmissions)) {
     for (const e of sub.entries || []) {
       if (e.itemId !== itemId) continue;
       const ts = new Date(e.timestamp || sub.timestamp || sub.date).getTime();
@@ -357,7 +360,8 @@ export function computeVarianceLines(
   stores: Store[],
   mode: VarianceMode = 'priorEod',
 ): VarianceLine[] {
-  const submissionsForStore = eodSubmissions
+  // Spec 172 (AC-27): NO NEED entries are stripped — treated as absent.
+  const submissionsForStore = numericEodSubmissions(eodSubmissions)
     .filter((s) => s.storeId === storeId)
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -464,8 +468,9 @@ export function computeCogsActual(
 ): number {
   const itemsById = new Map(inventory.map((i) => [i.id, i]));
   // Sort the store's submissions ascending by date so we can walk forward
-  // and look up the prior submission per row in O(1).
-  const ordered = eodSubmissions
+  // and look up the prior submission per row in O(1). Spec 172 (AC-27): NO
+  // NEED entries are stripped first — treated as absent.
+  const ordered = numericEodSubmissions(eodSubmissions)
     .filter((s) => s.storeId === storeId)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -474,7 +479,7 @@ export function computeCogsActual(
     const sub = ordered[i];
     if (sub.date < startDate || sub.date > endDate) continue;
     // Walk backward to find the most recent submission strictly before this one.
-    let prior: EODSubmission | undefined;
+    let prior: NumericEODSubmission | undefined;
     for (let j = i - 1; j >= 0; j--) {
       if (ordered[j].date < sub.date) { prior = ordered[j]; break; }
     }
@@ -512,7 +517,8 @@ export function computeTopVarianceItems(
   limit = 5,
 ): VarianceLine[] {
   const itemsById = new Map(inventory.map((i) => [i.id, i]));
-  const ordered = eodSubmissions
+  // Spec 172 (AC-27): NO NEED entries are stripped — treated as absent.
+  const ordered = numericEodSubmissions(eodSubmissions)
     .filter((s) => s.storeId === storeId)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -531,7 +537,7 @@ export function computeTopVarianceItems(
   for (let i = 0; i < ordered.length; i++) {
     const sub = ordered[i];
     if (sub.date < startDate || sub.date > endDate) continue;
-    let prior: EODSubmission | undefined;
+    let prior: NumericEODSubmission | undefined;
     for (let j = i - 1; j >= 0; j--) {
       if (ordered[j].date < sub.date) { prior = ordered[j]; break; }
     }
@@ -611,11 +617,13 @@ export function computeStoreFoodCostVariancePp(
   target: number = TARGET_FOOD_COST_PCT_DEFAULT,
 ): number[] {
   const itemsById = new Map(inventory.map((i) => [i.id, i]));
-  const ordered = eodSubmissions
+  // Spec 172 (AC-27): NO NEED entries are stripped — treated as absent
+  // (including in the `entries.length` proxy below).
+  const ordered = numericEodSubmissions(eodSubmissions)
     .filter((s) => s.storeId === storeId)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
-  const subsByDate = new Map<string, EODSubmission>();
+  const subsByDate = new Map<string, NumericEODSubmission>();
   for (const s of ordered) subsByDate.set(s.date, s);
   // Revenue per day from POS imports
   const revenueByDate = new Map<string, number>();
@@ -636,7 +644,7 @@ export function computeStoreFoodCostVariancePp(
     if (!sub) { out.push(0); continue; }
     // Find prior submission strictly before this day to compute depletion.
     const idx = ordered.findIndex((s) => s.id === sub.id);
-    let prior: EODSubmission | undefined;
+    let prior: NumericEODSubmission | undefined;
     for (let j = idx - 1; j >= 0; j--) {
       if (ordered[j].date < sub.date) { prior = ordered[j]; break; }
     }
@@ -1023,9 +1031,12 @@ export function computeStoreFoodCostSeries(
 ): Array<number | null> {
   const nowMs = now.getTime();
   const out: Array<number | null> = [];
+  // Spec 172 (AC-27): NO NEED entries are stripped so the `entries.length`
+  // proxy counts numeric entries only.
+  const subs = numericEodSubmissions(eodSubmissions);
   for (let i = days - 1; i >= 0; i--) {
     const key = new Date(nowMs - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const sub = eodSubmissions.find((s) => s.storeId === storeId && s.date === key);
+    const sub = subs.find((s) => s.storeId === storeId && s.date === key);
     out.push(sub ? 30 + ((sub.entries?.length || 0) % 5) : null);
   }
   return out;

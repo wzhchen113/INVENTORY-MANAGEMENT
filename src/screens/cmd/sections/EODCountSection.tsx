@@ -15,9 +15,16 @@ import {
   eodBoxes,
   eodHasEntry,
   eodTotal,
-  eodEntryValues,
   type EodCountMode,
 } from '../../../lib/eodCountMode';
+import {
+  eodRowCounted,
+  eodRowEntryValues,
+  eodToggleNoNeed,
+  eodSetNoNeed,
+  eodTypeInto,
+  type EodRowState,
+} from '../../../lib/eodNoNeed';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
@@ -88,6 +95,11 @@ const DAY_NAMES: ReadonlyArray<DayName> = [
 // today's either-box rule. Arm (b) — persisted submissions — is unchanged (a
 // persisted entry is a recorded count; spec 171 §10). Omitting the resolver
 // reproduces the pre-spec-171 result byte-for-byte.
+//
+// Spec 172 (AC-17) — optional `noNeedByVendor` (vendorId → itemId → true). Arm
+// (c): an item marked NO NEED in ANY vendor tab is counted in every tab (spec
+// 102 counted-once-globally). Arm (b) needs no change — a persisted NO NEED
+// entry is an entry. Omitting the argument reproduces today's output.
 export function deriveCountedItemIds(args: {
   caseCountsByVendor: Record<string, Record<string, string>>;
   unitCountsByVendor: Record<string, Record<string, string>>;
@@ -95,6 +107,7 @@ export function deriveCountedItemIds(args: {
   storeId: string;
   dateIso: string;
   effectiveModeOf?: (itemId: string) => EodCountMode | undefined;
+  noNeedByVendor?: Record<string, Record<string, boolean>>;
 }): Set<string> {
   const counted = new Set<string>();
   const boxEnabled = (itemId: string, box: 'cases' | 'units'): boolean => {
@@ -120,6 +133,14 @@ export function deriveCountedItemIds(args: {
     if (s.storeId !== args.storeId) continue;
     if (s.date !== args.dateIso) continue;
     for (const e of s.entries) counted.add(e.itemId);
+  }
+  // (c) Spec 172 — any local NO NEED mark in ANY vendor tab.
+  if (args.noNeedByVendor) {
+    for (const byItem of Object.values(args.noNeedByVendor)) {
+      for (const [itemId, on] of Object.entries(byItem)) {
+        if (on === true) counted.add(itemId);
+      }
+    }
   }
   return counted;
 }
@@ -176,6 +197,8 @@ export default function EODCountSection() {
   // The week is rendered as a horizontal day-strip above the TabStrip instead.
   const cellW = isPhone ? 56 : 80;
   const inputW = isPhone ? 48 : 70;
+  // Spec 172 — the per-row NO NEED toggle column.
+  const noNeedW = isPhone ? 64 : 92;
   const rowGap = isPhone ? 8 : 14;
   const rowPadH = isPhone ? 12 : 22;
   const inventory = useStore((s) => s.inventory);
@@ -209,6 +232,11 @@ export default function EODCountSection() {
   const [caseCountsByVendor, setCaseCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
   const [unitCountsByVendor, setUnitCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
   const [notesByVendor, setNotesByVendor] = React.useState<Record<string, Record<string, string>>>({});
+  // Spec 172 (N5) — per-vendor NO NEED marks ("more than enough; not counted
+  // numerically"), mirroring the case/unit maps: vendorId → itemId → true. An
+  // absent key means "not marked". Invariant (eodNoNeed.ts): a marked item has
+  // blank case/unit text in that tab.
+  const [noNeedByVendor, setNoNeedByVendor] = React.useState<Record<string, Record<string, boolean>>>({});
   // Vendors the user has tapped EDIT on. Once in this set the inputs unlock
   // even though the server has a submitted row for the vendor; submitting
   // overwrites and removes the vendor from this set.
@@ -227,6 +255,7 @@ export default function EODCountSection() {
   const caseCounts = selectedVendorId ? (caseCountsByVendor[selectedVendorId] || {}) : {};
   const unitCounts = selectedVendorId ? (unitCountsByVendor[selectedVendorId] || {}) : {};
   const notes      = selectedVendorId ? (notesByVendor[selectedVendorId]      || {}) : {};
+  const noNeed     = selectedVendorId ? (noNeedByVendor[selectedVendorId]     || {}) : {};
   const setCaseCounts = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
     if (!selectedVendorId) return;
     setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
@@ -239,6 +268,50 @@ export default function EODCountSection() {
     if (!selectedVendorId) return;
     setNotesByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
   }, [selectedVendorId]);
+
+  // Spec 172 — one row's NO NEED transitions over the CURRENT vendor's three
+  // maps. The rules (AC-16 / AC-19 / AC-35) live in the pure
+  // `src/lib/eodNoNeed.ts`; this only reads the row's state and writes the
+  // result back. A map key is written only when its value actually changes,
+  // so an untouched box keeps today's "absent key" shape.
+  const rowStateOf = (id: string): EodRowState => ({
+    caseRaw: caseCounts[id] ?? '',
+    unitRaw: unitCounts[id] ?? '',
+    noNeed: noNeed[id] === true,
+  });
+  const commitRow = (id: string, next: EodRowState) => {
+    if (!selectedVendorId) return;
+    const vid = selectedVendorId;
+    setCaseCountsByVendor((p) =>
+      (p[vid]?.[id] ?? '') === next.caseRaw ? p : { ...p, [vid]: { ...(p[vid] || {}), [id]: next.caseRaw } },
+    );
+    setUnitCountsByVendor((p) =>
+      (p[vid]?.[id] ?? '') === next.unitRaw ? p : { ...p, [vid]: { ...(p[vid] || {}), [id]: next.unitRaw } },
+    );
+    setNoNeedByVendor((p) => {
+      if ((p[vid]?.[id] === true) === next.noNeed) return p;
+      const byItem = { ...(p[vid] || {}) };
+      if (next.noNeed) byItem[id] = true;
+      else delete byItem[id];
+      return { ...p, [vid]: byItem };
+    });
+  };
+  // Row button (AC-18/19): on ↔ off, both boxes cleared.
+  const toggleNoNeed = (id: string) => commitRow(id, eodToggleNoNeed(rowStateOf(id)));
+  // Keypad-sheet button (AC-29): always set.
+  const setNoNeedFor = (id: string) => commitRow(id, eodSetNoNeed(rowStateOf(id)));
+  // Any keystroke clears NO NEED (the phone keypad writes its digit through
+  // the functional case/unit setters, so it only needs the flag dropped).
+  const clearNoNeed = (id: string) => {
+    if (!selectedVendorId) return;
+    const vid = selectedVendorId;
+    setNoNeedByVendor((p) => {
+      if (p[vid]?.[id] !== true) return p;
+      const byItem = { ...(p[vid] || {}) };
+      delete byItem[id];
+      return { ...p, [vid]: byItem };
+    });
+  };
   const [tabId, setTabId] = React.useState('count.tsx');
   const [addCountOpen, setAddCountOpen] = React.useState(false);
   const [addVendorOpen, setAddVendorOpen] = React.useState(false);
@@ -548,7 +621,23 @@ export default function EODCountSection() {
         ...(p[vid] || {}),
       },
     }));
-  }, [selectedVendorId, currentVendorSubmission]);
+    // Spec 172 (AC-25) — seed the NO NEED marks from the submission, with the
+    // same "user-typed wins" rule: an item with non-blank local case/unit text
+    // (or an existing local mark) keeps its local state, which preserves the
+    // NO NEED ⇒ blank-boxes invariant. `unitsDisplayFor` already yields '' for
+    // a NO NEED entry (actualRemaining null), so no "0" is seeded above.
+    const localCases = caseCountsByVendor[vid] || {};
+    const localUnits = unitCountsByVendor[vid] || {};
+    setNoNeedByVendor((p) => {
+      const seeded: Record<string, boolean> = {};
+      for (const e of sub.entries || []) {
+        if (e.noNeed !== true) continue;
+        const typed = (localCases[e.itemId] ?? '').trim() !== '' || (localUnits[e.itemId] ?? '').trim() !== '';
+        if (!typed) seeded[e.itemId] = true;
+      }
+      return { ...p, [vid]: { ...seeded, ...(p[vid] || {}) } };
+    });
+  }, [selectedVendorId, currentVendorSubmission, caseCountsByVendor, unitCountsByVendor]);
 
   // Category chips — derived from this vendor's items
   const categories = React.useMemo(() => {
@@ -636,11 +725,19 @@ export default function EODCountSection() {
         dateIso: selectedIso,
         // Spec 171 (AC-12) — ignore values sitting in a disabled box.
         effectiveModeOf: (id) => modeById.get(id),
+        // Spec 172 (AC-17) — a NO NEED mark in any tab counts the item.
+        noNeedByVendor,
       }),
-    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso, modeById],
+    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso, modeById, noNeedByVendor],
   );
   // Spec 171 (AC-7) — counted only when an ENABLED box is non-blank.
-  const localHasEntry = (id: string) => eodHasEntry(liveModeById(id), caseCounts[id], unitCounts[id]);
+  // Spec 172 (AC-16) — …or the row is marked NO NEED in this tab. This is the
+  // counted predicate for the gate, buildSubmission and the phone tier.
+  const localHasEntry = (id: string) =>
+    eodRowCounted(noNeed[id], liveModeById(id), caseCounts[id], unitCounts[id]);
+  // Spec 172 (AC-24) — NUMERIC-only predicate: a NO NEED row carries no
+  // quantity, so the footer est. value / variance skip it like an untyped row.
+  const localHasCount = (id: string) => eodHasEntry(liveModeById(id), caseCounts[id], unitCounts[id]);
   const hasEntry = (id: string) => localHasEntry(id) || countedItemIds.has(id);
   const countedNum = filteredItems.filter((i) => hasEntry(i.id)).length;
   const total = filteredItems.length;
@@ -650,13 +747,13 @@ export default function EODCountSection() {
   // 0-total row (which would otherwise subtract its full currentStock from
   // variance). It still counts toward `countedNum` (counted-once-globally).
   const estValue = filteredItems.reduce((s, i) => {
-    if (!localHasEntry(i.id)) return s;
+    if (!localHasCount(i.id)) return s;
     // Spec 104 (OQ-5) — itemTotal is in COUNTED units, costPerUnit is per-each
     // → `× subUnitSize` bridge so the count-screen dollar total is unchanged.
     return s + itemTotal(i) * i.costPerUnit * (i.subUnitSize || 1);
   }, 0);
   const variance = filteredItems.reduce((s, i) => {
-    if (!localHasEntry(i.id)) return s;
+    if (!localHasCount(i.id)) return s;
     return s + (itemTotal(i) - i.currentStock);
   }, 0);
 
@@ -677,6 +774,7 @@ export default function EODCountSection() {
       const cases = caseCountsByVendor[v.id] || {};
       const units = unitCountsByVendor[v.id] || {};
       const vNotes = notesByVendor[v.id] || {};
+      const vNoNeed = noNeedByVendor[v.id] || {};
       const items = storeInventory
         .filter((i) => (i.vendorIds ?? (i.vendorId ? [i.vendorId] : [])).includes(v.id))
         .map((i) => ({
@@ -689,10 +787,12 @@ export default function EODCountSection() {
           countedCases: parseCount(cases[i.id]),
           countedUnits: parseCount(units[i.id]),
           note: vNotes[i.id] || '',
+          // Spec 172 (AC-39) — the export renders NO NEED in Counted Total.
+          noNeed: vNoNeed[i.id] === true,
         }));
       return { label: v.name, items };
     });
-  }, [vendorTabs, caseCountsByVendor, unitCountsByVendor, notesByVendor, storeInventory]);
+  }, [vendorTabs, caseCountsByVendor, unitCountsByVendor, notesByVendor, noNeedByVendor, storeInventory]);
 
   const onExportCsv = React.useCallback(() => {
     try {
@@ -768,10 +868,28 @@ export default function EODCountSection() {
       // Spec 171 (AC-7 / AC-16c) — values come from the ENABLED box(es) only;
       // a disabled or unparseable box ships `undefined` (submitEODCount maps it
       // to NULL). `enteredItems` already filters on the mode-aware
-      // localHasEntry (the same predicate `eodEntryValues` gates on), so `v` is
-      // never null here; the empty-array arm only narrows the type.
-      const v = eodEntryValues(liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
+      // localHasEntry (the same predicate `eodRowEntryValues` gates on), so `v`
+      // is never null here; the empty-array arm only narrows the type.
+      const v = eodRowEntryValues(noNeed[i.id], liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
       if (!v) return [];
+      // Spec 172 (AC-21) — a NO NEED item ships no quantity, its note intact.
+      if (v.noNeed) {
+        return [{
+          itemId: i.id,
+          itemName: i.name,
+          actualRemaining: null,
+          actualRemainingCases: undefined,
+          actualRemainingEach: undefined,
+          noNeed: true,
+          unit: i.unit,
+          submittedBy: currentUser?.name || 'unknown',
+          submittedByUserId: currentUser?.id || '',
+          timestamp: now,
+          date: selectedIso,
+          storeId: currentStore.id,
+          notes: notes[i.id] || '',
+        }];
+      }
       return [{
         itemId: i.id,
         itemName: i.name,
@@ -889,6 +1007,7 @@ export default function EODCountSection() {
       setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
       setUnitCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
       setNotesByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
+      setNoNeedByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
       setEditingVendorIds((prev) => {
         if (!prev.has(selectedVendorId)) return prev;
         const next = new Set(prev);
@@ -956,6 +1075,9 @@ export default function EODCountSection() {
     const hasCase = (it.caseQty || 0) > 1;
     const total = itemTotal(it);
     const inputsDisabled = isRestDay || isVendorLocked;
+    // Spec 172 — NO NEED state: the submitted entry's flag while locked, else
+    // this tab's local mark. A NO NEED row's boxes are blank by invariant.
+    const rowNoNeed = isVendorLocked ? submittedEntry?.noNeed === true : noNeed[it.id] === true;
     const rowUncounted = !inputsDisabled && !cFocused && !uFocused && !hasEntry(it.id);
     return (
       <View
@@ -990,7 +1112,8 @@ export default function EODCountSection() {
             }}
             value={cShown}
             editable={box.cases && !inputsDisabled}
-            onChangeText={(text) => setCaseCounts((p) => ({ ...p, [it.id]: text }))}
+            // Spec 172 (AC-19) — typing writes the box and clears NO NEED.
+            onChangeText={(text) => commitRow(it.id, eodTypeInto(rowStateOf(it.id), 'cases', text))}
             placeholder={box.cases ? '0' : '—'}
             placeholderTextColor={C.fg3}
             keyboardType="numeric"
@@ -1021,7 +1144,7 @@ export default function EODCountSection() {
             }}
             value={uShown}
             editable={box.units && !inputsDisabled}
-            onChangeText={(text) => setUnitCounts((p) => ({ ...p, [it.id]: text }))}
+            onChangeText={(text) => commitRow(it.id, eodTypeInto(rowStateOf(it.id), 'units', text))}
             placeholder={box.units ? '0' : '—'}
             placeholderTextColor={C.fg3}
             keyboardType="numeric"
@@ -1043,6 +1166,44 @@ export default function EODCountSection() {
           <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3, marginTop: 3 }}>
             {box.units ? it.unit : '—'}
           </Text>
+        </View>
+        {/* Spec 172 (AC-18/20/25) — NO NEED ("more than enough") toggle.
+            Disabled whenever the inputs are; while locked it shows the
+            submitted entry's state. Tapping clears both boxes (OQ-1). */}
+        <View style={{ width: noNeedW, alignItems: 'center' }}>
+          <TouchableOpacity
+            testID={`eod-noneed-${it.id}`}
+            onPress={() => toggleNoNeed(it.id)}
+            disabled={inputsDisabled}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={T('section.eod.noNeedAria', { item: it.name })}
+            accessibilityState={{ selected: rowNoNeed, disabled: inputsDisabled }}
+            style={{
+              width: noNeedW,
+              minHeight: 30,
+              paddingHorizontal: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: rowNoNeed ? C.ok : C.border,
+              backgroundColor: rowNoNeed ? C.okBg : C.panel,
+              borderRadius: CmdRadius.sm,
+              opacity: inputsDisabled ? 0.5 : 1,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: mono(rowNoNeed ? 700 : 500),
+                fontSize: 10,
+                letterSpacing: 0.3,
+                textAlign: 'center',
+                color: rowNoNeed ? C.ok : C.fg3,
+              }}
+            >
+              {rowNoNeed ? `✓ ${T('section.eod.noNeed')}` : T('section.eod.noNeed')}
+            </Text>
+          </TouchableOpacity>
         </View>
         <TextInput
           value={nVal}
@@ -1140,6 +1301,11 @@ export default function EODCountSection() {
           setCaseCounts,
           setUnitCounts,
           setNotes,
+          // Spec 172 — NO NEED read + transitions for the phone row and sheet.
+          noNeed,
+          toggleNoNeed,
+          setNoNeed: setNoNeedFor,
+          clearNoNeed,
           hasEntry,
           localHasEntry,
           itemTotal,
@@ -1785,6 +1951,8 @@ export default function EODCountSection() {
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>{T('section.eod.itemPackCol')}</Text>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.boxCaseCol')}</Text>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.countCol')}</Text>
+            {/* Spec 172 — spacer over the per-row NO NEED toggle column. */}
+            <View style={{ width: noNeedW }} />
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>{T('section.eod.noteCol')}</Text>
           </View>
           {viewMode === 'custom' ? (

@@ -46,6 +46,13 @@ export interface StaffEodCountRowProps {
   /** inputsLocked (spec 129) — read-only wells, no keypad on tap. */
   locked: boolean;
   onOpenWell: (item: EodItem, field: 'cases' | 'units') => void;
+  /** Spec 172 — the row is marked NO NEED ("more than enough"). Its wells are
+   *  blank by invariant and the total line is suppressed. */
+  noNeed?: boolean;
+  /** Spec 172 (AC-31) — the NO NEED toggle renders iff this is set, and then
+   *  only when unlocked, or locked with `noNeed` (shown active + disabled).
+   *  Optional so pre-172 callers / fixtures are unchanged. */
+  onToggleNoNeed?: (item: EodItem) => void;
 }
 
 export function StaffEodCountRow({
@@ -59,6 +66,8 @@ export function StaffEodCountRow({
   countMode,
   locked,
   onOpenWell,
+  noNeed = false,
+  onToggleNoNeed,
 }: StaffEodCountRowProps) {
   const box = eodBoxes(countMode ?? (hasPack ? 'cases_and_units' : 'units_only'));
   const c = useStaffColors();
@@ -145,7 +154,7 @@ export function StaffEodCountRow({
                 {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
               </Text>
             ) : null}
-            {hasPack && counted ? (
+            {hasPack && counted && !noNeed ? (
               <Text
                 style={[styles.itemTotal, { color: c.textSecondary }]}
                 testID={`eod-item-total-${item.id}`}
@@ -158,6 +167,35 @@ export function StaffEodCountRow({
       }
       trailing={
         <View style={styles.wells}>
+          {/* Spec 172 (AC-31) — NO NEED toggle. Marks the row counted without
+              a number; disabled (but shown active) on a locked NO NEED row. */}
+          {onToggleNoNeed && (!locked || noNeed) ? (
+            <Pressable
+              testID={`eod-noneed-${item.id}`}
+              onPress={() => onToggleNoNeed(item)}
+              disabled={locked}
+              accessibilityRole="button"
+              accessibilityState={{ selected: noNeed, disabled: locked }}
+              accessibilityLabel={t('eod.noNeedAria', { item: displayName })}
+              style={[
+                styles.well,
+                styles.noNeed,
+                {
+                  borderColor: noNeed ? c.success : c.borderStrong,
+                  borderStyle: noNeed ? 'solid' : 'dashed',
+                  backgroundColor: noNeed ? c.successBg : 'transparent',
+                },
+                locked && styles.wellLocked,
+              ]}
+            >
+              <Text
+                style={[styles.noNeedText, { color: noNeed ? c.success : c.textSecondary }]}
+                numberOfLines={2}
+              >
+                {t('eod.noNeed')}
+              </Text>
+            </Pressable>
+          ) : null}
           {box.cases ? (
             <Well
               field="cases"
@@ -234,6 +272,15 @@ const makeStyles = (T: StaffTokens) =>
     },
     wellLocked: {
       opacity: 0.6,
+    },
+    noNeed: {
+      alignItems: 'center',
+      maxWidth: Math.round((72 / 9) * T.typography.bodyLarge),
+    },
+    noNeedText: {
+      fontSize: T.typography.caption,
+      fontWeight: T.typography.semibold,
+      textAlign: 'center',
     },
     wellLabel: {
       fontSize: T.typography.caption,

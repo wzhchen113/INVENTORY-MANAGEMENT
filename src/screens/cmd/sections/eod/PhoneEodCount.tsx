@@ -64,6 +64,15 @@ export interface PhoneEodModel {
   setCaseCounts: (u: (p: Record<string, string>) => Record<string, string>) => void;
   setUnitCounts: (u: (p: Record<string, string>) => Record<string, string>) => void;
   setNotes: (u: (p: Record<string, string>) => Record<string, string>) => void;
+  // Spec 172 — NO NEED marks for the current tab + their transitions. All
+  // OPTIONAL so pre-172 model fixtures compile; `EODCountSection` passes all.
+  noNeed?: Record<string, boolean>;
+  /** Row button: on ↔ off, both boxes cleared (AC-28). */
+  toggleNoNeed?: (id: string) => void;
+  /** Keypad-sheet button: always set (AC-29). */
+  setNoNeed?: (id: string) => void;
+  /** Any keypad key clears the mark before the digit is written (AC-29). */
+  clearNoNeed?: (id: string) => void;
   hasEntry: (id: string) => boolean;
   localHasEntry: (id: string) => boolean;
   itemTotal: (i: InventoryItem) => number;
@@ -135,6 +144,8 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
   const onKey = (key: string) => {
     if (!sheetItem) return;
     const id = sheetItem.id;
+    // Spec 172 (AC-29) — any key (backspace included) clears NO NEED first.
+    model.clearNoNeed?.(id);
     if (seatedField === 'cases') {
       model.setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
     } else {
@@ -176,6 +187,26 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
   };
 
   const onSkip = () => advance();
+
+  // Spec 172 (AC-29 / OQ-5) — sheet NO NEED: mark the seated item, then
+  // advance like NEXT ITEM. The just-marked id is in the counted predicate
+  // because the mark is not committed to state yet — otherwise the wraparound
+  // would re-seat the same item. None left → close + the allCounted toast.
+  const onNoNeed = () => {
+    if (!sheetItem || !model.setNoNeed) return;
+    const id = sheetItem.id;
+    model.setNoNeed(id);
+    const ordered = model.filteredItems;
+    const idx = ordered.findIndex((i) => i.id === id);
+    const res = advanceUncounted(ordered, idx, (i) => i.id === id || model.hasEntry(i.id));
+    if (!res) {
+      closeSheet();
+      Toast.show({ type: 'success', text1: T('section.eod.phone.allCounted') });
+      return;
+    }
+    setSheetItemId(res.item.id);
+    setActiveField(activeFieldFor(res.item.caseQty, res.item.eodCountMode));
+  };
 
   // ── Day-strip status-dot color ──────────────────────────────────────
   const dotColorFor = (status: DayStatus): string => {
@@ -472,6 +503,10 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
         unitValue={sheetItem ? model.unitCounts[sheetItem.id] || '' : ''}
         noteValue={sheetItem ? model.notes[sheetItem.id] || '' : ''}
         runningTotal={sheetItem ? model.itemTotal(sheetItem) : 0}
+        // Spec 172 — the EOD sheet opts in to the NO NEED button (the weekly
+        // count reuses this sheet without these props, so it never shows it).
+        noNeed={sheetItem ? model.noNeed?.[sheetItem.id] === true : false}
+        onNoNeed={model.setNoNeed ? onNoNeed : undefined}
         isDone={isDone}
         onKey={onKey}
         onNote={onNote}
@@ -533,6 +568,14 @@ function CountRow({
 
   const counted = model.hasEntry(item.id);
   const total = model.itemTotal(item);
+  // Spec 172 — NO NEED: the submitted entry's flag while locked (AC-30), else
+  // this tab's local mark. The wells are blank by invariant.
+  const noNeed = model.isVendorLocked
+    ? submittedEntry?.noNeed === true
+    : model.noNeed?.[item.id] === true;
+  // Unlocked: the control renders whenever the parent wired the toggle
+  // (AC-28). Locked: only to show a submitted NO NEED, active + disabled.
+  const showNoNeed = model.isVendorLocked ? noNeed : !!model.toggleNoNeed;
 
   const Well = ({ field, label, value }: { field: 'cases' | 'units'; label: string; value: string }) => {
     const filled = value.trim() !== '';
@@ -601,9 +644,41 @@ function CountRow({
           {item.unit}
           {hasCase ? ` · case ${item.caseQty}` : ''}
           {item.parLevel > 0 ? ` · par ${item.parLevel}` : ''}
-          {counted ? ` · ${total} ${item.unit}` : ''}
+          {noNeed ? ` · ${T('section.eod.noNeed')}` : counted ? ` · ${total} ${item.unit}` : ''}
         </Text>
       </View>
+
+      {/* Spec 172 (AC-28/30) — NO NEED toggle. Marks the row counted without
+          opening the keypad; disabled while the row is locked. */}
+      {showNoNeed ? (
+        <Pressable
+          testID={`eod-noneed-${item.id}`}
+          onPress={() => model.toggleNoNeed?.(item.id)}
+          disabled={locked}
+          accessibilityRole="button"
+          accessibilityLabel={T('section.eod.noNeedAria', { item: item.name })}
+          accessibilityState={{ selected: noNeed, disabled: locked }}
+          style={{
+            width: 56,
+            height: 48,
+            paddingHorizontal: 2,
+            borderWidth: 1,
+            borderColor: noNeed ? C.ok : C.borderStrong,
+            backgroundColor: noNeed ? C.okBg : 'transparent',
+            borderRadius: CmdRadius.sm,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: locked ? 0.6 : 1,
+          }}
+        >
+          <Text
+            style={{ ...PhoneType.microCaption, color: noNeed ? C.ok : C.fg3, textAlign: 'center' }}
+            numberOfLines={2}
+          >
+            {T('section.eod.noNeed')}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {/* Wells */}
       {box.cases ? <Well field="cases" label={T('section.eod.phone.casesWell', { qty: item.caseQty })} value={cVal} /> : null}

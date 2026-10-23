@@ -80,6 +80,8 @@
       "moveDown": "Move down"
     },
     "countedOfTotal": "{counted} of {total} counted",
+    "noNeed": "No need",
+    "noNeedAria": "{item}: no need — more than enough",
     "submit": "Submit",
     "submitting": "Submitting...",
     "edit": "Edit",
@@ -148,7 +150,8 @@
       "order": "Order: {suggested}",
       "alsoFromOne": "also available from {vendors} — order from one",
       "alsoFromMany": "also available from {count} other vendors ({vendors}) — order from one",
-      "inStock": "In stock: {qty}"
+      "inStock": "In stock: {qty}",
+      "noNeed": "No need"
     },
     "export": {
       "label": "Export / share",

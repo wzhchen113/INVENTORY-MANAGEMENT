@@ -8,7 +8,9 @@
 // Peer to `poCaseDisplay.ts` / `reorderExport.ts` and held to the same purity
 // discipline: NO React, NO supabase, NO theme, NO i18n import. Its only imports
 // are `isCaseRow` / `poOrderedToCases` from `./poCaseDisplay` (AC-4: base units
-// in, display units out, and NO second conversion helper) plus types.
+// in, display units out, and NO second conversion helper), the
+// `REORDER_FLAG_NO_NEED` token from the pure `../lib/eodNoNeed` (spec 172),
+// plus types.
 //
 // Design guidance 2: this returns a DISCRIMINATED RESULT, never a pre-formatted
 // string, so each tier renders its own tokens and the two tiers cannot drift.
@@ -21,6 +23,7 @@
 // Do NOT widen the `Pick<>` to `ReorderItem`.
 
 import { isCaseRow, poOrderedToCases } from './poCaseDisplay';
+import { REORDER_FLAG_NO_NEED } from '../lib/eodNoNeed';
 import type {
   LastOrderContext,
   LastOrderContextVendor,
@@ -133,7 +136,11 @@ export function buildLastOrderContext(args: {
 
   // AC-11 / AC-12 / R-F — the delta needs a REAL count on both sides.
   let delta: LastOrderDelta | null = null;
-  const rowFellBackToStock = (item.flags || []).includes(EOD_MISSING_FOR_ITEM);
+  // Spec 172 (AC-37) — a NO NEED row's `onHand` is the stale `current_stock`,
+  // not a real count, so it suppresses the delta exactly like EOD MISS.
+  const rowFlags = item.flags || [];
+  const rowFellBackToStock =
+    rowFlags.includes(EOD_MISSING_FOR_ITEM) || rowFlags.includes(REORDER_FLAG_NO_NEED);
   if (countedBase != null && onHandSource === 'eod' && !rowFellBackToStock) {
     const d = toDisplay(item.onHand - countedBase, caseQty, unit);
     const direction: LastOrderDelta['direction'] =

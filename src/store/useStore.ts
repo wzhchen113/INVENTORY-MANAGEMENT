@@ -16,6 +16,7 @@ import type { PoLine, OrderApproval, OrderApprovalLine, InstacartAdvisory } from
 // lives there too, but the SERVER is authoritative for an approval's channel).
 import type { OrderChannel } from '../utils/orderChannel';
 import { callEdgeFunction } from '../lib/auth';
+import { EOD_NO_NEED_AUDIT_VALUE, isNumericEodEntry } from '../lib/eodNoNeed';
 import {
   STORES, USERS, INVENTORY, RECIPES, VENDORS,
   WASTE_LOG, AUDIT_LOG, PREP_RECIPES,
@@ -3000,8 +3001,13 @@ export const useStore = create<FullStore>((set, get) => ({
       const item = get().inventory.find((i) => i.id === entry.itemId);
       const itemVendorIds = item?.vendorIds ?? (item?.vendorId ? [item.vendorId] : []);
       const itemMatchesSubmittedVendor = !!subVendorId && itemVendorIds.includes(subVendorId);
+      // Spec 172 (AC-23): a NO NEED entry carries no quantity, so it never
+      // mirrors or persists an on-hand. All three on-hand writers skip it:
+      // this one, the db.ts submitEODCount loop, and staff_submit_eod (S3).
+      const numeric = isNumericEodEntry(entry);
 
-      if (itemMatchesSubmittedVendor) {
+      if (numeric && itemMatchesSubmittedVendor) {
+        const total = entry.actualRemaining;
         set((s) => ({
           inventory: s.inventory.map((it) =>
             it.id === entry.itemId
@@ -3011,8 +3017,8 @@ export const useStore = create<FullStore>((set, get) => ({
                   // so reset currentStock too. Without this, dashboard tiles
                   // (inventory value, low/out-of-stock, stock alerts) keep
                   // showing pre-count zeros — see DashboardScreen `inventoryValue`.
-                  currentStock: entry.actualRemaining,
-                  eodRemaining: entry.actualRemaining,
+                  currentStock: total,
+                  eodRemaining: total,
                   lastUpdatedBy: entry.submittedBy,
                   lastUpdatedAt: entry.timestamp,
                 }
@@ -3026,7 +3032,7 @@ export const useStore = create<FullStore>((set, get) => ({
         db
           .adjustItemStock(
             entry.itemId,
-            entry.actualRemaining,
+            total,
             entry.submittedByUserId || get().currentUser?.id || '',
           )
           .catch((e: any) => console.warn('[Supabase]', e?.message || e));
@@ -3054,7 +3060,17 @@ export const useStore = create<FullStore>((set, get) => ({
         action: 'EOD entry',
         detail,
         itemRef: entry.itemName,
-        value: `${entry.actualRemaining} ${entry.unit}`,
+        // Spec 172 (AC-23 / N6): stored English literal, not localized.
+        // Review-fix SF-3: the quantity text is derived from the same
+        // `numeric` decision as the on-hand write above, so it can never
+        // read "null <unit>". A non-numeric, non-NO-NEED entry (no client
+        // builds one today) audits an empty value — the client mirror of
+        // staff_submit_eod S4's else-branch, which yields NULL there.
+        value: entry.noNeed === true
+          ? EOD_NO_NEED_AUDIT_VALUE
+          : numeric
+            ? `${entry.actualRemaining} ${entry.unit}`
+            : '',
       });
     });
 

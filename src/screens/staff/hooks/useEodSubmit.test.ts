@@ -327,3 +327,89 @@ describe('useEodSubmit — drain loop (mount + connectivity flip)', () => {
     ).toBeUndefined();
   });
 });
+
+// ─── Spec 172 — NO NEED entries ride p_entries (AC-34) ─────────────
+describe('useEodSubmit — NO NEED (spec 172)', () => {
+  const NO_NEED_ENTRY = {
+    item_id: 'item-nn',
+    actual_remaining: null,
+    actual_remaining_cases: null,
+    actual_remaining_each: null,
+    no_need: true,
+  };
+
+  it('online submit forwards no_need: true; the numeric element stays byte-identical', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { submission_id: 'sub-1', conflict: false },
+      error: null,
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    await act(async () => {
+      await result.current.submit({
+        ...samplePayload,
+        entries: [...samplePayload.entries, NO_NEED_ENTRY],
+      });
+    });
+    const args = mockRpc.mock.calls[0][1] as { p_entries: Array<Record<string, unknown>> };
+    expect(args.p_entries).toEqual([
+      {
+        ingredient_id: 'item-1',
+        actual_remaining: 3,
+        actual_remaining_cases: 1,
+        actual_remaining_each: 1,
+      },
+      {
+        ingredient_id: 'item-nn',
+        actual_remaining: null,
+        actual_remaining_cases: null,
+        actual_remaining_each: null,
+        no_need: true,
+      },
+    ]);
+    // The numeric element carries NO no_need key at all.
+    expect('no_need' in args.p_entries[0]).toBe(false);
+  });
+
+  it('a queued NO NEED submission drains with no_need: true', async () => {
+    useStaffStore.setState({
+      authState: { kind: 'signed-in', userId: 'user-1', stores: [] },
+      eodQueue: [
+        {
+          client_uuid: 'q-nn',
+          store_id: 'store-1',
+          date: '2026-05-24',
+          vendor_id: 'vendor-1',
+          status: 'submitted',
+          entries: [NO_NEED_ENTRY],
+          queued_at: '2026-05-24T00:00:00.000Z',
+          intent_user_id: 'user-1',
+          attempts: 0,
+        },
+      ],
+    });
+    mockRpc.mockResolvedValueOnce({
+      data: { submission_id: 'sub-nn', conflict: false },
+      error: null,
+    });
+
+    renderHook(() => useEodSubmit());
+    await waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(1));
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      'staff_submit_eod',
+      expect.objectContaining({
+        p_client_uuid: 'q-nn',
+        p_entries: [
+          {
+            ingredient_id: 'item-nn',
+            actual_remaining: null,
+            actual_remaining_cases: null,
+            actual_remaining_each: null,
+            no_need: true,
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+  });
+});

@@ -4,6 +4,7 @@ import {
   ReconciliationLine,
 } from '../types';
 import { convertToItemUnit } from './unitConversion';
+import { numericEodSubmissions, type NumericEODSubmission } from '../lib/eodNoNeed';
 
 // ── Ingredient Usage from POS × BOM ──────────────────────────
 
@@ -147,7 +148,10 @@ function getOpeningStock(
   itemId: string,
   date: string,
   storeId: string,
-  eodSubmissions: EODSubmission[],
+  // Spec 172 (AC-27): callers pass the NO-NEED-stripped list, so a NO NEED
+  // entry on the prior day falls back to currentStock exactly like an absent
+  // entry.
+  eodSubmissions: NumericEODSubmission[],
   inventory: InventoryItem[],
 ): number {
   // Previous day
@@ -177,9 +181,13 @@ export function buildReconciliationLines(
   inventory: InventoryItem[],
   conversions?: IngredientConversion[],
 ): ReconciliationLine[] {
+  // Spec 172 (AC-27): NO NEED entries carry no quantity — strip them so they
+  // are treated exactly as absent entries (closing count AND opening stock).
+  const numericSubs = numericEodSubmissions(eodSubmissions);
+
   // EOD submission on the END of the range — closing count for the period.
   // For single-day reconciliation startDate === endDate.
-  const eodSub = eodSubmissions.find(
+  const eodSub = numericSubs.find(
     (s) => s.storeId === storeId && s.date === endDate
   );
   if (!eodSub) return [];
@@ -229,7 +237,7 @@ export function buildReconciliationLines(
     const catalogId = invRow?.catalogId;
     const lookupKey = catalogId || entry.itemId;
     // Opening stock is EOD-end-of-day before the range began.
-    const openingStock = getOpeningStock(entry.itemId, startDate, storeId, eodSubmissions, inventory);
+    const openingStock = getOpeningStock(entry.itemId, startDate, storeId, numericSubs, inventory);
     const usageData = usage.get(lookupKey);
     const expectedDeduction = usageData ? Math.round(usageData.totalUsed * 100) / 100 : 0;
     const expectedRemaining = Math.round((openingStock - expectedDeduction) * 100) / 100;

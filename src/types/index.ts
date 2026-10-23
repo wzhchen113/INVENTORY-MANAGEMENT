@@ -375,7 +375,13 @@ export interface EODEntry {
   id: string;
   itemId: string;
   itemName: string;
-  actualRemaining: number;        // authoritative total in base units
+  // Authoritative total in base units. Spec 172: null iff noNeed (DB CHECK
+  // eod_entries_no_need_no_quantity_check). Numeric consumers MUST go through
+  // isNumericEodEntry / numericEodSubmissions (src/lib/eodNoNeed.ts).
+  actualRemaining: number | null;
+  // Spec 172: "NO NEED — more than enough", no quantity. Absent on numeric
+  // entries (mappers attach it only when true).
+  noNeed?: boolean;
   unit: string;
   // Dual-entry (optional, only when hasCaseInfo)
   actualRemainingCases?: number;  // sealed cases counted
