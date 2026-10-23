@@ -176,13 +176,13 @@ export async function createStore(store: Omit<Store, 'id'>): Promise<string> {
 }
 
 export async function deleteStore(id: string): Promise<void> {
-  // Delete all related data first
+  // Delete related data explicitly first, except audit_log (left to the stores FK cascade)
   return useInflight.getState().track(async (signal) => {
     await supabase.from('inventory_items').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('recipes').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('eod_submissions').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('waste_log').delete().eq('store_id', id).abortSignal(signal);
-    await supabase.from('audit_log').delete().eq('store_id', id).abortSignal(signal);
+    // audit_log rows ride the stores FK cascade (spec 170 — fresh rows are not API-deletable)
     await supabase.from('user_stores').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('stores').delete().eq('id', id).abortSignal(signal);
   }, { kind: 'write', label: 'deleteStore' });

@@ -23,10 +23,39 @@
 --   IC-7 / IC-8         admin JWT / master JWT INSERT still succeed (regression)
 --   AL-1 / AL-2         super_admin INSERTs and SELECTs a store-less audit row
 --   AL-3 / AL-4         plain user cannot INSERT (42501) nor SELECT one
---   AL-5 / AL-6         super_admin UPDATE / DELETE a store-scoped row (1 row)
---   AL-7 / AL-8         plain user UPDATE / DELETE that same row (0 rows)
---   AL-9 / AL-10        admin JWT UPDATE / master JWT DELETE still work
+--   AL-5                super_admin UPDATE of a store-scoped row affects 0 rows
+--                       (spec 170: no UPDATE policy; audit rows immutable)
+--   AL-6                super_admin DELETE of an aged (>90d) store-scoped row
+--                       removes it (spec 170 age gate)
+--   AL-7 / AL-8         plain user UPDATE / DELETE a store-scoped row (0 rows;
+--                       AL-8's row is aged >90d so only the privilege gate
+--                       can refuse it)
+--   AL-9                admin JWT UPDATE affects 0 rows (spec 170)
+--   AL-10               master JWT DELETE of an aged (>90d) row still removes it
 --   LINT-1              zero public.* policies name auth_is_admin
+--
+-- ── Spec 170 amendment ───────────────────────────────────────────────────
+-- 20261022000000_audit_log_rls_hardening.sql dropped admin_update_audit_log
+-- and replaced admin_delete_audit_log with a store/brand-scoped predicate that
+-- only admits rows older than 90 days. The four arms that pinned spec 157's
+-- "privileged UPDATE/DELETE of a fresh row succeeds" were updated two ways:
+--   * UPDATE arms (AL-5, AL-9) FLIP to 0-row assertions: there is no longer
+--     any UPDATE path for anyone, so there is no parity left to prove.
+--   * DELETE arms (AL-6, AL-10) keep asserting removal, but their fixtures
+--     (…0002, …0006) are AGED to now() - 91 days at insert time. This keeps
+--     spec 157's intent: super_admin / master are not silently denied on the
+--     retention purge. Flipping them instead would have dropped that parity
+--     check entirely. Fresh-row DELETE refusal is covered by
+--     audit_log_rls_hardening.test.sql D-1 / D-2.
+--   * AL-8's fixture (…0004) is also AGED to now() - 91 days (spec 170
+--     review fix pass). With a fresh row the 90-day gate alone refused the
+--     plain user, so the arm passed even if the privilege gate were broken.
+--     Aged, the only clause that can refuse is auth_is_privileged().
+--   * AL-7 needs no fixture change, but what refuses it changed: there is
+--     no UPDATE policy at all, so UPDATE is default-deny for everyone.
+--   * The fixture rows are inserted as postgres (RLS bypassed), so the
+--     spec 170 created_at = now() INSERT policy does not apply to the
+--     explicit now() - 91 days values.
 --
 -- Hermetic begin; ... rollback; isolation. The seed is untouched.
 --
@@ -51,8 +80,13 @@
 -- for the wrong reason, and the arms would pass even if the fix were wrong.
 -- Each of AL-7/AL-8 therefore asserts on the row's surviving `detail` value —
 -- which is NULL if the row is invisible AND NULL if the row was wrongly
--- deleted, so the arm fails in either failure mode. These are the sharpest
--- arms in the suite.
+-- deleted, so the arm fails in either failure mode.
+--
+-- Since spec 170: AL-7's refusal comes from default-deny (no UPDATE policy
+-- exists), so it is a no-regression arm rather than a proof of a specific
+-- policy clause. AL-8's fixture is aged past the 90-day gate and sits in the
+-- plain user's own store, so the age gate and the store scope both admit it
+-- and only admin_delete_audit_log's auth_is_privileged() clause can refuse.
 --
 -- ── Fixture note: AL-10 / IC-8 (master JWT) orthogonality ────────────────
 -- The master's profiles row is 'super_admin' inside this txn, so both the
@@ -104,25 +138,29 @@ insert into public.ingredient_categories (name)
 -- All store-scoped on Towson, which BOTH the plain user (user_stores grant)
 -- and the admin (same brand) can see — see the AL-7/AL-8 fixture note.
 -- user_id is left NULL to keep the profiles FK out of the picture.
-insert into public.audit_log (id, store_id, user_id, action, detail) values
+-- Spec 170: rows …0002 (AL-6), …0004 (AL-8) and …0006 (AL-10) are aged past
+-- the 90-day DELETE gate at insert time (there is no UPDATE path to age them
+-- later). These inserts run as postgres, so the created_at = now() INSERT
+-- policy is bypassed.
+insert into public.audit_log (id, store_id, user_id, action, detail, created_at) values
   ('a5000157-0000-0000-0000-000000000001',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_sa_update__',     '__test_spec157_original__'),
+   '__test_spec157_al_sa_update__',     '__test_spec157_original__', default),
   ('a5000157-0000-0000-0000-000000000002',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_sa_delete__',     '__test_spec157_original__'),
+   '__test_spec157_al_sa_delete__',     '__test_spec157_original__', now() - interval '91 days'),
   ('a5000157-0000-0000-0000-000000000003',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_user_update__',   '__test_spec157_original__'),
+   '__test_spec157_al_user_update__',   '__test_spec157_original__', default),
   ('a5000157-0000-0000-0000-000000000004',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_user_delete__',   '__test_spec157_original__'),
+   '__test_spec157_al_user_delete__',   '__test_spec157_original__', now() - interval '91 days'),
   ('a5000157-0000-0000-0000-000000000005',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_admin_update__',  '__test_spec157_original__'),
+   '__test_spec157_al_admin_update__',  '__test_spec157_original__', default),
   ('a5000157-0000-0000-0000-000000000006',
    current_setting('test.store_id', true)::uuid, null,
-   '__test_spec157_al_master_delete__', '__test_spec157_original__');
+   '__test_spec157_al_master_delete__', '__test_spec157_original__', now() - interval '91 days');
 
 
 -- ══════════════════════════════════════════════════════════════════════════
@@ -196,7 +234,10 @@ select is(
   'AL-2: super_admin SELECT sees the store-less audit_log row'
 );
 
--- ── AL-5: super_admin UPDATE of a store-scoped row affects 1 ──────────────
+-- ── AL-5: super_admin UPDATE of a store-scoped row affects 0 ──────────────
+-- Spec 170 flipped this arm: there is no UPDATE policy on audit_log. The
+-- super_admin can SELECT the row (Towson), so the read-back is meaningful: a
+-- NULL would mean "invisible", a changed value "wrongly updated".
 update public.audit_log
    set detail = '__test_spec157_sa_touched__'
  where id = 'a5000157-0000-0000-0000-000000000001';
@@ -204,11 +245,13 @@ update public.audit_log
 select is(
   (select detail from public.audit_log
     where id = 'a5000157-0000-0000-0000-000000000001'),
-  '__test_spec157_sa_touched__',
-  'AL-5: super_admin UPDATE of a store-scoped audit_log row affects that row'
+  '__test_spec157_original__',
+  'AL-5: super_admin UPDATE of a store-scoped audit_log row affects 0 rows (spec 170: no UPDATE policy; audit rows immutable)'
 );
 
--- ── AL-6: super_admin DELETE of a store-scoped row affects 1 ──────────────
+-- ── AL-6: super_admin DELETE of an aged store-scoped row affects 1 ────────
+-- The fixture is 91 days old (spec 170 age gate), preserving spec 157's
+-- "super_admin is not silently denied on the retention purge" intent.
 delete from public.audit_log
  where id = 'a5000157-0000-0000-0000-000000000002';
 
@@ -216,7 +259,7 @@ select is(
   (select count(*)::bigint from public.audit_log
     where id = 'a5000157-0000-0000-0000-000000000002'),
   0::bigint,
-  'AL-6: super_admin DELETE of a store-scoped audit_log row removes it'
+  'AL-6: super_admin DELETE of a store-scoped audit_log row removes an aged (>90d) row (spec 170 age gate)'
 );
 
 
@@ -287,8 +330,9 @@ select is(
 -- ── AL-7: plain user UPDATE of a VISIBLE store-scoped row affects 0 ───────
 -- The user can SELECT this row (user_stores grant on Towson), so a NULL here
 -- would mean "invisible" and a changed value would mean "wrongly updated" —
--- the arm fails in both failure modes. This is the arm that proves the
--- UPDATE policy, not visibility, is what refuses.
+-- the arm fails in both failure modes. Since spec 170 there is no UPDATE
+-- policy on audit_log, so the refusal is default-deny (no permissive UPDATE
+-- policy admits anyone), not a privilege check.
 update public.audit_log
    set detail = '__test_spec157_user_touched__'
  where id = 'a5000157-0000-0000-0000-000000000003';
@@ -301,6 +345,8 @@ select is(
 );
 
 -- ── AL-8: plain user DELETE of a VISIBLE store-scoped row affects 0 ───────
+-- The row is aged >90 days and on the user's own store, so the age gate and
+-- auth_can_see_store() both admit it; only auth_is_privileged() refuses.
 delete from public.audit_log
  where id = 'a5000157-0000-0000-0000-000000000004';
 
@@ -308,7 +354,7 @@ select is(
   (select detail from public.audit_log
     where id = 'a5000157-0000-0000-0000-000000000004'),
   '__test_spec157_original__',
-  'AL-8: plain user DELETE of a visible store-scoped audit_log row affects 0 rows'
+  'AL-8: plain user DELETE of a visible, aged (>90d) store-scoped audit_log row affects 0 rows'
 );
 
 
@@ -338,7 +384,9 @@ select is(
   'IC-7: admin JWT INSERT into ingredient_categories still succeeds (regression, AC-4)'
 );
 
--- ── AL-9: admin JWT UPDATE still affects the row ──────────────────────────
+-- ── AL-9: admin JWT UPDATE affects 0 rows (spec 170) ──────────────────────
+-- Flipped by spec 170: no UPDATE policy exists for any principal. The admin
+-- (brand A) can SELECT this Towson row, so the read-back is meaningful.
 update public.audit_log
    set detail = '__test_spec157_admin_touched__'
  where id = 'a5000157-0000-0000-0000-000000000005';
@@ -346,8 +394,8 @@ update public.audit_log
 select is(
   (select detail from public.audit_log
     where id = 'a5000157-0000-0000-0000-000000000005'),
-  '__test_spec157_admin_touched__',
-  'AL-9: admin JWT UPDATE of an audit_log row still affects it (regression, AC-4)'
+  '__test_spec157_original__',
+  'AL-9: admin JWT UPDATE of an audit_log row affects 0 rows (spec 170: no UPDATE policy; audit rows immutable)'
 );
 
 
@@ -377,7 +425,8 @@ select is(
   'IC-8: master JWT INSERT into ingredient_categories still succeeds (regression, AC-4)'
 );
 
--- ── AL-10: master JWT DELETE still removes the row ────────────────────────
+-- ── AL-10: master JWT DELETE of an aged row still removes it ──────────────
+-- The fixture is 91 days old (spec 170 age gate).
 delete from public.audit_log
  where id = 'a5000157-0000-0000-0000-000000000006';
 
@@ -385,7 +434,7 @@ select is(
   (select count(*)::bigint from public.audit_log
     where id = 'a5000157-0000-0000-0000-000000000006'),
   0::bigint,
-  'AL-10: master JWT DELETE of an audit_log row still removes it (regression, AC-4)'
+  'AL-10: master JWT DELETE of an audit_log row still removes an aged (>90d) row (spec 170 age gate; regression, AC-4)'
 );
 
 
