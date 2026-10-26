@@ -741,12 +741,23 @@ export interface AppState {
   /**
    * Spec 021 — last fetched reorder-list envelope for the current store.
    * `null` until ReorderSection opens and triggers
-   * `loadReorderSuggestions`. Cleared (not refreshed) by
-   * `loadFromSupabase` so the section stays the lazy-load entry point.
+   * `loadReorderSuggestions`, so the section stays the lazy-load entry
+   * point. Spec 175 — `loadFromSupabase` clears it on a store switch; on a
+   * same-store reload it keeps it and silently refreshes it for its own
+   * `asOfDate`.
    */
   reorderPayload: ReorderPayload | null;
   reorderLoading: boolean;
   reorderError: string | null;
+  /**
+   * Spec 175 — the store id the current `reorderPayload` was fetched for,
+   * captured at fetch start. Non-null only after a successful fetch, and
+   * nulled in the same write as every payload clear. `loadFromSupabase`
+   * compares it with the target store to tell a store switch (clear) from a
+   * same-store reload (keep plus silent refresh). Mirrors spec 160's
+   * `lastCountedStoreId`.
+   */
+  reorderStoreId: string | null;
   /**
    * Spec 151 (R-G) — the "last time" annotation for the ordering surfaces,
    * keyed by vendorId. TRI-STATE, and the distinction is load-bearing:

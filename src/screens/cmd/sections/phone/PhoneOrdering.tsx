@@ -610,8 +610,9 @@ function OverflowSheet({
 
   // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` half
   // of the draft's upsert key, as of EXPORT START. Both move: the store can be
-  // switched (phone store-switch sheet) and `reorderPayload` is nulled by every
-  // realtime reload, including the self-echo of the draft this feature writes.
+  // switched (phone store-switch sheet), which nulls `reorderPayload`, and a
+  // foreground date load can replace the payload. (A same-store realtime reload,
+  // incl. the self-echo of the draft this feature writes, keeps it — spec 175.)
   // Reading either at record time would file the order under the wrong store,
   // or write an UNDATED second draft header. Captured before the first await at
   // each of the three call sites below.

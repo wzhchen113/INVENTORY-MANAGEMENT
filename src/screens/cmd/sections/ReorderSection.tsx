@@ -373,8 +373,8 @@ function ReorderQuickOrderButton({
   // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` half
   // of the draft's upsert key must be the one that was TRUE WHEN THE EXPORT
   // STARTED. The share sheet is user-paced, and both the active store (TitleBar
-  // switcher) and `reorderPayload` (nulled by every realtime reload) can move
-  // while it is open.
+  // switcher) and `reorderPayload` (nulled by a store switch, or replaced by a
+  // reload or a date change) can move while it is open.
   const currentStore = useStore((s) => s.currentStore);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const [busy, setBusy] = React.useState(false);
@@ -505,7 +505,7 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
   // export actually went out under. Captured from the values THIS handler used
   // to build the file, before its first await: `handlePdfExport` awaits two
   // dynamic `jspdf` chunk imports, during which the TitleBar store switcher is
-  // live and a realtime reload can null `reorderPayload`.
+  // live, a store switch can null `reorderPayload`, and a reload can replace it.
   const snapshot = (store: Store, payload: ReorderPayload) => ({
     storeId: store.id,
     referenceDate: payload.asOfDate || undefined,
@@ -1495,7 +1495,8 @@ export default function ReorderSection() {
   // so the new store is never fetched as-of a date picked for the old one.
   // On mount or a calendar date change for the SAME store, fetch as-of
   // `selectedDate`. `loadFromSupabase` already clears `reorderPayload` +
-  // re-hydrates `orderSchedule` for the new store on switch. Mirrors
+  // re-hydrates `orderSchedule` for the new store on switch (store switch
+  // only — same-store reloads keep the payload, spec 175). Mirrors
   // REPORTS-1's `loadLatestRun` lazy-load pattern (the section is the entry
   // point; the global boot doesn't pre-populate this payload).
   const prevStoreIdRef = React.useRef(currentStore?.id);
@@ -1545,15 +1546,16 @@ export default function ReorderSection() {
   // that hands back a fresh array of the SAME vendor ids (any in-place payload
   // patch) does not refetch.
   //
-  // Honest scope note (spec-151 architect review M-1): this does NOT make a
-  // realtime replay free. `loadFromSupabase` nulls `reorderPayload` in the same
-  // `set` that nulls `lastOrderContext` (useStore.ts:1580/1588) and that block
-  // runs on EVERY 400 ms-debounced realtime reload, so the key transitions
-  // 'a,b' → '' → 'a,b' and the effect DOES fire again — one extra RPC per
-  // replay. That behaviour is correct (the context blanks and comes back, which
-  // AC-17 permits); do not "optimize" against the opposite claim. Staleness
-  // cost either way is nil — the anchor is strictly BEFORE the as-of date, so
-  // nothing that happens today can change it.
+  // Scope note (spec-151 architect review M-1, revised by spec 175): since
+  // spec 175 a same-store realtime replay KEEPS `reorderPayload` (and
+  // `lastOrderContext`) and only refreshes the payload silently, so the key
+  // stays stable and this effect does NOT re-fire — one RPC fewer per replay.
+  // It re-fires only if the refreshed vendor set or `asOfDate` actually
+  // changes. A STORE SWITCH still nulls the payload together with
+  // `lastOrderContext` in `loadFromSupabase`'s `set`, so the key goes through
+  // '' and the effect re-fires for the new store. Staleness cost of not
+  // re-fetching on a replay is nil — the anchor is strictly BEFORE the as-of
+  // date, so nothing that happens today can change it.
   const lastOrderContextVendors = reorderPayload?.vendors;
   const vendorIdsKey = React.useMemo(
     () => (lastOrderContextVendors ?? []).map((v) => v.vendorId).sort().join(','),

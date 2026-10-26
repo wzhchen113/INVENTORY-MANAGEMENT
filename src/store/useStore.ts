@@ -1,5 +1,6 @@
 // src/store/useStore.ts
 import { create } from 'zustand';
+import type { StoreApi } from 'zustand';
 import {
   AppState, User, InventoryItem, Recipe, WasteEntry,
   EODSubmission, Vendor, POSImport, AppNotification,
@@ -191,7 +192,9 @@ export function buildDraftOrderLines(
  * it stood at EXPORT START.
  *
  * Security review (2026-08-08) found both components can move DURING an export
- * (a mid-flight store switch; a realtime reload nulling `reorderPayload`), so
+ * (a mid-flight store switch nulling `reorderPayload`; a foreground load for
+ * another as-of date replacing it). A same-store realtime reload no longer nulls
+ * the payload (spec 175), but the snapshot is still required for those two, so
  * `recordExportedOrder` may not read them from live global state when the export
  * finishes — the call site snapshots them before its first `await` and hands
  * them over. See the block comment in `recordExportedOrder` for the two concrete
@@ -220,6 +223,65 @@ export type ExportRecordingContext = {
  * (`useStore.setState(INITIAL_STATE, true)` does not touch it).
  */
 const recordingKeys = new Set<string>();
+
+/**
+ * Spec 175 — reorder request generation. Advanced by every request that can
+ * write `reorderPayload`: each foreground `loadReorderSuggestions` call and each
+ * silent refresh. A silent result lands only if it is still the newest request,
+ * so a foreground load (or a newer silent refresh) issued after it always wins.
+ *
+ * Deliberately module-level and NOT Zustand state (the `recordingKeys`
+ * posture): it is never rendered, and it is never reset by test isolation —
+ * only equality is ever compared, so its absolute value is irrelevant.
+ */
+let reorderRequestGen = 0;
+
+/**
+ * Spec 175 — the same-store-reload tail of `loadFromSupabase`: re-fetch the
+ * reorder envelope for the as-of date ALREADY on screen, in the background.
+ *
+ * Fire-and-forget like the `loadMenuCapacity` / `loadItemsLastCounted` tails,
+ * but quieter: it never writes `reorderLoading` (the list must not flicker),
+ * and a failure is a console warning only — no toast, no `reorderError`, the
+ * kept payload stays. It calls `db.fetchReorderSuggestions` directly because
+ * `loadReorderSuggestions` would do both of those things (spec 175 R5).
+ *
+ * The result is DROPPED (writes nothing) if, when it settles: a newer request
+ * was issued (generation moved — AC-10, and R4 for overlapping silent
+ * refreshes), the store changed (AC-8), a foreground load is in flight (AC-9),
+ * or the payload is gone / now describes another date (AC-11). Never produces
+ * an unhandled rejection: `.then().catch()` also catches a throw inside the
+ * success handler. (Assumes `db.fetchReorderSuggestions` returns a promise
+ * rather than throwing synchronously — true of the real `async` helper.)
+ */
+function startSilentReorderRefresh(
+  get: StoreApi<FullStore>['getState'],
+  set: StoreApi<FullStore>['setState'],
+  storeId: string,
+  asOfDate: string,
+): void {
+  const gen = ++reorderRequestGen;
+  db.fetchReorderSuggestions(storeId, asOfDate)
+    .then((fresh) => {
+      // A newer request (foreground or silent) owns the payload now.
+      if (gen !== reorderRequestGen) return;
+      const s = get();
+      // The user switched stores; this result describes the old one.
+      if (s.currentStore?.id !== storeId) return;
+      // A foreground load issued earlier is still in flight; let it land.
+      if (s.reorderLoading) return;
+      // The payload was cleared or moved to another as-of date meanwhile.
+      if (!s.reorderPayload || s.reorderPayload.asOfDate !== asOfDate) return;
+      // Defensive: never pair a null payload with a non-null owner (N1).
+      if (!fresh) return;
+      // One write: payload + owner together, never `reorderLoading` (no flicker).
+      set({ reorderPayload: fresh, reorderStoreId: storeId, reorderError: null });
+    })
+    .catch((e: any) => {
+      // AC-7 — warn only. The kept payload stays on screen.
+      console.warn('[Supabase] silent reorder refresh:', e?.message || e);
+    });
+}
 
 const DARK_MODE_KEY = 'darkMode';
 
@@ -1072,6 +1134,11 @@ interface StoreActions {
    * Errors surface to `reorderError` (rendered in-section as a panel,
    * not a toast — matches the reports detail-frame pattern). A console
    * warning is still emitted for the dev console.
+   *
+   * Spec 175 — the success write also records `reorderStoreId` (the store
+   * the fetch was issued for, captured at call start), and every call
+   * advances the module-level reorder request generation so a pending
+   * silent refresh issued earlier can never overwrite this result.
    */
   loadReorderSuggestions: (asOfDate?: string) => Promise<void>;
 
@@ -1189,6 +1256,8 @@ const SIGNED_OUT_DATA_RESET = {
   reorderPayload: null,
   reorderLoading: false,
   reorderError: null,
+  // Spec 175 — the payload's owner tag goes with the payload.
+  reorderStoreId: null,
   lastOrderContext: null,
   menuCapacity: {},
   // Spec 160 — last-counted map is per-store session data; a signed-out store
@@ -1307,13 +1376,15 @@ export const useStore = create<FullStore>((set, get) => ({
   // populated by loadFromSupabase (see `loadLatestRun`).
   reportRuns: {} as Record<string, ReportRun>,
   // Spec 021 — reorder-list envelope. Lazy-loaded on ReorderSection
-  // mount; not populated by `loadFromSupabase`. The slice IS cleared
-  // by `loadFromSupabase` (which fires on store switch via
-  // `setCurrentStore`) so the section's mount-effect pulls fresh data
-  // for the new store instead of flashing the previous store's cards.
+  // mount; `loadFromSupabase` never populates it from nothing. Spec 175 —
+  // on a store switch `loadFromSupabase` clears it (so the section's effect
+  // pulls fresh data for the new store instead of flashing the previous
+  // store's cards); on a same-store reload it keeps it and refreshes it
+  // silently. `reorderStoreId` is the owner tag that tells the two apart.
   reorderPayload: null as ReorderPayload | null,
   reorderLoading: false,
   reorderError: null as string | null,
+  reorderStoreId: null as string | null,
   // Spec 151 (R-G) — last-order context, keyed by vendorId. `null` = NOT
   // LOADED / failed (render nothing); `{}` = loaded with no anchors (AC-9's
   // card-level empty line). Lazy-loaded by ReorderSection's effect; cleared to
@@ -2098,6 +2169,38 @@ export const useStore = create<FullStore>((set, get) => ({
       }
 
       const data = await db.fetchAllForStore(sid);
+      // Spec 175 — keep or clear the reorder slice. Checked HERE, after
+      // `fetchAllForStore` resolves and with no `await` before the `set`
+      // below (R1), not at the top of the action. The rule keys on the
+      // CURRENT store, not on `sid`:
+      //  • KEEP (the payload is owned by the current store): write no reorder
+      //    key. This covers a same-store reload AND a stale reload for a store
+      //    the user has since left — the latter must not blank a payload the
+      //    new store's foreground load already landed, because nothing would
+      //    re-fetch it (spec 175 fix round 1, code-reviewer SF-1).
+      //  • CLEAR (no payload, or one owned by any other store): today's spec
+      //    021 / spec 151 nulls. A foreign-owned payload is removed even when
+      //    this reload is for its owner but that store is no longer current.
+      //  • SILENT REFRESH only when kept AND `sid` is the current store
+      //    (`silentRefreshFrom`). A stale reload never issues one.
+      // R1 timing: `setCurrentStore` fires the section's foreground load for
+      // the new store BEFORE this `set` runs. If that load lands first,
+      // `reorderStoreId` already equals the current store and its fresh
+      // payload is kept (plus one redundant silent refresh); if it lands
+      // second, this clears as before and the foreground result then lands on
+      // top. Accepted window on the keep side: `lastOrderContext` is NOT
+      // cleared there, so the previous store's context stays visible until
+      // the section's `currentStore.id`-keyed context load for the new store
+      // lands (about one RPC round-trip). `loadLastOrderContext` drops a result
+      // whose store is no longer current, so a late previous-store read cannot
+      // extend that window.
+      const before = get();
+      const currentId = before.currentStore?.id;
+      const keptReorder =
+        before.reorderPayload && before.reorderStoreId === currentId
+          ? before.reorderPayload
+          : null;
+      const silentRefreshFrom = keptReorder && sid === currentId ? keptReorder : null;
       // Cloud is the source of truth — always replace, even if empty
       set({
         brand: data.brand,
@@ -2129,19 +2232,27 @@ export const useStore = create<FullStore>((set, get) => ({
           Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [], Sunday: [],
           ...(data.orderSchedule || {}),
         },
-        // Spec 021 — clear the reorder envelope on store switch so the
-        // section's mount-effect pulls fresh data for the new store
-        // instead of briefly showing the previous store's vendor cards.
-        // The section will re-fetch via its useEffect on currentStore.id.
-        reorderPayload: null,
-        reorderLoading: false,
-        reorderError: null,
-        // Spec 151 — clear the last-order context on store switch. Load-bearing,
+        // Spec 175 — reorder slice; see the keep-or-clear note above
+        // `before`. Only the CLEAR case writes these keys, exactly as spec
+        // 021 / spec 151 did on a store switch: the section's effect on
+        // `currentStore.id` pulls fresh data for the new store instead of
+        // briefly showing the previous store's vendor cards. A SAME-STORE
+        // RELOAD (every 400ms-debounced realtime reload, incl. the self-echo of
+        // an export's draft PO, and explicit post-mutation reloads) writes
+        // none, so the list stays on screen; nothing else would re-fetch it —
+        // the section's effect is keyed on store + date, neither of which moved.
+        // Spec 151 — the `lastOrderContext` clear on a switch is load-bearing,
         // not cosmetic: the context is keyed by vendorId ONLY, so a vendor
         // shared across stores would otherwise render the PREVIOUS store's
         // order quantities against this store's lines. Back to `null` (NOT
         // LOADED) so nothing renders until the section's effect refetches.
-        lastOrderContext: null,
+        ...(keptReorder ? {} : {
+          reorderPayload: null,
+          reorderLoading: false,
+          reorderError: null,
+          reorderStoreId: null,
+          lastOrderContext: null,
+        }),
         // Spec 138 — the inline reorder edit buffer is NOT reset here. This
         // `set` runs on EVERY realtime reload (CmdNavigator handleSync →
         // loadFromSupabase on the 400ms debounce, incl. the purchase_orders
@@ -2175,6 +2286,12 @@ export const useStore = create<FullStore>((set, get) => ({
       // one `items_last_counted` RPC per store view (AC-20), NOT awaited so
       // the Inventory table's time-to-first-row is unchanged (AC-21).
       get().loadItemsLastCounted(sid);
+      // Spec 175 — same-store reload: silently refresh the kept reorder
+      // payload for the date already on screen (passed through verbatim — N3).
+      // NOT awaited (AC-4); never produces an unhandled rejection.
+      if (silentRefreshFrom) {
+        startSilentReorderRefresh(get, set, sid, silentRefreshFrom.asOfDate);
+      }
       // Background cleanup of records older than 90 days
       db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
 
@@ -3578,11 +3695,12 @@ export const useStore = create<FullStore>((set, get) => ({
   // Shared: after a lifecycle mutation, re-pull the store's recent POs (they
   // ride the `orderSubmissions` array, which carries `status`) + inventory via
   // `refreshPurchaseOrders`, and re-run reorder so the inbound-quantity change
-  // is visible. Realtime ALSO fires from the purchase_orders UPDATE (§6) and
-  // re-runs the section's date-specific reorder fetch on the 400ms debounce;
-  // refreshing here makes the surfaces update deterministically without the
-  // wait. `loadReorderSuggestions()` with no arg fetches as-of the server's
-  // today — the section's realtime-driven refetch reconciles any picked date.
+  // is visible. Realtime ALSO fires from the purchase_orders UPDATE (§6), and
+  // the resulting same-store reload silently refreshes the reorder payload for
+  // the date CURRENTLY in the payload (spec 175); refreshing here makes the
+  // surfaces update deterministically without the wait. `loadReorderSuggestions()`
+  // with no arg fetches as-of the server's today, so a previously picked date
+  // is NOT reconciled — a known pre-existing gap (spec 175 Out of scope).
 
   // Targeted refresh of the store's recent purchase_orders into the
   // orderSubmissions array (the PO list source for POsSection + Receiving).
@@ -3805,9 +3923,11 @@ export const useStore = create<FullStore>((set, get) => ({
     //     item ids, quantities and costs) under `store_id = B`, which RLS admits
     //     because the operator can see both — exposing them to store-B-only
     //     members.
-    //   • `reorderPayload` — `loadFromSupabase` nulls it on EVERY realtime
-    //     reload, including the self-echo of the draft THIS feature just wrote.
-    //     Reading it here would yield `referenceDate: undefined`, which sends
+    //   • `reorderPayload` — a mid-export store switch nulls it, and a
+    //     foreground load for a new as-of date replaces it. (The self-echo of
+    //     the draft THIS feature just wrote no longer nulls it — a same-store
+    //     reload keeps it, spec 175 — but those two paths remain.) A nulled
+    //     payload would yield `referenceDate: undefined`, which sends
     //     `upsertVendorDraftOrder` down its `reference_date IS NULL` branch → a
     //     SECOND draft header for the same day, invisible to `has_po` and
     //     un-collapsible by the D-4 key (a different key string).
@@ -3875,9 +3995,9 @@ export const useStore = create<FullStore>((set, get) => ({
         return null;
       }
       // AC-7 / OQ-6 — POs list only. Deliberately NOT loadReorderSuggestions():
-      // the realtime self-echo already nulls reorderPayload and refetches the
-      // section ~400 ms later, and the only reorder field this write touches
-      // (`has_po`) is rendered nowhere today.
+      // the realtime self-echo's same-store reload keeps the list on screen and
+      // silently refreshes it ~400 ms later (spec 175), and the only reorder
+      // field this write touches (`has_po`) is rendered nowhere today.
       await get().refreshPurchaseOrders();
       return poId;
     } catch (e: any) {
@@ -4540,13 +4660,21 @@ export const useStore = create<FullStore>((set, get) => ({
   // RPC. Error path mirrors `loadLatestRun` (console.warn + in-state
   // error) — surfacing as a toast on a section open would be noisy, so
   // the section renders its own error pane.
+  //
+  // Spec 175 — `storeId` is captured at call start and recorded as
+  // `reorderStoreId` in the SAME write as the payload (R2: the store the
+  // payload belongs to, not `currentStore` at completion). The generation bump
+  // sits after the guard (an early return starts no request, so it must not
+  // invalidate a pending silent refresh) and before the first await (AC-10's
+  // "started after" is call-time order).
   loadReorderSuggestions: async (asOfDate) => {
     const storeId = get().currentStore?.id;
     if (!storeId) return;
+    ++reorderRequestGen;
     set({ reorderLoading: true, reorderError: null });
     try {
       const payload = await db.fetchReorderSuggestions(storeId, asOfDate);
-      set({ reorderPayload: payload, reorderLoading: false, reorderError: null });
+      set({ reorderPayload: payload, reorderStoreId: storeId, reorderLoading: false, reorderError: null });
     } catch (e: any) {
       const message = e?.message || String(e);
       console.warn('[Supabase] loadReorderSuggestions:', message);
@@ -4571,11 +4699,19 @@ export const useStore = create<FullStore>((set, get) => ({
       set({ lastOrderContext: {} });
       return;
     }
+    // Spec 175 (security L1) — the context is vendor-keyed with no store
+    // tag, so a read issued for a store the user has since switched away from
+    // must not land: it would render that store's quantities against the
+    // current store's lines for any shared vendor, and a same-store reload no
+    // longer clears it. Dropped on BOTH settle paths — a late failure must not
+    // null the current store's context either.
     try {
       const context = await db.fetchLastOrderContext(storeId, vendorIds, asOfDate);
+      if (get().currentStore?.id !== storeId) return;
       set({ lastOrderContext: context });
     } catch (e: any) {
       console.warn('[Supabase] loadLastOrderContext:', e?.message || e);
+      if (get().currentStore?.id !== storeId) return;
       // Back to NOT LOADED — the surfaces render no context at all rather than
       // claiming "no prior order on record" (which would be a lie).
       set({ lastOrderContext: null });
