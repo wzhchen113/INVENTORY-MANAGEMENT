@@ -14,17 +14,20 @@
 //   branch is chosen BEFORE RoleRouter's cold-start effects commit. Because
 //   the gate short-circuits, RoleRouter never mounts in the recovery case, so
 //   there is no ordering hazard with the getSession() effect.
-// Native: Linking.getInitialURL() (cold start) in an effect + addEventListener
-//   ('url', …) (warm link). Until app.json gets a `scheme` (Q1, user-gated)
-//   no native deep link can actually arrive — this branch is dead code on web
-//   and inert on native without the scheme.
+// Native: OFF. The gate never reads Linking.getInitialURL() or listens for
+//   'url' events on native, so it always renders `children`. Spec 181 added
+//   `scheme: "imr"` (and Expo always registers the bundle-id scheme), which
+//   would have made a native handler live: any `imr://…?token_hash=…&type=
+//   recovery` link would auto-redeem in RecoveryScreen and swap the signed-in
+//   session (security M1). Spec 181 C3 sends native password recovery to the
+//   WEB reset URL instead, so a native handler has no purpose. Native deep-link
+//   recovery needs its own spec (path check, explicit tap before verifyOtp,
+//   signOut on every exit) before it is turned back on.
 
 import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
-import * as Linking from 'expo-linking';
 import {
   parseRecoveryFromWebLocation,
-  parseRecoveryFromUrl,
   type RecoveryParse,
 } from '../lib/recoveryUrl';
 import RecoveryScreen from '../screens/RecoveryScreen';
@@ -55,7 +58,7 @@ function scrubRecoveryUrl(): void {
 
 export default function RecoveryGate({ children }: { children: React.ReactNode }) {
   // Web: decide synchronously on first render so RoleRouter never paints in the
-  // recovery case. Native: starts at `none` and a getInitialURL effect updates it.
+  // recovery case. Native: always `none` (no deep-link handler; see header).
   const [parse, setParse] = useState<RecoveryParse>(() => readRecoveryFromWebSync());
 
   // Scrub the web URL once, right after the synchronous read picks up a
@@ -70,30 +73,10 @@ export default function RecoveryGate({ children }: { children: React.ReactNode }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Native: cold-start initial URL + warm-link listener.
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    let active = true;
-    (async () => {
-      try {
-        const initial = await Linking.getInitialURL();
-        if (active && initial) {
-          const p = parseRecoveryFromUrl(initial);
-          if (p.kind !== 'none') setParse(p);
-        }
-      } catch {
-        /* best-effort */
-      }
-    })();
-    const sub = Linking.addEventListener('url', ({ url }) => {
-      const p = parseRecoveryFromUrl(url);
-      if (p.kind !== 'none') setParse(p);
-    });
-    return () => {
-      active = false;
-      sub.remove();
-    };
-  }, []);
+  // Spec 181 (security M1): no native Linking effect. The former
+  // getInitialURL + 'url' listener was removed rather than left behind a guard,
+  // so an `imr://` (or bundle-id scheme) link can never reach RecoveryScreen.
+  // Pinned by src/screens/RecoveryGate.spec181.test.tsx.
 
   // Tear-down callback handed to the recovery screen: flip the gate back to the
   // normal shell so RoleRouter mounts and renders LoginScreen (signed-out).

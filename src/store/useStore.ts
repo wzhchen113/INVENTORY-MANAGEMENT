@@ -43,6 +43,8 @@ import { getLocalizedName } from '../i18n/localizedName';
 // Spec 150 — the ONE store-visibility predicate, shared with TitleBar's
 // desktop store switcher and the phone PhoneStoreSwitch sheet.
 import { visibleStoresFor } from '../lib/storeVisibility';
+// Spec 181 — Hermes-safe v4 minter for client_uuid idempotency keys.
+import { uuidv4 } from '../lib/uuid';
 
 // Surface a backend failure to the user instead of swallowing it in
 // console.warn. Used by the recipe + prep recipe CRUD paths to revert
@@ -4292,10 +4294,9 @@ export const useStore = create<FullStore>((set, get) => ({
     // check; mirrors submitInventoryCount). Deltas are ADDITIVE — `lines`
     // carry how much arrived THIS receive (the section prefills the
     // OUTSTANDING remainder), NOT the ordered total.
-    const clientUuid =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `rcv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Spec 181 (C4): Hermes has no crypto.randomUUID — the shared helper
+    // always returns a real v4 UUID (the RPC param is `uuid`-typed).
+    const clientUuid = uuidv4();
     try {
       const result = await db.receivePurchaseOrder(poId, lines, clientUuid);
       if (!result) return null;

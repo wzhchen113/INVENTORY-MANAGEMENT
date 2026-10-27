@@ -36,10 +36,12 @@ import {
   deserializeAdminInventoryDraft,
 } from '../../../lib/countDrafts';
 import {
-  readLocalCountDraft,
+  loadLocalCountDraft,
   writeLocalCountDraft,
   clearLocalCountDraft,
 } from '../../../lib/countDraftLocal';
+// Spec 181 (B1) — Hermes-safe v4 minter for the submit idempotency key.
+import { uuidv4 } from '../../../lib/uuid';
 // Admin-side connection signal (realtime socket state; web-only, native →
 // optimistic-true). Drives the Save online/offline branch + the reconnect
 // draft-sync (design §9). Deliberately the ADMIN top-level hook, NOT the staff
@@ -397,7 +399,7 @@ export default function InventoryCountSection() {
   const exportDateIso = todayIso();
   const exportStoreName = currentStore?.name || '';
 
-  const onExportCsv = React.useCallback(() => {
+  const onExportCsv = React.useCallback(async () => {
     try {
       const groups = buildExportGroups();
       const csv = buildCountCsv({
@@ -408,7 +410,9 @@ export default function InventoryCountSection() {
         locale: exportLocale,
       });
       const filename = countExportFilename('inventoryCount', exportStoreName, exportDateIso, exportLocale, 'csv');
-      downloadCSV(filename, csv);
+      // Spec 181 (C1): on native this resolves after the share sheet closes and
+      // rejects if sharing is unavailable — so the success toast can't fire early.
+      await downloadCSV(filename, csv);
       Toast.show({ type: 'success', text1: T('section.inventoryCount.export.csvExported'), text2: filename });
     } catch (e: any) {
       console.warn('[InventoryCount] CSV export failed:', e?.message || e);
@@ -777,7 +781,10 @@ export default function InventoryCountSection() {
     const mayRestore = restoredSlotRef.current !== slot;
     let cancelled = false;
     (async () => {
-      const local = readLocalCountDraft(uid, 'admin-inventory', storeId);
+      // Spec 181 (B2): async so native reads AsyncStorage (web stays a sync
+      // localStorage read under the hood). Never rejects.
+      const local = await loadLocalCountDraft(uid, 'admin-inventory', storeId);
+      if (cancelled) return;
       let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
       if (isOnline) {
         try {
@@ -846,10 +853,11 @@ export default function InventoryCountSection() {
     if (was || !isOnline) return; // only act on a false→true flip
     const uid = currentUser?.id;
     if (!uid || !storeId || storeId === '__all__') return;
-    const local = readLocalCountDraft(uid, 'admin-inventory', storeId);
-    if (!local) return;
     let cancelled = false;
     (async () => {
+      // Spec 181 (B2): the local read moved inside the IIFE (async on native).
+      const local = await loadLocalCountDraft(uid, 'admin-inventory', storeId);
+      if (cancelled || !local) return;
       let server = null as { payload: Record<string, unknown>; savedAt: string } | null;
       try {
         server = await fetchCountDraft(uid, 'admin-inventory', storeId);
@@ -1140,10 +1148,9 @@ export default function InventoryCountSection() {
     // Architect §6 + §10. The store action's signature accepts this
     // parameter so the boundary lives at the section level where the
     // submit-press event originates.
-    const clientUuid =
-      (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `cu-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Spec 181 (B1): Hermes has no crypto.randomUUID; uuidv4() always returns
+    // a real v4 UUID (the RPC's p_client_uuid is `uuid`-typed).
+    const clientUuid = uuidv4();
     setSubmitting(true);
     try {
       const result = await submitInventoryCount({

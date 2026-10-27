@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
 """Generate the I.M.R brand logo at every size the app needs.
 
-Outputs:
-  assets/icon.png             1024x1024  Expo iOS app icon (rounded square)
-  assets/adaptive-icon.png    1024x1024  Android adaptive (full-bleed, safe-zone)
+Outputs (grouped by --target; the default `all` writes both groups):
+
+  native (spec 181 — the EAS iOS/Android build):
+  assets/icon.png             1024x1024  App icon: full-bleed, OPAQUE (RGB, no
+                                         alpha). iOS / the launcher applies its
+                                         own rounding mask.
+  assets/adaptive-icon.png    1024x1024  Android adaptive FOREGROUND: transparent
+                                         background, mark inside the centered 66%
+                                         safe zone. The background colour is
+                                         app.json `android.adaptiveIcon.
+                                         backgroundColor` (= BG below).
+  assets/splash-icon.png      1024x1024  Splash mark: white I.M.R on transparent;
+                                         the expo-splash-screen plugin paints BG.
+
+  web (unchanged recipes):
   assets/favicon.png            32x32    Expo web auto-copies this to dist
   public/favicon.png            32x32    Static-host fallback (manifest)
   public/favicon-16.png         16x16    Old browser tabs
@@ -22,10 +34,15 @@ Sub-32px legibility:
   generator falls back to a single bold "I" at <=32px so the favicon at
   least reads as a brand mark rather than a smudge.
 
-Run:  python3 scripts/gen_logo.py
+Run:  python3 scripts/gen_logo.py [--target {all,native,web}]   (default: all)
+
+Colour source of truth: `BG` below. app.json carries the literal hex (JSON
+can't import a Python constant); a jest pin (src/lib/nativeAppConfig.spec181.
+test.ts) parses BG out of this file and asserts app.json matches.
 """
 
 from __future__ import annotations
+import argparse
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -79,6 +96,7 @@ def render_full_imr(
     full_bleed: bool = False,
     radius_pct: float = 0.16,
     safe_zone_pct: float = 1.0,
+    transparent_bg: bool = False,
 ) -> Image.Image:
     """Render the full "I.M.R" brand at `size`x`size`.
 
@@ -90,12 +108,17 @@ def render_full_imr(
     safe_zone_pct=0.66 keeps the text inside the inner 66% of the canvas —
                         required for adaptive icons because Android's mask
                         clips up to 33% of each edge depending on shape.
+    transparent_bg=True skips the BG fill entirely (mark only, on a
+                        transparent canvas) — for the Android adaptive
+                        foreground and the splash image.
     """
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Background — full-bleed or rounded square
-    if full_bleed:
+    # Background — none, full-bleed, or rounded square
+    if transparent_bg:
+        pass
+    elif full_bleed:
         draw.rectangle((0, 0, size, size), fill=BG)
     else:
         radius = int(size * radius_pct)
@@ -135,21 +158,31 @@ def render_tiny_initial(size: int) -> Image.Image:
     return img
 
 
-def main() -> None:
-    public = REPO / "public"
-    assets = REPO / "assets"
-    public.mkdir(exist_ok=True)
-    assets.mkdir(exist_ok=True)
+def generate_native(assets: Path) -> list[Path]:
+    """Spec 181 — the EAS native build's icon, adaptive icon and splash."""
+    out = [
+        assets / "icon.png",
+        assets / "adaptive-icon.png",
+        assets / "splash-icon.png",
+    ]
+    # App icon — full-bleed and OPAQUE (no alpha channel): iOS rejects / shows
+    # black for transparent icon pixels and applies its own rounding mask.
+    render_full_imr(1024, full_bleed=True).convert("RGB").save(out[0])
 
-    # Master + iOS app icon (rounded)
-    render_full_imr(1024).save(assets / "icon.png")
+    # Android adaptive FOREGROUND — transparent, mark inside the 66% safe zone.
+    # The launcher composites it over android.adaptiveIcon.backgroundColor (BG).
+    render_full_imr(
+        1024, full_bleed=True, safe_zone_pct=0.66, transparent_bg=True
+    ).save(out[1])
 
-    # Android adaptive — full-bleed, content inside 66% safe zone
-    render_full_imr(1024, full_bleed=True, safe_zone_pct=0.66).save(
-        assets / "adaptive-icon.png"
-    )
+    # Splash mark — white I.M.R on transparent; expo-splash-screen paints BG.
+    render_full_imr(1024, transparent_bg=True).save(out[2])
+    return out
 
-    # PWA maskable 512 — full-bleed + safe zone (same recipe as adaptive)
+
+def generate_web(assets: Path, public: Path) -> list[Path]:
+    """PWA / favicon set — recipes UNCHANGED from before spec 181."""
+    # PWA maskable 512 — full-bleed + safe zone, BG-filled
     render_full_imr(512, full_bleed=True, safe_zone_pct=0.66).save(
         public / "icon-512.png"
     )
@@ -164,18 +197,39 @@ def main() -> None:
     render_tiny_initial(32).save(assets / "favicon.png")
     render_tiny_initial(32).save(public / "favicon.png")
     render_tiny_initial(16).save(public / "favicon-16.png")
-
-    print("Generated icons:")
-    for p in sorted([
-        assets / "icon.png",
-        assets / "adaptive-icon.png",
+    return [
         assets / "favicon.png",
         public / "favicon.png",
         public / "favicon-16.png",
         public / "icon-192.png",
         public / "icon-512.png",
         public / "apple-touch-icon.png",
-    ]):
+    ]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate the I.M.R logo set.")
+    parser.add_argument(
+        "--target",
+        choices=("all", "native", "web"),
+        default="all",
+        help="native = app icon/adaptive/splash; web = PWA + favicons; all = both",
+    )
+    args = parser.parse_args()
+
+    public = REPO / "public"
+    assets = REPO / "assets"
+    public.mkdir(exist_ok=True)
+    assets.mkdir(exist_ok=True)
+
+    written: list[Path] = []
+    if args.target in ("all", "native"):
+        written += generate_native(assets)
+    if args.target in ("all", "web"):
+        written += generate_web(assets, public)
+
+    print("Generated icons:")
+    for p in sorted(written):
         print(f"  {p.relative_to(REPO)}")
 
 

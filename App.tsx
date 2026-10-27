@@ -17,11 +17,13 @@ import RecoveryGate from './src/navigation/RecoveryGate';
 import { useStaffStore } from './src/screens/staff/store/useStaffStore';
 import { checkAuthGate } from './src/lib/authGate';
 import { registerSessionSurface, watchSessionLoss } from './src/lib/sessionWatch';
+import { installAuthAutoRefresh } from './src/lib/authAutoRefresh';
 import { t } from './src/i18n';
 import { hydrateQueue, migrateQueueIfNeeded, readActiveStoreId, readCachedLocale as readStaffCachedLocale, writeActiveStoreId } from './src/screens/staff/lib/eodQueue';
 import { notifyBackendError as notifyStaffBackendError } from './src/screens/staff/lib/notifyBackendError';
 import { t as tStaff } from './src/screens/staff/i18n';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import {
   InterTight_400Regular,
   InterTight_500Medium,
@@ -142,12 +144,18 @@ if (Platform.OS !== 'web') {
   const Notifications = require('expo-notifications');
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
     }),
   });
 }
+
+// Spec 181 — hold the native splash until fonts are registered (hidden by the
+// effect in App()), so there is no blank root-view flash between the splash
+// and the first paint. Web has no native splash; gated off entirely.
+if (Platform.OS !== 'web') SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
   const Cmd = useCmdColors();
@@ -338,6 +346,10 @@ export default function App() {
     })();
   }, []);
 
+  // Spec 181 (B3) — native-only: resume/pause supabase-js token auto-refresh on
+  // AppState foreground/background. No-op on web; removed on unmount.
+  useEffect(() => installAuthAutoRefresh(), []);
+
   // Spec 152 — THE auth-state subscription (there was none before this spec).
   // A session that dies mid-session — expired access token whose refresh
   // failed, revoked refresh token, storage cleared in another tab — used to
@@ -409,10 +421,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      registerForPushNotifications();
-      return;
-    }
+    if (Platform.OS !== 'web') return;
     // Web: link the PWA manifest + apple-touch-icon and register the SW.
     // Permission + subscription happen on user gesture via the EOD screen banner.
     ensureManifestLinked();
@@ -434,6 +443,12 @@ export default function App() {
     }
   }, [bodyBg]);
 
+  // Spec 181 — release the native splash once fonts are ready (before the
+  // early return below, per the rules of hooks).
+  useEffect(() => {
+    if (fontsLoaded && Platform.OS !== 'web') SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded]);
+
   if (!fontsLoaded) return null;
 
   return (
@@ -453,21 +468,4 @@ export default function App() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
-}
-
-async function registerForPushNotifications() {
-  try {
-    const Notifications = require('expo-notifications');
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') {
-      console.log('Push notification permission not granted');
-    }
-  } catch (e) {
-    console.log('Notifications setup:', e);
-  }
 }

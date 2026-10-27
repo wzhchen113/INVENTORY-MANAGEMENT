@@ -14,6 +14,7 @@ import {
   type CountExportItem,
   type CountExportParams,
 } from './countExport';
+import { Platform } from 'react-native';
 import { downloadCSV } from './index';
 
 function item(over: Partial<CountExportItem>): CountExportItem {
@@ -224,8 +225,19 @@ describe('downloadCSV — additive UTF-8 BOM (spec 139)', () => {
   const realBlob = (global as any).Blob;
   const realCreate = (global as any).URL.createObjectURL;
   const realRevoke = (global as any).URL.revokeObjectURL;
+  // Spec 181 §0.3 — downloadCSV now branches on Platform.OS and jest-expo runs
+  // as 'ios', so pin 'web' for this (web-path) case; assertions are unchanged.
+  // The native branch is covered by downloadCSV.native.spec181.test.ts.
+  const ORIGINAL_OS = Platform.OS;
+  const setPlatform = (os: typeof Platform.OS) =>
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+
+  beforeEach(() => {
+    setPlatform('web');
+  });
 
   afterEach(() => {
+    setPlatform(ORIGINAL_OS);
     (global as any).document = realDoc;
     (global as any).Blob = realBlob;
     (global as any).URL.createObjectURL = realCreate;

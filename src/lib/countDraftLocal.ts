@@ -9,8 +9,9 @@
 //
 // Admin Cmd is WEB-PRIMARY (design §5): the common-path read is synchronous
 // localStorage. On native the sync read returns null and the write/clear are
-// best-effort async — admin native is a minority surface and the server copy is
-// the source of truth when online. The SEMANTIC that matters (mirrored by the
+// best-effort async; the restore paths read through `loadLocalCountDraft`
+// (spec 181 B2), which reads AsyncStorage on native so a native write is
+// restorable. The server copy stays the source of truth when online. The SEMANTIC that matters (mirrored by the
 // staff AsyncStorage carve-out) is single-slot + unsynced flag + savedAt stamp.
 //
 // Storage key: `imr.countDraft.<screen>.<storeId>.<userId>` — namespaced under
@@ -56,13 +57,25 @@ function isLocalCountDraft(x: unknown): x is LocalCountDraft {
   return isLocalDraftRecord(x);
 }
 
+/** Parse a raw stored value into a draft: `null` for a missing value, invalid
+ *  JSON, or a shape that fails `isLocalCountDraft`. Never throws. Shared by the
+ *  web (`readLocalCountDraft`) and native (`loadLocalCountDraft`) restore paths
+ *  so the validity rule can't drift between them. */
+function parseLocalCountDraft(raw: string | null): LocalCountDraft | null {
+  if (raw == null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isLocalCountDraft(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * READ the device-local draft for the slot, or `null` when absent / malformed /
- * unreadable. SYNCHRONOUS on web (the common admin path). On native this returns
- * `null` synchronously (design §5) — admin native is a minority surface and the
- * server copy is authoritative when online; a best-effort async hydrate is
- * acceptable but not provided here (the FE can call the server fetch). Never
- * throws.
+ * unreadable. SYNCHRONOUS web-only primitive (the common admin path). On native
+ * this returns `null` synchronously — native callers must use
+ * `loadLocalCountDraft` (spec 181 B2), which reads AsyncStorage. Never throws.
  */
 export function readLocalCountDraft(
   userId: string,
@@ -71,13 +84,38 @@ export function readLocalCountDraft(
 ): LocalCountDraft | null {
   if (Platform.OS !== 'web') return null;
   try {
-    const raw = window.localStorage.getItem(countDraftLocalKey(userId, screen, storeId));
-    if (raw == null) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isLocalCountDraft(parsed) ? parsed : null;
+    return parseLocalCountDraft(
+      window.localStorage.getItem(countDraftLocalKey(userId, screen, storeId)),
+    );
   } catch {
     return null;
   }
+}
+
+/**
+ * Spec 181 (B2) — platform-agnostic ASYNC read of the device-local draft.
+ *   - web: resolves `readLocalCountDraft(...)` (the sync localStorage read,
+ *     reused verbatim).
+ *   - native: `AsyncStorage.getItem` under the SAME key `writeLocalCountDraft`
+ *     uses, then JSON.parse + shape check.
+ * A miss, malformed value, parse error or storage rejection resolves `null`.
+ * NEVER rejects.
+ */
+export function loadLocalCountDraft(
+  userId: string,
+  screen: CountOrderScreen,
+  storeId: string,
+): Promise<LocalCountDraft | null> {
+  if (Platform.OS === 'web') {
+    return Promise.resolve(readLocalCountDraft(userId, screen, storeId));
+  }
+  let pending: Promise<string | null>;
+  try {
+    pending = AsyncStorage.getItem(countDraftLocalKey(userId, screen, storeId));
+  } catch {
+    return Promise.resolve(null);
+  }
+  return pending.then(parseLocalCountDraft, () => null);
 }
 
 /**

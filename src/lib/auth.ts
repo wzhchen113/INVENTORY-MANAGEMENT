@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import { User, SidebarLayoutOverride } from '../types';
 import { isValidOverride } from './sidebarLayout';
 import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup, fetchProfileEmails } from './db';
-import { resolveRecoveryRedirectUrl } from './recoveryRedirect';
+import { resolveRecoveryRedirectUrl, RECOVERY_URL_UNSET_ERROR } from './recoveryRedirect';
 import { isPlaceholderEmail } from './placeholderEmail';
 
 export interface AuthResult {
@@ -751,10 +751,15 @@ export async function sendPasswordReset(email: string): Promise<{ error: string 
     // OUR /reset-password screen instead of falling back to the dashboard Site
     // URL (the localhost:3000 bug). resolveRecoveryRedirectUrl() returns the
     // prod web URL (EXPO_PUBLIC_WEB_RECOVERY_URL) / web-dev origin / native
-    // scheme URL depending on Platform.OS. Return shape is UNCHANGED so
-    // UsersSection's toast handling at the call site is untouched.
+    // configured web URL depending on Platform.OS. Return shape is UNCHANGED
+    // so UsersSection's toast handling at the call site is untouched.
+    // Spec 181 (C3): resolve BEFORE calling Supabase — on native with no
+    // EXPO_PUBLIC_WEB_RECOVERY_URL the resolver returns null and we send
+    // nothing (an email without a working redirect is worse than an error).
+    const redirectTo = resolveRecoveryRedirectUrl();
+    if (redirectTo == null) return { error: RECOVERY_URL_UNSET_ERROR };
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: resolveRecoveryRedirectUrl(),
+      redirectTo,
     });
     if (error) return { error: error.message };
     return { error: null };

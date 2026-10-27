@@ -25,6 +25,15 @@ ios/
 .env.local
 .env.*.local
 
+# Spec 181 (security L4) — EAS / store-upload credentials. `credentials.json` +
+# `credentials/` are what `eas credentials` writes for credentialsSource: local;
+# the Play service-account key is `eas submit`'s serviceAccountKeyPath. These
+# tend to land in the repo root during TestFlight / Play uploads.
+credentials.json
+credentials/
+*service-account*.json
+google-services-key*.json
+
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/

@@ -4,15 +4,18 @@
 //   1. resolveRecoveryRedirectUrl() per-platform branch (criteria test #3):
 //      - web + env var set → returns the env var verbatim
 //      - web + no env var → window.location.origin + '/reset-password'
-//      - native → Linking.createURL('/reset-password')
+//      - native + env var set → the env var, Linking.createURL NOT called
+//        (spec 181 C3 — native recovery lands on the WEB reset screen)
+//      - native + no env var → null
 //   2. sendPasswordReset calls resetPasswordForEmail(email, { redirectTo })
 //      with a NON-EMPTY redirectTo matching the running platform, and preserves
-//      its { error } return contract.
+//      its { error } return contract. Spec 181: on native with no env var it
+//      returns RECOVERY_URL_UNSET_ERROR and sends nothing.
 
 import { Platform } from 'react-native';
 
-// expo-linking: stub createURL so the native branch is deterministic and no
-// native module is loaded in the node test env.
+// expo-linking: stub createURL so a regression back to it is observable (spec
+// 181 asserts it is NOT called) and no native module loads in the node env.
 jest.mock('expo-linking', () => ({
   __esModule: true,
   createURL: jest.fn((path: string) => `imrinventory:/${path}`),
@@ -33,7 +36,11 @@ jest.mock('./supabase', () => ({
 
 import * as Linking from 'expo-linking';
 import { supabase } from './supabase';
-import { resolveRecoveryRedirectUrl, establishRecoverySession } from './recoveryRedirect';
+import {
+  resolveRecoveryRedirectUrl,
+  establishRecoverySession,
+  RECOVERY_URL_UNSET_ERROR,
+} from './recoveryRedirect';
 import { sendPasswordReset } from './auth';
 
 const resetMock = supabase.auth.resetPasswordForEmail as jest.Mock;
@@ -83,19 +90,23 @@ describe('resolveRecoveryRedirectUrl', () => {
     expect(resolveRecoveryRedirectUrl()).toBe('http://localhost:8081/reset-password');
   });
 
-  it('uses Linking.createURL on native', () => {
+  it('returns the EXPO_PUBLIC_WEB_RECOVERY_URL env value on native and never calls Linking.createURL (spec 181 C3)', () => {
     setPlatform('ios');
-    const url = resolveRecoveryRedirectUrl();
-    expect(createURLMock).toHaveBeenCalledWith('/reset-password');
-    // Whatever createURL returns is the native redirect — assert it is the
-    // mocked scheme URL and non-empty (the per-platform branch is what matters).
-    expect(url).toBe('imrinventory://reset-password');
-    expect(url.length).toBeGreaterThan(0);
+    process.env.EXPO_PUBLIC_WEB_RECOVERY_URL = 'https://app.example.com/reset-password';
+    expect(resolveRecoveryRedirectUrl()).toBe('https://app.example.com/reset-password');
+    expect(createURLMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null on native when EXPO_PUBLIC_WEB_RECOVERY_URL is unset (spec 181 C3)', () => {
+    setPlatform('android');
+    expect(resolveRecoveryRedirectUrl()).toBeNull();
+    expect(createURLMock).not.toHaveBeenCalled();
   });
 });
 
 describe('sendPasswordReset', () => {
   const ORIGINAL_WINDOW = (global as { window?: unknown }).window;
+  const ORIGINAL_ENV = process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -106,6 +117,11 @@ describe('sendPasswordReset', () => {
 
   afterEach(() => {
     setPlatform(ORIGINAL_OS as 'web' | 'ios' | 'android');
+    if (ORIGINAL_ENV === undefined) {
+      delete process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
+    } else {
+      process.env.EXPO_PUBLIC_WEB_RECOVERY_URL = ORIGINAL_ENV;
+    }
     if (ORIGINAL_WINDOW === undefined) {
       delete (global as { window?: unknown }).window;
     } else {
@@ -140,6 +156,30 @@ describe('sendPasswordReset', () => {
     const result = await sendPasswordReset('user@example.com');
 
     expect(result).toEqual({ error: 'network down' });
+  });
+
+  it('on native with no EXPO_PUBLIC_WEB_RECOVERY_URL returns RECOVERY_URL_UNSET_ERROR and sends nothing (spec 181 C3)', async () => {
+    setPlatform('ios');
+
+    const result = await sendPasswordReset('user@example.com');
+
+    expect(result).toEqual({ error: RECOVERY_URL_UNSET_ERROR });
+    expect(typeof result.error).toBe('string');
+    expect(resetMock).not.toHaveBeenCalled();
+  });
+
+  it('on native with EXPO_PUBLIC_WEB_RECOVERY_URL set sends the email with that redirectTo (spec 181 C3)', async () => {
+    setPlatform('ios');
+    process.env.EXPO_PUBLIC_WEB_RECOVERY_URL = 'https://app.example.com/reset-password';
+    resetMock.mockResolvedValue({ error: null });
+
+    const result = await sendPasswordReset('user@example.com');
+
+    expect(result).toEqual({ error: null });
+    expect(resetMock).toHaveBeenCalledWith('user@example.com', {
+      redirectTo: 'https://app.example.com/reset-password',
+    });
+    expect(createURLMock).not.toHaveBeenCalled();
   });
 });
 

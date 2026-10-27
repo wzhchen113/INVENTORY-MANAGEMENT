@@ -77,6 +77,10 @@ jest.mock('../../../../lib/countDraftLocal', () => ({
   __esModule: true,
   readLocalCountDraft: (userId: string, screen: string, storeId: string) =>
     mockLocalStore[localKey(userId, screen, storeId)] ?? null,
+  // Spec 181 (B2) — the section's restore paths now read through the async
+  // platform-agnostic loader; same in-memory slot.
+  loadLocalCountDraft: async (userId: string, screen: string, storeId: string) =>
+    mockLocalStore[localKey(userId, screen, storeId)] ?? null,
   writeLocalCountDraft: (
     userId: string,
     screen: string,

@@ -794,7 +794,7 @@ export default function EODCountSection() {
     });
   }, [vendorTabs, caseCountsByVendor, unitCountsByVendor, notesByVendor, noNeedByVendor, storeInventory]);
 
-  const onExportCsv = React.useCallback(() => {
+  const onExportCsv = React.useCallback(async () => {
     try {
       const groups = buildExportGroups();
       const csv = buildCountCsv({
@@ -805,7 +805,7 @@ export default function EODCountSection() {
         locale: exportLocale,
       });
       const filename = countExportFilename('eod', currentStore.name, selectedIso, exportLocale, 'csv');
-      downloadCSV(filename, csv);
+      await downloadCSV(filename, csv); // spec 181: async on native (share sheet)
       Toast.show({ type: 'success', text1: T('section.eod.export.csvExported'), text2: filename });
     } catch (e: any) {
       console.warn('[EOD] CSV export failed:', e?.message || e);

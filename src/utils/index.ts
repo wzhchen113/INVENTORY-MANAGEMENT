@@ -1,4 +1,7 @@
 // src/utils/index.ts
+import { Platform } from 'react-native';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { InventoryItem, Recipe, WasteEntry } from '../types';
 
 /** Filter input to only allow numeric values (digits, one decimal point, max 3 decimal places) */
@@ -122,8 +125,20 @@ export const generatePONumber = (): string => `PO-${String(++poSeq).padStart(3, 
  * exports) keeps working unchanged, and Excel / Google Sheets both treat a
  * leading BOM as the UTF-8 signal. Reorder's separate `triggerDownload` is a
  * distinct code path and is intentionally NOT touched.
+ *
+ * Spec 181 (C1) — returns a Promise.
+ *   - web: the synchronous Blob/anchor body below runs VERBATIM (a synchronous
+ *     throw still throws synchronously, so non-awaiting callers' try/catch keeps
+ *     working), then an already-resolved promise is returned.
+ *   - native: writes the BOM-prefixed CSV to the cache dir and opens the OS
+ *     share sheet (`shareCsvNative`). Resolves when the sheet closes; REJECTS
+ *     when sharing is unavailable or the write/share fails. It does not toast —
+ *     the caller owns the toast.
  */
-export const downloadCSV = (filename: string, csvContent: string): void => {
+export const downloadCSV = (filename: string, csvContent: string): Promise<void> => {
+  if (Platform.OS !== 'web') {
+    return shareCsvNative(filename, '\uFEFF' + csvContent);
+  }
   const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -131,7 +146,31 @@ export const downloadCSV = (filename: string, csvContent: string): void => {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+  return Promise.resolve();
 };
+
+// Native CSV share — mirrors src/screens/staff/lib/shareReorder.ts `nativeShare`
+// (duplicated on purpose: admin code must not depend on the verbatim-port staff
+// subtree). expo-file-system v19 object API, cache dir (ephemeral, no
+// permission prompt). Availability is checked BEFORE writing so an unavailable
+// platform leaves no orphaned temp file.
+async function shareCsvNative(filename: string, content: string): Promise<void> {
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    throw new Error('Sharing is not available on this device');
+  }
+  // The name becomes a path segment under Paths.cache — never let a caller's
+  // filename introduce a directory separator.
+  const safeName = filename.replace(/[\\/]/g, '_');
+  const file = new File(Paths.cache, safeName);
+  file.create({ overwrite: true });
+  file.write(content);
+  await Sharing.shareAsync(file.uri, {
+    mimeType: 'text/csv',
+    UTI: 'public.comma-separated-values-text',
+    dialogTitle: safeName,
+  });
+}
 
 export const toCSV = (data: Record<string, any>[], columns: string[]): string => {
   const header = columns.join(',');

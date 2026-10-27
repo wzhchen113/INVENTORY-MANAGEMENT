@@ -13,7 +13,6 @@
 // initialized — same posture as src/lib/authGate.ts / sessionRestore.ts.
 
 import { Platform } from 'react-native';
-import * as Linking from 'expo-linking';
 import { supabase } from './supabase';
 import type { RecoveryParse } from './recoveryUrl';
 
@@ -26,31 +25,36 @@ import type { RecoveryParse } from './recoveryUrl';
 const RECOVERY_PATH = '/reset-password';
 
 /**
+ * Spec 181 (C3) — returned by `sendPasswordReset` on native when
+ * `EXPO_PUBLIC_WEB_RECOVERY_URL` is not configured for the build. English, to
+ * match UsersSection's English toast `text1`.
+ */
+export const RECOVERY_URL_UNSET_ERROR =
+  'Password reset is not configured on this device (missing web recovery URL).';
+
+/**
  * Resolve the per-platform `redirectTo` for the recovery email link.
  *
  *   - Web prod: `EXPO_PUBLIC_WEB_RECOVERY_URL` (Q2 — user supplies the value in
  *     Vercel env). Must be a full absolute URL pointing at the recovery path.
  *   - Web dev: `window.location.origin + '/reset-password'` (e.g.
  *     `http://localhost:8081/reset-password`). Works locally with no env var.
- *   - Native: `Linking.createURL('/reset-password')` → `<scheme>://reset-password`.
- *     The scheme is read from app.json — which currently has NO `scheme`
- *     (Q1, user-approval-gated). Until the scheme lands this branch produces a
- *     non-functional URL; it is DEAD CODE on web builds (guarded by Platform.OS)
- *     and is the native half this increment intentionally does not finalize.
+ *     Web always returns a string.
+ *   - Native (spec 181 C3): `EXPO_PUBLIC_WEB_RECOVERY_URL` when non-empty — the
+ *     recovery link opens the WEB reset screen (native deep-link routing for
+ *     the `imr` scheme is out of scope). When unset, `null`: the caller must
+ *     NOT send the email (omitting `redirectTo` would bring back the spec 085
+ *     "lands on the dashboard Site URL" bug). `Linking.createURL` is never
+ *     called here.
  */
-export function resolveRecoveryRedirectUrl(): string {
+export function resolveRecoveryRedirectUrl(): string | null {
+  const configured = process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
   if (Platform.OS === 'web') {
-    const prod = process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
-    if (prod && prod.length > 0) return prod;
+    if (configured && configured.length > 0) return configured;
     // Local dev fallback — the running Expo web origin.
     return `${window.location.origin}${RECOVERY_PATH}`;
   }
-  // TODO(spec-085 Q1): native deep-link requires app.json scheme — pending user
-  // approval. Until the `scheme` field is added to app.json, Linking.createURL
-  // cannot produce a working `<scheme>://reset-password` URL, so the native
-  // recovery half is non-functional. This branch is reachable only on native
-  // builds; the web build (Vercel) never executes it.
-  return Linking.createURL(RECOVERY_PATH);
+  return configured && configured.length > 0 ? configured : null;
 }
 
 /**

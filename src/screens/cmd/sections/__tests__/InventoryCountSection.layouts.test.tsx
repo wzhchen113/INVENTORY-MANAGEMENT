@@ -71,6 +71,7 @@ jest.mock('../../../../lib/db', () => ({
 jest.mock('../../../../lib/countDraftLocal', () => ({
   __esModule: true,
   readLocalCountDraft: jest.fn(() => null),
+  loadLocalCountDraft: jest.fn(() => Promise.resolve(null)), // spec 181 (B2)
   writeLocalCountDraft: jest.fn(),
   clearLocalCountDraft: jest.fn(),
 }));

@@ -1393,7 +1393,7 @@ export async function submitInventoryCount(input: {
     notes?: string | null;
   }>;
   notes?: string | null;
-  clientUuid: string;            // caller mints via crypto.randomUUID()
+  clientUuid: string;            // caller mints via uuidv4() (src/lib/uuid.ts)
 }): Promise<{ countId: string; conflict: boolean; entryIds: string[] }> {
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase.rpc('submit_inventory_count', {
