@@ -119,7 +119,8 @@
         "missed_eod": "未完成的日结盘点",
         "issue": "问题反馈",
         "order_ready": "订单待审批",
-        "order_failed": "订单未成功下单"
+        "order_failed": "订单未成功下单",
+        "eod_update": "日结盘点已更新"
       },
       "issueCategory": {
         "equipment": "设备",
@@ -133,6 +134,27 @@
         "hours": "{n}小时前",
         "days": "{n}天前"
       }
+    },
+    "eodPopup": {
+      "title": {
+        "single": {
+          "eod": "{store}：日结盘点已提交",
+          "order_ready": "{store}：订单待审批",
+          "eod_update": "{store}：日结盘点已更新"
+        },
+        "group": {
+          "submitted": "{store}：已提交 {n} 个供应商盘点",
+          "updated": "{store}：已更新 {n} 个供应商盘点",
+          "mixed": "{store}：已提交 {n} 个供应商盘点（其中 {u} 个为更新）"
+        }
+      },
+      "body": {
+        "by": "操作人：{actor}",
+        "byMany": "操作人：{actor} 及另外 {k} 人",
+        "vendorBy": "{vendor} · 操作人：{actor}",
+        "readySuffix": " · {k} 个待审批"
+      },
+      "unknownStore": "某门店"
     },
     "notifications": {
       "label": "通知",

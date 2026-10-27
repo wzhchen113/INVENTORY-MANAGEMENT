@@ -195,3 +195,27 @@ describe('feed sheet', () => {
     expect(usePaletteAction.getState().pending).toBeNull();
   });
 });
+
+// Spec 180 — an EOD edit row: deep-links to EOD count like `eod`, renders the
+// "EOD count updated" label + vendor · editor, and carries NO orderApproval.
+describe('eod_update rows (spec 180)', () => {
+  it('sectionForNotification maps eod_update to EODCount', () => {
+    expect(sectionForNotification('eod_update')).toBe('EODCount');
+  });
+
+  it('renders the update label + vendor · editor and taps without an approval payload', () => {
+    seed(
+      [notif({ id: 'u1', type: 'eod_update', body: 'Sysco', actorName: 'Manager', storeName: 'Towson', read: false })],
+      1,
+    );
+    const { getByTestId, getByText } = render(<PhoneNotifications />);
+    fireEvent.press(getByTestId('phone-notif-bell'));
+    expect(getByText('EOD count updated · Towson')).toBeTruthy();
+    expect(getByText(/Sysco · Manager/)).toBeTruthy();
+    fireEvent.press(getByTestId('phone-notif-row-u1'));
+    expect(markRead).toHaveBeenCalledWith('u1');
+    const pending = usePaletteAction.getState().pending;
+    expect(pending?.section).toBe('EODCount');
+    expect(pending?.orderApproval).toBeUndefined();
+  });
+});

@@ -2421,7 +2421,13 @@ export async function clearNotificationsDb(userId: string): Promise<void> {
 const SUBMISSION_NOTIF_WINDOW_DAYS = 30;
 const SUBMISSION_NOTIF_LIMIT = 50;
 
-function mapNotification(row: any): AdminNotification {
+/**
+ * snake_case → camelCase for a `public.notifications` row. Exported (spec 180
+ * §5) so the realtime pop-up maps `payload.new` through the same helper as the
+ * feed — one mapping, in db.ts. A raw realtime row has no `reads` embed, so
+ * `read` correctly maps to `false`.
+ */
+export function mapNotificationRow(row: any): AdminNotification {
   return {
     id: row.id,
     brandId: row.brand_id,
@@ -2438,6 +2444,9 @@ function mapNotification(row: any): AdminNotification {
     // Spec 126 — only 'issue' rows carry these; NULL on every other type.
     body: row.body ?? undefined,
     category: row.category ?? undefined,
+    // Spec 180 — only 'eod_update' rows carry this (the eod_submissions id the
+    // edit applied to); NULL on every other type.
+    submissionId: row.submission_id ?? null,
   };
 }
 
@@ -2465,7 +2474,7 @@ export async function fetchAdminNotifications(
       console.warn('[Supabase] fetchAdminNotifications:', error.message);
       return [];
     }
-    return (data || []).map(mapNotification);
+    return (data || []).map(mapNotificationRow);
   }, { kind: 'read', label: 'fetchAdminNotifications' });
 }
 
@@ -2502,6 +2511,31 @@ export async function markNotificationRead(id: string): Promise<void> {
       throw error;
     }
   }, { kind: 'write', label: 'markNotificationRead' });
+}
+
+/**
+ * Spec 180 §5 — mark several notifications read for the current viewer in one
+ * request (the EOD pop-up's grouped click). Inserts one `(notification_id)` row
+ * per id (user_id defaults to auth.uid() server-side), `on conflict do
+ * nothing`, so it is idempotent and safe for ids the viewer already read.
+ * An empty list resolves without a network call. Throws on error, like
+ * `markNotificationRead`.
+ */
+export async function markNotificationsRead(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  return useInflight.getState().track(async (signal) => {
+    const { error } = await supabase
+      .from('notification_reads')
+      .upsert(
+        ids.map((id) => ({ notification_id: id })),
+        { onConflict: 'notification_id,user_id', ignoreDuplicates: true },
+      )
+      .abortSignal(signal);
+    if (error) {
+      console.warn('[Supabase] markNotificationsRead:', error.message);
+      throw error;
+    }
+  }, { kind: 'write', label: 'markNotificationsRead' });
 }
 
 /**

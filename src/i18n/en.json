@@ -119,7 +119,8 @@
         "missed_eod": "Missed EOD count",
         "issue": "Issue reported",
         "order_ready": "Order ready to approve",
-        "order_failed": "Order NOT placed"
+        "order_failed": "Order NOT placed",
+        "eod_update": "EOD count updated"
       },
       "issueCategory": {
         "equipment": "Equipment",
@@ -133,6 +134,27 @@
         "hours": "{n}h ago",
         "days": "{n}d ago"
       }
+    },
+    "eodPopup": {
+      "title": {
+        "single": {
+          "eod": "{store}: EOD count submitted",
+          "order_ready": "{store}: Order ready to approve",
+          "eod_update": "{store}: EOD count updated"
+        },
+        "group": {
+          "submitted": "{store}: {n} vendor counts submitted",
+          "updated": "{store}: {n} vendor counts updated",
+          "mixed": "{store}: {n} vendor counts submitted ({u} updated)"
+        }
+      },
+      "body": {
+        "by": "by {actor}",
+        "byMany": "by {actor} and {k} more",
+        "vendorBy": "{vendor} · by {actor}",
+        "readySuffix": " · {k} ready to approve"
+      },
+      "unknownStore": "A store"
     },
     "notifications": {
       "label": "Notifications",

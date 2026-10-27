@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCmdColors } from './src/theme/colors';
+import { eodPopupToastConfig } from './src/components/cmd/EodPopupToast';
 import { useStore, ACTIVE_BRAND_KEY, LOCALE_KEY } from './src/store/useStore';
 import { getSession } from './src/lib/auth';
 import { supabase } from './src/lib/supabase';
@@ -464,7 +465,10 @@ export default function App() {
         <RecoveryGate>
           <RoleRouter />
         </RecoveryGate>
-        <Toast />
+        {/* Spec 180 — registers the 2-line `eodPopup` type for the admin EOD
+            pop-up. Additive: the library keeps its default success / error /
+            info types. */}
+        <Toast config={eodPopupToastConfig} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

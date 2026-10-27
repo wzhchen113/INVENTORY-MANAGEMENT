@@ -1090,6 +1090,10 @@ interface StoreActions {
   // from the reminder-inbox actions above to avoid clobbering them.
   loadSubmissionNotifications: () => Promise<void>;
   markSubmissionNotificationRead: (id: string) => void;
+  // Spec 180 — bulk mark-read for an EOD pop-up group (every id in the group).
+  // Unlike the single-id action above, ids not (yet) in the feed are still
+  // persisted — a pop-up tap can beat the realtime-driven refetch.
+  markSubmissionNotificationsRead: (ids: string[]) => void;
   markAllSubmissionNotificationsRead: () => void;
 
   // Audit
@@ -4525,6 +4529,51 @@ export const useStore = create<FullStore>((set, get) => ({
       }));
       notifyBackendError('Mark notification read', e);
     });
+  },
+
+  // Spec 180 §7.4 — bulk optimistic-then-revert for an EOD pop-up group.
+  // Flip the unread rows present in the feed + decrement the badge by that
+  // many, then persist ALL ids (present or not). On success, if any id was
+  // absent from the feed (realtime raced the refetch, or the row is outside
+  // the 50-row cap) reload to reconcile the badge. On failure restore exactly
+  // the rows flipped + the count.
+  markSubmissionNotificationsRead: (ids) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const feed = get().submissionNotifications;
+    const present = new Set(feed.filter((n) => idSet.has(n.id)).map((n) => n.id));
+    const flipped = new Set(feed.filter((n) => idSet.has(n.id) && !n.read).map((n) => n.id));
+    const anyAbsent = ids.some((id) => !present.has(id));
+    if (flipped.size > 0) {
+      set((s) => ({
+        submissionNotifications: s.submissionNotifications.map((n) =>
+          flipped.has(n.id) ? { ...n, read: true } : n,
+        ),
+        submissionUnreadCount: Math.max(0, s.submissionUnreadCount - flipped.size),
+      }));
+    }
+    // Two-arg `then` so a failure in the reconcile reload can never trigger
+    // the mark-read revert (the write itself succeeded).
+    db.markNotificationsRead(ids).then(
+      () => {
+        if (anyAbsent) {
+          get().loadSubmissionNotifications().catch((e: any) =>
+            console.warn('[Supabase] markSubmissionNotificationsRead reload:', e?.message || e),
+          );
+        }
+      },
+      (e: any) => {
+        if (flipped.size > 0) {
+          set((s) => ({
+            submissionNotifications: s.submissionNotifications.map((n) =>
+              flipped.has(n.id) ? { ...n, read: false } : n,
+            ),
+            submissionUnreadCount: s.submissionUnreadCount + flipped.size,
+          }));
+        }
+        notifyBackendError('Mark notifications read', e);
+      },
+    );
   },
 
   // Optimistic mark-all: flip every row read + zero the badge, then persist

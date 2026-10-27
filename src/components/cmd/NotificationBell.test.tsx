@@ -30,6 +30,7 @@ import {
   badgeBackgroundColor,
   badgeTextColor,
   rowDotColor,
+  updateSecondaryLine,
 } from './NotificationBell';
 import type { AdminNotification } from '../../types';
 
@@ -100,5 +101,25 @@ describe('rowDotColor', () => {
   it('renders transparent once a row is read, regardless of type', () => {
     expect(rowDotColor(C, row('missed_eod', true))).toBe('transparent');
     expect(rowDotColor(C, row('eod', true))).toBe('transparent');
+  });
+});
+
+// Spec 180 — the `eod_update` bell marker. The headline reuses typeLabel (the
+// new `chrome.submissionBell.type.eod_update` key); the secondary line names
+// the vendor + editor so N edit rows stay distinguishable. Color stays accent.
+describe('eod_update rows (spec 180)', () => {
+  it('secondary line is "<vendor> · <editor>"', () => {
+    const n = { ...row('eod_update', false), body: 'Sysco', actorName: 'Manager' };
+    expect(updateSecondaryLine(n, 'Someone')).toBe('Sysco · Manager');
+  });
+
+  it('omits an empty vendor and falls back to the unknown-actor string', () => {
+    const n = { ...row('eod_update', false), body: undefined, actorName: null };
+    expect(updateSecondaryLine(n, 'Someone')).toBe('Someone');
+  });
+
+  it('is NOT urgent: accent dot, never turns the badge red', () => {
+    expect(rowDotColor(C, row('eod_update', false))).toBe('ACCENT');
+    expect(feedHasUnreadMissed([row('eod_update', false)])).toBe(false);
   });
 });

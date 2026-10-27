@@ -32,6 +32,7 @@ import {
   badgeBackgroundColor,
   badgeTextColor,
   rowDotColor,
+  updateSecondaryLine,
 } from '../../../../components/cmd/NotificationBell';
 import type { AdminNotification, SubmissionNotificationType } from '../../../../types';
 
@@ -44,6 +45,10 @@ export function sectionForNotification(type: SubmissionNotificationType): string
   switch (type) {
     case 'missed_eod':
     case 'eod':
+    // Spec 180 — an edit of a submitted count opens the EOD count section,
+    // like a fresh `eod`. No `orderApproval` payload (onRowPress keys that on
+    // `order_ready` only): an edit is not an order ask.
+    case 'eod_update':
       return 'EODCount';
     case 'weekly':
       return 'InventoryCount';
@@ -326,9 +331,13 @@ export const PhoneNotifications: React.FC = () => {
                           `body` is "<vendor> · <what went wrong>": on a phone
                           the reason IS the notification, and the operator's own
                           name tells them nothing they don't know. */}
+                      {/* Spec 180 — an `eod_update` row reads "<vendor> ·
+                          <editor>" (shared helper with the desktop bell). */}
                       {n.type === 'order_ready' || n.type === 'order_failed'
                         ? (n.body || T('chrome.submissionBell.unknownActor'))
-                        : (n.actorName ?? T('chrome.submissionBell.unknownActor'))}
+                        : n.type === 'eod_update'
+                          ? updateSecondaryLine(n, T('chrome.submissionBell.unknownActor'))
+                          : (n.actorName ?? T('chrome.submissionBell.unknownActor'))}
                       {' · '}
                       {T(rt.key, rt.vars)}
                     </Text>

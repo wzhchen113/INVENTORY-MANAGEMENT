@@ -19,9 +19,16 @@
 // gets a single channel. All channels are torn down on unmount / scope change
 // so there are no leaks. The listen stays off the heavy `onSync` full-reload —
 // an INSERT just refetches the feed head + unread count (spec 120 §7).
+//
+// Spec 180 — the same INSERT handler also feeds the admin EOD pop-up
+// (useEodSubmitPopup). It reuses these channels rather than opening a second
+// set; `popup.onInsert` is ref-backed/stable so the channel effect's deps stay
+// `[brandKey]`. Only realtime INSERTs reach the pop-up — the initial / brand-
+// switch `loadSubmissionNotifications` never does (AC-6).
 import { useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../store/useStore';
+import { useEodSubmitPopup } from './useEodSubmitPopup';
 
 export function useSubmissionNotifications(brandId?: string) {
   const loadSubmissionNotifications = useStore((s) => s.loadSubmissionNotifications);
@@ -42,6 +49,7 @@ export function useSubmissionNotifications(brandId?: string) {
     return [...ids].sort();
   }, [role, brandsList, brandId]);
   const brandKey = brandIds.join(',');
+  const { onInsert: onPopupInsert } = useEodSubmitPopup(brandKey);
 
   // Initial load + reload when the brand scope changes (super_admin brand
   // switch / brandsList arriving). Fire-and-forget; the store toasts its own
@@ -63,10 +71,13 @@ export function useSubmissionNotifications(brandId?: string) {
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notifications', filter: `brand_id=eq.${id}` },
-          () => { useStore.getState().loadSubmissionNotifications(); },
+          (payload) => {
+            useStore.getState().loadSubmissionNotifications();
+            onPopupInsert(payload.new);
+          },
         )
         .subscribe(),
     );
     return () => { for (const ch of channels) supabase.removeChannel(ch); };
-  }, [brandKey]);
+  }, [brandKey, onPopupInsert]);
 }

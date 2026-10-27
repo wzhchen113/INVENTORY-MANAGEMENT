@@ -119,7 +119,8 @@
         "missed_eod": "Conteo de cierre no realizado",
         "issue": "Problema reportado",
         "order_ready": "Pedido listo para aprobar",
-        "order_failed": "Pedido NO realizado"
+        "order_failed": "Pedido NO realizado",
+        "eod_update": "Conteo de cierre actualizado"
       },
       "issueCategory": {
         "equipment": "Equipo",
@@ -133,6 +134,27 @@
         "hours": "hace {n}h",
         "days": "hace {n}d"
       }
+    },
+    "eodPopup": {
+      "title": {
+        "single": {
+          "eod": "{store}: conteo de cierre enviado",
+          "order_ready": "{store}: Pedido listo para aprobar",
+          "eod_update": "{store}: conteo de cierre actualizado"
+        },
+        "group": {
+          "submitted": "{store}: {n} conteos por proveedor enviados",
+          "updated": "{store}: {n} conteos por proveedor actualizados",
+          "mixed": "{store}: {n} conteos por proveedor enviados (actualizados: {u})"
+        }
+      },
+      "body": {
+        "by": "por {actor}",
+        "byMany": "por {actor} y {k} más",
+        "vendorBy": "{vendor} · por {actor}",
+        "readySuffix": " · listos para aprobar: {k}"
+      },
+      "unknownStore": "Una tienda"
     },
     "notifications": {
       "label": "Notificaciones",

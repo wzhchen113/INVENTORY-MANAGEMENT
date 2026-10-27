@@ -28,6 +28,9 @@ export const TYPE_LABEL: Record<string, string> = {
   // branch: the default `${label} submitted` copy would read "Order failed
   // submitted", and nothing here was submitted.
   order_failed: 'Order NOT placed',
+  // Spec 180 — an edit of an already-submitted EOD count. The default branch
+  // would render "EOD count updated submitted", so it gets its own branch too.
+  eod_update: 'EOD count updated',
 };
 
 // Spec 126 — short human labels for the issue category badge in the push body.
@@ -80,6 +83,16 @@ export function derivePushCopy(
     return {
       title: 'Order NOT placed',
       body: [notif.store_name ?? '', preview].filter(Boolean).join(' · '),
+    };
+  }
+  if (notif.type === 'eod_update') {
+    // Spec 180 — `body` carries the vendor name (emit_eod_update), actor_name
+    // the EDITOR. "<editor> · <store> · <vendor>".
+    return {
+      title: 'EOD count updated',
+      body: [notif.actor_name ?? 'A user', notif.store_name ?? '', notif.body ?? '']
+        .filter(Boolean)
+        .join(' · '),
     };
   }
   return {

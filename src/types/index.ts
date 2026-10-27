@@ -1365,7 +1365,15 @@ export type SubmissionNotificationType =
   // Rendered RED (badge + dot), joining `missed_eod`. Spec 121 reserved red for
   // "a count was missed"; spec 162 widens that reservation to "something needs
   // you NOW", which an order that never reached the vendor is.
-  | 'order_failed';
+  | 'order_failed'
+  // Spec 180 — an already-submitted EOD count was edited (re-submitted), or a
+  // count was re-promoted after a submitted→draft demotion. One row PER EDIT:
+  // source_id is a per-edit event id (gen_random_uuid()), NOT the submission,
+  // so N edits give N rows; `submissionId` carries the eod_submissions id.
+  // `body` carries the VENDOR NAME (same slot as `order_ready`), `actor_name`
+  // / `actor_user_id` the EDITOR (auth.uid() at write time). Never
+  // re-classified as `order_ready`. Badge/dot color stays accent (not urgent).
+  | 'eod_update';
 
 export interface AdminNotification {
   id: string;
@@ -1383,6 +1391,10 @@ export interface AdminNotification {
   // wrong>"). NULL/undefined for every other type.
   body?: string;
   category?: string;
+  // Spec 180 — set only on `eod_update` rows: the eod_submissions id the edit
+  // applied to (for `eod` / `order_ready` the submission id is `sourceId`).
+  // NULL/undefined on every other type.
+  submissionId?: string | null;
 }
 
 /**

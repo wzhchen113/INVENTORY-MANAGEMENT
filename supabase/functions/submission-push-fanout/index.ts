@@ -35,6 +35,9 @@ const TYPE_LABEL: Record<string, string> = {
   // branch: the default `${label} submitted` copy would read "Order failed
   // submitted", and nothing here was submitted.
   order_failed: 'Order NOT placed',
+  // Spec 180 — an edit of an already-submitted EOD count. The default branch
+  // would render "EOD count updated submitted", so it gets its own branch too.
+  eod_update: 'EOD count updated',
 };
 
 // Spec 126 — short human labels for the issue category badge in the push body.
@@ -72,6 +75,10 @@ const ISSUE_CATEGORY_LABEL: Record<string, string> = {
 //                             These rows carry actor_user_id NULL on purpose, so
 //                             the actor-exclusion below does NOT suppress the push
 //                             for the operator who started the run and walked away.
+//   eod_update   (spec 180) → an edit of a submitted EOD count: title "EOD count
+//                             updated", body "<editor> · <store> · <vendor>"
+//                             (notif.body carries the vendor name). Edit pushes
+//                             are throttled server-side (eod_update_push_suppressed).
 //   everything else (spec 120) → "<label> submitted" / "<actor> · <store>".
 export type PushCopyNotification = {
   type?: string | null;
@@ -115,6 +122,16 @@ export function derivePushCopy(
     return {
       title: 'Order NOT placed',
       body: [notif.store_name ?? '', preview].filter(Boolean).join(' · '),
+    };
+  }
+  if (notif.type === 'eod_update') {
+    // Spec 180 — `body` carries the vendor name (emit_eod_update), actor_name
+    // the EDITOR. "<editor> · <store> · <vendor>".
+    return {
+      title: 'EOD count updated',
+      body: [notif.actor_name ?? 'A user', notif.store_name ?? '', notif.body ?? '']
+        .filter(Boolean)
+        .join(' · '),
     };
   }
   return {

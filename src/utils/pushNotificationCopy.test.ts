@@ -94,6 +94,35 @@ describe('derivePushCopy — order_failed (spec 162, AC-7)', () => {
   });
 });
 
+describe('derivePushCopy — eod_update (spec 180, §4)', () => {
+  it('reads "EOD count updated" with editor · store · vendor', () => {
+    expect(
+      derivePushCopy({
+        type: 'eod_update',
+        actor_name: 'maria',
+        store_name: 'Towson',
+        body: 'Sysco',
+      }),
+    ).toEqual({ title: 'EOD count updated', body: 'maria · Towson · Sysco' });
+  });
+
+  it('never falls into the default "Submission submitted" / "… submitted" copy', () => {
+    const copy = derivePushCopy({ type: 'eod_update', actor_name: 'maria', store_name: 'Towson' });
+    expect(copy.title).not.toBe('Submission submitted');
+    expect(copy.title.toLowerCase()).not.toContain('submitted');
+    expect(copy.body.toLowerCase()).not.toContain('submitted');
+  });
+
+  it('falls back to "A user" for a missing editor and drops empty parts', () => {
+    expect(
+      derivePushCopy({ type: 'eod_update', actor_name: null, store_name: 'Towson', body: null }),
+    ).toEqual({ title: 'EOD count updated', body: 'A user · Towson' });
+    expect(
+      derivePushCopy({ type: 'eod_update', actor_name: 'maria', store_name: null, body: 'Sysco' }),
+    ).toEqual({ title: 'EOD count updated', body: 'maria · Sysco' });
+  });
+});
+
 describe('derivePushCopy — the branches spec 149 must not disturb', () => {
   it('keeps the spec-120 default copy for a routine eod notification', () => {
     expect(

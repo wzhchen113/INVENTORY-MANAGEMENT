@@ -72,6 +72,13 @@ export function rowDotColor(C: BellColors, n: AdminNotification): string {
   return URGENT_TYPES.has(n.type) ? C.danger : C.accent;
 }
 
+/** Spec 180 — secondary line for an `eod_update` row: "<vendor> · <editor>"
+ *  (vendor omitted when `body` is empty). Shared with the phone sheet so the
+ *  two bells render the update marker identically. */
+export function updateSecondaryLine(n: AdminNotification, unknownActor: string): string {
+  return [n.body, n.actorName ?? unknownActor].filter(Boolean).join(' · ');
+}
+
 export const NotificationBell: React.FC = () => {
   const C = useCmdColors();
   const T = useT();
@@ -337,7 +344,13 @@ export const NotificationBell: React.FC = () => {
                                 style={{ fontFamily: mono(400), fontSize: 10, color: C.fg2 }}
                                 numberOfLines={1}
                               >
-                                {n.actorName ?? T('chrome.submissionBell.unknownActor')}
+                                {/* Spec 180 — an `eod_update` row names the
+                                    VENDOR (`body`) + the EDITOR, so N edit rows
+                                    for different vendors stay distinguishable
+                                    instead of reading as duplicates. */}
+                                {n.type === 'eod_update'
+                                  ? updateSecondaryLine(n, T('chrome.submissionBell.unknownActor'))
+                                  : (n.actorName ?? T('chrome.submissionBell.unknownActor'))}
                                 {' · '}
                                 {T(rt.key, rt.vars)}
                               </Text>
