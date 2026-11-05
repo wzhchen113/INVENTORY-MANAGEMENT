@@ -271,8 +271,20 @@ describe('unitLabel', () => {
     expect(unitLabel('lbs', tFor('zh-CN'))).toBe('磅');
   });
 
+  it('free-text count units resolve in es / zh-CN (case-insensitive)', () => {
+    const es: Record<string, string> = {
+      case: 'caja', box: 'caja', pack: 'paquete', dozen: 'docena',
+      jar: 'frasco', cake: 'pastel', slices: 'rebanadas',
+    };
+    for (const [u, want] of Object.entries(es)) {
+      expect(unitLabel(u, tFor('es'))).toBe(want);
+    }
+    expect(unitLabel('Box', tFor('zh-CN'))).toBe('盒');
+    expect(unitLabel('dozen', tFor('zh-CN'))).toBe('打');
+  });
+
   it('unknown unit falls through unchanged', () => {
-    expect(unitLabel('case', tFor('en'))).toBe('case');
+    expect(unitLabel('loaves', tFor('es'))).toBe('loaves');
     expect(unitLabel('bag-of-X', tFor('en'))).toBe('bag-of-X');
   });
 

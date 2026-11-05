@@ -235,8 +235,34 @@ const recordingKeys = new Set<string>();
  * Deliberately module-level and NOT Zustand state (the `recordingKeys`
  * posture): it is never rendered, and it is never reset by test isolation —
  * only equality is ever compared, so its absolute value is irrelevant.
+ *
+ * Spec 176 — see `latestForegroundReorderGen` for the foreground-only marker
+ * that gates `loadReorderSuggestions`' dropped-result loading reset.
  */
 let reorderRequestGen = 0;
+
+/**
+ * Spec 176 D-2 — the `reorderRequestGen` value of the newest FOREGROUND
+ * `loadReorderSuggestions` call. Only `loadReorderSuggestions` writes it (in
+ * the same synchronous step as its `reorderLoading: true`); the silent refresh
+ * never reads or writes it. A dropped (stale-store) foreground result resets
+ * `reorderLoading` only while it still holds this marker, so it never cancels
+ * a newer foreground spinner — and, unlike a gate on `reorderRequestGen`, a
+ * newer SILENT refresh (which never writes `reorderLoading`) cannot strand it
+ * `true`. Same module-level, equality-only posture as `reorderRequestGen`.
+ */
+let latestForegroundReorderGen = 0;
+
+/**
+ * Spec 176 R-4 — `loadFromSupabase` generation. Bumped by every call that
+ * gets past the spec 152 session probe, in the same synchronous step as its
+ * `storeLoading: true`; only the call still holding the current value resets
+ * the spec 111 gates in `finally`, so an older (dropped) load can no longer
+ * clear the overlay while the new store's load is in flight. Module-level,
+ * not Zustand, never reset by test isolation, equality-only (the
+ * `recordingKeys` / `reorderRequestGen` posture).
+ */
+let loadFromSupabaseGen = 0;
 
 /**
  * Spec 175 — the same-store-reload tail of `loadFromSupabase`: re-fetch the
@@ -255,6 +281,7 @@ let reorderRequestGen = 0;
  * an unhandled rejection: `.then().catch()` also catches a throw inside the
  * success handler. (Assumes `db.fetchReorderSuggestions` returns a promise
  * rather than throwing synchronously — true of the real `async` helper.)
+ * It never touches `latestForegroundReorderGen` (spec 176 D-2).
  */
 function startSilentReorderRefresh(
   get: StoreApi<FullStore>['getState'],
@@ -2129,6 +2156,13 @@ export const useStore = create<FullStore>((set, get) => ({
     // Session is live — retire a banner raised by an earlier bail.
     if (get().sessionLost) set({ sessionLost: false });
 
+    // Spec 176 R-4 (N1) — bump AFTER the probe, in the same synchronous step
+    // as `storeLoading: true`, with `try` opened right after: the holder of
+    // the current value is then always the latest writer of `storeLoading:
+    // true` and always reaches `finally`. Bumping before the probe would let
+    // an out-of-order probe (or an identity-moved bail, which never resets)
+    // strand the overlay. Pinned by spec 176 D-T1.
+    const loadGen = ++loadFromSupabaseGen;
     set({ storeLoading: true });
     try {
       // Always fetch stores from Supabase
@@ -2145,6 +2179,12 @@ export const useStore = create<FullStore>((set, get) => ({
         const allData = await Promise.all(
           allStores.map((s) => db.fetchAllForStore(s.id).catch(() => null))
         );
+        // Spec 176 R-3 — the user left the "All Stores" view while this was in
+        // flight: drop the result before any write (the `stores` write above
+        // still lands; `finally` still runs, R-4). Synchronous, right before
+        // the `set`. Defensive only — no production path sets
+        // `currentStore.id = '__all__'` (N4).
+        if (sid !== get().currentStore?.id) return;
         const firstWithBrand = allData.find((d) => d?.brand);
         set({
           brand: firstWithBrand?.brand || null,
@@ -2175,20 +2215,30 @@ export const useStore = create<FullStore>((set, get) => ({
       }
 
       const data = await db.fetchAllForStore(sid);
+      // Spec 176 R-3 — a load for a store the user has since left is DROPPED
+      // here, before any slice write or tail (capacity, last-counted, silent
+      // refresh, cleanup, notifications): writing it would put the old
+      // store's inventory / vendors / schedule next to the new store's reorder
+      // list. The `stores` write above still lands; `finally` still runs
+      // (R-4). Synchronous, with no `await` before `before` / the `set`, so
+      // everything below runs only when `sid` is the current store.
+      if (sid !== get().currentStore?.id) return;
       // Spec 175 — keep or clear the reorder slice. Checked HERE, after
       // `fetchAllForStore` resolves and with no `await` before the `set`
       // below (R1), not at the top of the action. The rule keys on the
       // CURRENT store, not on `sid`:
       //  • KEEP (the payload is owned by the current store): write no reorder
-      //    key. This covers a same-store reload AND a stale reload for a store
-      //    the user has since left — the latter must not blank a payload the
-      //    new store's foreground load already landed, because nothing would
-      //    re-fetch it (spec 175 fix round 1, code-reviewer SF-1).
+      //    key. This covers a same-store reload. (The stale-reload case spec
+      //    175 fix round 1 / SF-1 also kept for is now unreachable: spec 176
+      //    R-3 returns above whenever `sid` is not current. The rule stays as
+      //    written, per spec 176 R-5.)
       //  • CLEAR (no payload, or one owned by any other store): today's spec
-      //    021 / spec 151 nulls. A foreign-owned payload is removed even when
-      //    this reload is for its owner but that store is no longer current.
+      //    021 / spec 151 nulls. Since spec 176 this block runs only for the
+      //    current store, so a foreign-owned payload is removed by the current
+      //    store's own reload.
       //  • SILENT REFRESH only when kept AND `sid` is the current store
-      //    (`silentRefreshFrom`). A stale reload never issues one.
+      //    (`silentRefreshFrom`). `sid === currentId` always holds here since
+      //    spec 176; the comparison is kept as defense (R-5).
       // R1 timing: `setCurrentStore` fires the section's foreground load for
       // the new store BEFORE this `set` runs. If that load lands first,
       // `reorderStoreId` already equals the current store and its fresh
@@ -2247,6 +2297,8 @@ export const useStore = create<FullStore>((set, get) => ({
         // an export's draft PO, and explicit post-mutation reloads) writes
         // none, so the list stays on screen; nothing else would re-fetch it —
         // the section's effect is keyed on store + date, neither of which moved.
+        // A stale reload never reaches this spread (spec 176), so the CLEAR
+        // case is always the current store's own reload.
         // Spec 151 — the `lastOrderContext` clear on a switch is load-bearing,
         // not cosmetic: the context is keyed by vendorId ONLY, so a vendor
         // shared across stores would otherwise render the PREVIOUS store's
@@ -2326,7 +2378,15 @@ export const useStore = create<FullStore>((set, get) => ({
       // slow or failed switch load can never strand the overlay (no
       // standalone timer). Every load path (store switch, brand switch,
       // __all__ redirect) funnels through here.
-      set({ storeLoading: false, switching: null });
+      // Spec 176 R-4 — only the NEWEST load resets (`loadFromSupabaseGen`),
+      // so a dropped older load can't clear the overlay mid-switch. The bump
+      // sits right before this `try`, so every load that takes a number
+      // reaches this reset — the newest one always clears the overlay. It
+      // sits AFTER the session probe so that a bail or an out-of-order probe
+      // never takes a number it won't reset. Accepted residual: an older load
+      // settling while a newer one is still inside its probe can still clear
+      // early (narrower than before).
+      if (loadGen === loadFromSupabaseGen) set({ storeLoading: false, switching: null });
     }
   },
 
@@ -3932,8 +3992,10 @@ export const useStore = create<FullStore>((set, get) => ({
     //   • `reorderPayload` — a mid-export store switch nulls it, and a
     //     foreground load for a new as-of date replaces it. (The self-echo of
     //     the draft THIS feature just wrote no longer nulls it — a same-store
-    //     reload keeps it, spec 175 — but those two paths remain.) A nulled
-    //     payload would yield `referenceDate: undefined`, which sends
+    //     reload keeps it, spec 175 — and a late previous-store foreground
+    //     result is now dropped, spec 176 R-1 — but the store switch and the
+    //     as-of-date change remain.)
+    //     A nulled payload would yield `referenceDate: undefined`, which sends
     //     `upsertVendorDraftOrder` down its `reference_date IS NULL` branch → a
     //     SECOND draft header for the same day, invisible to `has_po` and
     //     un-collapsible by the D-4 key (a different key string).
@@ -3963,6 +4025,23 @@ export const useStore = create<FullStore>((set, get) => ({
     // extension-ordering vendor) doubles the pending-list entry. Silent, like the
     // other "nothing to key against" guards above and below.
     if (!referenceDate) return null;
+    // Spec 176 R-2 — backstop for L2 (a late previous-store list rendered
+    // under the current store): the snapshot store alone does not prove the
+    // lines belong to it, and the `po_items` insert policy checks only the
+    // parent PO's store, never `item_id`'s. So refuse unless the list on
+    // screen is owned by the snapshot store. `reorderStoreId` is read live —
+    // the call-site snapshot does not carry the owner (adding it would be a UI
+    // change). A `null` owner refuses too (spec 176 P2). Placed after the
+    // silent `!referenceDate` guard so an undated (payload-less, owner-less)
+    // export stays silent; reported, not silent, for the Medium 1 reasons.
+    // Distinct prefix from the store-change refusal above.
+    if (get().reorderStoreId !== storeId) {
+      notifyBackendError(
+        'Record exported order',
+        new Error('Reorder list belongs to a different store — not recorded'),
+      );
+      return null;
+    }
     const createdByUserId = get().currentUser?.id;
     // D-2 property 1 — the remaining reads are SYNCHRONOUS, before the first
     // `await`. The call site clears the edit buffer immediately after invoking
@@ -4717,17 +4796,37 @@ export const useStore = create<FullStore>((set, get) => ({
   // sits after the guard (an early return starts no request, so it must not
   // invalidate a pending silent refresh) and before the first await (AC-10's
   // "started after" is call-time order).
+  //
+  // Spec 176 R-1 — a result for a store the user has since left is DROPPED on
+  // BOTH settle paths: no `reorderPayload` / `reorderStoreId` / `reorderError`
+  // write (it would render the old store's lines under the new one, and an
+  // export would then file them under the new store). The check is a
+  // synchronous `get()` right before each write (the `loadLastOrderContext`
+  // posture). A dropped call resets `reorderLoading` only while it is still
+  // the newest FOREGROUND request (D-2, `latestForegroundReorderGen`): it never
+  // cancels a newer foreground spinner, and a newer silent refresh cannot
+  // strand it `true`. Never dropped on generation alone — silent refreshes
+  // bump `reorderRequestGen` too, so a current-store result always lands.
   loadReorderSuggestions: async (asOfDate) => {
     const storeId = get().currentStore?.id;
     if (!storeId) return;
-    ++reorderRequestGen;
+    const gen = ++reorderRequestGen;
+    latestForegroundReorderGen = gen;
     set({ reorderLoading: true, reorderError: null });
     try {
       const payload = await db.fetchReorderSuggestions(storeId, asOfDate);
+      if (get().currentStore?.id !== storeId) {
+        if (gen === latestForegroundReorderGen) set({ reorderLoading: false });
+        return;
+      }
       set({ reorderPayload: payload, reorderStoreId: storeId, reorderLoading: false, reorderError: null });
     } catch (e: any) {
       const message = e?.message || String(e);
       console.warn('[Supabase] loadReorderSuggestions:', message);
+      if (get().currentStore?.id !== storeId) {
+        if (gen === latestForegroundReorderGen) set({ reorderLoading: false });
+        return;
+      }
       set({ reorderLoading: false, reorderError: message });
     }
   },

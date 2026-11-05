@@ -21,6 +21,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
 import { WebScrollView } from '../components/WebScrollView';
+import { PasswordInput } from '../components/PasswordInput';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
 import { checkAuthGate } from '../lib/authGate';
@@ -201,14 +202,14 @@ export default function LoginScreen() {
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Password</Text>
-            <TextInput
+            <PasswordInput
               testID="signin-password"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={password}
               onChangeText={setPassword}
               placeholder="••••••••"
               placeholderTextColor={C.textTertiary}
-              secureTextEntry
+              iconColor={C.textSecondary}
             />
           </View>
 

@@ -118,6 +118,11 @@ export function dayOfWeekLongLabel(d: DayName, T: TFn): string {
 // Unknown one-off purchase units (e.g. a free-text conversion row
 // not on `CANONICAL_UNITS`) fall through to the raw value unchanged —
 // same shape as formatAuditAction's fallback.
+//
+// 2026-10 — the second block covers the free-text count units prod's
+// `catalog_ingredients.unit` actually holds (not on CANONICAL_UNITS) so
+// the staff count screens translate them too. Anything else still
+// passes through as typed.
 const UNIT_KEY: Record<string, string> = {
   g:     'g',
   kg:    'kg',
@@ -130,6 +135,13 @@ const UNIT_KEY: Record<string, string> = {
   each:  'each',
   cases: 'cases',
   bags:  'bags',
+  case:   'case',
+  box:    'box',
+  pack:   'pack',
+  dozen:  'dozen',
+  jar:    'jar',
+  cake:   'cake',
+  slices: 'slices',
 };
 
 export function unitLabel(unit: string | null | undefined, T: TFn): string {

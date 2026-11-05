@@ -10,6 +10,8 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
 // Mock the recovery session exchange so the screen reaches `form` without a
 // live supabase client. Per-test override of the resolved value.
 jest.mock('../lib/recoveryRedirect', () => ({
@@ -76,6 +78,20 @@ describe('RecoveryScreen — recovery parse → form', () => {
     const { getByTestId } = render(<RecoveryScreen parse={RECOVERY_PARSE} onExit={jest.fn()} />);
     await waitFor(() => expect(getByTestId('recovery-form')).toBeTruthy());
     expect(establishMock).toHaveBeenCalledWith(RECOVERY_PARSE);
+  });
+
+  it('reveals the new-password and confirm fields independently', async () => {
+    const { getByTestId } = render(<RecoveryScreen parse={RECOVERY_PARSE} onExit={jest.fn()} />);
+    await waitFor(() => expect(getByTestId('recovery-form')).toBeTruthy());
+    expect(getByTestId('recovery-password').props.secureTextEntry).toBe(true);
+    expect(getByTestId('recovery-confirm').props.secureTextEntry).toBe(true);
+
+    fireEvent.press(getByTestId('recovery-password-toggle'));
+    expect(getByTestId('recovery-password').props.secureTextEntry).toBe(false);
+    expect(getByTestId('recovery-confirm').props.secureTextEntry).toBe(true);
+
+    fireEvent.press(getByTestId('recovery-confirm-toggle'));
+    expect(getByTestId('recovery-confirm').props.secureTextEntry).toBe(false);
   });
 
   it('shows the error state when the exchange fails', async () => {

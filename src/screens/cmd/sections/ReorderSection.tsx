@@ -74,6 +74,8 @@ import { PhoneOrdering } from './phone/PhoneOrdering';
 // byte-unchanged and no new section id enters InventoryDesktopLayout's dispatch.
 import { PhoneApproveOrder } from './phone/PhoneApproveOrder';
 import { usePaletteAction } from '../../../lib/paletteAction';
+// Spec 183 — the per-export language prompt (CSV / PDF / Quick-order list).
+import { ExportLanguagePrompt } from '../../../components/cmd/ExportLanguagePrompt';
 
 // Spec 088 — re-export the pure helpers from the shared util so the admin
 // reorder jest (which imports `formatSuggested` / `formatSuggestedPdf` /
@@ -147,6 +149,32 @@ export function applyReorderEdits(
 // no builder signature change.
 export function narrowReorderToVendor(payload: ReorderPayload, vendor: ReorderVendor): ReorderPayload {
   return { ...payload, vendors: [vendor], kpis: computeReorderKpis([vendor]) };
+}
+
+// Spec 183 — the ONE "is this card's CSV a US Foods / SYSCO import file?"
+// check, shared by the press handlers (an import file has no language, so it
+// skips the prompt — AC-4) and every `runCsv` (which file to emit). Desktop and
+// phone both call this so the two decisions can't drift apart.
+export function importVendorForCard(
+  payload: ReorderPayload,
+  vendor: ReorderVendor,
+  vendors: Vendor[],
+): Vendor | undefined {
+  return pickImportVendor(narrowReorderToVendor(payload, vendor), vendors);
+}
+
+// Security review (2026-08-08) Mediums 1+2, hoisted + shared in spec 183 — the
+// `(store, reorder date)` half of the spec-156 draft-PO upsert key, captured
+// from the SAME `currentStore` / `reorderPayload` the export builds its file
+// from, synchronously, before the export path's first await. The store and the
+// payload can both move while a share sheet / jsPDF chunk import / language
+// prompt is open (store switch nulls the payload; a reload or date change
+// replaces it). All six export sites (3 desktop, 3 phone) use this one helper.
+export function exportSnapshot(
+  store: Store,
+  payload: ReorderPayload,
+): { storeId: string; referenceDate: string | undefined } {
+  return { storeId: store.id, referenceDate: payload.asOfDate || undefined };
 }
 
 // Inline per-item breakdown: `on hand: 0 each | inbound: 0 each | par: 40 each
@@ -352,6 +380,10 @@ function FillCartButton({ vendor }: { vendor: ReorderVendor }) {
 // unmapped + unmapped-count + rounded-count surfacing as the PO path. The
 // desktop-web preview is lifted to `VendorCard` (rendered as a normal in-card
 // block, not an overlay) via the `onPreview` callback.
+//
+// Spec 183 — the press only OPENS the language prompt (nothing is built,
+// shared, copied or recorded yet, AC-1); Continue runs `runQuickOrder(locale)`
+// with the picked export language. Cancel / dismiss is a no-op (AC-9).
 function ReorderQuickOrderButton({
   vendor,
   onPreview,
@@ -361,7 +393,6 @@ function ReorderQuickOrderButton({
 }) {
   const C = useCmdColors();
   const T = useT();
-  const locale = useLocale();
   const inventory = useStore((s) => s.inventory);
   const vendors = useStore((s) => s.vendors);
   // Spec 138 (AC-7): a successful share/copy resets this vendor's inline edits.
@@ -378,15 +409,24 @@ function ReorderQuickOrderButton({
   const currentStore = useStore((s) => s.currentStore);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const [busy, setBusy] = React.useState(false);
+  // Spec 183 — the pending prompt. Only the store id it was opened for goes
+  // here (for the prompt's store-switch check); `currentStore` /
+  // `reorderPayload` / `vendor` are read at CONFIRM time from this render.
+  const [prompt, setPrompt] = React.useState<{ storeId: string } | null>(null);
 
-  const onShareQuickOrder = async () => {
+  const onPress = () => {
+    if (busy || prompt) return; // AC-16 — no second prompt while open or exporting
+    if (!currentStore?.id) return;
+    setPrompt({ storeId: currentStore.id }); // AC-1 — nothing built / shared / recorded yet
+  };
+
+  const runQuickOrder = async (locale: Locale) => {
+    // AC-15 — a confirm after the payload / store went away is a no-op.
+    if (!reorderPayload || !currentStore) return;
     if (busy) return;
     setBusy(true);
     // Snapshot BEFORE the first await (see the selector comment above).
-    const exportedAt = {
-      storeId: currentStore?.id,
-      referenceDate: reorderPayload?.asOfDate || undefined,
-    };
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
     try {
       // The card's vendor's counting unit ('case' by default) — the SAME
       // conversion the PO path applies, via the shared builder.
@@ -452,28 +492,45 @@ function ReorderQuickOrderButton({
   };
 
   return (
-    <TouchableOpacity
-      testID={`reorder-quick-order-${vendor.vendorId}`}
-      onPress={onShareQuickOrder}
-      disabled={busy}
-      accessibilityRole="button"
-      accessibilityLabel={T('section.reorder.quickOrderAria', { vendor: vendor.vendorName || '' })}
-      style={{
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: CmdRadius.sm,
-        borderWidth: 1,
-        borderColor: C.borderStrong,
-        opacity: busy ? 0.55 : 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-      }}
-    >
-      <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>
-        {T('section.purchaseOrders.quickOrderAction')}
-      </Text>
-    </TouchableOpacity>
+    <>
+      <TouchableOpacity
+        testID={`reorder-quick-order-${vendor.vendorId}`}
+        onPress={onPress}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel={T('section.reorder.quickOrderAria', { vendor: vendor.vendorName || '' })}
+        style={{
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          borderRadius: CmdRadius.sm,
+          borderWidth: 1,
+          borderColor: C.borderStrong,
+          opacity: busy ? 0.55 : 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>
+          {T('section.purchaseOrders.quickOrderAction')}
+        </Text>
+      </TouchableOpacity>
+      {prompt ? (
+        <ExportLanguagePrompt
+          format="quickOrder"
+          vendorName={vendor.vendorName || ''}
+          storeId={prompt.storeId}
+          onCancel={() => setPrompt(null)}
+          onConfirm={(loc) => {
+            setPrompt(null);
+            // Spec 183 security review (Low) — re-check the store here too, so
+            // the prompt's own store-switch cancel isn't the only guard.
+            if (currentStore?.id !== prompt.storeId) return;
+            void runQuickOrder(loc);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -485,9 +542,14 @@ function ReorderQuickOrderButton({
 // against the narrowed single-vendor payload, so a card whose vendor is
 // configured for an import format emits that order file; otherwise the generic
 // reorder CSV.
+//
+// Spec 183 — PDF and the GENERIC CSV open the language prompt first (AC-2/AC-3);
+// a US Foods / SYSCO import-file CSV has no language and exports immediately
+// (AC-4). Continue runs `runCsv(locale)` / `runPdf(locale)`.
 function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
   const C = useCmdColors();
-  const locale = useLocale();
+  // Still needed: handed to the import-file branch (which ignores it).
+  const uiLocale = useLocale();
   const currentStore = useStore((s) => s.currentStore);
   const reorderPayload = useStore((s) => s.reorderPayload);
   const vendorsList = useStore((s) => s.vendors);
@@ -501,21 +563,21 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
   // component body with the others (AC-REG-8).
   const recordExportedOrder = useStore((s) => s.recordExportedOrder);
 
-  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` the
-  // export actually went out under. Captured from the values THIS handler used
-  // to build the file, before its first await: `handlePdfExport` awaits two
-  // dynamic `jspdf` chunk imports, during which the TitleBar store switcher is
-  // live, a store switch can null `reorderPayload`, and a reload can replace it.
-  const snapshot = (store: Store, payload: ReorderPayload) => ({
-    storeId: store.id,
-    referenceDate: payload.asOfDate || undefined,
-  });
+  // Spec 183 — the pending prompt (format + the store it was opened for only;
+  // the file and the snapshot are built from THIS render's values at confirm).
+  const [prompt, setPrompt] = React.useState<{ format: 'csv' | 'pdf'; storeId: string } | null>(null);
 
-  const onCsv = async () => {
+  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` the
+  // export actually went out under. Captured via `exportSnapshot` from the
+  // values THIS handler used to build the file, before its first await:
+  // `handlePdfExport` awaits two dynamic `jspdf` chunk imports, during which the
+  // TitleBar store switcher is live, a store switch can null `reorderPayload`,
+  // and a reload can replace it.
+  const runCsv = async (locale: Locale) => {
     if (!reorderPayload || !currentStore) return;
-    const exportedAt = snapshot(currentStore, reorderPayload);
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
     const narrowed = narrowReorderToVendor(reorderPayload, vendor);
-    const importCfg = pickImportVendor(narrowed, vendorsList);
+    const importCfg = importVendorForCard(reorderPayload, vendor, vendorsList);
     const ok = importCfg
       ? handleImportExport(narrowed, currentStore, importCfg, inventory)
       : await handleCsvExport(narrowed, currentStore, locale);
@@ -528,14 +590,32 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
     }
   };
 
-  const onPdf = async () => {
+  const runPdf = async (locale: Locale) => {
     if (!reorderPayload || !currentStore) return;
-    const exportedAt = snapshot(currentStore, reorderPayload);
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
     const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
     if (ok) {
       void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
       clearReorderEditsForVendor(vendor.vendorId);
     }
+  };
+
+  const onCsvPress = () => {
+    if (prompt) return;
+    if (!reorderPayload || !currentStore) return;
+    if (importVendorForCard(reorderPayload, vendor, vendorsList)) {
+      // AC-4 — the US Foods / SYSCO order file is keyed on order codes and has
+      // no language: no prompt, export NOW exactly as before.
+      void runCsv(uiLocale);
+      return;
+    }
+    setPrompt({ format: 'csv', storeId: currentStore.id }); // AC-3
+  };
+
+  const onPdfPress = () => {
+    if (prompt) return;
+    if (!reorderPayload || !currentStore) return;
+    setPrompt({ format: 'pdf', storeId: currentStore.id }); // AC-2
   };
 
   const btnStyle = {
@@ -550,7 +630,7 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
     <>
       <TouchableOpacity
         testID={`reorder-export-csv-${vendor.vendorId}`}
-        onPress={onCsv}
+        onPress={onCsvPress}
         accessibilityRole="button"
         accessibilityLabel="Export CSV"
         style={btnStyle}
@@ -559,13 +639,28 @@ function ReorderVendorExportButtons({ vendor }: { vendor: ReorderVendor }) {
       </TouchableOpacity>
       <TouchableOpacity
         testID={`reorder-export-pdf-${vendor.vendorId}`}
-        onPress={onPdf}
+        onPress={onPdfPress}
         accessibilityRole="button"
         accessibilityLabel="Export PDF"
         style={btnStyle}
       >
         <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.fg2, letterSpacing: 0.3 }}>PDF</Text>
       </TouchableOpacity>
+      {prompt ? (
+        <ExportLanguagePrompt
+          format={prompt.format}
+          vendorName={vendor.vendorName || ''}
+          storeId={prompt.storeId}
+          onCancel={() => setPrompt(null)}
+          onConfirm={(loc) => {
+            const f = prompt.format;
+            setPrompt(null);
+            // Spec 183 security review (Low) — same store re-check as quick-order.
+            if (currentStore?.id !== prompt.storeId) return;
+            void (f === 'csv' ? runCsv(loc) : runPdf(loc));
+          }}
+        />
+      ) : null}
     </>
   );
 }

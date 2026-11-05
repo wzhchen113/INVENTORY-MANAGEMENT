@@ -343,6 +343,15 @@ values
 -- Inserted directly (as the test's superuser session) rather than through
 -- create_order_approval: these fixtures need explicit statuses and business
 -- dates, and the RPC's own coverage lives in order_approvals.test.sql.
+--
+-- Spec 177 (D-1 option A, fixture-only): order_approvals_lines_check_store_trg
+-- would refuse the deliberately MALFORMED (G1/G2) row below with 22023. That row
+-- models a pre-spec-177 / trigger-bypassed legacy row, and the read-side 22P02
+-- guard it pins stays load-bearing as defence in depth, so the trigger is
+-- disabled around this one fixture INSERT only. The test runs as postgres (the
+-- table owner) inside begin … rollback, so the DDL is transactional and confined
+-- to this file.
+alter table public.order_approvals disable trigger order_approvals_lines_check_store_trg;
 insert into public.order_approvals
   (id, store_id, vendor_id, business_date, channel, status, lines, line_count,
    source_submission_id)
@@ -395,6 +404,7 @@ select a.id::uuid,
      '[{"item_id":"wings","qty_base":3},
        {"item_id":"51520001-0000-0000-0000-000000000002","qty_base":7}]', '')
   ) as a(id, vendor, bdate, status, lines, src);
+alter table public.order_approvals enable trigger order_approvals_lines_check_store_trg;
 
 -- Extractors: pull one vendor block / one item entry out of the envelope by id,
 -- so no assertion depends on array position.

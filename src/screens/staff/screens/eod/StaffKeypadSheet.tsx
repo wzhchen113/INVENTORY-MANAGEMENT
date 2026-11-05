@@ -15,6 +15,7 @@ import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BottomSheet } from '../../components/BottomSheet';
 import { useI18n } from '../../i18n';
+import { staffUnitLabel } from '../../lib/unitLabel';
 import { KEYPAD_BACKSPACE, eodBoxesFor } from '../../lib/eodKeypad';
 import { useStaffColors, useStaffTokens, type StaffTokens } from '../../theme';
 import type { EodItem } from '../../lib/types';
@@ -69,11 +70,12 @@ export function StaffKeypadSheet({
 }: StaffKeypadSheetProps) {
   const c = useStaffColors();
   const T = useStaffTokens();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const styles = useMemo(() => makeStyles(T), [T]);
 
   if (!item) return null;
 
+  const unit = staffUnitLabel(item.unit, locale);
   const hasPack = (item.caseQty ?? 0) > 1;
   // Spec 171 (AC-14) — the sheet only opens on an unlocked row (EODCount
   // `openSheet` guard), so the LIVE count mode governs which wells render.
@@ -115,7 +117,7 @@ export function StaffKeypadSheet({
           {displayName}
         </Text>
         <Text style={[styles.meta, { color: c.textSecondary }]} numberOfLines={1}>
-          {item.unit}
+          {unit}
           {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
         </Text>
       </View>
@@ -171,13 +173,13 @@ export function StaffKeypadSheet({
             <Well field="cases" label={t('eod.sheet.casesWell', { qty: item.caseQty as number })} value={caseValue} />
           ) : null}
           {box.units ? (
-            <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+            <Well field="units" label={unit || t('eod.col.units')} value={unitValue} />
           ) : null}
         </View>
 
         {/* Running total (spec 172 — the NO NEED label while marked). */}
         <Text testID="eod-sheet-total" style={[styles.total, { color: noNeed ? c.success : c.text }]}>
-          {noNeed ? t('eod.noNeed') : t('eod.sheet.runningTotal', { total: runningTotal, unit: item.unit })}
+          {noNeed ? t('eod.noNeed') : t('eod.sheet.runningTotal', { total: runningTotal, unit })}
         </Text>
 
         {/* Spec 172 — mark NO NEED and advance (only when the caller opts in). */}

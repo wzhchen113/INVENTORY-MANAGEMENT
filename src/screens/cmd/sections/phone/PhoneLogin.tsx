@@ -27,6 +27,7 @@ import { useCmdColors, CmdRadius } from '../../../../theme/colors';
 import { mono, sans, PhoneType } from '../../../../theme/typography';
 import { useT } from '../../../../hooks/useT';
 import { APP_VERSION } from '../../../../utils/version';
+import { PasswordInput } from '../../../../components/PasswordInput';
 
 export interface PhoneLoginDemoUser {
   email: string;
@@ -134,13 +135,15 @@ export const PhoneLogin: React.FC<{ model: PhoneLoginModel }> = ({ model }) => {
           <Text style={[PhoneType.microCaption, { color: C.fg3, marginBottom: 6 }]}>
             {T('chrome.phone.login.passwordLabel')}
           </Text>
-          <TextInput
+          <PasswordInput
             testID="phone-login-password"
             value={model.password}
             onChangeText={model.setPassword}
             placeholder={T('chrome.phone.login.passwordPlaceholder')}
             placeholderTextColor={C.fg3}
-            secureTextEntry
+            iconColor={C.fg2}
+            showLabel={T('chrome.phone.login.showPassword')}
+            hideLabel={T('chrome.phone.login.hidePassword')}
             style={{
               height: 48,
               paddingHorizontal: 14,

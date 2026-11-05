@@ -16,6 +16,11 @@
 // (web Platform, stubbed CSV builder, stubbed jspdf + jspdf-autotable, stubbed
 // sharePo, mocked useStore) plus a `recordExportedOrder` jest.fn on the mocked
 // state object. The spec-138 suite itself stays UNEDITED (AC-REG-1).
+//
+// Spec 183 — CSV (generic) / PDF / Quick-order now open a language prompt; each
+// such press is followed by `confirmExportPrompt()` (Continue with the default
+// locale). The US FOODS / SYSCO import CSV skips the prompt (spec 183 AC-4), so
+// those cases get no confirm and pin that no prompt opened. No case removed.
 
 jest.mock('react-native/Libraries/Utilities/Platform', () => ({
   __esModule: true,
@@ -140,6 +145,11 @@ const expandAllVendorCards = () => {
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
+// Spec 183 — Continue in the export language prompt (default locale).
+const confirmExportPrompt = () => {
+  fireEvent.press(screen.getByTestId('export-lang-confirm'));
+};
+
 function caseItem(over: {
   itemId?: string;
   itemName?: string;
@@ -232,6 +242,7 @@ describe('quick-order share (site 1)', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
     expect(mockState.recordExportedOrder.mock.calls[0][0].vendorId).toBe('v-1');
   });
@@ -242,6 +253,7 @@ describe('quick-order share (site 1)', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    confirmExportPrompt();
     await settle();
     expect(mockState.recordExportedOrder).not.toHaveBeenCalled();
     expect(mockState.clearReorderEditsForVendor).not.toHaveBeenCalled();
@@ -254,6 +266,7 @@ describe('CSV export (site 2 — generic + import branches)', () => {
     seedOneVendorPayload('v-1');
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
     expect(buildReorderCsv).toHaveBeenCalledTimes(1); // the GENERIC builder ran
   });
@@ -266,6 +279,8 @@ describe('CSV export (site 2 — generic + import branches)', () => {
     }];
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 AC-4 — the import file has no language: no prompt opened.
+    expect(screen.queryByTestId('export-lang-prompt')).toBeNull();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
     // The IMPORT file went out, not the generic reorder CSV.
     expect(buildReorderCsv).not.toHaveBeenCalled();
@@ -279,6 +294,8 @@ describe('CSV export (site 2 — generic + import branches)', () => {
     }];
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 AC-4 — the import file has no language: no prompt opened.
+    expect(screen.queryByTestId('export-lang-prompt')).toBeNull();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
     expect(buildReorderCsv).not.toHaveBeenCalled();
   });
@@ -290,6 +307,7 @@ describe('CSV export (site 2 — generic + import branches)', () => {
     });
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await settle();
     expect(mockState.recordExportedOrder).not.toHaveBeenCalled();
     // Co-located sanity check — the canonical pin lives in the spec-138 suite.
@@ -303,6 +321,7 @@ describe('PDF export (site 3)', () => {
     seedOneVendorPayload('v-1');
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-pdf-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
   });
 
@@ -314,6 +333,7 @@ describe('PDF export (site 3)', () => {
     });
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-pdf-v-1'));
+    confirmExportPrompt();
     await settle();
     expect(mockState.recordExportedOrder).not.toHaveBeenCalled();
     expect(mockState.clearReorderEditsForVendor).not.toHaveBeenCalled();
@@ -340,6 +360,7 @@ describe('AC-10 — the recording precedes the edit-buffer clear', () => {
     const calls = orderedCalls();
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(calls).toEqual(['record', 'clear']));
   });
 
@@ -348,6 +369,7 @@ describe('AC-10 — the recording precedes the edit-buffer clear', () => {
     const calls = orderedCalls();
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-pdf-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(calls).toEqual(['record', 'clear']));
   });
 
@@ -357,6 +379,7 @@ describe('AC-10 — the recording precedes the edit-buffer clear', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(calls).toEqual(['record', 'clear']));
   });
 });
@@ -367,6 +390,7 @@ describe('AC-11 — the edited quantity reaches BOTH the export and the record',
     seedOneVendorPayload('v-1'); // edit: i-case → 120 base (server suggestion is 72)
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
 
     const recordedVendor = mockState.recordExportedOrder.mock.calls[0][0];
@@ -391,6 +415,7 @@ describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
     const asOf = mockState.reorderPayload.asOfDate;
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.recordExportedOrder).toHaveBeenCalledTimes(1));
     expect(mockState.recordExportedOrder.mock.calls[0][1]).toEqual({
       storeId: 'store-1',
@@ -411,6 +436,7 @@ describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    confirmExportPrompt();
 
     // …the operator switches to another store while the sheet is open…
     mockState.currentStore = { id: 'store-2', name: 'Other Store' };
@@ -437,6 +463,7 @@ describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    confirmExportPrompt();
 
     // The self-echo of an earlier export lands: loadFromSupabase nulls the payload.
     mockState.reorderPayload = null;
@@ -455,6 +482,7 @@ describe('AC-6 — a failing recorder never breaks the export', () => {
     mockState.recordExportedOrder = jest.fn(() => Promise.reject(new Error('rls denied')));
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    confirmExportPrompt();
     await waitFor(() => expect(mockState.clearReorderEditsForVendor).toHaveBeenCalledWith('v-1'));
     await settle();
   });

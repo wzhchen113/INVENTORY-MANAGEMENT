@@ -156,8 +156,11 @@ export function t(key: string, vars?: Record<string, string | number>): string {
  *  The returned `t` is bound to the SUBSCRIBED locale (not the snapshot
  *  getter), so the strings update in lock-step with the re-render.
  *  Keep using the bare `t()` for IMPERATIVE call sites (event handlers,
- *  Toast.show in onSubmit) where you want the live locale at call time. */
-export function useI18n(): { t: typeof t } {
+ *  Toast.show in onSubmit) where you want the live locale at call time.
+ *
+ *  `locale` is the same subscribed value, for render-path lookups that
+ *  take a locale arg (e.g. `staffUnitLabel`) without importing the store. */
+export function useI18n(): { t: typeof t; locale: Locale } {
   // Unconditional hook call — `_useActiveLocale` is always a valid hook
   // (the stable 'en' default before the store registers, then the real
   // Zustand subscription). This subscribes the calling component to the
@@ -172,6 +175,7 @@ export function useI18n(): { t: typeof t } {
     () => ({
       t: (key: string, vars?: Record<string, string | number>) =>
         translate(locale, key, vars),
+      locale,
     }),
     [locale],
   );

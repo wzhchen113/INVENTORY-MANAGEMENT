@@ -16,10 +16,11 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { WebScrollView } from '../components/WebScrollView';
+import { PasswordInput } from '../components/PasswordInput';
 import { supabase } from '../lib/supabase';
 import { establishRecoverySession } from '../lib/recoveryRedirect';
 import type { RecoveryParse } from '../lib/recoveryUrl';
@@ -209,29 +210,27 @@ export default function RecoveryScreen({ parse, onExit }: RecoveryScreenProps) {
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: C.textSecondary }]}>New password</Text>
-          <TextInput
+          <PasswordInput
             testID="recovery-password"
             style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
             value={password}
             onChangeText={setPassword}
             placeholder="••••••••"
             placeholderTextColor={C.textTertiary}
-            secureTextEntry
-            autoCapitalize="none"
+            iconColor={C.textSecondary}
           />
         </View>
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: C.textSecondary }]}>Confirm new password</Text>
-          <TextInput
+          <PasswordInput
             testID="recovery-confirm"
             style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
             value={confirm}
             onChangeText={setConfirm}
             placeholder="••••••••"
             placeholderTextColor={C.textTertiary}
-            secureTextEntry
-            autoCapitalize="none"
+            iconColor={C.textSecondary}
           />
         </View>
 

@@ -60,6 +60,8 @@
         "usernamePlaceholder": "用户名或 your@email.com",
         "passwordLabel": "密码",
         "passwordPlaceholder": "••••••••",
+        "showPassword": "显示密码",
+        "hidePassword": "隐藏密码",
         "signIn": "登录 →",
         "forgotPassword": "忘记密码",
         "forgotToast": "密码重置目前仅在桌面控制台可用。",
@@ -1320,7 +1322,17 @@
       "lastOrderNone": "无历史订单记录",
       "lastOrderDeltaUp": "▲ +{qty}",
       "lastOrderDeltaDown": "▼ −{qty}",
-      "lastOrderDeltaSame": "与上次盘点相同"
+      "lastOrderDeltaSame": "与上次盘点相同",
+      "exportLanguagePrompt": {
+        "title": "使用哪种语言？",
+        "subtitle": "{format} · {vendor}",
+        "formatCsv": "CSV",
+        "formatPdf": "PDF",
+        "formatQuickOrder": "快速订货清单",
+        "pdfLatinOnly": "PDF 仅提供英文或西班牙文版本。",
+        "confirm": "继续",
+        "aria": "选择导出语言"
+      }
     },
     "approveOrder": {
       "title": "审批订单",
@@ -1828,7 +1840,14 @@
       "gal": "加仑",
       "each": "个",
       "cases": "箱",
-      "bags": "袋"
+      "bags": "袋",
+      "case": "箱",
+      "box": "盒",
+      "pack": "包",
+      "dozen": "打",
+      "jar": "罐",
+      "cake": "个",
+      "slices": "片"
     }
   },
   "reorderExport": {

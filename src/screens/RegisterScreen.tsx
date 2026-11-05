@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { WebScrollView } from '../components/WebScrollView';
+import { PasswordInput } from '../components/PasswordInput';
 import { registerInvitedUser } from '../lib/auth';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 
@@ -103,25 +104,27 @@ export default function RegisterScreen() {
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Password</Text>
-            <TextInput
+            <PasswordInput
+              testID="register-password"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={password}
               onChangeText={setPassword}
               placeholder="Min 6 characters"
               placeholderTextColor={C.textTertiary}
-              secureTextEntry
+              iconColor={C.textSecondary}
             />
           </View>
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Confirm password</Text>
-            <TextInput
+            <PasswordInput
+              testID="register-confirm"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Re-enter password"
               placeholderTextColor={C.textTertiary}
-              secureTextEntry
+              iconColor={C.textSecondary}
             />
           </View>
 

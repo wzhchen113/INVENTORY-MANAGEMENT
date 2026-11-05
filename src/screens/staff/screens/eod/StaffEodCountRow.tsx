@@ -18,6 +18,7 @@ import { ListRow } from '../../components/ListRow';
 import { IngredientThumb } from '../../components/IngredientThumb';
 import { UpdatedBadge } from '../../components/UpdatedBadge';
 import { useI18n } from '../../i18n';
+import { staffUnitLabel } from '../../lib/unitLabel';
 import { useStaffColors, useStaffTokens, type StaffTokens } from '../../theme';
 import type { EodItem } from '../../lib/types';
 import { eodBoxes, type EodCountMode } from '../../lib/eodCountMode';
@@ -72,7 +73,8 @@ export function StaffEodCountRow({
   const box = eodBoxes(countMode ?? (hasPack ? 'cases_and_units' : 'units_only'));
   const c = useStaffColors();
   const T = useStaffTokens();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const unit = staffUnitLabel(item.unit, locale);
   const styles = useMemo(() => makeStyles(T), [T]);
 
   const Well = ({ field, label, value }: { field: 'cases' | 'units'; label: string; value: string }) => {
@@ -148,9 +150,9 @@ export function StaffEodCountRow({
               {/* Spec 128 — "Updated" pill. */}
               {item.updated ? <UpdatedBadge testID={`eod-updated-badge-${item.id}`} /> : null}
             </View>
-            {item.unit || hasPack ? (
+            {unit || hasPack ? (
               <Text style={[styles.itemUnit, { color: c.textSecondary }]}>
-                {item.unit}
+                {unit}
                 {hasPack ? ` · ${t('eod.row.caseOf', { qty: item.caseQty as number })}` : ''}
               </Text>
             ) : null}
@@ -159,7 +161,7 @@ export function StaffEodCountRow({
                 style={[styles.itemTotal, { color: c.textSecondary }]}
                 testID={`eod-item-total-${item.id}`}
               >
-                {t('eod.row.total', { total, unit: item.unit })}
+                {t('eod.row.total', { total, unit })}
               </Text>
             ) : null}
           </View>
@@ -204,7 +206,7 @@ export function StaffEodCountRow({
             />
           ) : null}
           {box.units ? (
-            <Well field="units" label={item.unit || t('eod.col.units')} value={unitValue} />
+            <Well field="units" label={unit || t('eod.col.units')} value={unitValue} />
           ) : null}
         </View>
       }

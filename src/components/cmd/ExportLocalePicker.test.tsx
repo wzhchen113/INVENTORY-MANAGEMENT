@@ -40,6 +40,7 @@ jest.mock('../../hooks/useLocale', () => ({
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { StyleSheet, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
 import { ExportLocalePicker } from './ExportLocalePicker';
 import { useLocale, type Locale } from '../../hooks/useLocale';
 
@@ -77,5 +78,54 @@ describe('ExportLocalePicker', () => {
     render(<Harness />);
     expect(screen.getByLabelText('中文').props.accessibilityState.selected).toBe(true);
     expect(screen.getByLabelText('EN').props.accessibilityState.selected).toBe(false);
+  });
+});
+
+// Spec 183 — additive props. The four spec-139 cases above are unedited; these
+// pin the new props AND that the defaults leave the spec-139 render unchanged.
+describe('ExportLocalePicker — spec 183 additive props', () => {
+  const flat = (style: unknown) => (StyleSheet.flatten(style as StyleProp<ViewStyle & TextStyle>) ?? {}) as ViewStyle & TextStyle;
+
+  it('options renders only the listed locales, in canonical order (even if passed reversed)', () => {
+    render(<ExportLocalePicker value="en" onChange={() => {}} options={['es', 'en']} testIDPrefix="p" />);
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    expect(radios.map((r) => r.props.accessibilityLabel)).toEqual(['EN', 'ES']);
+    expect(screen.queryByText('中文')).toBeNull();
+    // The divider index is the FILTERED index: the first segment has no left border.
+    expect(flat(screen.getByTestId('p-en').props.style).borderLeftWidth).toBe(0);
+    expect(flat(screen.getByTestId('p-es').props.style).borderLeftWidth).toBe(1);
+  });
+
+  it('default props: no testID, and the spec-139 compact styles are byte-identical', () => {
+    render(<ExportLocalePicker value="en" onChange={() => {}} />);
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(3);
+    radios.forEach((r) => expect(r.props.testID).toBeUndefined());
+    const segStyle = flat(screen.getByLabelText('ES').props.style);
+    expect(segStyle.paddingVertical).toBe(3);
+    expect(segStyle.paddingHorizontal).toBe(8);
+    expect(segStyle.minHeight).toBeUndefined();
+    expect(flat(screen.getByText('ES').props.style).fontSize).toBe(9.5);
+    // Default radiogroup label is still the spec-139 one.
+    expect(screen.getByLabelText('Change language')).toBeTruthy();
+  });
+
+  it('accessibilityLabel overrides the radiogroup label', () => {
+    render(<ExportLocalePicker value="en" onChange={() => {}} accessibilityLabel="Choose export language" />);
+    expect(screen.getByLabelText('Choose export language').props.accessibilityRole).toBe('radiogroup');
+    expect(screen.queryByLabelText('Change language')).toBeNull();
+  });
+
+  it('testIDPrefix produces `${prefix}-${locale}` on each segment', () => {
+    render(<ExportLocalePicker value="en" onChange={() => {}} testIDPrefix="export-lang-option" />);
+    expect(screen.getByTestId('export-lang-option-en')).toBeTruthy();
+    expect(screen.getByTestId('export-lang-option-es')).toBeTruthy();
+    expect(screen.getByTestId('export-lang-option-zh-CN')).toBeTruthy();
+  });
+
+  it("size='touch' gives 44-tall segments", () => {
+    render(<ExportLocalePicker value="en" onChange={() => {}} size="touch" testIDPrefix="p" />);
+    expect(flat(screen.getByTestId('p-en').props.style).minHeight).toBe(44);
   });
 });

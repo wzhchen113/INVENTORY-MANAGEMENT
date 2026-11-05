@@ -60,6 +60,8 @@
         "usernamePlaceholder": "usuario o tu@correo.com",
         "passwordLabel": "CONTRASEÑA",
         "passwordPlaceholder": "••••••••",
+        "showPassword": "Mostrar contraseña",
+        "hidePassword": "Ocultar contraseña",
         "signIn": "INICIAR SESIÓN →",
         "forgotPassword": "¿OLVIDASTE LA CONTRASEÑA?",
         "forgotToast": "El restablecimiento de contraseña está por ahora en la consola de escritorio.",
@@ -1320,7 +1322,17 @@
       "lastOrderNone": "SIN PEDIDO ANTERIOR REGISTRADO",
       "lastOrderDeltaUp": "▲ +{qty}",
       "lastOrderDeltaDown": "▼ −{qty}",
-      "lastOrderDeltaSame": "IGUAL QUE EL ÚLTIMO CONTEO"
+      "lastOrderDeltaSame": "IGUAL QUE EL ÚLTIMO CONTEO",
+      "exportLanguagePrompt": {
+        "title": "¿En qué idioma?",
+        "subtitle": "{format} · {vendor}",
+        "formatCsv": "CSV",
+        "formatPdf": "PDF",
+        "formatQuickOrder": "Lista de pedido rápido",
+        "pdfLatinOnly": "El PDF está disponible en inglés o español.",
+        "confirm": "Continuar",
+        "aria": "Elegir idioma de exportación"
+      }
     },
     "approveOrder": {
       "title": "Aprobar pedido",
@@ -1828,7 +1840,14 @@
       "gal": "gal",
       "each": "ud",
       "cases": "cajas",
-      "bags": "bolsas"
+      "bags": "bolsas",
+      "case": "caja",
+      "box": "caja",
+      "pack": "paquete",
+      "dozen": "docena",
+      "jar": "frasco",
+      "cake": "pastel",
+      "slices": "rebanadas"
     }
   },
   "reorderExport": {

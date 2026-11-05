@@ -211,8 +211,9 @@ describe('AC-2 — foreground load records the issuing store', () => {
     fetchReorder.mockReturnValueOnce(d.promise);
     const rec = record();
 
+    // Same-store: the cross-store variant (switch A → B mid-fetch) is now a
+    // drop (spec 176 R-1), covered by spec 176 AC-1.
     const p = useStore.getState().loadReorderSuggestions('D');
-    useStore.setState({ currentStore: store('B') });
     d.resolve(F);
     await p;
     rec.stop();
@@ -493,7 +494,8 @@ describe('store switch / nothing loaded / __all__', () => {
   });
 
   it('AC-15 — __all__ leaves all five reorder fields untouched and fetches nothing', async () => {
-    seedSameStore({ reorderError: 'kept' });
+    // Spec 176 AC-20 — `__all__` must be current or the branch is dropped.
+    seedSameStore({ reorderError: 'kept', currentStore: store('__all__') });
     const before = reorderFields();
 
     await useStore.getState().loadFromSupabase('__all__');
@@ -559,19 +561,21 @@ describe('fix round 1 — the keep rule keys on the CURRENT store (A′)', () =>
     expect(fetchReorder).not.toHaveBeenCalled();
   });
 
-  it('a payload owned by a store that is no longer current is removed, even by its owner\'s reload', async () => {
+  it('a reload for a store that is no longer current writes nothing, even when it owns the payload (spec 176)', async () => {
     // Current store B is showing store S's payload (a foreign owner). A reload
-    // for S — no longer current — must not keep it under B.
+    // for S — no longer current — is dropped before any write (spec 176 R-3).
+    // Clearing a foreign-owned payload now happens on the current store's own
+    // reload, already pinned by the AC-12 / AC-13 case above.
     seedSameStore({ currentStore: store('B') });
+    const before = reorderFields();
 
     await useStore.getState().loadFromSupabase('S');
     await flush();
 
     expect(fetchAll).toHaveBeenCalledWith('S');
     expect(fetchReorder).not.toHaveBeenCalled();
-    expect(reorderFields()).toEqual({
-      reorderPayload: null, reorderLoading: false, reorderError: null, reorderStoreId: null, lastOrderContext: null,
-    });
+    expect(useStore.getState().reorderPayload).toBe(P);
+    expect(reorderFields()).toEqual(before);
   });
 });
 

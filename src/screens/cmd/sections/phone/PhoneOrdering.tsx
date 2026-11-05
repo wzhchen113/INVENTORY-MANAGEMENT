@@ -49,17 +49,33 @@ import {
 } from '../../../../utils/lastOrderContext';
 import { buildPoQuickOrderText, type NameResolver } from '../../../../utils/poQuickOrderText';
 import { getLocalizedName } from '../../../../i18n/localizedName';
-import { pickImportVendor } from '../../../../utils/vendorImportShared';
 import { sharePurchaseOrder } from '../../lib/sharePo';
 import { ResponsiveSheet } from '../../../../components/cmd/ResponsiveSheet';
+// Spec 183 — the per-export language prompt, hosted by the ROOT (it must
+// outlive the ··· sheet, which unmounts on every action — AC-19).
+import {
+  ExportLanguagePrompt,
+  type ReorderExportFormat,
+} from '../../../../components/cmd/ExportLanguagePrompt';
 import {
   applyReorderEdits,
   narrowReorderToVendor,
   handleCsvExport,
   handlePdfExport,
   handleImportExport,
+  exportSnapshot,
+  importVendorForCard,
 } from '../ReorderSection';
 import type { ReorderVendor, ReorderItem } from '../../../../types';
+import type { Locale } from '../../../../i18n';
+
+// Spec 183 §3 — native modal → modal handoff. On iOS, presenting a `Modal` in
+// the same commit another `Modal` is dismissing silently fails ("Attempt to
+// present … while a presentation is in progress"), which would drop the
+// language prompt (AC-19). So on native the prompt mounts this long after the
+// ··· sheet closes: the RN `Modal` fade (~300 ms) plus margin. Web mounts it in
+// the same commit (react-native-web modals are DOM portals — no conflict).
+export const PHONE_SHEET_HANDOFF_MS = 350;
 
 // ── Date formatting ──────────────────────────────────────────────────────────
 // Parse a YYYY-MM-DD as a LOCAL date (avoid the `new Date('2026-07-27')`
@@ -587,107 +603,45 @@ function statusBadgeFor(vendor: ReorderVendor): StatusBadge {
 }
 
 // ── Overflow action sheet ─────────────────────────────────────────────────────
+// Spec 183 — an INTENT EMITTER. Every action closes the sheet first (which
+// unmounts it), so the export run logic and the language-prompt state live in
+// the `PhoneOrdering` root, which outlives it (AC-19). `onExport(format)` asks
+// the root to open the prompt (or, for an import-file CSV, export immediately).
+// The native CSV / PDF early return stays HERE, byte-identical: no prompt,
+// nothing recorded or cleared (AC-18 / spec 156 AC-9).
 function OverflowSheet({
   vendor,
   onClose,
+  onExport,
 }: {
   vendor: ReorderVendor;
   onClose: () => void;
+  onExport: (format: ReorderExportFormat) => void;
 }) {
   const C = useCmdColors();
   const T = useT();
-  const locale = useLocale();
-  const currentStore = useStore((s) => s.currentStore);
-  const reorderPayload = useStore((s) => s.reorderPayload);
-  const inventory = useStore((s) => s.inventory);
-  const vendorsSlice = useStore((s) => s.vendors);
-  const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
-  // Spec 156 (AC-8 sites 4/5/6) — a successful quick-order share, CSV /
-  // import-file export or PDF export ALSO records the exported lines as a
-  // `draft` PO. Selector at the top of the component body with the others,
-  // never inside a callback (AC-REG-8).
-  const recordExportedOrder = useStore((s) => s.recordExportedOrder);
 
-  // Security review (2026-08-08) Mediums 1+2 — the `(store, reorder date)` half
-  // of the draft's upsert key, as of EXPORT START. Both move: the store can be
-  // switched (phone store-switch sheet), which nulls `reorderPayload`, and a
-  // foreground date load can replace the payload. (A same-store realtime reload,
-  // incl. the self-echo of the draft this feature writes, keeps it — spec 175.)
-  // Reading either at record time would file the order under the wrong store,
-  // or write an UNDATED second draft header. Captured before the first await at
-  // each of the three call sites below.
-  const exportContext = (): { storeId: string | undefined; referenceDate: string | undefined } => ({
-    storeId: currentStore?.id,
-    referenceDate: reorderPayload?.asOfDate || undefined,
-  });
-
-  const runQuickOrder = async () => {
+  const runQuickOrder = () => {
     onClose();
-    const exportedAt = exportContext();
-    const orderUnit = vendorsSlice.find((v) => v.id === vendor.vendorId)?.orderUnit ?? 'case';
-    const resolveCode = (itemId: string): string | null | undefined =>
-      inventory.find((i) => i.id === itemId)?.vendors?.find((v) => v.vendorId === vendor.vendorId)?.orderCode;
-    const resolveName: NameResolver = (itemId, fallbackName) => {
-      const row = inventory.find((i) => i.id === itemId);
-      return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
-    };
-    const { text, unmappedCount, roundedCount } = buildPoQuickOrderText(
-      vendor.items.map((it) => ({ itemId: it.itemId, itemName: it.itemName, orderedQty: it.suggestedUnits, caseQty: it.caseQty })),
-      resolveCode,
-      resolveName,
-      orderUnit,
-    );
-    const { shared } = await sharePurchaseOrder(text, {
-      dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
-      onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
-    });
-    // Spec 156 — record BEFORE the clear (AC-10), invoked not awaited (D-3).
-    if (shared) {
-      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
-      clearReorderEditsForVendor(vendor.vendorId);
-    }
-    if (unmappedCount > 0) {
-      Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }), position: 'bottom' });
-    }
-    if (roundedCount > 0) {
-      Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderRoundedWarning', { count: roundedCount }), position: 'bottom' });
-    }
+    onExport('quickOrder');
   };
 
-  const runCsv = async () => {
+  const runCsv = () => {
     onClose();
     if (Platform.OS !== 'web') {
       Toast.show({ type: 'info', text1: T('common.availableOnDesktop') });
       return;
     }
-    if (!reorderPayload || !currentStore) return;
-    const exportedAt = exportContext();
-    const narrowed = narrowReorderToVendor(reorderPayload, vendor);
-    const importCfg = pickImportVendor(narrowed, vendorsSlice);
-    const ok = importCfg
-      ? handleImportExport(narrowed, currentStore, importCfg, inventory)
-      : await handleCsvExport(narrowed, currentStore, locale);
-    // Spec 156 — one call covering BOTH branches, past the non-web early return
-    // above (AC-9: the native `availableOnDesktop` path records nothing).
-    if (ok) {
-      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
-      clearReorderEditsForVendor(vendor.vendorId);
-    }
+    onExport('csv');
   };
 
-  const runPdf = async () => {
+  const runPdf = () => {
     onClose();
     if (Platform.OS !== 'web') {
       Toast.show({ type: 'info', text1: T('common.availableOnDesktop') });
       return;
     }
-    if (!reorderPayload || !currentStore) return;
-    const exportedAt = exportContext();
-    const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, vendor), currentStore, locale);
-    if (ok) {
-      void recordExportedOrder?.(vendor, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
-      clearReorderEditsForVendor(vendor.vendorId);
-    }
+    onExport('pdf');
   };
 
   const runOrderSchedule = () => {
@@ -750,6 +704,15 @@ export const PhoneOrdering: React.FC = () => {
   const reorderError = useStore((s) => s.reorderError);
   const reorderEdits = useStore((s) => s.reorderEdits);
   const inventory = useStore((s) => s.inventory);
+  // Spec 183 — the export run logic moved up from OverflowSheet (it unmounts
+  // on every action), so its selectors live here, at the top of the body with
+  // the others — never inside a conditional or a callback (AC-REG-8). Spec 156
+  // (AC-8 sites 4/5/6): a successful quick-order share, CSV / import-file
+  // export or PDF export ALSO records the exported lines as a `draft` PO.
+  const vendorsSlice = useStore((s) => s.vendors);
+  const clearReorderEditsForVendor = useStore((s) => s.clearReorderEditsForVendor);
+  const recordExportedOrder = useStore((s) => s.recordExportedOrder);
+  const uiLocale = useLocale();
 
   // Cards default EXPANDED on phone (the steppers are the primary action);
   // `collapsed` is the set of collapsed vendorIds. Per-session only.
@@ -796,6 +759,139 @@ export const PhoneOrdering: React.FC = () => {
   }, [vendors, reorderEdits]);
 
   const sheetVendor = vendors.find((v) => v.vendorId === sheetVendorId) ?? null;
+
+  // ── Spec 183 — export language prompt (state + run logic) ──────────────────
+  // Every hook below sits ABOVE the no-store early return (guard-after-hooks,
+  // specs 140-148). The pending state holds only the vendor id, format and the
+  // store the prompt was opened for; the file + snapshot are built at CONFIRM
+  // from this render's `currentStore` / `reorderPayload` / `vendors` (AC-15).
+  const [exportPrompt, setExportPrompt] = React.useState<
+    { vendorId: string; format: ReorderExportFormat; storeId: string } | null
+  >(null);
+  // Native modal handoff (PHONE_SHEET_HANDOFF_MS above): web is ready at once.
+  const [promptReady, setPromptReady] = React.useState(false);
+  const promptVendor = exportPrompt
+    ? vendors.find((v) => v.vendorId === exportPrompt.vendorId) ?? null
+    : null;
+
+  React.useEffect(() => {
+    if (!exportPrompt || Platform.OS === 'web') return;
+    const timer = setTimeout(() => setPromptReady(true), PHONE_SHEET_HANDOFF_MS);
+    return () => clearTimeout(timer);
+  }, [exportPrompt]);
+
+  // The vendor dropped out of the list while the prompt was pending (a date
+  // reload, or no longer ordered out today) → silent cancel, no side effects.
+  React.useEffect(() => {
+    if (exportPrompt && !promptVendor) {
+      setExportPrompt(null);
+      setPromptReady(false);
+    }
+  }, [exportPrompt, promptVendor]);
+
+  // Security review (2026-08-08) Mediums 1+2 — each run takes `exportSnapshot`
+  // from the same store + payload it builds the file from, before its first
+  // await. Both move: the store can be switched (phone store-switch sheet),
+  // which nulls `reorderPayload`, and a foreground date load can replace the
+  // payload. (A same-store realtime reload, incl. the self-echo of the draft
+  // this feature writes, keeps it — spec 175.)
+  const runQuickOrder = async (v: ReorderVendor, locale: Locale) => {
+    if (!reorderPayload || !currentStore) return; // AC-15
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
+    const orderUnit = vendorsSlice.find((x) => x.id === v.vendorId)?.orderUnit ?? 'case';
+    const resolveCode = (itemId: string): string | null | undefined =>
+      inventory.find((i) => i.id === itemId)?.vendors?.find((x) => x.vendorId === v.vendorId)?.orderCode;
+    const resolveName: NameResolver = (itemId, fallbackName) => {
+      const row = inventory.find((i) => i.id === itemId);
+      return row ? getLocalizedName({ name: row.name, i18nNames: row.i18nNames }, locale) : fallbackName;
+    };
+    const { text, unmappedCount, roundedCount } = buildPoQuickOrderText(
+      v.items.map((it) => ({ itemId: it.itemId, itemName: it.itemName, orderedQty: it.suggestedUnits, caseQty: it.caseQty })),
+      resolveCode,
+      resolveName,
+      orderUnit,
+    );
+    const { shared } = await sharePurchaseOrder(text, {
+      dialogTitle: T('section.purchaseOrders.quickOrderDialogTitle'),
+      onCopyToast: () => Toast.show({ type: 'success', text1: T('section.purchaseOrders.quickOrderCopiedToast') }),
+    });
+    // Spec 156 — record BEFORE the clear (AC-10), invoked not awaited (D-3).
+    if (shared) {
+      void recordExportedOrder?.(v, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(v.vendorId);
+    }
+    if (unmappedCount > 0) {
+      Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderUnmappedWarning', { count: unmappedCount }), position: 'bottom' });
+    }
+    if (roundedCount > 0) {
+      Toast.show({ type: 'error', text1: T('section.purchaseOrders.quickOrderRoundedWarning', { count: roundedCount }), position: 'bottom' });
+    }
+  };
+
+  const runCsv = async (v: ReorderVendor, locale: Locale) => {
+    if (!reorderPayload || !currentStore) return;
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
+    const narrowed = narrowReorderToVendor(reorderPayload, v);
+    const importCfg = importVendorForCard(reorderPayload, v, vendorsSlice);
+    const ok = importCfg
+      ? handleImportExport(narrowed, currentStore, importCfg, inventory)
+      : await handleCsvExport(narrowed, currentStore, locale);
+    // Spec 156 — one call covering BOTH branches. The native
+    // `availableOnDesktop` path never reaches here (OverflowSheet returns
+    // early), so it records nothing (AC-9 / AC-18).
+    if (ok) {
+      void recordExportedOrder?.(v, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(v.vendorId);
+    }
+  };
+
+  const runPdf = async (v: ReorderVendor, locale: Locale) => {
+    if (!reorderPayload || !currentStore) return;
+    const exportedAt = exportSnapshot(currentStore, reorderPayload);
+    const ok = await handlePdfExport(narrowReorderToVendor(reorderPayload, v), currentStore, locale);
+    if (ok) {
+      void recordExportedOrder?.(v, exportedAt).catch((e) => console.warn('[spec156] recordExportedOrder rejected (contract violation):', e));
+      clearReorderEditsForVendor(v.vendorId);
+    }
+  };
+
+  const requestExport = (vendorId: string, format: ReorderExportFormat) => {
+    const v = vendors.find((x) => x.vendorId === vendorId); // the edit-overlaid list
+    if (!v || !currentStore?.id) return;
+    if (format === 'csv') {
+      if (!reorderPayload) return;
+      // AC-4 / AC-17 — the US Foods / SYSCO import file has no language: no
+      // prompt, export now.
+      if (importVendorForCard(reorderPayload, v, vendorsSlice)) {
+        void runCsv(v, uiLocale);
+        return;
+      }
+    }
+    setPromptReady(Platform.OS === 'web');
+    setExportPrompt({ vendorId, format, storeId: currentStore.id });
+  };
+
+  const onPromptConfirm = (locale: Locale) => {
+    const p = exportPrompt;
+    setExportPrompt(null);
+    setPromptReady(false);
+    if (!p) return;
+    // Spec 183 security review (Low) — re-check the store at confirm too, so
+    // the prompt's own store-switch cancel isn't the only guard.
+    if (currentStore?.id !== p.storeId) return;
+    const v = vendors.find((x) => x.vendorId === p.vendorId);
+    if (!v) return;
+    void (p.format === 'quickOrder'
+      ? runQuickOrder(v, locale)
+      : p.format === 'csv'
+        ? runCsv(v, locale)
+        : runPdf(v, locale));
+  };
+
+  const onPromptCancel = () => {
+    setExportPrompt(null);
+    setPromptReady(false);
+  };
 
   const dateChip = (
     <TouchableOpacity
@@ -881,7 +977,22 @@ export const PhoneOrdering: React.FC = () => {
           />
         )}
       />
-      {sheetVendor ? <OverflowSheet vendor={sheetVendor} onClose={() => setSheetVendorId(null)} /> : null}
+      {sheetVendor ? (
+        <OverflowSheet
+          vendor={sheetVendor}
+          onClose={() => setSheetVendorId(null)}
+          onExport={(f) => requestExport(sheetVendor.vendorId, f)}
+        />
+      ) : null}
+      {exportPrompt && promptReady && promptVendor ? (
+        <ExportLanguagePrompt
+          format={exportPrompt.format}
+          vendorName={promptVendor.vendorName || ''}
+          storeId={exportPrompt.storeId}
+          onConfirm={onPromptConfirm}
+          onCancel={onPromptCancel}
+        />
+      ) : null}
     </View>
   );
 };

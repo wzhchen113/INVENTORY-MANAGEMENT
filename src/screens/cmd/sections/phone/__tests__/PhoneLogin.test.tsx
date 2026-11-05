@@ -9,6 +9,8 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import Toast from 'react-native-toast-message';
 
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
 }));
@@ -98,6 +100,16 @@ describe('PhoneLogin (presentational)', () => {
     expect(onRegister).toHaveBeenCalledTimes(1);
   });
 
+  it('the password eye reveals the field with catalog labels', () => {
+    const { getByTestId } = render(<PhoneLogin model={makeModel({ password: 's3cret' })} />);
+    expect(getByTestId('phone-login-password').props.secureTextEntry).toBe(true);
+    expect(getByTestId('phone-login-password-toggle').props.accessibilityLabel).toBe('Show password');
+
+    fireEvent.press(getByTestId('phone-login-password-toggle'));
+    expect(getByTestId('phone-login-password').props.secureTextEntry).toBe(false);
+    expect(getByTestId('phone-login-password-toggle').props.accessibilityLabel).toBe('Hide password');
+  });
+
   it('renders a surfaced error', () => {
     const { getByTestId, getByText } = render(<PhoneLogin model={makeModel({ error: 'Bad password' })} />);
     expect(getByTestId('phone-login-error')).toBeTruthy();
@@ -118,6 +130,14 @@ describe('LoginScreen fork pin (AC-REG)', () => {
     const { getByTestId, queryByTestId } = render(<LoginScreen />);
     expect(getByTestId('signin-submit')).toBeTruthy();
     expect(queryByTestId('phone-login')).toBeNull();
+  });
+
+  it('desktop password field has the eye toggle', () => {
+    mockTier = 'desktop';
+    const { getByTestId } = render(<LoginScreen />);
+    expect(getByTestId('signin-password').props.secureTextEntry).toBe(true);
+    fireEvent.press(getByTestId('signin-password-toggle'));
+    expect(getByTestId('signin-password').props.secureTextEntry).toBe(false);
   });
 
   it('tablet also stays on the desktop card', () => {

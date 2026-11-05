@@ -101,6 +101,23 @@ values
   ('49910000-0000-0000-0000-000000000004', '__oa_vendor_instacart__',
    current_setting('test.brand_a', true)::uuid, 'instacart', '__oa_retailer_key__', false);
 
+-- Spec 177 (D-1 option A, fixture-only): the line item ids below must be real
+-- inventory_items rows of store A, because order_approvals_lines_check_store_trg
+-- fails closed on a missing or other-store item. Same literal ids as before.
+insert into public.catalog_ingredients (id, brand_id, name, unit)
+values
+  ('49921000-0000-0000-0000-000000000001', current_setting('test.brand_a', true)::uuid,
+   '__oa_cat_fries__', 'each'),
+  ('49921000-0000-0000-0000-000000000002', current_setting('test.brand_a', true)::uuid,
+   '__oa_cat_buns__', 'each');
+
+insert into public.inventory_items (id, store_id, catalog_id)
+values
+  ('49920000-0000-0000-0000-000000000001', current_setting('test.store_a', true)::uuid,
+   '49921000-0000-0000-0000-000000000001'),
+  ('49920000-0000-0000-0000-000000000002', current_setting('test.store_a', true)::uuid,
+   '49921000-0000-0000-0000-000000000002');
+
 -- A fixed two-line payload reused by several arms.
 -- est_total_cost = 24×1.25 + 10×0.50 = 35.0000
 select set_config('test.lines', $j$[

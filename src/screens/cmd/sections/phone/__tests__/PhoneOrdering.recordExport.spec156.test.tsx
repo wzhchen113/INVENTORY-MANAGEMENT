@@ -15,6 +15,11 @@
 // (web Platform, stubbed CSV builder, stubbed jspdf, stubbed sharePo) and
 // `recordExportedOrder` / `clearReorderEditsForVendor` replaced by jest.fn on
 // the real store so the call sites are the only thing under test.
+//
+// Spec 183 — the run logic moved from OverflowSheet up to the PhoneOrdering
+// root (describe names renamed accordingly; case bodies kept), and quick /
+// generic CSV / PDF on web now go through the export language prompt
+// (`pressSheetAction(..., { confirm: true })`). No case removed.
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -186,18 +191,27 @@ beforeEach(() => {
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-/** Open the ··· sheet for v-a and press one of its actions. */
-function pressSheetAction(testID: string) {
+/** Open the ··· sheet for v-a and press one of its actions.
+ *  Spec 183 — `confirm` is EXPLICIT (never "if a prompt is present", which
+ *  would weaken the pins): `true` presses Continue in the export language
+ *  prompt (default locale); `false` for the paths that must NOT prompt (the
+ *  US FOODS import CSV, and native CSV / PDF), which also assert no prompt. */
+function pressSheetAction(testID: string, { confirm }: { confirm: boolean }) {
   const view = render(<PhoneOrdering />);
   fireEvent.press(view.getByTestId('phone-order-more-v-a'));
   fireEvent.press(view.getByTestId(testID));
+  if (confirm) {
+    fireEvent.press(view.getByTestId('export-lang-confirm'));
+  } else {
+    expect(view.queryByTestId('export-lang-prompt')).toBeNull();
+  }
   return view;
 }
 
 // ── AC-8 site 4: quick-order share ──────────────────────────────────────────
-describe('OverflowSheet.runQuickOrder (site 4)', () => {
+describe('PhoneOrdering.runQuickOrder (site 4)', () => {
   it('records ONCE for the vendor when shared === true, BEFORE the clear (AC-10)', async () => {
-    pressSheetAction('phone-order-sheet-quick');
+    pressSheetAction('phone-order-sheet-quick', { confirm: true });
     await waitFor(() => expect(recordMock).toHaveBeenCalledTimes(1));
     expect(recordMock.mock.calls[0][0].vendorId).toBe('v-a');
     expect(calls).toEqual(['record', 'clear']);
@@ -205,7 +219,7 @@ describe('OverflowSheet.runQuickOrder (site 4)', () => {
 
   it('records NOTHING when the share is dismissed (shared === false)', async () => {
     (sharePurchaseOrder as jest.Mock).mockResolvedValueOnce({ shared: false, previewText: null });
-    pressSheetAction('phone-order-sheet-quick');
+    pressSheetAction('phone-order-sheet-quick', { confirm: true });
     await settle();
     expect(recordMock).not.toHaveBeenCalled();
     expect(clearMock).not.toHaveBeenCalled();
@@ -213,9 +227,9 @@ describe('OverflowSheet.runQuickOrder (site 4)', () => {
 });
 
 // ── AC-8 site 5: CSV (both branches) ────────────────────────────────────────
-describe('OverflowSheet.runCsv (site 5)', () => {
+describe('PhoneOrdering.runCsv (site 5)', () => {
   it('generic branch: records ONCE on ok === true, before the clear', async () => {
-    pressSheetAction('phone-order-sheet-csv');
+    pressSheetAction('phone-order-sheet-csv', { confirm: true });
     await waitFor(() => expect(recordMock).toHaveBeenCalledTimes(1));
     expect(buildReorderCsv).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(['record', 'clear']);
@@ -227,7 +241,7 @@ describe('OverflowSheet.runCsv (site 5)', () => {
       orderImportFormat: 'us_foods', importCustomerNumber: '123456',
       importDistributorNumber: '99', importDepartment: '1',
     }]);
-    pressSheetAction('phone-order-sheet-csv');
+    pressSheetAction('phone-order-sheet-csv', { confirm: false });
     await waitFor(() => expect(recordMock).toHaveBeenCalledTimes(1));
     expect(buildReorderCsv).not.toHaveBeenCalled();
   });
@@ -236,7 +250,7 @@ describe('OverflowSheet.runCsv (site 5)', () => {
     (buildReorderCsv as jest.Mock).mockImplementationOnce(() => {
       throw new Error('csv boom');
     });
-    pressSheetAction('phone-order-sheet-csv');
+    pressSheetAction('phone-order-sheet-csv', { confirm: true });
     await settle();
     expect(recordMock).not.toHaveBeenCalled();
     expect(clearMock).not.toHaveBeenCalled();
@@ -244,9 +258,9 @@ describe('OverflowSheet.runCsv (site 5)', () => {
 });
 
 // ── AC-8 site 6: PDF ────────────────────────────────────────────────────────
-describe('OverflowSheet.runPdf (site 6)', () => {
+describe('PhoneOrdering.runPdf (site 6)', () => {
   it('records ONCE on ok === true, before the clear', async () => {
-    pressSheetAction('phone-order-sheet-pdf');
+    pressSheetAction('phone-order-sheet-pdf', { confirm: true });
     await waitFor(() => expect(recordMock).toHaveBeenCalledTimes(1));
     expect(calls).toEqual(['record', 'clear']);
   });
@@ -256,7 +270,7 @@ describe('OverflowSheet.runPdf (site 6)', () => {
     const spy = jest.spyOn(jsPDF.prototype, 'save').mockImplementationOnce(() => {
       throw new Error('pdf boom');
     });
-    pressSheetAction('phone-order-sheet-pdf');
+    pressSheetAction('phone-order-sheet-pdf', { confirm: true });
     await settle();
     expect(recordMock).not.toHaveBeenCalled();
     expect(clearMock).not.toHaveBeenCalled();
@@ -267,7 +281,7 @@ describe('OverflowSheet.runPdf (site 6)', () => {
 // ── Security review (2026-08-08) Mediums 1+2 — the export-start snapshot ────
 describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
   it('passes the active store + as-of date alongside the vendor', async () => {
-    pressSheetAction('phone-order-sheet-csv');
+    pressSheetAction('phone-order-sheet-csv', { confirm: true });
     await waitFor(() => expect(recordMock).toHaveBeenCalledTimes(1));
     expect(recordMock.mock.calls[0][1]).toEqual({
       storeId: 'store-1',
@@ -280,7 +294,7 @@ describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
     (sharePurchaseOrder as jest.Mock).mockImplementationOnce(
       () => new Promise((r) => { release = r; }),
     );
-    pressSheetAction('phone-order-sheet-quick');
+    pressSheetAction('phone-order-sheet-quick', { confirm: true });
 
     // The operator switches stores while the share sheet is open.
     useStore.setState({ currentStore: { id: 'store-2', name: 'Other' } as any });
@@ -295,7 +309,7 @@ describe('the (store, reorder date) snapshot is taken at EXPORT START', () => {
     (sharePurchaseOrder as jest.Mock).mockImplementationOnce(
       () => new Promise((r) => { release = r; }),
     );
-    pressSheetAction('phone-order-sheet-quick');
+    pressSheetAction('phone-order-sheet-quick', { confirm: true });
 
     useStore.setState({ reorderPayload: null as any });
     release({ shared: true, previewText: 'x' });
@@ -312,7 +326,7 @@ describe('AC-9 — native (Platform.OS !== "web") records zero times', () => {
   });
 
   it('CSV on native toasts availableOnDesktop and records nothing', async () => {
-    pressSheetAction('phone-order-sheet-csv');
+    pressSheetAction('phone-order-sheet-csv', { confirm: false });
     await settle();
     expect(recordMock).not.toHaveBeenCalled();
     expect(clearMock).not.toHaveBeenCalled();
@@ -322,7 +336,7 @@ describe('AC-9 — native (Platform.OS !== "web") records zero times', () => {
   });
 
   it('PDF on native toasts availableOnDesktop and records nothing', async () => {
-    pressSheetAction('phone-order-sheet-pdf');
+    pressSheetAction('phone-order-sheet-pdf', { confirm: false });
     await settle();
     expect(recordMock).not.toHaveBeenCalled();
     expect(clearMock).not.toHaveBeenCalled();

@@ -132,6 +132,8 @@ describe('AC-20 — exactly one RPC per store view, no N+1', () => {
       { itemId: 'i-1', lastCountedAt: '2026-08-10T00:00:00Z' },
     ]);
 
+    // Spec 176 AC-20 — the store must be current, as in production.
+    useStore.setState({ currentStore: { id: 'store-1', name: 'S1' } as any });
     await useStore.getState().loadFromSupabase('store-1');
     await flush();
 
@@ -199,6 +201,7 @@ describe('AC-21 — first paint is not blocked by the fetch', () => {
 
     // loadFromSupabase itself completes (inventory etc. is already committed)
     // even though the last-counted fetch has NOT resolved yet.
+    useStore.setState({ currentStore: { id: 'store-1', name: 'S1' } as any });
     await useStore.getState().loadFromSupabase('store-1');
 
     expect(useStore.getState().lastCountedLoaded).toBe(false);
@@ -221,6 +224,8 @@ describe('AC-22 — cached by store id; cleared (not loaded-empty) on every relo
       lastCountedStoreId: 'store-1',
       lastCountedLoaded: true,
       stores: [],
+      // Spec 176 AC-20 — `__all__` must be current or the branch is dropped.
+      currentStore: { id: '__all__', name: 'All' } as any,
     });
 
     await useStore.getState().loadFromSupabase('__all__');
@@ -242,6 +247,7 @@ describe('AC-22 — cached by store id; cleared (not loaded-empty) on every relo
       lastCountedByItem: { 'stale-item': '2026-01-01T00:00:00Z' },
       lastCountedStoreId: 'store-0',
       lastCountedLoaded: true,
+      currentStore: { id: 'store-1', name: 'S1' } as any,
     });
     const d = deferred<Array<{ itemId: string; lastCountedAt: string | null }>>();
     fetchMock.mockReturnValue(d.promise);
@@ -262,8 +268,10 @@ describe('AC-22 — cached by store id; cleared (not loaded-empty) on every relo
 
   it('refetches on a genuine store switch — called once per store id, keyed correctly each time', async () => {
     fetchMock.mockResolvedValue([]);
+    useStore.setState({ currentStore: { id: 'store-1', name: 'S1' } as any });
     await useStore.getState().loadFromSupabase('store-1');
     await flush();
+    useStore.setState({ currentStore: { id: 'store-2', name: 'S2' } as any });
     await useStore.getState().loadFromSupabase('store-2');
     await flush();
 

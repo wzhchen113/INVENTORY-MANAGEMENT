@@ -60,6 +60,8 @@
         "usernamePlaceholder": "username or your@email.com",
         "passwordLabel": "PASSWORD",
         "passwordPlaceholder": "••••••••",
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
         "signIn": "SIGN IN →",
         "forgotPassword": "FORGOT PASSWORD",
         "forgotToast": "Password reset lives on the desktop console for now.",
@@ -1320,7 +1322,17 @@
       "lastOrderNone": "NO PRIOR ORDER ON RECORD",
       "lastOrderDeltaUp": "▲ +{qty}",
       "lastOrderDeltaDown": "▼ −{qty}",
-      "lastOrderDeltaSame": "SAME AS LAST COUNT"
+      "lastOrderDeltaSame": "SAME AS LAST COUNT",
+      "exportLanguagePrompt": {
+        "title": "Which language?",
+        "subtitle": "{format} · {vendor}",
+        "formatCsv": "CSV",
+        "formatPdf": "PDF",
+        "formatQuickOrder": "Quick-order list",
+        "pdfLatinOnly": "PDF is available in English or Spanish.",
+        "confirm": "Continue",
+        "aria": "Choose export language"
+      }
     },
     "approveOrder": {
       "title": "Approve order",
@@ -1828,7 +1840,14 @@
       "gal": "gal",
       "each": "each",
       "cases": "cases",
-      "bags": "bags"
+      "bags": "bags",
+      "case": "case",
+      "box": "box",
+      "pack": "pack",
+      "dozen": "dozen",
+      "jar": "jar",
+      "cake": "cake",
+      "slices": "slices"
     }
   },
   "reorderExport": {

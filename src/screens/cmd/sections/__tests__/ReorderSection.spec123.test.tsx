@@ -278,6 +278,8 @@ describe('per-vendor CSV/PDF export', () => {
     expandAllVendorCards();
 
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-b'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
 
     // The shared CSV builder is invoked with a payload narrowed to vendor B.
     expect(buildReorderCsv).toHaveBeenCalledTimes(1);

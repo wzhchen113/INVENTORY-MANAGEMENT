@@ -136,6 +136,7 @@ beforeEach(() => {
     stores: [{ id: 'store-1', name: 'Frederick' } as any],
     inventory: INVENTORY as any,
     reorderPayload: { asOfDate: '2026-08-08', vendors: [], kpis: {} as any, warnings: [] } as any,
+    reorderStoreId: 'store-1',
     reorderEdits: { v1: { 'item-1': 5 } },
   });
 });

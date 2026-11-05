@@ -139,6 +139,8 @@ describe('AC-17 — a failed context read never breaks the order list', () => {
 describe('store switch', () => {
   it('clears the context to NULL so no cross-store quantities leak', async () => {
     useStore.setState({ lastOrderContext: context });
+    // Spec 176 AC-20 — production writes `currentStore` before the load.
+    useStore.setState({ currentStore: { id: 'store-2', name: 'Baltimore' } as any });
     // loadFromSupabase's set block is what runs on a store switch.
     await useStore.getState().loadFromSupabase('store-2');
     expect(useStore.getState().lastOrderContext).toBeNull();

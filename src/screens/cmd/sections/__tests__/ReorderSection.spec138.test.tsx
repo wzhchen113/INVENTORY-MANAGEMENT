@@ -273,6 +273,8 @@ describe('Edited qty flows to display + CSV export', () => {
 
     // CSV export receives the buffer-overridden vendor.
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     expect(buildReorderCsv).toHaveBeenCalledTimes(1);
     const passed = (buildReorderCsv as jest.Mock).mock.calls[0][0];
     expect(passed.vendors[0].items[0].suggestedUnits).toBe(120);

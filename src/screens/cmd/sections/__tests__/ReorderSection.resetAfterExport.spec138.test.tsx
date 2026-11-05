@@ -17,6 +17,11 @@
 // share orchestrator (sharePo) so the export presses are assertable without the
 // real DOM download / clipboard paths.
 
+// Spec 183 — CSV / PDF / Quick-order now open an export language prompt; every
+// press below is followed by Continue (`export-lang-confirm`, default locale).
+// Spec 183 AC-22 explicitly authorizes routing this suite through the prompt.
+// No case removed.
+
 jest.mock('react-native/Libraries/Utilities/Platform', () => ({
   __esModule: true,
   default: { OS: 'web', select: (obj: any) => obj.web ?? obj.default },
@@ -233,6 +238,8 @@ describe('AC-7 reset-after-export — CSV', () => {
     seedOneVendorPayload('v-1');
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     await waitFor(() => {
       expect(mockState.clearReorderEditsForVendor).toHaveBeenCalledWith('v-1');
     });
@@ -246,6 +253,8 @@ describe('AC-7 reset-after-export — CSV', () => {
     });
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     // Let the async handler settle, then assert no clear fired.
     await new Promise((r) => setTimeout(r, 0));
     expect(mockState.clearReorderEditsForVendor).not.toHaveBeenCalled();
@@ -274,6 +283,8 @@ describe('AC-7 reset-after-export — CSV', () => {
     };
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-csv-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     await waitFor(() => {
       expect(mockState.clearReorderEditsForVendor).toHaveBeenCalledWith('v-1');
     });
@@ -287,6 +298,8 @@ describe('AC-7 reset-after-export — PDF', () => {
     seedOneVendorPayload('v-1');
     render(<ReorderSection />);
     fireEvent.press(screen.getByTestId('reorder-export-pdf-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     await waitFor(() => {
       expect(mockState.clearReorderEditsForVendor).toHaveBeenCalledWith('v-1');
     });
@@ -300,6 +313,8 @@ describe('AC-7 reset-after-export — quick-order text', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     await waitFor(() => {
       expect(mockState.clearReorderEditsForVendor).toHaveBeenCalledWith('v-1');
     });
@@ -311,6 +326,8 @@ describe('AC-7 reset-after-export — quick-order text', () => {
     render(<ReorderSection />);
     expandAllVendorCards();
     fireEvent.press(screen.getByTestId('reorder-quick-order-v-1'));
+    // Spec 183 — Continue in the export language prompt (default locale).
+    fireEvent.press(screen.getByTestId('export-lang-confirm'));
     await new Promise((r) => setTimeout(r, 0));
     expect(mockState.clearReorderEditsForVendor).not.toHaveBeenCalled();
   });

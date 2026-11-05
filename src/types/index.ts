@@ -744,7 +744,8 @@ export interface AppState {
    * `loadReorderSuggestions`, so the section stays the lazy-load entry
    * point. Spec 175 — `loadFromSupabase` clears it on a store switch; on a
    * same-store reload it keeps it and silently refreshes it for its own
-   * `asOfDate`.
+   * `asOfDate`. Spec 176 — a late result for a store the user has left is
+   * dropped.
    */
   reorderPayload: ReorderPayload | null;
   reorderLoading: boolean;
@@ -753,9 +754,12 @@ export interface AppState {
    * Spec 175 — the store id the current `reorderPayload` was fetched for,
    * captured at fetch start. Non-null only after a successful fetch, and
    * nulled in the same write as every payload clear. `loadFromSupabase`
-   * compares it with the target store to tell a store switch (clear) from a
-   * same-store reload (keep plus silent refresh). Mirrors spec 160's
-   * `lastCountedStoreId`.
+   * compares it with the CURRENT store (spec 175 A′, which since spec 176 runs
+   * only for the current store) to tell a store switch (clear) from a
+   * same-store reload (keep plus silent refresh). `loadReorderSuggestions`
+   * never writes a result for a store that is no longer current (spec 176
+   * R-1), and `recordExportedOrder` refuses when it differs from the export's
+   * snapshot store (spec 176 R-2). Mirrors spec 160's `lastCountedStoreId`.
    */
   reorderStoreId: string | null;
   /**
