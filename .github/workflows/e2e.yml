@@ -60,7 +60,12 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned (was `latest`) to match test.yml's Track 2. CLI 3.0.0 refuses to
+          # load supabase/config.toml because of its `[inbucket]` section, which
+          # failed `supabase start` before any Playwright test ran. Bump this
+          # together with test.yml, and rename `[inbucket]` to `[local_smtp]` when
+          # moving to the 3.x CLI.
+          version: 2.106.0
 
       - name: Start Supabase stack
         run: supabase start
