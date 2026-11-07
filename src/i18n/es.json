@@ -654,6 +654,10 @@
       "addVendorAria": "Añadir un proveedor al horario de {day}",
       "noVendorsScheduled": "no hay proveedores programados para {day}",
       "noVendorsAtStore": "no hay proveedores con artículos en esta tienda",
+      "noItemsAtStore": "esta tienda aún no tiene artículos, así que no hay nada que contar",
+      "noVendorLinksAtStore": "los artículos de esta tienda no tienen un proveedor vinculado, así que no se pueden contar aquí",
+      "scheduledVendorsNoItems": "los proveedores programados para {day} no tienen artículos en esta tienda",
+      "itemsNotLoaded": "no se pudieron cargar los artículos de esta tienda; recarga para intentarlo de nuevo",
       "addVendorButton": "+ proveedor",
       "showUnscheduled": "mostrar proveedores no programados",
       "submittedBanner": "✓ ENVIADO",
@@ -1774,7 +1778,8 @@
       "stockAdjusted": "ajustó stock",
       "orderMissed": "pedido omitido",
       "storeUserCreated": "creó usuario de tienda",
-      "storeUserPasswordSet": "estableció contraseña de usuario de tienda"
+      "storeUserPasswordSet": "estableció contraseña de usuario de tienda",
+      "storeStocked": "abasteció tienda"
     },
     "inventoryCountKind": {
       "spot": "Puntual",

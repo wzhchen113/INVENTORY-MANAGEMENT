@@ -34,6 +34,7 @@ export const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' |
   'Order missed':     'warn',
   'Store user created':      'ok',
   'Store user password set': 'warn',
+  'Store stocked':           'ok',
 };
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -65,7 +66,7 @@ export function inferKind(e: AuditEvent): string {
   if (a === 'POS import') return 'pos_import';
   if (a === 'Waste log') return 'waste';
   if (a === 'EOD entry') return 'count';
-  if (a === 'Stock adjusted') return 'stock';
+  if (a === 'Stock adjusted' || a === 'Store stocked') return 'stock';
   if (a === 'User invite') return 'user';
   if (a === 'Order missed') return 'order';
   if (a === 'Store user created' || a === 'Store user password set') return 'user';

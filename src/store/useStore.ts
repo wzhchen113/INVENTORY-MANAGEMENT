@@ -814,7 +814,24 @@ interface StoreActions {
   removePosRecipeAlias: (posName: string) => Promise<void>;
 
   // Stores
-  addStore: (store: Omit<Store, 'id'>) => void;
+  /** Optimistic-then-revert store create. Spec 184 D-10 — resolves the real store
+   *  id, or `null` after removing the temporary row and calling
+   *  `notifyBackendError`. It **never rejects**. Callers branch on the value; the
+   *  temporary id never leaves the slice. */
+  addStore: (store: Omit<Store, 'id'>) => Promise<string | null>;
+  /** Spec 184 — the stock dialog and create drawer's read. Resolves `null` after
+   *  `notifyBackendError` on failure. Never rejects. The result belongs in
+   *  component state: it's only meaningful while a dialog is open. */
+  loadStoreStockPreview: (brandId: string, targetStoreId?: string | null) => Promise<db.StoreStockPreview | null>;
+  /** Spec 184 D-11 — deliberately not optimistic: the server decides which rows
+   *  are added, their ids and their derived primaries. Reloads when rows were
+   *  added, whichever store is current. Resolves `null` after
+   *  `notifyBackendError` on failure, with no reload. Never rejects. */
+  stockStoreFromStore: (targetStoreId: string, sourceStoreId: string, extraCatalogIds?: string[]) => Promise<db.StockStoreResult | null>;
+  /** Spec 184 N5 — tells "loaded and empty" from "not loaded or failed", which
+   *  `inventory: []` can't: `fetchAllForStore` turns a failed read into `[]`.
+   *  `'unknown'` until the first load lands and after sign-out. */
+  inventoryLoadStatus: 'unknown' | 'loaded' | 'failed';
   /** Optimistic-then-revert store write. Spec 155 — resolves `true` when the
    *  PATCH settled and `false` after the revert + `notifyBackendError`. It
    *  **never rejects**, so existing fire-and-forget call sites cannot produce an
@@ -1273,6 +1290,8 @@ const SIGNED_OUT_DATA_RESET = {
   stores: [],
   users: [],
   inventory: [],
+  // Spec 184 N5 — the next identity hasn't loaded anything yet.
+  inventoryLoadStatus: 'unknown' as const,
   catalogIngredients: [],
   recipes: [],
   prepRecipes: [],
@@ -1393,6 +1412,8 @@ export const useStore = create<FullStore>((set, get) => ({
   submissionNotifications: [],
   submissionUnreadCount: 0,
   storeLoading: false,
+  // Spec 184 N5 — written only by loadFromSupabase, in the same `set` as `inventory`.
+  inventoryLoadStatus: 'unknown' as const,
   // Spec 152 — "the last data load found no session". Raised by
   // loadFromSupabase's pre-fetch probe INSTEAD of blanking every slice with
   // anon-empty reads; drives the SessionLostBanner + the TitleBar indicator's
@@ -2193,6 +2214,9 @@ export const useStore = create<FullStore>((set, get) => ({
           prepRecipes: firstWithBrand?.prepRecipes || [],
           vendors: firstWithBrand?.vendors || [],
           inventory: allData.flatMap((d) => d?.inventory || []),
+          // Spec 184 N5 — a store that failed outright (null) or whose inventory
+          // read failed makes the merged list unreliable.
+          inventoryLoadStatus: allData.some((d) => !d || d.inventoryFailed) ? 'failed' : 'loaded',
           wasteLog: allData.flatMap((d) => d?.wasteLog || []),
           auditLog: allData.flatMap((d) => d?.auditLog || []),
           ...(allData[0]?.recipeCategories?.length ? { recipeCategories: allData[0].recipeCategories } : {}),
@@ -2262,6 +2286,10 @@ export const useStore = create<FullStore>((set, get) => ({
         brand: data.brand,
         catalogIngredients: data.catalogIngredients || [],
         inventory: data.inventory,
+        // Spec 184 N5 — in the same `set` as `inventory`, so a load dropped by spec
+        // 176 R-3 above writes neither. The outer `catch` doesn't write it either,
+        // since prior state is kept there.
+        inventoryLoadStatus: data.inventoryFailed ? 'failed' : 'loaded',
         recipes: data.recipes,
         prepRecipes: data.prepRecipes,
         vendors: data.vendors,
@@ -3520,12 +3548,57 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   // Stores
-  addStore: (store) => {
-    const id = `s${Date.now()}`;
-    set((s) => ({ stores: [...s.stores, { ...store, id }] }));
-    db.createStore(store).then((newId) => {
-      set((s) => ({ stores: s.stores.map((st) => st.id === id ? { ...st, id: newId } : st) }));
-    }).catch((e: any) => console.warn('[Supabase]', e?.message || e));
+  addStore: async (store) => {
+    const tempId = `s${Date.now()}`;
+    set((s) => ({ stores: [...s.stores, { ...store, id: tempId }] }));
+    try {
+      const newId = await db.createStore(store);
+      // Spec 184 D-10 — remove-then-add, not `map`: a `loadFromSupabase` in flight
+      // does `set({ stores: cloudStores })`, which replaces the array and drops
+      // the temporary row, so a bare `map` would lose the store from the slice
+      // until the next load. The same reload may already hold the real row.
+      set((s) => {
+        const others = s.stores.filter((st) => st.id !== tempId);
+        return {
+          stores: others.some((st) => st.id === newId)
+            ? others
+            : [...others, { ...store, id: newId }],
+        };
+      });
+      return newId;
+    } catch (e: any) {
+      // Filter by id rather than restoring a snapshot, for the same reason.
+      set((s) => ({ stores: s.stores.filter((st) => st.id !== tempId) }));
+      notifyBackendError('Create store', e);
+      return null;
+    }
+  },
+
+  loadStoreStockPreview: async (brandId, targetStoreId) => {
+    try {
+      return await db.fetchStoreStockPreview(brandId, targetStoreId);
+    } catch (e: any) {
+      notifyBackendError('Load stock options', e);
+      return null;
+    }
+  },
+
+  stockStoreFromStore: async (targetStoreId, sourceStoreId, extraCatalogIds) => {
+    let result: db.StockStoreResult;
+    try {
+      result = await db.stockStoreFromStore(targetStoreId, sourceStoreId, extraCatalogIds);
+    } catch (e: any) {
+      notifyBackendError('Stock store', e);
+      return null;
+    }
+    // Spec 184 D-11 / F-7 — the `inventory` slice holds every visible store, so a
+    // run on another store leaves it stale too. Not awaited: the result shouldn't
+    // wait on a full reload, and a same-store reload keeps the reorder slice
+    // (spec 175).
+    if (result.itemsCopied + result.extrasAdded > 0) {
+      void get().loadFromSupabase(get().currentStore?.id);
+    }
+    return result;
   },
 
   updateStore: (id, updates) => {

@@ -52,6 +52,7 @@ export const ACTION_TONE: Partial<Record<AuditAction, 'ok' | 'warn' | 'danger' |
   'Order missed': 'warn',
   'Store user created': 'ok',
   'Store user password set': 'warn',
+  'Store stocked': 'ok',
 };
 
 const formatTime = (iso: string): string => new Date(iso).toTimeString().slice(0, 5);

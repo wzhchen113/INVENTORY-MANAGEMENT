@@ -3,9 +3,9 @@ import { View, Text, ScrollView, FlatList, TouchableOpacity, TextInput, Platform
 import Toast from 'react-native-toast-message';
 import { useCmdColors, CmdRadius } from '../../../theme/colors';
 import { sans, mono, Type } from '../../../theme/typography';
-import { useStore } from '../../../store/useStore';
+import { useStore, notifyBackendError } from '../../../store/useStore';
 import { useIsSuperAdmin } from '../../../hooks/useRole';
-import { useIsCompact } from '../../../theme/breakpoints';
+import { useIsCompact, useIsPhone } from '../../../theme/breakpoints';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { StatCard } from '../../../components/cmd/StatCard';
 import { StatusPill } from '../../../components/cmd/StatusPill';
@@ -13,10 +13,21 @@ import { PropertiesJson } from '../../../components/cmd/PropertiesJson';
 import { SectionCaption } from '../../../components/cmd/SectionCaption';
 import { BrandFormDrawer } from '../../../components/cmd/BrandFormDrawer';
 import { StoreFormDrawer } from '../../../components/cmd/StoreFormDrawer';
+import { StockStoreDialog } from '../../../components/cmd/StockStoreDialog';
 import { InviteAdminDrawer } from '../../../components/cmd/InviteAdminDrawer';
 import { TypeToConfirmModal } from '../../../components/cmd/TypeToConfirmModal';
 import { CascadePreviewModal } from '../../../components/cmd/CascadePreviewModal';
 import { confirmAction } from '../../../utils/confirmAction';
+import {
+  buildStockResultLines,
+  buildStoreCreatedLines,
+  customerNumberCheckFailedLine,
+  customerNumberWarningLine,
+  vendorsMissingCustomerNumber,
+  type StockResultLine,
+  type StockRunReport,
+  type StoreCreatedReport,
+} from '../../../utils/stockResult';
 import * as db from '../../../lib/db';
 import { Brand, Store, User } from '../../../types';
 import { useT } from '../../../hooks/useT';
@@ -1103,6 +1114,7 @@ export function StoresTab({
   brandName: string;
 }) {
   const C = useCmdColors();
+  const isPhone = useIsPhone();
   const updateStore = useStore((s) => s.updateStore);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   // Spec 155 — the EDIT drawer's state is deliberately SEPARATE from
@@ -1113,12 +1125,29 @@ export function StoresTab({
   const [editStore, setEditStore] = React.useState<Store | null>(null);
   const [stores, setStores] = React.useState<Store[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // Spec 184 — the store whose STOCK dialog is open. The dialog mounts per open,
+  // so each one starts with no picks and a fresh preview.
+  const [stockTarget, setStockTarget] = React.useState<Store | null>(null);
+  // Spec 184 — a panel, not a toast. Toasts vanish, and the no-schedule warning is
+  // the most important line on the screen. Dialog and drawer both report here.
+  const [stockPanel, setStockPanel] = React.useState<StockResultLine[] | null>(null);
+  const stockPanelGen = React.useRef(0);
+  // Spec 184 — the brand on screen right now. A dialog or drawer run that was in
+  // flight when the brand changed still resolves through the OLD render's
+  // callbacks; comparing against this keeps brand A's result off brand B's tab.
+  const currentBrandId = React.useRef(brandId);
+  currentBrandId.current = brandId;
+  // Spec 184 AC-43 — the newest refresh wins, so a response that started before a
+  // create can't overwrite the one that started after it.
+  const refreshGen = React.useRef(0);
 
   // Tab-local include-inactive fetch. Filtered to this brand so the tab only
   // shows stores under the selected brand (RLS already scopes to the caller's
   // visible brands; this filter narrows the multi-brand result to the row).
   const refresh = React.useCallback(async (): Promise<void> => {
+    const gen = ++refreshGen.current;
     const all = await db.fetchStoresIncludingInactive();
+    if (gen !== refreshGen.current) return;
     setStores(all.filter((s) => s.brandId === brandId));
   }, [brandId]);
 
@@ -1177,6 +1206,68 @@ export function StoresTab({
     [refresh],
   );
 
+  // Spec 184 — the panel belongs to the brand it reported on.
+  React.useEffect(() => {
+    stockPanelGen.current += 1;
+    setStockPanel(null);
+    setStockTarget(null);
+  }, [brandId]);
+
+  // Spec 184 D-15 — appended once it's known, so the result never waits on it. It
+  // reads the target's rows and this brand's vendors directly: at this moment the
+  // `inventory` slice doesn't hold the rows just added (the store's reload isn't
+  // awaited), and the `vendors` slice holds the CURRENT store's brand, which needn't
+  // be the brand on this tab.
+  const showStockPanel = React.useCallback(
+    (lines: StockResultLine[], stocked?: { id: string; name: string }) => {
+      if (brandId !== currentBrandId.current) return;
+      const gen = ++stockPanelGen.current;
+      setStockPanel(lines.length > 0 ? lines : null);
+      if (!stocked) return;
+      Promise.all([db.fetchInventory(stocked.id), db.fetchVendors(brandId)])
+        .then(([items, vendors]) => {
+          if (gen !== stockPanelGen.current) return;
+          const line = customerNumberWarningLine(
+            vendorsMissingCustomerNumber(stocked.id, items, vendors),
+            stocked.name,
+          );
+          if (line) setStockPanel((prev) => (prev ? [...prev, line] : prev));
+        })
+        .catch((e: any) => {
+          notifyBackendError('Check vendor customer numbers', e);
+          if (gen !== stockPanelGen.current) return;
+          const line = customerNumberCheckFailedLine(stocked.name);
+          setStockPanel((prev) => (prev ? [...prev, line] : prev));
+        });
+    },
+    [brandId],
+  );
+
+  const onStocked = React.useCallback(
+    (report: StockRunReport) => {
+      showStockPanel(buildStockResultLines(report.result, report), {
+        id: report.targetStoreId,
+        name: report.targetName,
+      });
+    },
+    [showStockPanel],
+  );
+
+  const onStoreCreated = React.useCallback(
+    (report: StoreCreatedReport) => {
+      showStockPanel(
+        buildStoreCreatedLines(report),
+        report.result ? { id: report.storeId, name: report.storeName } : undefined,
+      );
+    },
+    [showStockPanel],
+  );
+
+  const dismissStockPanel = () => {
+    stockPanelGen.current += 1;
+    setStockPanel(null);
+  };
+
   const onToggle = (s: Store) => {
     if (s.status === 'active') {
       // Deactivate is the consequential direction — confirm first.
@@ -1212,6 +1303,46 @@ export function StoresTab({
           <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.accentFg }}>+ NEW STORE</Text>
         </TouchableOpacity>
       </View>
+      {stockPanel ? (
+        <View
+          testID="store-stock-result"
+          style={{
+            backgroundColor: C.panel,
+            borderRadius: CmdRadius.lg,
+            borderWidth: 1,
+            borderColor: stockPanel.some((l) => l.tone === 'warn') ? C.warn : C.border,
+            padding: 12,
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: 10,
+          }}
+        >
+          <View style={{ flex: 1, gap: 6 }}>
+            {stockPanel.map((line) => (
+              <Text
+                key={line.id}
+                testID={`store-stock-result-${line.id}`}
+                style={{
+                  fontFamily: sans(line.tone === 'warn' ? 600 : 400),
+                  fontSize: 12.5,
+                  color: line.tone === 'warn' ? C.warn : C.fg,
+                }}
+              >
+                {line.text}
+              </Text>
+            ))}
+          </View>
+          <TouchableOpacity
+            testID="store-stock-result-dismiss"
+            onPress={dismissStockPanel}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss stocking result"
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+          >
+            <Text style={{ fontFamily: mono(400), fontSize: 14, color: C.fg2 }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       {loading && stores.length === 0 ? (
         <View
           style={{
@@ -1269,12 +1400,15 @@ export function StoresTab({
                   paddingHorizontal: 14,
                   borderTopWidth: i === 0 ? 0 : 1,
                   borderTopColor: C.border,
+                  // Spec 184 — a fifth control doesn't fit one line at phone width,
+                  // so the actions wrap below the name instead of squeezing it out.
+                  flexWrap: isPhone ? 'wrap' : 'nowrap',
                 }}
               >
                 <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3, width: 70 }}>
                   {shortId(s.id)}
                 </Text>
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, gap: 2, minWidth: isPhone ? 180 : undefined }}>
                   <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg }}>{s.name}</Text>
                   <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }} numberOfLines={1}>
                     {s.address || '(no address)'}
@@ -1303,6 +1437,23 @@ export function StoresTab({
                   }}
                 >
                   <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg2 }}>EDIT</Text>
+                </TouchableOpacity>
+                {/* Spec 184 AC-27 — same treatment as EDIT. */}
+                <TouchableOpacity
+                  testID={`store-stock-${s.id}`}
+                  onPress={() => setStockTarget(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Stock store ${s.name}`}
+                  hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
+                  style={{
+                    paddingVertical: 5,
+                    paddingHorizontal: 9,
+                    borderRadius: CmdRadius.sm,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                  }}
+                >
+                  <Text style={{ fontFamily: mono(700), fontSize: 10, color: C.fg2 }}>STOCK</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => onToggle(s)}
@@ -1338,6 +1489,7 @@ export function StoresTab({
         onClose={() => setDrawerOpen(false)}
         brandId={brandId}
         brandName={brandName}
+        onCreated={onStoreCreated}
       />
       {/* Spec 155 — a SECOND instance in edit mode. Separate from the create
           drawer so `drawerOpen` (and the effect keyed on it) stays verbatim. */}
@@ -1349,6 +1501,14 @@ export function StoresTab({
         store={editStore}
         onSaved={onEditSaved}
       />
+      {stockTarget ? (
+        <StockStoreDialog
+          store={stockTarget}
+          brandId={brandId}
+          onClose={() => setStockTarget(null)}
+          onStocked={onStocked}
+        />
+      ) : null}
     </View>
   );
 }

@@ -634,7 +634,8 @@ export type AuditAction =
   | 'Stock adjusted'
   | 'Order missed'
   | 'Store user created'
-  | 'Store user password set';
+  | 'Store user password set'
+  | 'Store stocked';
 
 export interface Store {
   id: string;

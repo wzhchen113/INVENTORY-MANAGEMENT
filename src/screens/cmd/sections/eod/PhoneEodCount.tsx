@@ -27,6 +27,7 @@ import {
 } from '../../../../lib/eodKeypad';
 import { effectiveEodCountMode, eodBoxes } from '../../../../lib/eodCountMode';
 import type { DayStatus } from '../../../../lib/eodDayStatus';
+import { isNothingToCount, type EodEmptyState } from '../../../../lib/eodEmptyState';
 import { dayOfWeekShortLabel, type DayName } from '../../../../utils/enumLabels';
 import OrderScheduleSection from '../OrderScheduleSection';
 import { EODHistoryTab, VarianceLogTab, unitsDisplayFor } from '../EODCountSection';
@@ -92,6 +93,19 @@ export interface PhoneEodModel {
   // tab routing (shared strip)
   tabId: string;
   setTabId: (id: string) => void;
+  // Spec 184 — why there are no tabs. OPTIONAL so pre-184 model fixtures compile;
+  // `EODCountSection` always passes it.
+  eodEmptyState?: EodEmptyState;
+}
+
+// Spec 184 AC-26 — S1, S2 and a failed load name their reason. Everything else
+// keeps today's message, including a search or filter at a stocked store, whose
+// state is `none`. Phone S3/S4 copy is out of scope.
+function phoneEmptyMessageKey(state: EodEmptyState | undefined): string {
+  if (state === 'no_items') return 'section.eod.noItemsAtStore';
+  if (state === 'no_vendor_links') return 'section.eod.noVendorLinksAtStore';
+  if (state === 'load_failed') return 'section.eod.itemsNotLoaded';
+  return 'section.eod.noVendorsAtStore';
 }
 
 export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
@@ -393,7 +407,12 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
               </View>
             ) : model.filteredItems.length === 0 ? (
               <View style={{ padding: 24, alignItems: 'center' }}>
-                <Text style={{ ...PhoneType.body, color: C.fg3 }}>{T('section.eod.noVendorsAtStore')}</Text>
+                <Text
+                  testID="eod-empty-message"
+                  style={{ ...PhoneType.body, color: model.eodEmptyState === 'load_failed' ? C.warn : C.fg3, textAlign: 'center' }}
+                >
+                  {T(phoneEmptyMessageKey(model.eodEmptyState))}
+                </Text>
               </View>
             ) : (
               model.filteredItems.map((it, idx) => (
@@ -458,12 +477,14 @@ export default function PhoneEodCount({ model }: { model: PhoneEodModel }) {
               </Pressable>
             ) : (
               (() => {
-                const disabled = model.submitting || model.isRestDay;
+                // Spec 184 OD-3 — also disabled when there is nothing to count.
+                const disabled = model.submitting || model.isRestDay || isNothingToCount(model.eodEmptyState);
                 return (
                   <Pressable
                     testID="eod-submit"
                     onPress={model.onSubmit}
                     disabled={disabled}
+                    accessibilityState={{ disabled }}
                     accessibilityRole="button"
                     accessibilityLabel={
                       model.isCurrentVendorEditing ? T('section.eod.updateCount') : T('section.eod.submitCount')

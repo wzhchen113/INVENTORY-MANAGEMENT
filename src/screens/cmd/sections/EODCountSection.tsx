@@ -10,6 +10,7 @@ import { useStore } from '../../../store/useStore';
 import { submitEODCount, fetchCountOrder, saveCountOrder, resetCountOrder } from '../../../lib/db';
 import { applyCountOrder, firstUncounted } from '../../../lib/countOrder';
 import { deriveDayStatus, isRestWeekday, type DayStatus } from '../../../lib/eodDayStatus';
+import { deriveEodEmptyState, isNothingToCount } from '../../../lib/eodEmptyState';
 import {
   effectiveEodCountMode,
   eodBoxes,
@@ -210,6 +211,8 @@ export default function EODCountSection() {
   const orderSchedule = useStore((s) => s.orderSchedule);
   // Spec 055 — first-mount skeleton flag.
   const storeLoading = useStore((s) => s.storeLoading);
+  // Spec 184 N5 — tells a store with no items from one whose items didn't load.
+  const inventoryLoadStatus = useStore((s) => s.inventoryLoadStatus);
   // Backend-developer adds these store actions in spec 007's backend slice.
   // Same optimistic-then-revert pattern as setOrderSchedule.
   const addOrderScheduleEntry = useStore((s) => s.addOrderScheduleEntry);
@@ -320,6 +323,11 @@ export default function EODCountSection() {
   // toggle never mutates the schedule itself; it's a per-session view escape
   // hatch (Q4=(d)).
   const [showUnscheduled, setShowUnscheduled] = React.useState(false);
+  // Spec 184 AC-24 — nothing else resets it, and it disables `+ vendor` while on.
+  // Keeping it across a store switch would also silently widen the next store.
+  React.useEffect(() => {
+    setShowUnscheduled(false);
+  }, [currentStore?.id]);
   // Items added via + COUNT — unioned into the worksheet regardless of
   // current vendor/category filter so the user sees their addition.
   const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
@@ -459,6 +467,24 @@ export default function EODCountSection() {
     if (!scheduleConfigured) return allVendorTabs;   // store has no schedule rows at all → fallback
     return allVendorTabs.filter((v) => dayScheduledVendorIds.has(v.id));
   }, [allVendorTabs, showUnscheduled, scheduleConfigured, dayScheduledVendorIds]);
+
+  // Spec 184 D-12 — why there are no tabs. Links are read off the items themselves,
+  // not `allVendorTabs`: a failed vendors read empties that too (F-9).
+  const eodEmptyState = React.useMemo(
+    () =>
+      deriveEodEmptyState({
+        vendorTabsCount: vendorTabs.length,
+        allVendorTabsCount: allVendorTabs.length,
+        storeItemCount: storeInventory.length,
+        storeItemsWithLinkCount: storeInventory.filter((i) =>
+          (i.vendorIds ?? (i.vendorId ? [i.vendorId] : [])).some(Boolean),
+        ).length,
+        dayScheduledVendorCount: dayScheduledVendorIds.size,
+        inventoryLoadStatus,
+        storeLoading,
+      }),
+    [vendorTabs, allVendorTabs, storeInventory, dayScheduledVendorIds, inventoryLoadStatus, storeLoading],
+  );
 
   React.useEffect(() => {
     if (selectedVendorId && vendorTabs.find((v) => v.id === selectedVendorId)) return;
@@ -954,7 +980,12 @@ export default function EODCountSection() {
     }
   };
 
+  // Spec 184 OD-3 — nothing to submit; the button is disabled on both branches.
+  const nothingToCount = isNothingToCount(eodEmptyState);
+
   const onSubmit = async () => {
+    // Belt for any path that reaches this without the button (e.g. a shortcut).
+    if (nothingToCount) return;
     // Completeness gate (spec) — every item in the current worksheet scope
     // (`filteredItems`, the same set buildSubmission ships) must be counted,
     // even "0", before a final submit; partial work goes through Save Draft.
@@ -1321,10 +1352,35 @@ export default function EODCountSection() {
           pendingFocusItem,
           tabId,
           setTabId,
+          // Spec 184 AC-26 — S1, S2 and a failed load name their reason on phone.
+          eodEmptyState,
         }}
       />
     );
   }
+
+  // Spec 184 D-12 — the one message under an empty vendor row. `loading` and `none`
+  // have none: nothing is known yet, or there are tabs to show.
+  const eodEmptyMessage = (() => {
+    switch (eodEmptyState) {
+      case 'load_failed': return T('section.eod.itemsNotLoaded');
+      case 'no_items': return T('section.eod.noItemsAtStore');
+      case 'no_vendor_links': return T('section.eod.noVendorLinksAtStore');
+      case 'vendors_unresolved': return T('section.eod.noVendorsAtStore');
+      case 'no_scheduled_vendors': return T('section.eod.noVendorsScheduled', { day: selectedDayName.toLowerCase() });
+      case 'scheduled_vendors_no_items': return T('section.eod.scheduledVendorsNoItems', { day: selectedDayName.toLowerCase() });
+      default: return null;
+    }
+  })();
+  // Spec 184 N6 — with no vendor selected the worksheet would add a column header
+  // and "no items in this filter" under the message above. `+ COUNT` rows still
+  // render, because they land in `filteredItems`.
+  const hideEmptyWorksheet = eodEmptyState !== 'none' && filteredItems.length === 0;
+  // Spec 184 AC-22 — it can only widen to `allVendorTabs`, so with none it can't help.
+  const showUnscheduledToggle = scheduleConfigured && allVendorTabs.length > 0;
+  // Spec 184 AC-24 — also covers a same-store change, such as every item being
+  // removed under realtime, which the store-switch reset doesn't see.
+  const addVendorDisabled = showUnscheduled && allVendorTabs.length > 0;
 
   return (
     <>
@@ -1541,15 +1597,17 @@ export default function EODCountSection() {
                     <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>{T('section.eod.saveDraft')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    testID="eod-submit-desktop"
                     onPress={onSubmit}
-                    disabled={submitting || isRestDay}
+                    disabled={submitting || isRestDay || nothingToCount}
                     accessibilityRole="button"
+                    accessibilityState={{ disabled: submitting || isRestDay || nothingToCount }}
                     accessibilityLabel={isCurrentVendorEditing ? T('section.eod.updateCount') : T('section.eod.submitCount')}
                     style={{
                       paddingVertical: 4, paddingHorizontal: 10,
                       backgroundColor: C.accent, borderRadius: CmdRadius.sm,
-                      opacity: (submitting || isRestDay) ? (isRestDay ? 0.4 : 0.6) : 1,
-                      ...(Platform.OS === 'web' && isRestDay ? ({ pointerEvents: 'none' } as any) : {}),
+                      opacity: (submitting || isRestDay || nothingToCount) ? ((isRestDay || nothingToCount) ? 0.4 : 0.6) : 1,
+                      ...(Platform.OS === 'web' && (isRestDay || nothingToCount) ? ({ pointerEvents: 'none' } as any) : {}),
                     }}
                   >
                     <Text style={{ fontFamily: mono(700), fontSize: 10.5, color: C.accentFg }}>
@@ -1675,11 +1733,12 @@ export default function EODCountSection() {
                 </View>
               );
             })}
-            {vendorTabs.length === 0 ? (
-              <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg3 }}>
-                {scheduleConfigured && !showUnscheduled
-                  ? T('section.eod.noVendorsScheduled', { day: selectedDayName.toLowerCase() })
-                  : T('section.eod.noVendorsAtStore')}
+            {eodEmptyMessage ? (
+              <Text
+                testID="eod-empty-message"
+                style={{ fontFamily: mono(400), fontSize: 11, color: eodEmptyState === 'load_failed' ? C.warn : C.fg3 }}
+              >
+                {eodEmptyMessage}
               </Text>
             ) : null}
             {/* + vendor button — opens the vendor picker modal scoped to
@@ -1687,8 +1746,9 @@ export default function EODCountSection() {
                 we're showing unscheduled vendors (the schedule is the wrong
                 surface to mutate from there) or in __all__ (defensive). */}
             <TouchableOpacity
+              testID="eod-add-vendor"
               onPress={() => setAddVendorOpen(true)}
-              disabled={showUnscheduled}
+              disabled={addVendorDisabled}
               accessibilityRole="button"
               accessibilityLabel={T('section.eod.addVendorAria', { day: selectedDayName })}
               style={{
@@ -1699,16 +1759,18 @@ export default function EODCountSection() {
                 borderColor: C.borderStrong,
                 borderStyle: 'dashed',
                 backgroundColor: C.panel,
-                opacity: showUnscheduled ? 0.4 : 1,
+                opacity: addVendorDisabled ? 0.4 : 1,
               }}
             >
               <Text style={{ fontFamily: mono(600), fontSize: 11, color: C.fg2 }}>{T('section.eod.addVendorButton')}</Text>
             </TouchableOpacity>
             {/* Show-unscheduled toggle. Q4=(d): bypass filter for this view
                 only; never mutates the schedule. Hidden when the store has
-                no schedule rows at all (the toggle would be a no-op). */}
-            {scheduleConfigured ? (
+                no schedule rows at all, or no vendor with items here (spec
+                184): either way the toggle would be a no-op. */}
+            {showUnscheduledToggle ? (
               <TouchableOpacity
+                testID="eod-show-unscheduled"
                 onPress={() => setShowUnscheduled((v) => !v)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: showUnscheduled }}
@@ -1947,6 +2009,7 @@ export default function EODCountSection() {
             </View>
           ) : null}
           {/* Column header */}
+          {hideEmptyWorksheet ? null : (
           <View style={{ flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, borderStyle: 'dashed', gap: rowGap }}>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, flex: isPhone ? 2 : 1 }]}>{T('section.eod.itemPackCol')}</Text>
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, width: cellW, textAlign: 'center' }]}>{T('section.eod.boxCaseCol')}</Text>
@@ -1955,7 +2018,8 @@ export default function EODCountSection() {
             <View style={{ width: noNeedW }} />
             <Text style={[Type.captionLg, { color: C.fg3, fontSize: 9.5, ...(isPhone ? { flex: 1, minWidth: 0 } : { width: 180 }) }]}>{T('section.eod.noteCol')}</Text>
           </View>
-          {viewMode === 'custom' ? (
+          )}
+          {hideEmptyWorksheet ? null : viewMode === 'custom' ? (
             // Spec 103 — flat Custom view in the user's saved drag order,
             // category headers suppressed (OQ-2). Drag/▲▼ reorder is disabled
             // while a search is active (the visible subset isn't the full

@@ -654,6 +654,10 @@
       "addVendorAria": "Add a vendor to {day} schedule",
       "noVendorsScheduled": "no vendors scheduled for {day}",
       "noVendorsAtStore": "no vendors with items at this store",
+      "noItemsAtStore": "this store has no items yet, so there is nothing to count",
+      "noVendorLinksAtStore": "items at this store have no vendor linked, so they can't be counted here",
+      "scheduledVendorsNoItems": "vendors scheduled for {day} have no items at this store",
+      "itemsNotLoaded": "items for this store could not be loaded; reload to try again",
       "addVendorButton": "+ vendor",
       "showUnscheduled": "show unscheduled vendors",
       "submittedBanner": "✓ SUBMITTED",
@@ -1774,7 +1778,8 @@
       "stockAdjusted": "adjusted stock",
       "orderMissed": "order missed",
       "storeUserCreated": "created store user",
-      "storeUserPasswordSet": "set store user password"
+      "storeUserPasswordSet": "set store user password",
+      "storeStocked": "stocked store"
     },
     "inventoryCountKind": {
       "spot": "Spot",

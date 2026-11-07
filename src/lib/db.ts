@@ -268,8 +268,32 @@ export async function fetchProfileEmails(userIds: string[]): Promise<Map<string,
 }
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────
+// Spec 102 (§6a) — embed the item_vendors link set (per-vendor cost + case price
+// + the derived is_primary mirror) alongside the existing scalar `vendor` (the
+// primary pointer, SD-1) and `catalog` embeds. mapItem hydrates `vendors[]` +
+// the derived `vendorIds` from this.
+const INVENTORY_SELECT = `*,
+        vendor:vendors(name),
+        item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
+                                  order_code, product_page_url, vendor:vendors(id, name)),
+        updater:profiles!last_updated_by(name),
+        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path, eod_count_mode)`;
+
+// Spec 184 D-14 — page size of the all-stores read. Matches the repo's
+// PostgREST `max_rows` (supabase/config.toml). Paging does not rely on it:
+// the loop runs until an empty page, so a lower server cap still reads it all.
+const INVENTORY_PAGE_SIZE = 1000;
+
 // Spec 040 P3: return type widened to expose i18nNames on each row. See the
 // mapItem comment below for the rationale on the structural intersection.
+//
+// Spec 184 D-14 — with no `storeId` this reads EVERY visible store, which can
+// pass PostgREST's `max_rows` and would then be silently truncated: items would
+// vanish from arbitrary stores with no error. So that path pages by keyset until
+// a page comes back empty (one extra request per load). Keyset rather than `.range()`, so a row inserted
+// mid-read can't shift a page into a duplicate or a miss. Each page goes through
+// `track` on its own. `fetchInventory(storeId)` stays one request: a single store
+// can't exceed the catalog size.
 export async function fetchInventory(
   storeId?: string,
 ): Promise<Array<InventoryItem & { i18nNames: Record<string, string> }>> {
@@ -279,25 +303,41 @@ export async function fetchInventory(
   // it server-side; UI consumers sort client-side anyway. Spec 040 also
   // selects catalog.i18n_names so mapItem can hydrate per-locale name
   // overrides without a second fetch.
-  return useInflight.getState().track(async (signal) => {
-    // Spec 102 (§6a) — embed the item_vendors link set (per-vendor cost +
-    // case price + the derived is_primary mirror) alongside the existing
-    // scalar `vendor` (the primary pointer, SD-1) and `catalog` embeds.
-    // mapItem hydrates `vendors[]` + the derived `vendorIds` from this.
-    let query = supabase
-      .from('inventory_items')
-      .select(`*,
-        vendor:vendors(name),
-        item_vendors:item_vendors(vendor_id, cost_per_unit, case_price, is_primary,
-                                  order_code, product_page_url, vendor:vendors(id, name)),
-        updater:profiles!last_updated_by(name),
-        catalog:catalog_ingredients(id, name, unit, category, case_qty, sub_unit_size, sub_unit_unit, i18n_names, image_path, eod_count_mode)`)
-      .order('id', { ascending: true });
-    if (storeId) query = query.eq('store_id', storeId);
-    const { data, error } = await query.abortSignal(signal);
-    if (error) throw error;
-    return (data || []).map(mapItem);
-  }, { kind: 'read', label: 'fetchInventory' });
+  if (storeId) {
+    return useInflight.getState().track(async (signal) => {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select(INVENTORY_SELECT)
+        .order('id', { ascending: true })
+        .eq('store_id', storeId)
+        .abortSignal(signal);
+      if (error) throw error;
+      return (data || []).map(mapItem);
+    }, { kind: 'read', label: 'fetchInventory' });
+  }
+
+  const rows: any[] = [];
+  let afterId: string | null = null;
+  for (;;) {
+    const cursor: string | null = afterId;
+    const page: any[] = await useInflight.getState().track(async (signal) => {
+      let query = supabase.from('inventory_items').select(INVENTORY_SELECT);
+      if (cursor) query = query.gt('id', cursor);
+      const { data, error } = await query
+        .order('id', { ascending: true })
+        .limit(INVENTORY_PAGE_SIZE)
+        .abortSignal(signal);
+      if (error) throw error;
+      return (data || []) as any[];
+    }, { kind: 'read', label: 'fetchInventory' });
+    // Stop only on an EMPTY page. A short page is not proof of the end: prod's
+    // `max_rows` lives in the dashboard, and a cap below INVENTORY_PAGE_SIZE
+    // would make every page look short and truncate the list after page one.
+    if (page.length === 0) break;
+    rows.push(...page);
+    afterId = page[page.length - 1].id;
+  }
+  return rows.map(mapItem);
 }
 
 /**
@@ -5296,6 +5336,110 @@ export async function copyCatalogRows(
   }, { kind: 'write', label: 'copyCatalogRows' });
 }
 
+// ─── STOCK A STORE (Spec 184) ───────────────────────────────────────
+//
+// `stock_store_preview` feeds the stock dialog and the create drawer;
+// `stock_store_from_store` is the atomic write. Both are SECURITY INVOKER RPCs
+// that raise on refusal (42501 / 22023), which reach callers as thrown PostgREST
+// errors. The store slice surfaces them through notifyBackendError.
+
+export interface StockSourceOption {
+  storeId: string; name: string; status: string;
+  itemCount: number; itemsToAdd: number; itemsAlreadyAtTarget: number;
+  itemsNoVendorLink: number; carriedElsewhereCount: number;
+}
+export interface UncarriedCatalogRow {
+  catalogId: string; name: string; unit: string; category: string | null;
+  i18nNames: Record<string, string>;   // feeds getLocalizedName(row, locale)
+}
+export interface StoreStockPreview {
+  brandId: string; targetItemCount: number | null; targetHasOrderSchedule: boolean | null;
+  sources: StockSourceOption[]; uncarried: UncarriedCatalogRow[];
+}
+export interface StockStoreResult {
+  itemsCopied: number; itemsSkipped: number; linksAdded: number;
+  linksSkippedCrossBrand: number; extrasAdded: number; extrasSkipped: number;
+  itemsNoVendorLink: number; targetHasOrderSchedule: boolean; uncarriedRemaining: number;
+}
+
+export function mapStockSourceOption(r: any): StockSourceOption {
+  return {
+    storeId: r.store_id,
+    name: r.name,
+    status: r.status ?? 'active',
+    itemCount: Number(r.item_count ?? 0),
+    itemsToAdd: Number(r.items_to_add ?? 0),
+    itemsAlreadyAtTarget: Number(r.items_already_at_target ?? 0),
+    itemsNoVendorLink: Number(r.items_no_vendor_link ?? 0),
+    carriedElsewhereCount: Number(r.carried_elsewhere_count ?? 0),
+  };
+}
+
+export function mapUncarriedCatalogRow(r: any): UncarriedCatalogRow {
+  return {
+    catalogId: r.catalog_id,
+    name: r.name,
+    unit: r.unit,
+    category: r.category ?? null,
+    i18nNames: (r.i18n_names ?? {}) as Record<string, string>,
+  };
+}
+
+export function mapStoreStockPreview(d: any): StoreStockPreview {
+  return {
+    brandId: d?.brand_id,
+    // Null means "no target was named" (the create drawer), not zero.
+    targetItemCount: d?.target_item_count == null ? null : Number(d.target_item_count),
+    targetHasOrderSchedule: d?.target_has_order_schedule ?? null,
+    sources: (d?.sources ?? []).map(mapStockSourceOption),
+    uncarried: (d?.uncarried ?? []).map(mapUncarriedCatalogRow),
+  };
+}
+
+export function mapStockStoreResult(d: any): StockStoreResult {
+  return {
+    itemsCopied: Number(d?.items_copied ?? 0),
+    itemsSkipped: Number(d?.items_skipped ?? 0),
+    linksAdded: Number(d?.links_added ?? 0),
+    linksSkippedCrossBrand: Number(d?.links_skipped_cross_brand ?? 0),
+    extrasAdded: Number(d?.extras_added ?? 0),
+    extrasSkipped: Number(d?.extras_skipped ?? 0),
+    itemsNoVendorLink: Number(d?.items_no_vendor_link ?? 0),
+    targetHasOrderSchedule: d?.target_has_order_schedule === true,
+    uncarriedRemaining: Number(d?.uncarried_remaining ?? 0),
+  };
+}
+
+export async function fetchStoreStockPreview(
+  brandId: string,
+  targetStoreId?: string | null,
+): Promise<StoreStockPreview> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('stock_store_preview', {
+      p_brand_id:        brandId,
+      p_target_store_id: targetStoreId ?? null,
+    }).abortSignal(signal);
+    if (error) throw error;
+    return mapStoreStockPreview(data);
+  }, { kind: 'read', label: 'fetchStoreStockPreview' });
+}
+
+export async function stockStoreFromStore(
+  targetStoreId: string,
+  sourceStoreId: string,
+  extraCatalogIds?: string[],
+): Promise<StockStoreResult> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('stock_store_from_store', {
+      p_target_store_id:   targetStoreId,
+      p_source_store_id:   sourceStoreId,
+      p_extra_catalog_ids: extraCatalogIds && extraCatalogIds.length > 0 ? extraCatalogIds : null,
+    }).abortSignal(signal);
+    if (error) throw error;
+    return mapStockStoreResult(data);
+  }, { kind: 'write', label: 'stockStoreFromStore' });
+}
+
 // ─── BRAND LIFECYCLE (Spec 012c) ────────────────────────────────────
 //
 // Five SECURITY DEFINER RPCs gated by auth_is_super_admin() server-side.
@@ -5885,13 +6029,21 @@ export function computeExpiryFromShelfLife(
 export async function fetchAllForStore(storeId: string) {
   const brand = await fetchBrandForStore(storeId);
   const brandId = brand?.id || '';
+  // Spec 184 D-13 — a failed inventory fetch still yields `[]`, but it now says
+  // so: without this flag the EOD screen can't tell a failed load from an empty
+  // store, and would state "this store has no items" when that isn't known.
+  let inventoryFailed = false as boolean;
 
   const [
     inventory, catalog, recipes, prepRecipes, vendors, wasteLog, auditLog,
     categories, ingCategories, conversions, orderSched,
     eodSubmissions, orderSubmissions, posRecipeAliases, savedReports,
   ] = await Promise.all([
-    fetchInventory().catch(() => []), // all stores; needed for cross-store name lookups in some legacy paths
+    // all stores; needed for cross-store name lookups in some legacy paths
+    fetchInventory().catch(() => {
+      inventoryFailed = true;
+      return [];
+    }),
     brandId ? fetchCatalogIngredients(brandId).catch(() => []) : Promise.resolve([]),
     brandId ? fetchRecipes(brandId).catch(() => []) : Promise.resolve([]),
     brandId ? fetchPrepRecipes(brandId).catch(() => []) : Promise.resolve([]),
@@ -5910,7 +6062,7 @@ export async function fetchAllForStore(storeId: string) {
   return {
     brand,
     catalogIngredients: catalog,
-    inventory, recipes, prepRecipes, vendors, wasteLog, auditLog,
+    inventory, inventoryFailed, recipes, prepRecipes, vendors, wasteLog, auditLog,
     recipeCategories: categories, ingredientCategories: ingCategories,
     ingredientConversions: conversions, orderSchedule: orderSched,
     eodSubmissions, orderSubmissions, posRecipeAliases, savedReports,

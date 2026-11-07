@@ -654,6 +654,10 @@
       "addVendorAria": "向 {day} 排程添加供应商",
       "noVendorsScheduled": "{day} 没有安排的供应商",
       "noVendorsAtStore": "此门店没有有项目的供应商",
+      "noItemsAtStore": "此门店还没有项目，因此没有可盘点的内容",
+      "noVendorLinksAtStore": "此门店的项目未关联供应商，因此无法在此盘点",
+      "scheduledVendorsNoItems": "{day} 安排的供应商在此门店没有项目",
+      "itemsNotLoaded": "无法加载此门店的项目；请重新加载后重试",
       "addVendorButton": "+ 供应商",
       "showUnscheduled": "显示未安排的供应商",
       "submittedBanner": "✓ 已提交",
@@ -1774,7 +1778,8 @@
       "stockAdjusted": "调整库存",
       "orderMissed": "漏单",
       "storeUserCreated": "创建门店用户",
-      "storeUserPasswordSet": "设置门店用户密码"
+      "storeUserPasswordSet": "设置门店用户密码",
+      "storeStocked": "为门店备货"
     },
     "inventoryCountKind": {
       "spot": "抽查",

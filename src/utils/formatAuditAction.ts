@@ -25,6 +25,7 @@ const KEY_BY_ACTION: Record<AuditAction, string> = {
   'Order missed':        'orderMissed',
   'Store user created':  'storeUserCreated',
   'Store user password set': 'storeUserPasswordSet',
+  'Store stocked':       'storeStocked',
 };
 
 // Spec 039 — now takes T. Falls back to `action.toLowerCase()` for any

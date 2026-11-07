@@ -46,11 +46,16 @@ jest.mock('./ResponsiveSheet', () => {
 });
 
 jest.mock('../../store/useStore', () => {
-  const addStore = jest.fn();
+  // Spec 184 D-10 — resolves the real id, or null on failure. Never rejects.
+  const addStore = jest.fn().mockResolvedValue('new-id');
   // Spec 155 — the EDIT path delegates to useStore.updateStore, which now
   // resolves true/false and NEVER rejects.
   const updateStore = jest.fn().mockResolvedValue(true);
-  const state: any = { addStore, updateStore };
+  // Spec 184 — the create-mode preview. No sources by default, so the `n/2` strings
+  // below stay byte-identical.
+  const loadStoreStockPreview = jest.fn().mockResolvedValue({ sources: [], uncarried: [] });
+  const stockStoreFromStore = jest.fn().mockResolvedValue(null);
+  const state: any = { addStore, updateStore, loadStoreStockPreview, stockStoreFromStore };
   const fn: any = jest.fn((selector: (s: any) => any) => selector(state));
   fn.getState = () => state;
   fn.__state = state;
@@ -59,22 +64,34 @@ jest.mock('../../store/useStore', () => {
 
 import React from 'react';
 import Toast from 'react-native-toast-message';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { StoreFormDrawer } from './StoreFormDrawer';
 import type { Store } from '../../types';
 
 const mod = jest.requireMock('../../store/useStore');
 const addStoreMock = mod.useStore.__state.addStore as jest.Mock;
 const updateStoreMock = mod.useStore.__state.updateStore as jest.Mock;
+const previewMock = mod.useStore.__state.loadStoreStockPreview as jest.Mock;
+const stockMock = mod.useStore.__state.stockStoreFromStore as jest.Mock;
 const toastShowMock = (Toast as any).show as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
   updateStoreMock.mockResolvedValue(true);
+  addStoreMock.mockResolvedValue('new-id');
+  previewMock.mockResolvedValue({ sources: [], uncarried: [] });
+  stockMock.mockResolvedValue(null);
 });
 
-const open = () =>
-  render(<StoreFormDrawer visible brandId="b1" brandName="2AM PROJECT" onClose={() => {}} />);
+// Lets the preview, and anything a press awaited, settle.
+const settle = () => act(async () => {});
+
+// Spec 184 — CREATE stays disabled until the preview settles, so `open` waits for it.
+const open = async () => {
+  const utils = render(<StoreFormDrawer visible brandId="b1" brandName="2AM PROJECT" onClose={() => {}} />);
+  await settle();
+  return utils;
+};
 
 // Spec 162 (rev 2) — the ADDRESS joined the name as a required field, because
 // it is the shipping address the cart-filler's auto-place picker offers. Tests
@@ -86,15 +103,15 @@ const fillRequired = (name = 'Towson', address = '1234 York Rd, Towson MD 21204'
 };
 
 describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
-  it('renders the optional postal-code field, empty by default', () => {
-    open();
+  it('renders the optional postal-code field, empty by default', async () => {
+    await open();
     const input = screen.getByTestId('store-postal-code');
     expect(input.props.value).toBe('');
     expect(screen.getByText('Postal code (optional)')).toBeTruthy();
   });
 
-  it('a filled postal code reaches addStore trimmed', () => {
-    open();
+  it('a filled postal code reaches addStore trimmed', async () => {
+    await open();
     fillRequired('Frederick', '2339 Frederick Ave, Baltimore MD 21223');
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '  21701  ');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
@@ -109,16 +126,16 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
     });
   });
 
-  it('a blank postal code is persisted as NULL, not an empty string (R-4 safe default)', () => {
-    open();
+  it('a blank postal code is persisted as NULL, not an empty string (R-4 safe default)', async () => {
+    await open();
     fillRequired();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
     expect(addStoreMock.mock.calls[0][0]).toMatchObject({ name: 'Towson', postalCode: null });
   });
 
-  it('whitespace-only input also clears to NULL', () => {
-    open();
+  it('whitespace-only input also clears to NULL', async () => {
+    await open();
     fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '   ');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
@@ -126,8 +143,8 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
     expect(addStoreMock.mock.calls[0][0]).toMatchObject({ postalCode: null });
   });
 
-  it('the postal code is OPTIONAL — it never satisfies or blocks the required-field gate', () => {
-    open();
+  it('the postal code is OPTIONAL — it never satisfies or blocks the required-field gate', async () => {
+    await open();
     // Only the ZIP filled: it satisfies neither required field.
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '21701');
     expect(screen.getByText('0/2 required valid')).toBeTruthy();
@@ -148,21 +165,23 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
     expect(screen.getByText('2/2 required valid')).toBeTruthy();
   });
 
-  it('reopening the drawer resets the postal code along with the other fields', () => {
+  it('reopening the drawer resets the postal code along with the other fields', async () => {
     const { rerender } = render(
       <StoreFormDrawer visible brandId="b1" onClose={() => {}} />,
     );
+    await settle();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '21701');
     expect(screen.getByTestId('store-postal-code').props.value).toBe('21701');
 
     rerender(<StoreFormDrawer visible={false} brandId="b1" onClose={() => {}} />);
     rerender(<StoreFormDrawer visible brandId="b1" onClose={() => {}} />);
+    await settle();
 
     expect(screen.getByTestId('store-postal-code').props.value).toBe('');
   });
 
-  it('the address field is NOT parsed for the ZIP — the two are independent', () => {
-    open();
+  it('the address field is NOT parsed for the ZIP — the two are independent', async () => {
+    await open();
     fillRequired();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
 
@@ -184,16 +203,16 @@ describe('StoreFormDrawer — postal code (spec 149 §7.6)', () => {
 // constraint error on a save that only touched the name.
 
 describe('StoreFormDrawer — the address is required (spec 162 rev 2)', () => {
-  it('refuses a CREATE with a name but no address', () => {
-    open();
+  it('refuses a CREATE with a name but no address', async () => {
+    await open();
     fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
     expect(screen.getByText('1/2 required valid')).toBeTruthy();
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
     expect(addStoreMock).not.toHaveBeenCalled();
   });
 
-  it('refuses a whitespace-only address — blank is blank', () => {
-    open();
+  it('refuses a whitespace-only address — blank is blank', async () => {
+    await open();
     fireEvent.changeText(screen.getByPlaceholderText('e.g. Towson'), 'Towson');
     fireEvent.changeText(screen.getByPlaceholderText('e.g. 1234 York Rd, Towson MD 21204'), '   ');
     expect(screen.getByText('1/2 required valid')).toBeTruthy();
@@ -201,8 +220,8 @@ describe('StoreFormDrawer — the address is required (spec 162 rev 2)', () => {
     expect(addStoreMock).not.toHaveBeenCalled();
   });
 
-  it('drops the "(optional)" from the field label', () => {
-    open();
+  it('drops the "(optional)" from the field label', async () => {
+    await open();
     expect(screen.queryByText('Address (optional)')).toBeNull();
     expect(screen.getByText('Address')).toBeTruthy();
   });
@@ -240,8 +259,8 @@ describe('StoreFormDrawer — the address is required (spec 162 rev 2)', () => {
 // is asserted verbatim above and stays byte-identical.
 
 describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
-  it('an invalid ZIP refuses the CREATE with an inline error and issues NO write', () => {
-    open();
+  it('an invalid ZIP refuses the CREATE with an inline error and issues NO write', async () => {
+    await open();
     fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), 'ABCDE');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
@@ -252,8 +271,8 @@ describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
     expect(screen.getByText('2/2 required valid')).toBeTruthy();
   });
 
-  it('editing the ZIP clears the inline error, and a corrected value saves', () => {
-    open();
+  it('editing the ZIP clears the inline error, and a corrected value saves', async () => {
+    await open();
     fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '2120');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
@@ -267,8 +286,8 @@ describe('StoreFormDrawer — shared ZIP validation (spec 155 AC-3)', () => {
     expect(addStoreMock.mock.calls[0][0]).toMatchObject({ postalCode: '21204' });
   });
 
-  it('ZIP+4 is accepted on the create path and stored verbatim (OQ-7)', () => {
-    open();
+  it('ZIP+4 is accepted on the create path and stored verbatim (OQ-7)', async () => {
+    await open();
     fillRequired();
     fireEvent.changeText(screen.getByTestId('store-postal-code'), '21204-1234');
     fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
@@ -413,5 +432,267 @@ describe('StoreFormDrawer — edit save (spec 155 AC-4 / AC-6)', () => {
     );
     // The operator's input survives so they can retry.
     expect(screen.getByTestId('store-postal-code').props.value).toBe('21701');
+  });
+});
+
+// ── Spec 184 — "Stock from" in create mode (AC-38 to AC-43) ────────────────
+
+const source = (over: Record<string, unknown> = {}) => ({
+  storeId: 's-towson',
+  name: 'Towson',
+  status: 'active',
+  itemCount: 149,
+  itemsToAdd: 149,
+  itemsAlreadyAtTarget: 0,
+  itemsNoVendorLink: 2,
+  carriedElsewhereCount: 1,
+  ...over,
+});
+const STOCK_RESULT = {
+  itemsCopied: 149,
+  itemsSkipped: 0,
+  linksAdded: 150,
+  linksSkippedCrossBrand: 0,
+  extrasAdded: 0,
+  extrasSkipped: 0,
+  itemsNoVendorLink: 2,
+  targetHasOrderSchedule: false,
+  uncarriedRemaining: 4,
+};
+
+const openCreate = async (over: { onClose?: jest.Mock; onCreated?: jest.Mock } = {}) => {
+  render(
+    <StoreFormDrawer
+      visible
+      brandId="b1"
+      brandName="2AM PROJECT"
+      onClose={over.onClose ?? (() => {})}
+      onCreated={over.onCreated}
+    />,
+  );
+  await settle();
+};
+
+const withSources = (uncarried: unknown[] = []) =>
+  previewMock.mockResolvedValue({
+    sources: [source(), source({ storeId: 's-charles', name: 'Charles', itemCount: 1 })],
+    uncarried,
+  });
+
+describe('StoreFormDrawer — Stock from (spec 184 AC-38)', () => {
+  it('lists the brand stores with their item counts, plus "Don\'t stock yet", with nothing preselected', async () => {
+    withSources();
+    await openCreate();
+
+    expect(previewMock).toHaveBeenCalledWith('b1');
+    expect(screen.getByText('Towson')).toBeTruthy();
+    expect(screen.getByText('149 items')).toBeTruthy();
+    expect(screen.getByText('1 item')).toBeTruthy();
+    expect(screen.getByText('Don’t stock yet')).toBeTruthy();
+    for (const id of ['s-towson', 's-charles', 'none']) {
+      expect(screen.getByTestId(`store-stock-from-${id}`).props.accessibilityState.selected).toBe(false);
+    }
+  });
+
+  it('marks an inactive source INACTIVE, like the STOCK dialog does', async () => {
+    previewMock.mockResolvedValue({
+      sources: [source(), source({ storeId: 's-old', name: 'Old Store', status: 'inactive' })],
+      uncarried: [],
+    });
+    await openCreate();
+    expect(screen.getByTestId('store-stock-from-s-old-inactive')).toBeTruthy();
+    expect(screen.queryByTestId('store-stock-from-s-towson-inactive')).toBeNull();
+    expect(screen.getByTestId('store-stock-from-s-old').props.accessibilityLabel).toBe(
+      'Old Store, inactive, 149 items',
+    );
+  });
+
+  it('counts the choice in the footer, and keeps CREATE disabled until it is made', async () => {
+    withSources();
+    await openCreate();
+    fillRequired();
+    expect(screen.getByText('2/3 required valid')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(addStoreMock).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('store-stock-from-none'));
+    expect(screen.getByText('3/3 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(addStoreMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the field and stays at n/2 when the brand has no store with items', async () => {
+    await openCreate();
+    expect(screen.queryByTestId('store-stock-from')).toBeNull();
+    fillRequired();
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
+  });
+
+  it('keeps CREATE disabled at n/2 while the preview is pending, so a press cannot race the list', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    previewMock.mockReturnValue(new Promise((r) => { resolve = r; }));
+    await openCreate();
+    fillRequired();
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(addStoreMock).not.toHaveBeenCalled();
+
+    await act(async () => { resolve({ sources: [source()], uncarried: [] }); });
+    expect(screen.getByText('2/3 required valid')).toBeTruthy();
+  });
+
+  it('a failed preview hides the field, says to use STOCK afterward, and does not block CREATE', async () => {
+    previewMock.mockResolvedValue(null);
+    await openCreate();
+    expect(screen.queryByTestId('store-stock-from')).toBeNull();
+    expect(screen.getByTestId('store-stock-preview-failed')).toBeTruthy();
+    fillRequired();
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(addStoreMock).toHaveBeenCalledTimes(1);
+    expect(stockMock).not.toHaveBeenCalled();
+  });
+
+  it('edit mode is unchanged: no preview read and no field', async () => {
+    withSources();
+    openEdit();
+    await settle();
+    expect(previewMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('store-stock-from')).toBeNull();
+    expect(screen.getByText('2/2 required valid')).toBeTruthy();
+  });
+
+  it('copy does not imply the full catalog', async () => {
+    withSources();
+    await openCreate();
+    const texts = screen.UNSAFE_root.findAllByType(require('react-native').Text)
+      .map((t: any) => [].concat(t.props.children).join(''));
+    expect(texts.join(' ')).not.toMatch(/\b(full|whole|entire|complete|fully|everything)\b/i);
+  });
+});
+
+describe('StoreFormDrawer — create sequencing (spec 184 AC-39 to AC-43)', () => {
+  it('AC-40: a failed insert keeps the drawer open with input intact, no toast, and no stock call', async () => {
+    withSources();
+    addStoreMock.mockResolvedValue(null);
+    const onClose = jest.fn();
+    const onCreated = jest.fn();
+    await openCreate({ onClose, onCreated });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByTestId('store-stock-from-s-towson'));
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+
+    expect(stockMock).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(toastShowMock).not.toHaveBeenCalledWith(expect.objectContaining({ text1: 'Created store' }));
+    expect(screen.getByPlaceholderText('e.g. Towson').props.value).toBe('Canton');
+  });
+
+  it('AC-40: the success toast waits for the insert to resolve', async () => {
+    let resolve: (v: string) => void = () => {};
+    addStoreMock.mockReturnValue(new Promise((r) => { resolve = r; }));
+    await openCreate();
+    fillRequired('Canton');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(toastShowMock).not.toHaveBeenCalled();
+
+    await act(async () => { resolve('new-id'); });
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', text1: 'Created store', text2: 'Canton' }),
+    );
+  });
+
+  it('AC-42: stocks with the REAL id and reports the result', async () => {
+    withSources();
+    stockMock.mockResolvedValue(STOCK_RESULT);
+    const onClose = jest.fn();
+    const onCreated = jest.fn();
+    await openCreate({ onClose, onCreated });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByTestId('store-stock-from-s-towson'));
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+
+    expect(stockMock).toHaveBeenCalledTimes(1);
+    expect(stockMock).toHaveBeenCalledWith('new-id', 's-towson');
+    expect(onCreated).toHaveBeenCalledWith({
+      storeId: 'new-id',
+      storeName: 'Canton',
+      sourceName: 'Towson',
+      result: STOCK_RESULT,
+      stockFailed: false,
+      canStockLater: true,
+      uncarriedCount: 4,
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC-41: created but not stocked closes the drawer and reports the failure', async () => {
+    withSources();
+    stockMock.mockResolvedValue(null);
+    const onClose = jest.fn();
+    const onCreated = jest.fn();
+    await openCreate({ onClose, onCreated });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByTestId('store-stock-from-s-towson'));
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+
+    expect(onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: 'new-id', result: null, stockFailed: true }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC-39: "Don\'t stock yet" reports the preview\'s uncarried count and runs no stock', async () => {
+    withSources([{ catalogId: 'c1' }, { catalogId: 'c2' }]);
+    const onCreated = jest.fn();
+    await openCreate({ onCreated });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByTestId('store-stock-from-none'));
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+
+    expect(stockMock).not.toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceName: null, result: null, stockFailed: false, uncarriedCount: 2 }),
+    );
+    // AC-39 — the list itself is not in the drawer.
+    expect(screen.queryByTestId('stock-uncarried')).toBeNull();
+  });
+
+  it('a brand with no store to copy from reports canStockLater false', async () => {
+    previewMock.mockResolvedValue({ sources: [], uncarried: [{ catalogId: 'c1' }] });
+    const onCreated = jest.fn();
+    await openCreate({ onCreated });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+    expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ canStockLater: false }));
+  });
+
+  it('AC-43: CANCEL is inert while the create is in flight, and a second press sends nothing', async () => {
+    let resolve: (v: string) => void = () => {};
+    addStoreMock.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const onClose = jest.fn();
+    await openCreate({ onClose });
+    fillRequired('Canton');
+    fireEvent.press(screen.getByText('CREATE  ⌘⏎'));
+    await settle();
+
+    fireEvent.press(screen.getByText('CANCEL'));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByText('SAVING…'));
+    expect(addStoreMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { resolve('new-id'); });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

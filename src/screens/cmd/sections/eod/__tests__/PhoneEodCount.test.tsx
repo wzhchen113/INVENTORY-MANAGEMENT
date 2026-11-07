@@ -66,6 +66,7 @@ function Harness(props: {
   initialUnit?: Record<string, string>;
   isVendorLocked?: boolean;
   isRestDay?: boolean;
+  eodEmptyState?: PhoneEodModel['eodEmptyState'];
 }) {
   const [caseCounts, setCaseCountsState] = React.useState<Record<string, string>>({});
   const [unitCounts, setUnitCountsState] = React.useState<Record<string, string>>(props.initialUnit ?? {});
@@ -119,6 +120,7 @@ function Harness(props: {
     pendingFocusItem: props.pendingFocusItem ?? null,
     tabId: 'count.tsx',
     setTabId: () => {},
+    eodEmptyState: props.eodEmptyState,
   };
 
   return <PhoneEodCount model={model} />;
@@ -240,5 +242,71 @@ describe('PhoneEodCount — submit bar + gate bridge (AC-10 / AC-11)', () => {
     const { getByTestId } = render(<Harness items={items} pendingFocusItem="b" />);
     expect(getByTestId('eod-key-1')).toBeTruthy();
     expect(getByTestId('eod-sheet-title').props.children).toBe('Bread');
+  });
+});
+
+// Spec 184 AC-26 — the phone branch names the reason for S1, S2 and a failed load.
+describe('PhoneEodCount — empty state (spec 184 AC-26)', () => {
+  const NO_VENDORS = 'no vendors with items at this store';
+
+  it.each([
+    ['no_items', 'this store has no items yet, so there is nothing to count'],
+    ['no_vendor_links', "items at this store have no vendor linked, so they can't be counted here"],
+    ['load_failed', 'items for this store could not be loaded; reload to try again'],
+  ] as const)('%s shows its own message', (state, text) => {
+    const { getByText, queryByText } = render(<Harness items={[]} eodEmptyState={state} />);
+    expect(getByText(text)).toBeTruthy();
+    expect(queryByText(NO_VENDORS)).toBeNull();
+  });
+
+  it.each([
+    ['none'],
+    ['loading'],
+    ['vendors_unresolved'],
+    ['no_scheduled_vendors'],
+    ['scheduled_vendors_no_items'],
+  ] as const)('%s keeps the existing message', (state) => {
+    const { getByText } = render(<Harness items={[]} eodEmptyState={state} />);
+    expect(getByText(NO_VENDORS)).toBeTruthy();
+  });
+
+  it('a fixture with no state keeps the existing message', () => {
+    const { getByText } = render(<Harness items={[]} />);
+    expect(getByText(NO_VENDORS)).toBeTruthy();
+  });
+
+  it('the rest-day panel wins over S1', () => {
+    const { getByText, queryByText } = render(<Harness items={[]} eodEmptyState="no_items" isRestDay />);
+    expect(getByText('REST DAY — NO INPUT')).toBeTruthy();
+    expect(queryByText('this store has no items yet, so there is nothing to count')).toBeNull();
+  });
+
+  // Spec 184 OD-3 — nothing to count, so nothing to submit.
+  it.each([['no_items'], ['no_vendor_links'], ['load_failed']] as const)(
+    '%s disables SUBMIT COUNT, and a press calls nothing',
+    (state) => {
+      const onSubmit = jest.fn();
+      const { getByTestId } = render(<Harness items={[]} eodEmptyState={state} onSubmit={onSubmit} />);
+      const button = getByTestId('eod-submit');
+      expect(button.props.accessibilityState.disabled).toBe(true);
+      fireEvent.press(button);
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([['none'], ['no_scheduled_vendors'], ['scheduled_vendors_no_items']] as const)(
+    '%s leaves SUBMIT COUNT enabled',
+    (state) => {
+      const { getByTestId } = render(<Harness items={[]} eodEmptyState={state} />);
+      expect(getByTestId('eod-submit').props.accessibilityState.disabled).toBe(false);
+    },
+  );
+
+  it('rows still render when there are any', () => {
+    const { getByText, queryByTestId } = render(
+      <Harness items={[makeItem({ id: 'a', name: 'Apple' })]} eodEmptyState="none" />,
+    );
+    expect(getByText('Apple')).toBeTruthy();
+    expect(queryByTestId('eod-empty-message')).toBeNull();
   });
 });

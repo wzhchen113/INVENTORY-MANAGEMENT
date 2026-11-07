@@ -7,6 +7,8 @@ import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
 import { parsePostalCode } from '../../utils/postalCode';
+import { plural, type StoreCreatedReport } from '../../utils/stockResult';
+import type { StockSourceOption } from '../../lib/db';
 import type { Store } from '../../types';
 
 /** Spec 155 §5.3 — the saved values, handed to the parent only AFTER the
@@ -30,6 +32,9 @@ interface Props {
   store?: Store | null;
   /** Spec 155 — edit mode only; fired after a RESOLVED successful write. */
   onSaved?: (patch: StoreFormSavedPatch) => void;
+  /** Spec 184 — create mode only; fired after the insert resolved, and after the
+   *  stock run if one was chosen, whether or not that run succeeded (AC-41). */
+  onCreated?: (report: StoreCreatedReport) => void;
 }
 
 // Store drawer used from the Brands section's StoresTab.
@@ -45,6 +50,9 @@ interface Props {
 // It is deliberately NOT a general store-settings surface: eodDeadlineTime,
 // weeklyCountDueDow and brand transfer stay out (brandId is not writable
 // through db.updateStore at all — auth_can_see_brand WITH CHECK).
+//
+// Spec 184 — CREATE mode also asks which store to stock from. The uncarried-rows
+// list stays in the STOCK dialog (AC-39), and EDIT mode is unchanged.
 export const StoreFormDrawer: React.FC<Props> = ({
   visible,
   onClose,
@@ -52,11 +60,14 @@ export const StoreFormDrawer: React.FC<Props> = ({
   brandName,
   store,
   onSaved,
+  onCreated,
 }) => {
   const C = useCmdColors();
   const isPhone = useIsPhone();
   const addStore = useStore((s) => s.addStore);
   const updateStore = useStore((s) => s.updateStore);
+  const loadStoreStockPreview = useStore((s) => s.loadStoreStockPreview);
+  const stockStoreFromStore = useStore((s) => s.stockStoreFromStore);
   const isEdit = !!store;
   const [name, setName] = React.useState('');
   const [address, setAddress] = React.useState('');
@@ -68,6 +79,14 @@ export const StoreFormDrawer: React.FC<Props> = ({
   const [postalCode, setPostalCode] = React.useState('');
   const [postalError, setPostalError] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  // AC-40 — state only flips on the next render, so a second ⌘⏎ in the same tick
+  // would still read `submitting === false` and insert a duplicate store.
+  const inFlight = React.useRef(false);
+  // Spec 184 AC-38 — `null` is "hasn't chosen", which keeps CREATE disabled.
+  const [previewStatus, setPreviewStatus] = React.useState<'loading' | 'ready' | 'failed'>('loading');
+  const [stockSources, setStockSources] = React.useState<StockSourceOption[]>([]);
+  const [uncarriedCount, setUncarriedCount] = React.useState(0);
+  const [stockChoice, setStockChoice] = React.useState<'none' | string | null>(null);
 
   // Spec 155 — seed from `store` in edit mode, blank in create mode. `store?.id`
   // joins the dependency array so re-opening the drawer on a DIFFERENT row
@@ -82,6 +101,23 @@ export const StoreFormDrawer: React.FC<Props> = ({
     }
   }, [visible, store?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Spec 184 AC-38 — create mode only. Edit mode never calls it.
+  React.useEffect(() => {
+    if (!visible || isEdit) return;
+    let cancelled = false;
+    setPreviewStatus('loading');
+    setStockSources([]);
+    setUncarriedCount(0);
+    setStockChoice(null);
+    loadStoreStockPreview(brandId).then((preview) => {
+      if (cancelled) return;
+      setStockSources(preview?.sources ?? []);
+      setUncarriedCount(preview?.uncarried.length ?? 0);
+      setPreviewStatus(preview ? 'ready' : 'failed');
+    });
+    return () => { cancelled = true; };
+  }, [visible, isEdit, brandId, loadStoreStockPreview]);
+
   // Spec 162 (rev 2) — the ADDRESS is now required, alongside the name. It is
   // the shipping address the cart-filler extension's auto-place picker offers,
   // so a blank one means that store simply cannot be ordered for. The DB backs
@@ -90,11 +126,34 @@ export const StoreFormDrawer: React.FC<Props> = ({
   // store would otherwise fail at the constraint with an opaque error. Gating
   // it here turns that into "fill in the address to save", which is the same
   // outcome the operator can actually act on.
-  const requiredValid = name.trim().length > 0 && address.trim().length > 0;
-  const REQUIRED_FIELDS = 2;
+  //
+  // Spec 184 AC-38 — "Stock from" is a third required field when the brand has a
+  // store to copy from. While the list is pending, CREATE stays disabled so a press
+  // can't race it, and the footer stays at n/2. A failed read hides the field: it
+  // mustn't block creating a store, and STOCK can still run afterward.
+  const stockFieldShown = !isEdit && stockSources.length > 0;
+  const stockChoiceValid = isEdit
+    || previewStatus === 'failed'
+    || (previewStatus === 'ready' && (stockSources.length === 0 || stockChoice !== null));
+  const requiredValid = name.trim().length > 0 && address.trim().length > 0 && stockChoiceValid;
+  const REQUIRED_FIELDS = stockFieldShown ? 3 : 2;
+  const requiredDone = [
+    name.trim().length > 0,
+    address.trim().length > 0,
+    ...(stockFieldShown ? [stockChoice !== null] : []),
+  ].filter(Boolean).length;
+
+  // AC-43 — a close during an in-flight create would run StoresTab's refresh ahead
+  // of the insert. Create mode only: edit mode's close paths are unchanged.
+  const close = () => {
+    if (!isEdit && inFlight.current) return;
+    onClose();
+  };
+  const closeRef = React.useRef(close);
+  closeRef.current = close;
 
   const handleSave = async () => {
-    if (!requiredValid || submitting) return;
+    if (!requiredValid || submitting || inFlight.current) return;
     // Spec 155 AC-3 — ONE shared validator, BOTH paths. An invalid ZIP refuses
     // the save with an inline field error and issues NO write. Deliberately NOT
     // folded into the `n/2 required valid` counter.
@@ -104,6 +163,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
       return;
     }
     setPostalError(false);
+    inFlight.current = true;
     setSubmitting(true);
     try {
       if (store) {
@@ -125,17 +185,37 @@ export const StoreFormDrawer: React.FC<Props> = ({
         });
         onClose();
       } else {
-        addStore({
-          name: name.trim(),
+        // AC-40 — `addStore` resolves null after its own revert + notifyBackendError,
+        // and never rejects. On failure the drawer stays open with the input intact
+        // and the stock RPC isn't called. The temporary id never reaches this far.
+        const storeName = name.trim();
+        const id = await addStore({
+          name: storeName,
           address: address.trim(),
           postalCode: zip.value,
           brandId,
           status: 'active',
         });
-        Toast.show({ type: 'success', text1: 'Created store', text2: name.trim() });
+        if (!id) return;
+        Toast.show({ type: 'success', text1: 'Created store', text2: storeName });
+        const source = stockSources.find((s) => s.storeId === stockChoice) ?? null;
+        const result = source ? await stockStoreFromStore(id, source.storeId) : null;
+        // AC-41 — the store stays either way, and the drawer closes because a second
+        // CREATE would make a duplicate. The result panel says what happened.
+        const canStockLater = previewStatus === 'failed' || stockSources.length > 0;
+        onCreated?.({
+          storeId: id,
+          storeName,
+          sourceName: source?.name ?? null,
+          result,
+          stockFailed: !!source && !result,
+          canStockLater,
+          uncarriedCount: result ? result.uncarriedRemaining : uncarriedCount,
+        });
         onClose();
       }
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -145,7 +225,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !visible) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); e.preventDefault(); }
+      if (e.key === 'Escape') { closeRef.current(); e.preventDefault(); }
       else if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S' || e.key === 'Enter')) {
         handleSaveRef.current();
         e.preventDefault();
@@ -153,7 +233,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [visible, onClose]);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -183,7 +263,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
         <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.warn }}>● unsaved</Text>
       </View>
       {isPhone ? (
-        <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={6}>
+        <TouchableOpacity onPress={close} accessibilityRole="button" accessibilityLabel="Close" hitSlop={6}>
           <Text style={{ fontFamily: mono(400), fontSize: 16, color: C.fg2 }}>✕</Text>
         </TouchableOpacity>
       ) : (
@@ -208,11 +288,11 @@ export const StoreFormDrawer: React.FC<Props> = ({
       }}
     >
       <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
-        {`${[name.trim().length > 0, address.trim().length > 0].filter(Boolean).length}/${REQUIRED_FIELDS} required valid`}
+        {`${requiredDone}/${REQUIRED_FIELDS} required valid`}
       </Text>
       <View style={{ flex: 1 }} />
       <TouchableOpacity
-        onPress={onClose}
+        onPress={close}
         style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: CmdRadius.sm, borderWidth: 1, borderColor: C.border }}
       >
         <Text style={{ fontFamily: mono(700), fontSize: 11, color: C.fg2 }}>CANCEL</Text>
@@ -238,7 +318,7 @@ export const StoreFormDrawer: React.FC<Props> = ({
   return (
     <ResponsiveSheet
       visible={visible}
-      onClose={onClose}
+      onClose={close}
       desktopWidth={480}
       tabletSheetHeight={0.5}
       header={header}
@@ -374,6 +454,95 @@ export const StoreFormDrawer: React.FC<Props> = ({
             </Text>
           ) : null}
         </View>
+
+        {/* Spec 184 AC-38 — no store is preselected, so the admin has to choose. */}
+        {stockFieldShown ? (
+          <View testID="store-stock-from" style={{ gap: 6 }}>
+            <Text
+              style={{
+                fontFamily: mono(700),
+                fontSize: 9.5,
+                color: C.fg3,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              Stock from
+            </Text>
+            {[
+              ...stockSources.map((s) => ({
+                key: s.storeId,
+                label: s.name,
+                detail: plural(s.itemCount, 'item'),
+                // Same marker the STOCK dialog shows, so an inactive source isn't
+                // picked by mistake.
+                inactive: s.status !== 'active',
+              })),
+              { key: 'none', label: 'Don’t stock yet', detail: '', inactive: false },
+            ].map((option) => {
+              const selected = stockChoice === option.key;
+              return (
+                <TouchableOpacity
+                  key={option.key}
+                  testID={`store-stock-from-${option.key}`}
+                  onPress={() => setStockChoice(option.key)}
+                  disabled={submitting}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected, checked: selected }}
+                  accessibilityLabel={
+                    [option.label, option.inactive ? 'inactive' : '', option.detail].filter(Boolean).join(', ')
+                  }
+                  style={{
+                    minHeight: 44,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    borderRadius: CmdRadius.sm,
+                    borderWidth: 1,
+                    borderColor: selected ? C.accent : C.border,
+                    backgroundColor: selected ? C.accentBg : C.panel2,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: selected ? C.accent : C.borderStrong,
+                      backgroundColor: selected ? C.accent : 'transparent',
+                    }}
+                  />
+                  <Text style={{ fontFamily: sans(600), fontSize: 13, color: C.fg, flex: 1 }} numberOfLines={1}>
+                    {option.label}
+                  </Text>
+                  {option.inactive ? (
+                    <Text
+                      testID={`store-stock-from-${option.key}-inactive`}
+                      style={{ fontFamily: mono(700), fontSize: 9.5, color: C.fg3 }}
+                    >
+                      INACTIVE
+                    </Text>
+                  ) : null}
+                  {option.detail ? (
+                    <Text style={{ fontFamily: mono(400), fontSize: 11, color: C.fg2 }}>{option.detail}</Text>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={{ fontFamily: sans(400), fontSize: 11.5, color: C.fg3 }}>
+              Copies the items that store carries, with their par, cost and vendor links. Stock starts at
+              0. Other stores may carry items it doesn’t, and STOCK can add those afterward.
+            </Text>
+          </View>
+        ) : null}
+        {!isEdit && previewStatus === 'failed' ? (
+          <Text testID="store-stock-preview-failed" style={{ fontFamily: sans(400), fontSize: 11.5, color: C.warn }}>
+            Could not load the stores to stock from. Create this store, then use STOCK on its row.
+          </Text>
+        ) : null}
       </ScrollView>
     </ResponsiveSheet>
   );
