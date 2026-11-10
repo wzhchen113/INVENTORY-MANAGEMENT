@@ -45,7 +45,6 @@ jest.mock('../lib/db', () => ({
     vendors: [], wasteLog: [], auditLog: [], eodSubmissions: [], posRecipeAliases: [],
     recipeCategories: [], ingredientCategories: [], ingredientConversions: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),
   // Spec 151 — the assertion surface.

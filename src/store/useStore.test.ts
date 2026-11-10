@@ -97,7 +97,6 @@ jest.mock('../lib/db', () => ({
     ingredientCategories: [],
     ingredientConversions: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),
   // Spec 040 P3 — new helpers the store imports. The deleteProfile

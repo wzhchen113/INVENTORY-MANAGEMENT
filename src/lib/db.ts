@@ -185,6 +185,7 @@ export async function deleteStore(id: string): Promise<void> {
     await supabase.from('inventory_items').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('recipes').delete().eq('store_id', id).abortSignal(signal);
     await supabase.from('eod_submissions').delete().eq('store_id', id).abortSignal(signal);
+    // waste_log rows over a day old are refused here and removed by the stores FK cascade (spec 186)
     await supabase.from('waste_log').delete().eq('store_id', id).abortSignal(signal);
     // audit_log rows ride the stores FK cascade (spec 170 — fresh rows are not API-deletable)
     await supabase.from('user_stores').delete().eq('store_id', id).abortSignal(signal);
@@ -6215,44 +6216,6 @@ export async function removeOrderScheduleEntry(
       .abortSignal(signal);
     if (error) throw error;
   }, { kind: 'write', label: 'removeOrderScheduleEntry' });
-}
-
-// ─── CLEANUP OLD RECORDS (90-day retention) ─────────────────────────────
-// Note: supabase-js v2 filter builders are thenable but don't expose `.catch`,
-// so chaining `.catch(() => {})` directly on `.delete().lt(...)` throws a
-// TypeError synchronously. We wrap each in an async helper that awaits the
-// thenable inside try/catch — one bad cleanup shouldn't break the others.
-export async function cleanupOldRecords(): Promise<void> {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 90);
-  const cutoffISO = cutoff.toISOString();
-  const nowISO = new Date().toISOString();
-
-  return useInflight.getState().track(async (signal) => {
-    const safe = async (label: string, p: PromiseLike<{ error: unknown }>) => {
-      try {
-        const { error } = await p;
-        if (error) console.warn('[Supabase] cleanupOldRecords', label, error);
-      } catch (e: any) {
-        console.warn('[Supabase] cleanupOldRecords', label, e?.message || e);
-      }
-    };
-
-    await Promise.all([
-      // EOD entries (child rows) — delete via submissions
-      safe('eod_submissions', supabase.from('eod_submissions').delete().lt('submitted_at', cutoffISO).abortSignal(signal)),
-      // Waste log
-      safe('waste_log', supabase.from('waste_log').delete().lt('logged_at', cutoffISO).abortSignal(signal)),
-      // Audit log
-      safe('audit_log', supabase.from('audit_log').delete().lt('created_at', cutoffISO).abortSignal(signal)),
-      // POS imports (child rows cascade) — column is imported_at, not created_at
-      safe('pos_imports', supabase.from('pos_imports').delete().lt('imported_at', cutoffISO).abortSignal(signal)),
-      // Order submissions
-      safe('purchase_orders', supabase.from('purchase_orders').delete().lt('created_at', cutoffISO).abortSignal(signal)),
-      // Expired invitations
-      safe('invitations', supabase.from('invitations').delete().lt('expires_at', nowISO).eq('used', false).abortSignal(signal)),
-    ]);
-  }, { kind: 'write', label: 'cleanupOldRecords' });
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────

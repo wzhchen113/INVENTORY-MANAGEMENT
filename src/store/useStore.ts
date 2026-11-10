@@ -2241,7 +2241,7 @@ export const useStore = create<FullStore>((set, get) => ({
       const data = await db.fetchAllForStore(sid);
       // Spec 176 R-3 — a load for a store the user has since left is DROPPED
       // here, before any slice write or tail (capacity, last-counted, silent
-      // refresh, cleanup, notifications): writing it would put the old
+      // refresh, notifications): writing it would put the old
       // store's inventory / vendors / schedule next to the new store's reorder
       // list. The `stores` write above still lands; `finally` still runs
       // (R-4). Synchronous, with no `await` before `before` / the `set`, so
@@ -2378,8 +2378,6 @@ export const useStore = create<FullStore>((set, get) => ({
       if (silentRefreshFrom) {
         startSilentReorderRefresh(get, set, sid, silentRefreshFrom.asOfDate);
       }
-      // Background cleanup of records older than 90 days
-      db.cleanupOldRecords().catch((e: any) => console.warn('[Supabase]', e?.message || e));
 
       // Refresh bell-icon notifications from the DB so cron-generated reminders
       // show up immediately after login / store switch.

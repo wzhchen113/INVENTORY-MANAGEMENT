@@ -63,7 +63,6 @@ jest.mock('../lib/db', () => ({
     orderSchedule: {},
     savedReports: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchMenuCapacity: jest.fn().mockResolvedValue([]),
   fetchNotifications: jest.fn().mockResolvedValue([]),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),

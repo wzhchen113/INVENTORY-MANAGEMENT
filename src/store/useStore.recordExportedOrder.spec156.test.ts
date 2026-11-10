@@ -69,7 +69,6 @@ jest.mock('../lib/db', () => ({
     vendors: [], wasteLog: [], auditLog: [], eodSubmissions: [], posRecipeAliases: [],
     recipeCategories: [], ingredientCategories: [], ingredientConversions: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),
   // Spec 156 — THE assertion surface (the unchanged spec-138 writer).

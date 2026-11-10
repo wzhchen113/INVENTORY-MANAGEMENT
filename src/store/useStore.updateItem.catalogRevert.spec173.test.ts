@@ -36,7 +36,6 @@ jest.mock('../lib/auth', () => ({
 
 jest.mock('../lib/db', () => ({
   fetchStores: jest.fn().mockResolvedValue([]),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   updateInventoryItem: jest.fn(),
   // updateItem fires an audit event unconditionally.
   addAuditEvent: jest.fn().mockResolvedValue(undefined),

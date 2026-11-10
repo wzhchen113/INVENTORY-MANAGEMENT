@@ -72,7 +72,6 @@ jest.mock('../lib/db', () => ({
     orderSchedule: {},
     savedReports: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchMenuCapacity: jest.fn().mockResolvedValue([]),
   fetchItemsLastCounted: jest.fn().mockResolvedValue([]),
   fetchNotifications: jest.fn().mockResolvedValue([]),
@@ -503,7 +502,6 @@ describe('R-3 — a stale loadFromSupabase writes nothing and runs no tails', ()
     expect(db.fetchMenuCapacity).not.toHaveBeenCalled();
     expect(db.fetchItemsLastCounted).not.toHaveBeenCalled();
     expect(fetchReorder).not.toHaveBeenCalled();
-    expect(db.cleanupOldRecords).not.toHaveBeenCalled();
     expect(db.fetchNotifications).not.toHaveBeenCalled();
   }
 

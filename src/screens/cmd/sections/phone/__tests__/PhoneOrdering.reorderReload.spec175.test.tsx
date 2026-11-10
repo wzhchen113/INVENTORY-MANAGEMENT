@@ -86,7 +86,6 @@ jest.mock('../../../../../lib/db', () => {
     fetchReorderSuggestions: jest.fn(),
     fetchMenuCapacity: jest.fn(() => Promise.resolve([])),
     fetchItemsLastCounted: jest.fn(() => Promise.resolve([])),
-    cleanupOldRecords: jest.fn(() => Promise.resolve(undefined)),
   };
   return new Proxy(target, { get: (t: Record<string, unknown>, p: string) => (p in t ? t[p] : jest.fn(() => Promise.resolve(null))) });
 });

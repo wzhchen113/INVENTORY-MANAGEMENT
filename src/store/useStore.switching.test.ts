@@ -14,7 +14,7 @@
 // The load tests (T4/T5) drive loadFromSupabase to completion. It calls
 // db.fetchStores → db.fetchAllForStore → (fire-and-forget) loadMenuCapacity
 // → db.fetchMenuCapacity AND (fire-and-forget) loadItemsLastCounted →
-// db.fetchItemsLastCounted (spec 160), plus db.cleanupOldRecords.
+// db.fetchItemsLastCounted (spec 160).
 // db.fetchNotifications fires ONLY when currentUser.id is set, so these
 // tests keep currentUser null to bound the mock surface. `flush()` settles
 // the promise chain.
@@ -69,7 +69,6 @@ jest.mock('../lib/db', () => ({
     orderSchedule: {},
     savedReports: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   // Spec 060 — fire-and-forget capacity tail inside loadFromSupabase.
   fetchMenuCapacity: jest.fn().mockResolvedValue([]),
   // Spec 160 — fire-and-forget last-counted tail inside loadFromSupabase.

@@ -57,7 +57,6 @@ jest.mock('../lib/db', () => ({
     ingredientCategories: [],
     ingredientConversions: [],
   }),
-  cleanupOldRecords: jest.fn().mockResolvedValue(undefined),
   fetchBrandsLite: jest.fn().mockResolvedValue([]),
   fetchBrandsWithStats: jest.fn().mockResolvedValue([]),
   updateCatalogIngredientI18n: jest.fn().mockResolvedValue(undefined),
