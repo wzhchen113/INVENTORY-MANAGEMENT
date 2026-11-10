@@ -19,7 +19,7 @@
 
 const fromLog: string[] = [];
 
-let terminalQueue: Array<{ data: any; error: any }> = [];
+let terminalQueue: Array<{ data: any; error: any; count?: number | null }> = [];
 function nextTerminal() {
   return terminalQueue.length > 0 ? terminalQueue.shift()! : { data: null, error: null };
 }
@@ -219,6 +219,8 @@ describe('upsertVendorDraftOrder — UPDATE path (existing draft)', () => {
 
     // Delete targets exactly the captured old ids (NOT a blanket po_id delete).
     expect(mockBuilder.in).toHaveBeenCalledWith('id', ['old-1', 'old-2']);
+    // Spec 194: the delete asks for an exact count so a refused delete is seen.
+    expect(mockBuilder.delete).toHaveBeenCalledWith({ count: 'exact' });
     // total_cost recomputed on the existing header.
     expect(mockBuilder.update).toHaveBeenCalledWith({ total_cost: 45.5 });
   });
@@ -242,6 +244,35 @@ describe('upsertVendorDraftOrder — UPDATE path (existing draft)', () => {
     expect(mockBuilder.delete).not.toHaveBeenCalled();
     // And no total update happened either.
     expect(mockBuilder.update).not.toHaveBeenCalled();
+  });
+
+  it('spec 194: returns null and leaves total_cost alone when the old-line delete hits fewer rows', async () => {
+    // The PO turned `sent` between the find and the delete, so
+    // po_items_restrict_delete_non_draft refuses the delete with 0 rows.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    terminalQueue = [
+      { data: { id: 'po-existing' }, error: null },               // find → draft exists
+      { data: [{ id: 'old-1' }, { id: 'old-2' }], error: null },   // read old line ids
+      { data: null, error: null },                                 // insert new lines
+      { data: null, error: null, count: 0 },                       // delete old → refused
+    ];
+
+    const poId = await upsertVendorDraftOrder({
+      storeId: 'store-1',
+      vendorId: 'vendor-1',
+      referenceDate: '2026-07-22',
+      lines: LINES,
+    });
+
+    expect(poId).toBeNull();
+    expect(mockBuilder.delete).toHaveBeenCalledWith({ count: 'exact' });
+    expect(mockBuilder.in).toHaveBeenCalledWith('id', ['old-1', 'old-2']);
+    // No total_cost update after a refused delete.
+    expect(mockBuilder.update).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Supabase] upsertVendorDraftOrder (clear old lines): removed 0 of 2 (PO no longer a draft, or lines already removed elsewhere)',
+    );
+    warnSpy.mockRestore();
   });
 
   it('skips the delete when the existing draft had no lines', async () => {

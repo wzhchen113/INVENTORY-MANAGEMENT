@@ -1889,7 +1889,9 @@ export async function createPurchaseOrderDraft(params: {
  * via the spec-104 ★ bridge (`inventory_items.costPerUnit` per-each ×
  * `subUnitSize`) — stored verbatim into `po_items.cost_per_unit`, exactly as
  * `createPurchaseOrderDraft` does. Returns the (existing or new) po id, or
- * `null` on empty lines / RLS denial / insert failure.
+ * `null` on empty lines / RLS denial / insert failure, or (spec 194) when
+ * fewer old lines were removed than were read: the PO stopped being a draft
+ * mid-call, or a concurrent Fill cart or line removal already deleted some.
  */
 export async function upsertVendorDraftOrder(params: {
   storeId: string;
@@ -1973,14 +1975,26 @@ export async function upsertVendorDraftOrder(params: {
       if (insertErr) { console.warn('[Supabase] upsertVendorDraftOrder (insert lines):', insertErr.message); return null; }
 
       // Now delete ONLY the captured old rows. A failure here leaves a
-      // recoverable doubled-lines state that the next Fill cart collapses.
+      // doubled-lines state. While the PO is still a draft, the next Fill cart
+      // collapses it; once the PO is sent, the extra lines stay (spec 194).
+      //
+      // Spec 194: `po_items_restrict_delete_non_draft` refuses line deletes
+      // once the PO is no longer a draft, silently (0 rows, no error). If the
+      // PO turned `sent` between the find above and this delete (extension
+      // markOrdered, BJ's auto-place, send-po-email), fewer rows than captured
+      // are removed: return null and leave total_cost alone. A null count (no
+      // Content-Range) keeps the pre-spec-194 path.
       if (oldIds.length > 0) {
-        const { error: delErr } = await supabase
+        const { error: delErr, count: delCount } = await supabase
           .from('po_items')
-          .delete()
+          .delete({ count: 'exact' })
           .in('id', oldIds)
           .abortSignal(signal);
         if (delErr) { console.warn('[Supabase] upsertVendorDraftOrder (clear old lines):', delErr.message); return null; }
+        if (typeof delCount === 'number' && delCount < oldIds.length) {
+          console.warn(`[Supabase] upsertVendorDraftOrder (clear old lines): removed ${delCount} of ${oldIds.length} (PO no longer a draft, or lines already removed elsewhere)`);
+          return null;
+        }
       }
 
       const { error: totalErr } = await supabase
@@ -2067,15 +2081,25 @@ export async function updatePoItemQty(poItemId: string, orderedQty: number): Pro
  * Spec 107 §5/§8 — remove a line from a DRAFT PO (editable before send). Plain
  * PostgREST DELETE (RLS `store_member_delete_po_items` scopes through the
  * parent PO). Returns true on success.
+ *
+ * Spec 194: the delete is also limited by the RESTRICTIVE policy
+ * `po_items_restrict_delete_non_draft` — a line under a PO that is no longer a
+ * draft is refused silently (0 rows, no error). An explicit 0-row count throws,
+ * so `removePoLine` restores the line and shows the "Remove PO line" toast. A
+ * null count (no Content-Range) is treated as success, as before.
  */
 export async function deletePoItem(poItemId: string): Promise<boolean> {
   return useInflight.getState().track(async (signal) => {
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('po_items')
-      .delete()
+      .delete({ count: 'exact' })
       .eq('id', poItemId)
       .abortSignal(signal);
     if (error) { console.warn('[Supabase] deletePoItem:', error.message); throw error; }
+    if (count === 0) {
+      console.warn('[Supabase] deletePoItem: 0 rows (PO not a draft, or line already gone)');
+      throw new Error('PO line was not removed. The order may no longer be a draft.');
+    }
     return true;
   }, { kind: 'write', label: 'deletePoItem' });
 }
