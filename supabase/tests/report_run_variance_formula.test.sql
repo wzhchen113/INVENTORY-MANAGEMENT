@@ -144,12 +144,11 @@ values
 -- Purchase order receiving (reference_date 2026-05-02, between anchors
 -- per the > v_from AND <= v_to half-open rule).
 --
--- po_number is explicitly set to bypass the generate_po_number()
--- BEFORE-INSERT trigger (it only fires WHEN po_number IS NULL). The
--- trigger reads the max po_number across the table and substrings
--- positions 4+ to cast as int — non-PO-NNN values (legacy dev data)
--- break the cast. Setting po_number side-steps the trigger entirely.
--- The substr-cast issue is pre-existing and unrelated to this test.
+-- po_number is set explicitly as a fixture convenience: the
+-- generate_po_number() BEFORE-INSERT trigger only fires WHEN po_number
+-- IS NULL, so this row skips it. Numbering is unrelated to this test;
+-- the trigger's own coverage is generate_po_number_sequence.test.sql
+-- and generate_po_number_malformed_guard.test.sql (spec 190).
 create temp table _po on commit drop as
 with ins as (
   insert into public.purchase_orders

@@ -433,6 +433,8 @@ an owner-run prod pre-enable probe (spec 166 runbook §12 step 5b), not a
 test and not part of `test:smoke`. It requires `node` (spec 168: node computes
 the HMAC with the key on stdin, never on argv).
 
+[`scripts/smoke-po-number-concurrency.sh`](../scripts/smoke-po-number-concurrency.sh) (spec 190, AC-4: two concurrent PO inserts get distinct numbers) is manual-only and not part of `test:smoke`: it needs the local `supabase_db_imr-inventory` container (it uses `docker exec psql`, not curl), and each run moves the local `purchase_orders_po_number_seq` up by two.
+
 ```bash
 npm run test:smoke               # runs all five
 bash scripts/smoke-rpc.sh        # one of them
