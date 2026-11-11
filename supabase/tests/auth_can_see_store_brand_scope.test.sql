@@ -19,7 +19,11 @@
 -- the attacker cannot then see foreign-brand stores).
 -- Arms (11)-(13) cover the review-round 2 fix — the BEFORE-DELETE
 -- companion trigger profiles_self_delete_lock that closes the
--- DELETE+INSERT bypass of the UPDATE trigger.
+-- DELETE+INSERT bypass of the UPDATE trigger. Since spec 187 dropped
+-- "Admins can delete profiles", an authenticated self-DELETE removes
+-- 0 rows with no error before that trigger can fire, so arms (11) and
+-- (13) pin that instead. The trigger stays as a backstop: arm (12) and
+-- AC-18 in order_approvals_approver_snapshot.test.sql run as postgres.
 -- Arm (14) covers the review-round 3 fix — REVOKE TRUNCATE on
 -- public.profiles from authenticated, anon closes the
 -- TRUNCATE+INSERT bypass of both the UPDATE and DELETE triggers
@@ -370,20 +374,22 @@ select is(
 --
 -- Closes the DELETE+INSERT bypass that the BEFORE-UPDATE trigger
 -- did not cover. A brand-admin (JWT app_metadata.role='admin')
--- could DELETE their own profile (permitted by "Admins can
--- delete profiles") and then INSERT a fresh row at the same
--- auth.uid() with foreign brand_id or role='super_admin'
--- (permitted by the self-INSERT policy) — reaching the same
--- privilege-escalation end-state as the round-1 UPDATE attack.
+-- could DELETE their own profile (then permitted by "Admins can
+-- delete profiles", dropped by spec 187) and then INSERT a fresh
+-- row at the same auth.uid() with foreign brand_id or
+-- role='super_admin' (permitted by the self-INSERT policy) —
+-- reaching the same privilege-escalation end-state as the round-1
+-- UPDATE attack.
 --
--- The new profiles_self_delete_lock BEFORE-DELETE trigger rejects
--- step 1 (the DELETE), so the chain never reaches step 2.
--- Blocking DELETE alone is sufficient because the PK constraint
--- on profiles.id + FK to auth.users make standalone INSERT
--- impractical — the row would PK-collide with the original.
+-- Step 1 (the DELETE) now removes 0 rows through RLS, and the
+-- profiles_self_delete_lock BEFORE-DELETE trigger remains behind
+-- it, so the chain never reaches step 2. Blocking DELETE alone is
+-- sufficient because the PK constraint on profiles.id + FK to
+-- auth.users make standalone INSERT impractical — the row would
+-- PK-collide with the original.
 --
--- Arm (11) exercises the trigger directly under the brand-admin's
--- JWT (still loaded from arm (10), see note below).
+-- Arm (11) runs the self-DELETE under the brand-admin's JWT (still
+-- loaded from arm (10), see note below).
 -- Arm (12) is the positive control — the in-txn-promoted
 -- super_admin (master_id, see arm (3)) can DELETE another user's
 -- profile; the trigger must not over-block.
@@ -391,22 +397,22 @@ select is(
 -- positive control to confirm the chain still dies at step 1.
 -- ============================================================
 
--- ─── Arm (11): brand-admin self-DELETE is rejected ────────────
+-- ─── Arm (11): brand-admin self-DELETE removes 0 rows ─────────
 -- JWT still impersonates the seed admin (role='admin', brand A)
 -- from arm (10). Attempt to self-DELETE the brand-admin's own
--- profile row. The trigger raises with the stable message
--- 'profile self-delete is not permitted (use admin delete flow)'.
--- pgTAP's throws_ok asserts the exact message — without this
--- check, a future migration that drops the trigger would silently
--- re-open the DELETE+INSERT bypass.
-select throws_ok(
-  format(
-    $q$delete from public.profiles where id = %L::uuid$q$,
-    current_setting('test.admin_id', true)
-  ),
-  'P0001',
-  'profile self-delete is not permitted (use admin delete flow)',
-  'arm (11): brand-admin self-DELETE on profiles is rejected by profiles_self_delete_lock trigger'
+-- profile row. Spec 187: no DELETE policy, so 0 rows and no error.
+-- The count runs as postgres, so a future policy that re-admits
+-- this delete fails the arm.
+delete from public.profiles
+ where id = current_setting('test.admin_id', true)::uuid;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+select is(
+  (select count(*)::int from public.profiles
+    where id = current_setting('test.admin_id', true)::uuid),
+  1,  -- row still exists; DELETE silently affected 0 rows
+  'arm (11): brand-admin self-DELETE on profiles silently affects 0 rows (no DELETE policy, spec 187)'
 );
 
 
@@ -418,10 +424,8 @@ select throws_ok(
 -- trigger admits the operation when the caller is not deleting
 -- their own row.
 --
--- RLS isolation: the current "Admins can delete profiles" RLS
--- policy gates DELETE on JWT app_metadata.role IN ('admin',
--- 'master') and no super_admin-specific DELETE policy exists, so
--- attempting this under `set local role authenticated` would be
+-- RLS isolation: public.profiles has no DELETE policy (spec 187),
+-- so attempting this under `set local role authenticated` would be
 -- silently filtered by RLS (DELETE 0) regardless of trigger
 -- behavior. To isolate the TRIGGER's behavior from the RLS policy
 -- stack, we run this arm under the postgres role (RLS bypass) but
@@ -457,8 +461,8 @@ select is(
 -- brand-admin attack chain (DELETE own profile, then INSERT a
 -- fresh row with foreign brand_id or role='super_admin') must
 -- still fail at step 1. Re-impersonate the brand-admin and
--- attempt the DELETE; throws_ok confirms the chain dies before
--- INSERT is even possible. (We don't need to attempt the INSERT —
+-- attempt the DELETE; the row surviving confirms the chain dies
+-- before INSERT is even possible. (We don't need to attempt the INSERT —
 -- the spec 041 round-2 audit confirms the PK constraint on
 -- profiles.id makes a standalone INSERT impractical without the
 -- prior DELETE landing.)
@@ -473,14 +477,16 @@ select set_config(
   true
 );
 
-select throws_ok(
-  format(
-    $q$delete from public.profiles where id = %L::uuid$q$,
-    current_setting('test.admin_id', true)
-  ),
-  'P0001',
-  'profile self-delete is not permitted (use admin delete flow)',
-  'arm (13): brand-admin DELETE+INSERT escalation chain dies at step 1 (DELETE rejected, INSERT never attempted)'
+delete from public.profiles
+ where id = current_setting('test.admin_id', true)::uuid;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+select is(
+  (select count(*)::int from public.profiles
+    where id = current_setting('test.admin_id', true)::uuid),
+  1,  -- row still exists; DELETE silently affected 0 rows
+  'arm (13): brand-admin DELETE+INSERT escalation chain dies at step 1 (DELETE removes 0 rows, INSERT never attempted)'
 );
 
 

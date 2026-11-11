@@ -8,11 +8,13 @@
 -- OQ-3 / FUTURE-1 (unscoped admin UPDATE/DELETE), plus spec 170
 -- security-auditor M1 (client-settable created_at; owner decision 9).
 --
--- Arm map (54). The 45 arms of spec 170 §10a, plus 9 added in the review
--- fix pass (plan 45 -> 54, as §10a allows):
+-- Arm map (61). The 45 arms of spec 170 §10a, plus 9 added in the review
+-- fix pass (plan 45 -> 54, as §10a allows), plus 7 from spec 187:
 --   +8  C-1..C-8   created_at pinned to now() on INSERT (M1, AC-22/AC-23)
 --   +1  D-10       DELETE store/brand scope isolated from the SELECT mask
 --                  (test-engineer Finding 1 Option A / architect SF-1)
+--   +7  UD-1..UD-7 'User deleted' is server-only and hidden from staff
+--                  (spec 187 AC-20, AC-21)
 --
 --   S-1..S-7    policy shape (AC-1, AC-2) + owner-bypass precondition (§2)
 --   F-1         fixture sanity (AC-3)
@@ -75,7 +77,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(54);
+select plan(61);
 
 -- ── constants ─────────────────────────────────────────────────────────────
 do $$
@@ -125,6 +127,9 @@ insert into public.audit_log (id, store_id, user_id, action, detail, created_at)
    'PO received',             '__test_spec170_fixture__', now()),
   ('a5000170-0000-0000-0000-000000000004', current_setting('test.s1', true)::uuid, null,
    'EOD entry',               '__test_spec170_fixture__', now()),
+  -- UD-4 / UD-5 visibility fixture (spec 187, fresh, S1)
+  ('a5000170-0000-0000-0000-000000000005', current_setting('test.s1', true)::uuid, null,
+   'User deleted',            '__test_spec187_fixture__', now()),
   -- U-1 (admin) / U-2 (super_admin): fresh S1
   ('a5000170-0000-0000-0000-000000000010', current_setting('test.s1', true)::uuid, null,
    '__test_spec170_u1__', '__test_spec170_original__', now()),
@@ -512,6 +517,25 @@ select is(
   'W-6: receive_purchase_order (SECURITY INVOKER) called by staff still writes PO received with user_id = staff'
 );
 
+-- UD-1 (spec 187 AC-20). The store is visible and the actor matches, so only
+-- audit_log_restrict_insert_server_only_actions can refuse.
+select throws_ok(
+  format($q$insert into public.audit_log (store_id, user_id, action, detail)
+            values (%L, %L, 'User deleted', '__test_spec187_ud1__')$q$,
+         current_setting('test.s1', true), current_setting('test.staff_id', true)),
+  '42501',
+  null,
+  'UD-1: staff INSERT of ''User deleted'' attributed to self is rejected (42501)'
+);
+
+-- UD-4 (spec 187 AC-21)
+select is(
+  (select count(*)::int from public.audit_log
+    where id = 'a5000170-0000-0000-0000-000000000005'),
+  0,
+  'UD-4: staff on S1 sees 0 ''User deleted'' rows'
+);
+
 -- D-7 attempt: staff DELETE of a 91-day S1 row (outcome asserted as postgres).
 delete from public.audit_log where id = 'a5000170-0000-0000-0000-000000000026';
 
@@ -617,6 +641,24 @@ delete from public.audit_log where id = 'a5000170-0000-0000-0000-000000000024';
 -- D-9 attempt: admin deletes brand-A S_tmp2 (privileged_delete_stores admits).
 delete from public.stores where id = current_setting('test.s_tmp2', true)::uuid;
 
+-- UD-2 (spec 187 AC-20)
+select throws_ok(
+  format($q$insert into public.audit_log (store_id, user_id, action, detail)
+            values (%L, %L, 'User deleted', '__test_spec187_ud2__')$q$,
+         current_setting('test.s1', true), current_setting('test.admin_id', true)),
+  '42501',
+  null,
+  'UD-2: admin INSERT of ''User deleted'' attributed to self is rejected (42501)'
+);
+
+-- UD-5 (spec 187 AC-21)
+select is(
+  (select count(*)::int from public.audit_log
+    where id = 'a5000170-0000-0000-0000-000000000005'),
+  1,
+  'UD-5: admin who can see S1 sees the ''User deleted'' row'
+);
+
 -- D-10 attempt (AC-14, clause-isolating). As postgres, add a wide permissive
 -- SELECT probe so the SELECT mask no longer hides the brand-B row; then, as
 -- the same admin JWT, record that the row IS visible (precondition, so the
@@ -712,6 +754,16 @@ select is(
   'W-4: copy_catalog_rows called by super_admin still writes its catalog_copy audit row (owner bypass)'
 );
 
+-- UD-3 (spec 187 AC-20)
+select throws_ok(
+  format($q$insert into public.audit_log (store_id, user_id, action, detail)
+            values (%L, %L, 'User deleted', '__test_spec187_ud3__')$q$,
+         current_setting('test.s1', true), current_setting('test.super_id', true)),
+  '42501',
+  null,
+  'UD-3: super_admin INSERT of ''User deleted'' attributed to self is rejected (42501)'
+);
+
 -- U-2 / D-2 / D-6 attempts (outcomes asserted as postgres).
 update public.audit_log set detail = '__test_spec170_super_touched__'
  where id = 'a5000170-0000-0000-0000-000000000011';
@@ -737,6 +789,14 @@ select is(
       and detail   = '__test_spec170_w5__'),
   1,
   'W-5: service_role INSERT of ''Store user created'' succeeds (BYPASSRLS)'
+);
+
+-- UD-6 (spec 187 AC-20): the delete-user writer path.
+select lives_ok(
+  format($q$insert into public.audit_log (store_id, user_id, action, detail, item_ref)
+            values (%L, %L, 'User deleted', '__test_spec187_ud6__', '__test_spec187_name__')$q$,
+         current_setting('test.s1', true), current_setting('test.admin_id', true)),
+  'UD-6: service_role INSERT of ''User deleted'' succeeds (BYPASSRLS)'
 );
 
 
@@ -841,6 +901,16 @@ select ok(
                    where schemaname = 'public' and tablename = 'audit_log'
                      and policyname = 'probe_wide_select'),
   'D-10: with a wide SELECT probe unmasking it, admin (brand A) DELETE of a 91-day brand-B row is refused by admin_delete_audit_log''s store scope (row survives; probe dropped)'
+);
+
+-- UD-7 (spec 187 AC-20)
+select is(
+  (select count(*)::int from public.audit_log
+    where store_id = current_setting('test.s1', true)::uuid
+      and action   = 'User deleted'
+      and detail   = '__test_spec187_ud6__'),
+  1,
+  'UD-7: the service_role ''User deleted'' row from UD-6 exists'
 );
 
 select * from finish();

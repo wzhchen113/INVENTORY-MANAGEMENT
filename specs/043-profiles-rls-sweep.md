@@ -25,6 +25,10 @@ Test file slot: `supabase/tests/profiles_rls_sweep.test.sql` (pgTAP).
   `(public.auth_is_privileged() and public.auth_can_see_brand(brand_id)) or id = auth.uid()`.
   Verified by `pg_policies` row for `(schemaname='public', tablename='profiles', policyname='Admins can read all profiles', cmd='SELECT')`
   showing the new expression.
+- Spec 187 (`specs/187-order-approval-approver-snapshot.md`) later dropped the
+  `"Admins can delete profiles"` policy, and supersedes this spec's ACs for it.
+  Profiles are deleted only through `delete-user`, whose brand gate replaces RLS
+  brand scoping on that path.
 - [ ] The `"Admins can delete profiles"` DELETE policy is dropped and
   re-created. The new `using` clause is
   `public.auth_is_privileged() and public.auth_can_see_brand(brand_id)`.

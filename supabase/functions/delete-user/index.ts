@@ -25,6 +25,15 @@ const ADMIN_ROLES = new Set(["admin", "master", "super_admin"]);
 // non-canonical id would reach the cleanup deletes and then 500 mid-way.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+// Byte-identical mirror of src/lib/placeholderEmail.ts (spec 165 §3.2);
+// enforced by src/lib/placeholderEmail.parity.test.ts.
+// BEGIN placeholder-email (spec 165)
+const PLACEHOLDER_EMAIL_RE = /^u-[0-9a-f]{32}@no-email\.invalid$/;
+function isPlaceholderEmail(email: unknown): boolean {
+  return typeof email === "string" && PLACEHOLDER_EMAIL_RE.test(email.trim().toLowerCase());
+}
+// END placeholder-email (spec 165)
+
 // Discriminated-union return so the outer handler can narrow on
 // `status === 200` and reach `userId` / `appRole` without `!` non-null
 // assertions.
@@ -53,15 +62,16 @@ async function requireAdminCaller(authHeader: string | null): Promise<AdminGate>
   return { userId: userRes.user.id, appRole: profile.role, status: 200 };
 }
 
-// Spec 043 — defense-in-depth brand-match gate. Mirrors the SQL-side
-// "Admins can delete profiles" DELETE policy tightening so a compromised
-// brand-A admin session cannot trigger a brand-B delete via this edge
-// function's service_role path (which bypasses RLS by design).
+// Spec 043 — brand-match gate, so a compromised brand-A admin session cannot
+// trigger a brand-B delete via this edge function's service_role path (which
+// bypasses RLS by design). Since spec 187 dropped the "Admins can delete
+// profiles" policy, public.profiles has no DELETE policy and this function is
+// the only way a profile gets deleted, so this gate is the only brand scoping
+// on that path.
 //
 // Decision shape:
-//   1. Caller is super_admin → allow. auth_can_see_brand short-circuits
-//      on auth_is_super_admin, so super_admin retains cross-brand DELETE
-//      via the SQL policy too — parity. `target` is null because the
+//   1. Caller is super_admin → allow. super_admin keeps cross-brand delete
+//      through this function. `target` is null because the
 //      outer handler does its own service-role read for the
 //      last-of-role guard path; super_admin can delete any role.
 //   2. Caller is admin/master → fetch caller's profiles.brand_id and
@@ -147,6 +157,235 @@ async function requireSameBrandOrSuperAdmin(
   }
 
   return { status: 200, target: { brand_id: targetProfile.brand_id, role: targetProfile.role } };
+}
+
+// ── Audit trail (spec 187) ────────────────────────────────────────────────
+// Server-side public.audit_log rows recording who deleted whom, in spec 167's
+// writer shape (supabase/functions/manage-store-user/index.ts). One row per
+// store in the union of the target's user_stores and the stores of the
+// approvals they approved, never a NULL-store row. Best-effort: these helpers
+// NEVER throw, and an audit failure never changes the delete or its response.
+//
+// Log hygiene (spec 167 AC-4/AC-6, spec 187 AC-29): log lines carry only static
+// text plus caller id, target id, action and the error code (or the exception
+// class name for a throw). Never the error message/details, the rows, the name
+// or the email.
+
+const AUDIT_ACTION = "User deleted";
+const AUDIT_TIMEOUT_MS = 3000;
+
+type DeleteAuditIds = { callerId: string; targetId: string };
+
+type DeleteAuditSnapshot = {
+  callerHasProfile: boolean;
+  targetName: string | null;
+  targetRole: string | null;
+  targetBrandId: string | null;
+  email: string | null;
+  // null when a read failed (already logged): no rows are written.
+  storeIds: string[] | null;
+  // null when the count read failed (already logged), not "no approvals": no rows are written.
+  approvalCount: number | null;
+};
+
+type DeleteAuditRow = {
+  store_id: string;
+  user_id: string | null;
+  action: typeof AUDIT_ACTION;
+  item_ref: string | null;
+  value: string;
+  detail: string;
+};
+
+function errorClass(e: unknown): string {
+  return e instanceof Error ? e.name : typeof e;
+}
+
+function logAuditFailure(what: string, ids: DeleteAuditIds, code: unknown): void {
+  console.error(`[delete-user] ${what} failed`, ids.callerId, ids.targetId, AUDIT_ACTION, code);
+}
+
+// NEVER throws. Reads what the audit row needs while it still exists. Runs after
+// the last-of-role guard, so refused requests do none of this I/O.
+async function readDeleteAuditSnapshot(
+  serviceClient: SupabaseClient,
+  callerId: string,
+  targetId: string,
+): Promise<DeleteAuditSnapshot> {
+  const ids: DeleteAuditIds = { callerId, targetId };
+
+  const readProfiles = async () => {
+    try {
+      const { data, error } = await serviceClient
+        .from("profiles")
+        .select("id, name, role, brand_id")
+        .in("id", [targetId, callerId])
+        .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+      if (error) {
+        logAuditFailure("audit profile read", ids, error.code);
+        return null;
+      }
+      return (data ?? []) as { id: string; name: string; role: string; brand_id: string | null }[];
+    } catch (e) {
+      logAuditFailure("audit profile read", ids, errorClass(e));
+      return null;
+    }
+  };
+
+  // auth.users isn't exposed through PostgREST. Same call manage-store-user uses.
+  const readEmail = async () => {
+    let timer: number | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new DOMException("audit email read timed out", "TimeoutError")), AUDIT_TIMEOUT_MS);
+      });
+      // On timeout the race abandons the getUserById call; it doesn't cancel it.
+      const { data, error } = await Promise.race([serviceClient.auth.admin.getUserById(targetId), timeout]);
+      if (error) {
+        logAuditFailure("audit email read", ids, error.code ?? error.status);
+        return null;
+      }
+      return data.user?.email ?? null;
+    } catch (e) {
+      logAuditFailure("audit email read", ids, errorClass(e));
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const readUserStoreIds = async () => {
+    try {
+      const { data, error } = await serviceClient
+        .from("user_stores")
+        .select("store_id")
+        .eq("user_id", targetId)
+        .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+      if (error) {
+        logAuditFailure("audit store read", ids, error.code);
+        return null;
+      }
+      return ((data ?? []) as { store_id: string }[]).map((r) => r.store_id);
+    } catch (e) {
+      logAuditFailure("audit store read", ids, errorClass(e));
+      return null;
+    }
+  };
+
+  const readApprovalCount = async () => {
+    try {
+      const { count, error } = await serviceClient
+        .from("order_approvals")
+        .select("id", { count: "exact", head: true })
+        .eq("approved_by", targetId)
+        .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+      if (error) {
+        logAuditFailure("audit approval count", ids, error.code);
+        return null;
+      }
+      return count ?? 0;
+    } catch (e) {
+      logAuditFailure("audit approval count", ids, errorClass(e));
+      return null;
+    }
+  };
+
+  // From stores, not order_approvals: max_rows = 1000 (config.toml) would silently
+  // drop stores for a target with more than 1,000 approvals.
+  const readApprovalStoreIds = async () => {
+    try {
+      const { data, error } = await serviceClient
+        .from("stores")
+        .select("id, order_approvals!inner(id)")
+        .eq("order_approvals.approved_by", targetId)
+        .limit(1, { referencedTable: "order_approvals" })
+        .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+      if (error) {
+        logAuditFailure("audit approval store read", ids, error.code);
+        return null;
+      }
+      return ((data ?? []) as { id: string }[]).map((r) => r.id);
+    } catch (e) {
+      logAuditFailure("audit approval store read", ids, errorClass(e));
+      return null;
+    }
+  };
+
+  const [profiles, email, userStoreIds, approvalCount, approvalStoreIds] = await Promise.all([
+    readProfiles(),
+    readEmail(),
+    readUserStoreIds(),
+    readApprovalCount(),
+    readApprovalStoreIds(),
+  ]);
+
+  const target = profiles?.find((p) => p.id === targetId) ?? null;
+  return {
+    // A failed read leaves user_id NULL, which can't fail the FK.
+    callerHasProfile: profiles?.some((p) => p.id === callerId) ?? false,
+    targetName: target?.name ?? null,
+    targetRole: target?.role ?? null,
+    targetBrandId: target?.brand_id ?? null,
+    email,
+    storeIds:
+      userStoreIds && approvalStoreIds ? Array.from(new Set([...userStoreIds, ...approvalStoreIds])) : null,
+    approvalCount,
+  };
+}
+
+// Pure. One row per store id. A placeholder account's address never reaches a
+// column (spec 165): both surfaces render `value` only when it is truthy.
+function buildUserDeletedRows(
+  storeIds: string[],
+  ids: DeleteAuditIds,
+  snapshot: DeleteAuditSnapshot,
+  approvalCount: number,
+  authUserDeleted: boolean,
+): DeleteAuditRow[] {
+  const itemRef = isPlaceholderEmail(snapshot.targetName) ? null : snapshot.targetName;
+  const value = snapshot.email && !isPlaceholderEmail(snapshot.email) ? snapshot.email : "";
+  const detail = JSON.stringify({
+    caller_id: ids.callerId,
+    target_id: ids.targetId,
+    target_role: snapshot.targetRole,
+    brand_id: snapshot.targetBrandId,
+    approval_count: approvalCount,
+    auth_user_deleted: authUserDeleted,
+  });
+  return storeIds.map((store_id) => ({
+    store_id,
+    user_id: snapshot.callerHasProfile ? ids.callerId : null,
+    action: AUDIT_ACTION,
+    item_ref: itemRef,
+    value,
+    detail,
+  }));
+}
+
+// NEVER throws / rejects. One bulk INSERT (atomic: all rows or none).
+async function writeDeleteAudit(
+  serviceClient: SupabaseClient,
+  ids: DeleteAuditIds,
+  snapshot: DeleteAuditSnapshot,
+  authUserDeleted: boolean,
+): Promise<void> {
+  // The store or approval-count read failed, and already logged.
+  if (snapshot.storeIds === null || snapshot.approvalCount === null) return;
+
+  const rows = buildUserDeletedRows(snapshot.storeIds, ids, snapshot, snapshot.approvalCount, authUserDeleted);
+  if (rows.length === 0) {
+    console.warn("[delete-user] audit skipped: target has no stores", ids.callerId, ids.targetId, AUDIT_ACTION);
+    return;
+  }
+  try {
+    const { error } = await serviceClient
+      .from("audit_log")
+      .insert(rows)
+      .abortSignal(AbortSignal.timeout(AUDIT_TIMEOUT_MS));
+    if (error) logAuditFailure("audit write", ids, error.code);
+  } catch (e) {
+    logAuditFailure("audit write", ids, errorClass(e));
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -263,11 +502,38 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Spec 187 — read before the cleanup deletes remove what the audit row needs.
+    const auditIds: DeleteAuditIds = { callerId: gate.userId, targetId: userId };
+    const auditSnapshot = await readDeleteAuditSnapshot(supabase, gate.userId, userId);
+
     await supabase.from("user_stores").delete().eq("user_id", userId);
-    await supabase.from("profiles").delete().eq("id", userId);
+    const { data: removedProfiles } = await supabase.from("profiles").delete().eq("id", userId).select("id");
+    // Decides the audit row and nothing else. The cleanup errors stay ignored.
+    const profileRemoved = (removedProfiles?.length ?? 0) > 0;
     await supabase.from("invitations").delete().eq("profile_id", userId);
 
-    const { error } = await supabase.auth.admin.deleteUser(userId);
+    // A separate flag rather than a check on the caught value: a thrown `undefined`
+    // must still count as a failure and must not fall through to the 200.
+    let error: { message: string } | null = null;
+    let authDeleteThrew = false;
+    let authDeleteThrown: unknown;
+    try {
+      ({ error } = await supabase.auth.admin.deleteUser(userId));
+    } catch (e) {
+      authDeleteThrew = true;
+      authDeleteThrown = e;
+    }
+    const authUserDeleted = !error && !authDeleteThrew;
+
+    // Write whenever the profile or the login was removed: an errored profile
+    // delete rolled back, but the auth delete then cascades to profiles.
+    if (profileRemoved || authUserDeleted) {
+      await writeDeleteAudit(supabase, auditIds, auditSnapshot, authUserDeleted);
+    } else {
+      console.warn("[delete-user] audit skipped: nothing removed", gate.userId, userId, AUDIT_ACTION);
+    }
+
+    if (authDeleteThrew) throw authDeleteThrown;
 
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), {

@@ -54,6 +54,8 @@ NULL.
 
 ### Known gap: deleting a profile erases the approver
 
+Closed by `specs/187-order-approval-approver-snapshot.md`.
+
 The guard used to block this by accident. Now a privileged caller who can delete
 the approver's profile also clears `approved_by`, including on `ordered` rows, and
 nothing else records who approved. The `Admins can delete profiles` policy lets any

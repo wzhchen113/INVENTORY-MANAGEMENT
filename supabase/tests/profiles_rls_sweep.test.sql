@@ -3,6 +3,12 @@
 -- Spec 043 / pgTAP regression for the two policy tightenings shipped
 -- in supabase/migrations/20260517060000_profiles_rls_sweep.sql.
 --
+-- Spec 187 dropped the "Admins can delete profiles" policy, so profiles are
+-- deleted only through the delete-user edge function. It supersedes spec 043's
+-- DELETE tightening: arms (7)-(10) now pin that a direct DELETE removes 0 rows
+-- with no error. delete-user's brand gate replaces RLS brand scoping on the
+-- delete path.
+--
 -- Twelve arms (plan(12)).
 --   Arms (1)-(6): SELECT tightening.
 --     (1)   admin SELECT own profile          → admit (1 row).
@@ -12,19 +18,21 @@
 --     (4)   super_admin SELECT cross-brand    → admit (1 row).
 --     (5)   regular user SELECT own profile   → admit (1 row).
 --     (6)   regular user SELECT other user    → 0 rows.
---   Arms (7)-(9): DELETE tightening.
---     (7)   admin DELETE same-brand user      → admit (row gone).
+--   Arms (7)-(9): no DELETE policy (spec 187).
+--     (7)   admin DELETE same-brand user      → 0 rows affected
+--            (row still present).
 --     (8)   admin DELETE cross-brand          → 0 rows affected
 --            (row still present).
---     (9)   super_admin DELETE cross-brand    → admit (row gone).
+--     (9)   super_admin DELETE cross-brand    → 0 rows affected
+--            (row still present).
 --   Arms (10)-(12): no-regression.
---     (10)  authenticated self-DELETE         → rejected with
---            'profile self-delete is not permitted' (spec 041).
+--     (10)  authenticated self-DELETE         → 0 rows affected, no error
+--            (spec 187; profiles_self_delete_lock never fires, and is pinned
+--            as a backstop in order_approvals_approver_snapshot.test.sql).
 --     (11)  assert_not_last_of_role from
 --            authenticated context              → fires with P0001
 --            'cannot delete the last super_admin' (spec 031 SECURITY
---            DEFINER bypass still works after the new DELETE policy
---            tightening).
+--            DEFINER bypass still works).
 --     (12)  brand-admin TRUNCATE on profiles  → 42501 'permission
 --            denied for table profiles' (spec 041 round-3 REVOKE).
 --
@@ -267,13 +275,13 @@ select is(
 
 
 -- ============================================================
--- Arms (7)-(9): DELETE tightening
+-- Arms (7)-(9): no DELETE policy (spec 187)
 -- ============================================================
 
--- ─── Arm (7): admin DELETE same-brand user — admit ──────────
+-- ─── Arm (7): admin DELETE same-brand user — 0 rows ─────────
 -- Re-impersonate the seed admin (brand A). DELETE target_a
--- (brand A, role='user'). The new DELETE policy admits via the
--- admin arm + auth_can_see_brand (same brand). Verification
+-- (brand A, role='user'). Spec 187 dropped the only DELETE
+-- policy, so this removes 0 rows with no error. Verification
 -- COUNT bypasses RLS via `reset role + clear claims` so the
 -- inspection step is not gated by the tightened SELECT policy.
 set local role authenticated;
@@ -295,18 +303,19 @@ select set_config('request.jwt.claims', '', true);
 select is(
   (select count(*)::int from public.profiles
     where id = current_setting('test.target_a', true)::uuid),
-  0,
-  'arm (7): admin can DELETE same-brand user profile (admin arm + brand match)'
+  1,  -- row still exists; DELETE silently affected 0 rows
+  'arm (7): admin DELETE on same-brand profile silently affects 0 rows (no DELETE policy, spec 187)'
 );
 
 
 -- ─── Arm (8): admin DELETE cross-brand — 0 rows affected ────
 -- Re-impersonate the seed admin (brand A). Attempt to DELETE
--- target_b (brand B). The admin arm's brand check fails, the
--- self-arm doesn't exist on this policy. Postgres RLS surfaces
--- this as 0 rows affected — no error, silent rejection. The
--- row should still be present afterwards. Verification COUNT
--- bypasses RLS.
+-- target_b (brand B). Postgres RLS surfaces this as 0 rows
+-- affected — no error, silent rejection. The row should still be
+-- present afterwards. Verification COUNT bypasses RLS. Since spec
+-- 187 there is no DELETE policy at all, so this no longer proves
+-- brand scope: delete-user's brand gate is what scopes deletes,
+-- covered by scripts/smoke-delete-user.sh.
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -327,14 +336,14 @@ select is(
   (select count(*)::int from public.profiles
     where id = current_setting('test.target_b', true)::uuid),
   1,  -- row still exists; DELETE silently affected 0 rows
-  'arm (8): admin DELETE on cross-brand profile silently affects 0 rows (RLS USING)'
+  'arm (8): admin DELETE on cross-brand profile silently affects 0 rows (no DELETE policy, spec 187)'
 );
 
 
--- ─── Arm (9): super_admin DELETE cross-brand — admit ────────
+-- ─── Arm (9): super_admin DELETE cross-brand — 0 rows ───────
 -- Impersonate the in-txn super_admin (master_id). DELETE
--- target_b (brand B). The new DELETE policy admits via
--- auth_can_see_brand short-circuit on auth_is_super_admin.
+-- target_b (brand B). With no DELETE policy (spec 187) a
+-- super_admin removes 0 rows through PostgREST too.
 -- (master_id was already promoted to super_admin in arm 4's
 -- fixture mutation; the promotion persists through this txn.)
 set local role authenticated;
@@ -356,8 +365,8 @@ select set_config('request.jwt.claims', '', true);
 select is(
   (select count(*)::int from public.profiles
     where id = current_setting('test.target_b', true)::uuid),
-  0,
-  'arm (9): super_admin can DELETE cross-brand profile (auth_can_see_brand super-admin short-circuit)'
+  1,  -- row still exists; DELETE silently affected 0 rows
+  'arm (9): super_admin DELETE on cross-brand profile silently affects 0 rows (no DELETE policy, spec 187)'
 );
 
 
@@ -365,14 +374,13 @@ select is(
 -- Arms (10)-(12): no-regression
 -- ============================================================
 
--- ─── Arm (10): authenticated self-DELETE — rejected ─────────
+-- ─── Arm (10): authenticated self-DELETE — 0 rows ───────────
 -- Re-impersonate the seed admin (brand A). Attempt to DELETE
--- own profile. The new DELETE policy's USING admits the row
--- through (admin+brand arm — admin can see their own brand,
--- their profile is in their brand), but the Spec 041
--- profiles_self_delete_lock BEFORE-DELETE trigger fires AFTER
--- USING and BEFORE the physical delete. Should raise P0001
--- with the Spec 041 message string. No-regression for Spec 041.
+-- own profile. With no DELETE policy (spec 187) USING admits
+-- nothing, so the row is never visited and the Spec 041
+-- profiles_self_delete_lock trigger doesn't fire: 0 rows, no
+-- error. The lock stays as a backstop, pinned in
+-- order_approvals_approver_snapshot.test.sql (AC-18).
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -384,14 +392,16 @@ select set_config(
   true
 );
 
-select throws_ok(
-  format(
-    $q$delete from public.profiles where id = %L::uuid$q$,
-    current_setting('test.admin_id', true)
-  ),
-  'P0001',
-  'profile self-delete is not permitted (use admin delete flow)',
-  'arm (10): authenticated self-DELETE is rejected by profiles_self_delete_lock trigger (no-regression for Spec 041)'
+delete from public.profiles
+ where id = current_setting('test.admin_id', true)::uuid;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+select is(
+  (select count(*)::int from public.profiles
+    where id = current_setting('test.admin_id', true)::uuid),
+  1,  -- row still exists; DELETE silently affected 0 rows
+  'arm (10): authenticated self-DELETE silently affects 0 rows (no DELETE policy, spec 187)'
 );
 
 
@@ -416,7 +426,7 @@ select throws_ok(
 -- IS NULL) never satisfies the EXISTS when the caller is not a
 -- super_admin. The current SECURITY DEFINER helper bypasses RLS
 -- and counts correctly — this arm proves that bypass is still
--- working after the Spec 043 policy tightening.
+-- working after the Spec 043 SELECT tightening.
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -435,7 +445,7 @@ select throws_ok(
   ),
   'P0001',
   'cannot delete the last super_admin',
-  'arm (11): assert_not_last_of_role still works from authenticated context (SECURITY DEFINER bypass survives Spec 043 policy tightening)'
+  'arm (11): assert_not_last_of_role still works from authenticated context (SECURITY DEFINER bypass survives Spec 043 SELECT tightening)'
 );
 
 
