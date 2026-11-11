@@ -53,6 +53,11 @@
 --   V1  (33)    vendor-name brand check (security Low 3): emit_eod_update with
 --               a vendor from ANOTHER brand leaves body NULL.
 --
+-- Spec 189 (O-1, owner approved 2026-11-09): the staff_submit_eod calls used
+-- to send '[]'. The RPC now refuses an empty payload with 22023, so they send
+-- one entry for a Frederick item instead (test.payload). No arm's meaning
+-- changes: the notification triggers key on the parent upsert, not entries.
+--
 -- Fixture posture: every vendor / store / item the assertions read is created
 -- INSIDE the transaction, with synthetic 1999-11-* dates, so the file is green
 -- under the committed seed AND on a CI-fresh database and never collides with
@@ -92,6 +97,15 @@ begin
   perform set_config('test.store_t1',   '18000000-0000-0000-0000-0000000000a1', true);
   perform set_config('test.store_t2',   '18000000-0000-0000-0000-0000000000a2', true);
   perform set_config('test.tag',        v_tag, true);
+  -- Spec 189 O-1: staff_submit_eod now refuses an empty payload, so the S*
+  -- calls send one entry for a Frederick item. The fresh vendors have no
+  -- item_vendors links, so it writes no on-hand and the fresh branch stays
+  -- deterministically 'eod'. It adds one staff audit row per call, which no
+  -- arm here counts.
+  perform set_config('test.payload', jsonb_build_array(jsonb_build_object(
+    'ingredient_id', (select ii.id from public.inventory_items ii
+                       where ii.store_id = v_frederick order by ii.id limit 1),
+    'actual_remaining', 1))::text, true);
 end $$;
 
 -- Test-only foreign brand (R1) + two brand-A throttle stores (T1).
@@ -218,7 +232,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc001'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', '[]'::jsonb,
+  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 
 -- Edit (same triple, NEW client_uuid) as admin A.
@@ -231,7 +245,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc002'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', '[]'::jsonb,
+  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 
 reset role;
@@ -282,7 +296,7 @@ set local role authenticated;
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc003'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', '[]'::jsonb,
+  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 reset role;
 
@@ -302,7 +316,7 @@ create temp table _s3_replay on commit drop as
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc001'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', '[]'::jsonb,
+  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid) as result;
 reset role;
 
@@ -682,7 +696,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc003'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', '[]'::jsonb,
+  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 reset role;
 

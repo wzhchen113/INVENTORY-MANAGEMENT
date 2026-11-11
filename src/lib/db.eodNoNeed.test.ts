@@ -6,10 +6,15 @@
 //      `no_need` and map a NO NEED row to `{ actualRemaining: null,
 //      noNeed: true }`. A numeric row has NO `noNeed` key and its
 //      `actualRemaining` is unchanged (incl. the legacy `Number(x) || 0`).
-//   2. submitEODCount sends `no_need` on EVERY row of a mixed batch (so the
-//      supabase-js bulk insert never defaults it to NULL), forces the three
-//      numerics to null on NO NEED rows, and performs NO inventory_items
-//      update for them.
+//   2. submitEODCount (spec 189, AC-21) is ONE `admin_submit_eod` RPC call:
+//      `no_need` on EVERY element, the three numerics forced to null on NO
+//      NEED elements, removals passed through. It never touches eod_entries,
+//      eod_submissions or inventory_items directly. The old mock let a direct
+//      eod_entries delete "succeed", which hid the RLS-denied delete that
+//      stacked duplicates; here any direct eod_entries op resolves with an
+//      error AND fails the test. The on-hand arms (no on-hand for NO NEED or a
+//      null total) moved to pgTAP with the write itself
+//      (supabase/tests/admin_submit_eod.test.sql arms 20, 49-51).
 //
 // Mocking strategy mirrors db.eodCountMode.test.ts: chainable per-table
 // builders that record ops; track(fn) runs the thunk directly.
@@ -39,10 +44,15 @@ function makeBuilder(table: string): any {
 
 const mockFrom = jest.fn((table: string) => makeBuilder(table));
 
+let rpcResult: { data: any; error: any };
+const mockRpc = jest.fn((_fn: string, _args: Record<string, unknown>) => ({
+  abortSignal: (_signal: AbortSignal) => Promise.resolve(rpcResult),
+}));
+
 jest.mock('./supabase', () => ({
   supabase: {
     from: (table: string) => mockFrom(table),
-    rpc: jest.fn(),
+    rpc: (fn: string, args: Record<string, unknown>) => mockRpc(fn, args),
   },
 }));
 
@@ -121,6 +131,7 @@ beforeEach(() => {
   opLog = [];
   tableResults = {};
   singleResults = {};
+  rpcResult = { data: null, error: null };
 });
 
 const READERS: Array<[string, () => Promise<any[]>]> = [
@@ -201,34 +212,59 @@ function makeSubmission(entries: EODEntry[]): Omit<EODSubmission, 'id'> {
   };
 }
 
-describe('submitEODCount — no_need write (AC-22)', () => {
+// Spec 189 AC-21: no direct-table path may stand in for the RPC.
+const DIRECT_TABLES = ['eod_entries', 'eod_submissions', 'inventory_items', 'item_vendors'];
+
+function rpcArgs(): Record<string, any> {
+  expect(mockRpc).toHaveBeenCalledTimes(1);
+  expect(mockRpc.mock.calls[0][0]).toBe('admin_submit_eod');
+  return mockRpc.mock.calls[0][1] as Record<string, any>;
+}
+
+describe('submitEODCount — admin_submit_eod RPC (spec 189 AC-21; spec 172 AC-22)', () => {
   beforeEach(() => {
-    singleResults.eod_submissions = { data: { id: SUB_ID }, error: null };
-    tableResults.eod_entries = { data: null, error: null };
-    // Both items are linked to the submitting vendor at this store.
-    tableResults.item_vendors = {
-      data: [{ item_id: 'item-1' }, { item_id: 'item-nn' }],
+    rpcResult = {
+      data: { submission_id: SUB_ID, conflict: false, entry_ids: [], stock_updates: [], entry_count: 2 },
       error: null,
     };
-    tableResults.inventory_items = { data: null, error: null };
+    // A direct eod_entries delete is DENIED in reality (no DELETE policy).
+    // Never mock it as success again.
+    tableResults.eod_entries = {
+      data: null,
+      error: { message: 'mock: direct eod_entries access is not the write path (spec 189)' },
+    };
+  });
+
+  afterEach(() => {
+    const direct = opLog.filter((o) => DIRECT_TABLES.includes(o.table));
+    expect(direct).toEqual([]);
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 
   const mixed = () =>
     makeSubmission([
-      makeEntry({ itemId: 'item-1', actualRemaining: 12, actualRemainingCases: 1, actualRemainingEach: 2 }),
       makeEntry({ itemId: 'item-nn', actualRemaining: null, noNeed: true, notes: 'plenty' }),
+      makeEntry({ itemId: 'item-1', actualRemaining: 12, actualRemainingCases: 1, actualRemainingEach: 2 }),
     ]);
 
-  it('sends no_need on EVERY row of a mixed batch', async () => {
+  it('issues exactly one admin_submit_eod call with the parent fields', async () => {
     await submitEODCount(mixed());
-    const ins = opLog.find((o) => o.table === 'eod_entries' && o.op === 'insert');
-    expect(ins).toBeDefined();
-    const rows = ins!.args[0] as Array<Record<string, unknown>>;
+    const args = rpcArgs();
+    expect(args.p_store_id).toBe(STORE_ID);
+    expect(args.p_date).toBe('2026-10-23');
+    expect(args.p_vendor_id).toBe(VENDOR_ID);
+    expect(args.p_status).toBe('submitted');
+    // submitted_by is forced server-side; the client id is never sent.
+    expect(JSON.stringify(args)).not.toContain('user-1');
+  });
+
+  it('sends no_need on EVERY element, sorted by item id, numerics as sent', async () => {
+    await submitEODCount(mixed());
+    const rows = rpcArgs().p_entries as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
     for (const r of rows) expect(typeof r.no_need).toBe('boolean');
     expect(rows[0]).toEqual({
-      submission_id: SUB_ID,
-      item_id: 'item-1',
+      ingredient_id: 'item-1',
       actual_remaining: 12,
       actual_remaining_cases: 1,
       actual_remaining_each: 2,
@@ -236,8 +272,7 @@ describe('submitEODCount — no_need write (AC-22)', () => {
       notes: '',
     });
     expect(rows[1]).toEqual({
-      submission_id: SUB_ID,
-      item_id: 'item-nn',
+      ingredient_id: 'item-nn',
       actual_remaining: null,
       actual_remaining_cases: null,
       actual_remaining_each: null,
@@ -246,65 +281,50 @@ describe('submitEODCount — no_need write (AC-22)', () => {
     });
   });
 
-  it('forces the numerics to null on a NO NEED row even if stale values ride along', async () => {
+  it('forces the numerics to null on a NO NEED element even if stale values ride along', async () => {
     await submitEODCount(
       makeSubmission([
         makeEntry({ itemId: 'item-nn', actualRemaining: 5, actualRemainingCases: 1, actualRemainingEach: 1, noNeed: true }),
       ]),
     );
-    const ins = opLog.find((o) => o.table === 'eod_entries' && o.op === 'insert');
-    const [row] = ins!.args[0] as Array<Record<string, unknown>>;
+    const [row] = rpcArgs().p_entries as Array<Record<string, unknown>>;
     expect(row.actual_remaining).toBeNull();
     expect(row.actual_remaining_cases).toBeNull();
     expect(row.actual_remaining_each).toBeNull();
     expect(row.no_need).toBe(true);
   });
 
-  it('performs NO inventory_items update for the NO NEED entry', async () => {
+  it('passes a non-NO-NEED null total through as null (the server skips its on-hand)', async () => {
+    await submitEODCount(makeSubmission([makeEntry({ itemId: 'item-legacy', actualRemaining: null })]));
+    const [row] = rpcArgs().p_entries as Array<Record<string, unknown>>;
+    expect(row).toMatchObject({ ingredient_id: 'item-legacy', actual_remaining: null, no_need: false });
+  });
+
+  it('defaults p_removed_item_ids to [] and passes removals through', async () => {
     await submitEODCount(mixed());
-    const updates = opLog.filter((o) => o.table === 'inventory_items' && o.op === 'update');
-    expect(updates).toHaveLength(1);
-    expect(updates[0].args[0]).toMatchObject({ current_stock: 12, eod_remaining: 12 });
-    const eqIds = opLog
-      .filter((o) => o.table === 'inventory_items' && o.op === 'eq' && o.args[0] === 'id')
-      .map((o) => o.args[1]);
-    expect(eqIds).toEqual(['item-1']);
+    expect(rpcArgs().p_removed_item_ids).toEqual([]);
+    mockRpc.mockClear();
+    await submitEODCount(makeSubmission([]), ['item-gone']);
+    const args = rpcArgs();
+    expect(args.p_removed_item_ids).toEqual(['item-gone']);
+    expect(args.p_entries).toEqual([]);
   });
 
-  it('a NO-NEED-only submission still inserts its entries and writes no on-hand', async () => {
-    await submitEODCount(
-      makeSubmission([makeEntry({ itemId: 'item-nn', actualRemaining: null, noNeed: true })]),
-    );
-    expect(opLog.some((o) => o.table === 'eod_entries' && o.op === 'insert')).toBe(true);
-    expect(opLog.some((o) => o.table === 'inventory_items' && o.op === 'update')).toBe(false);
+  it('sends the draft status for SAVE DRAFT', async () => {
+    await submitEODCount({ ...mixed(), status: 'draft' });
+    expect(rpcArgs().p_status).toBe('draft');
   });
 
-  // Review-fix SF-3: the on-hand loop gates on isNumericEodEntry (the same
-  // predicate as useStore.submitEOD), not on `noNeed` alone, so a
-  // non-NO-NEED entry carrying a null total can never write
-  // current_stock = NULL. No client builds this shape today; this pins it.
-  it('a non-NO-NEED entry with a null total writes no on-hand (never current_stock = NULL)', async () => {
-    await submitEODCount(
-      makeSubmission([
-        makeEntry({ itemId: 'item-1', actualRemaining: 12 }),
-        makeEntry({ itemId: 'item-nn', actualRemaining: null }),
-      ]),
-    );
-    const updates = opLog.filter((o) => o.table === 'inventory_items' && o.op === 'update');
-    expect(updates).toHaveLength(1);
-    expect(updates[0].args[0]).toMatchObject({ current_stock: 12, eod_remaining: 12 });
-    for (const u of updates) {
-      expect(u.args[0].current_stock).not.toBeNull();
-      expect(u.args[0].eod_remaining).not.toBeNull();
-    }
-    const eqIds = opLog
-      .filter((o) => o.table === 'inventory_items' && o.op === 'eq' && o.args[0] === 'id')
-      .map((o) => o.args[1]);
-    expect(eqIds).toEqual(['item-1']);
-    // The entry row itself still persists (unchanged insert payload).
-    const ins = opLog.find((o) => o.table === 'eod_entries' && o.op === 'insert');
-    const rows = ins!.args[0] as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(2);
-    expect(rows[1]).toMatchObject({ item_id: 'item-nn', actual_remaining: null, no_need: false });
+  it('maps the envelope to { submissionId, entryCount }', async () => {
+    await expect(submitEODCount(mixed())).resolves.toEqual({ submissionId: SUB_ID, entryCount: 2 });
+  });
+
+  it('rethrows a rejected write (no silent success) and logs it', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const err = { code: '42501', message: 'admin_submit_eod: caller cannot write EOD counts for store x' };
+    rpcResult = { data: null, error: err };
+    await expect(submitEODCount(mixed())).rejects.toBe(err);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

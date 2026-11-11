@@ -222,6 +222,7 @@ Two policy disciplines are CI-enforced: no trivially-wide permissive policies (p
 |---|---|
 | `create_inventory_item_with_catalog` | Atomic find-or-create on `(brand_id, lower(name))` then idempotent insert on `(store_id, catalog_id)`. |
 | `staff_submit_eod` / `staff_log_waste` | Idempotent EOD submit / waste log (stock update + audit), keyed on a client UUID. Called via PostgREST from the in-repo staff app. |
+| `admin_submit_eod` | The admin EOD write (SUBMIT, UPDATE COUNT, SAVE DRAFT): changed rows plus an explicit removal list, applied with the on-hand in one transaction. Privileged + store-visible callers only; rows the call doesn't name are left alone. Shares the internal writer `eod_write_submission` with `staff_submit_eod`. |
 | `report_reorder_list` | The reorder engine: par gap − on-hand − pending PO qty, grouped by vendor with order-schedule awareness. |
 | `report_reorder_for_counted_onhand` | Sibling engine for count-history rows: same math against a historical counted on-hand (kept in byte-parity with the main engine by pgTAP). |
 | `receive_purchase_order` | Additive, idempotent PO receiving; optional per-line `new_case_price` drives the ★ cost update + `'PO price change'` audit rows. |

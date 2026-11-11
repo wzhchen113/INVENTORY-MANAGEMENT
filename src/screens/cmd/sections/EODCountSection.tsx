@@ -26,6 +26,7 @@ import {
   eodTypeInto,
   type EodRowState,
 } from '../../../lib/eodNoNeed';
+import { eodRowSnapshot, planEodSubmit, type EodRowSnapshot } from '../../../lib/eodChangeSet';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
@@ -176,6 +177,25 @@ function localDayIso(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// Spec 189 §5 — the one place a baseline key is built (see `baselineRef`).
+// The vendor id is the LAST segment, so `dropVendorBaselines` can match every
+// date and store for a vendor by its `|${vendorId}` suffix.
+function eodBaselineKey(storeId: string, dateIso: string, vendorId: string): string {
+  return `${storeId}|${dateIso}|${vendorId}`;
+}
+
+// Delete every baseline for `vendorId`, on any date or store. Called wherever
+// that vendor's input maps are cleared: the maps are keyed by vendor only, so
+// a baseline that outlives them describes values the screen no longer holds,
+// and a later SUBMIT would read each of its rows as "blanked" and remove it.
+// Fails safe: with no baseline, `buildEodChangeSet` produces no removals.
+function dropVendorBaselines(baselines: Record<string, unknown>, vendorId: string): void {
+  const suffix = `|${vendorId}`;
+  for (const k of Object.keys(baselines)) {
+    if (k.endsWith(suffix)) delete baselines[k];
+  }
+}
+
 // Pattern A — workflow: 240px week sidebar (date list with status pills)
 // + worksheet (vendor tabs, category chips, status line, grouped item
 // rows with qty input, sticky footer with submit). Wires to the existing
@@ -245,11 +265,24 @@ export default function EODCountSection() {
   // overwrites and removes the vendor from this set.
   const [editingVendorIds, setEditingVendorIds] = React.useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 189 §5 — the BASELINE: per row, what the manager was shown and what
+  // is known to be saved, keyed `${storeId}|${dateIso}|${vendorId}` (the input
+  // maps are keyed by vendor only, so the date and store must be in the key —
+  // a removal can never fire across dates). Set by EDIT from the submission's
+  // entries, advanced by a successful SAVE DRAFT, cleared by a successful
+  // SUBMIT (for every date and store: the SUBMIT empties the vendor-keyed maps
+  // that all of them describe; `dropVendorBaselines`), left alone on failure
+  // so a retry computes the same diff. It's how "blanked" differs from "never
+  // touched" (`buildEodChangeSet`). A ref, not state: it's read only when
+  // SUBMIT / SAVE DRAFT is pressed.
+  const baselineRef = React.useRef<Record<string, Record<string, EodRowSnapshot>>>({});
+  const baselineKey = (vendorId: string) => eodBaselineKey(currentStore.id, selectedIso, vendorId);
   // Spec 103 — per-user custom order. The order is per-(admin-eod, vendor)
   // (OQ-1), so hold a per-vendor saved-id map mirroring `caseCountsByVendor`.
   // `viewMode` toggles the default category-grouped worksheet vs a flat Custom
-  // view in the user's saved drag order. Render-only: submission + the gate
-  // still iterate `filteredItems` (AC-9).
+  // view in the user's saved drag order. Render-only: the gate still iterates
+  // `filteredItems` (AC-9), and submission covers the vendor's whole input
+  // maps (spec 189), so neither depends on the view.
   const [viewMode, setViewMode] = React.useState<'default' | 'custom'>('default');
   const [savedIdsByVendor, setSavedIdsByVendor] = React.useState<Record<string, string[] | null>>({});
 
@@ -602,51 +635,52 @@ export default function EODCountSection() {
   }, [eodSubmissions, currentStore.id, selectedIso, selectedVendorId]);
 
   // Spec 020 §9.4 — enter EDIT mode. Inputs unlock, pre-fill from the
-  // existing submission's entries. Spread order: user-typed values WIN over
-  // server-loaded pre-fills (Q4 — typed-but-unsubmitted survives tab
-  // switches, even when re-entering EDIT). If the test-engineer reviewer
-  // prefers server-wins it's a spread flip.
+  // existing submission's entries. User-typed values WIN over server-loaded
+  // pre-fills (Q4 — typed-but-unsubmitted survives tab switches, even when
+  // re-entering EDIT), but spec 189 §5: only a NON-BLANK local value wins. A
+  // leftover '' would show a saved value as blank, and the change set would
+  // read it as "blanked" and remove the saved row. A local NO NEED mark also
+  // keeps its (blank) boxes, preserving the NO NEED ⇒ blank-boxes invariant.
   const onEditCurrentVendor = React.useCallback(() => {
     if (!selectedVendorId || !currentVendorSubmission) return;
     const vid = selectedVendorId;
     const sub = currentVendorSubmission;
+    const entries = sub.entries || [];
+    // Spec 189 §5 — the baseline snapshots the ENTRY-derived values (the same
+    // string derivations as the seed below), not the merged map.
+    const seedCases: Record<string, string> = {};
+    const seedUnits: Record<string, string> = {};
+    const seedNotes: Record<string, string> = {};
+    const baseline: Record<string, EodRowSnapshot> = {};
+    for (const e of entries) {
+      seedCases[e.itemId] = e.actualRemainingCases != null ? String(e.actualRemainingCases) : '';
+      seedUnits[e.itemId] = unitsDisplayFor(e);
+      seedNotes[e.itemId] = e.notes || '';
+      baseline[e.itemId] = {
+        caseRaw: seedCases[e.itemId],
+        unitRaw: seedUnits[e.itemId],
+        note: seedNotes[e.itemId],
+        noNeed: e.noNeed === true,
+      };
+    }
+    baselineRef.current[eodBaselineKey(currentStore.id, selectedIso, vid)] = baseline;
+    const localNoNeed = noNeedByVendor[vid] || {};
+    const overlay = (seed: Record<string, string>, local: Record<string, string> | undefined, keepNoNeedBlank: boolean) => {
+      const out = { ...seed };
+      for (const [id, v] of Object.entries(local || {})) {
+        if ((v ?? '').trim() !== '' || (keepNoNeedBlank && localNoNeed[id] === true)) out[id] = v ?? '';
+      }
+      return out;
+    };
     setEditingVendorIds((prev) => {
       if (prev.has(vid)) return prev;
       const next = new Set(prev);
       next.add(vid);
       return next;
     });
-    setCaseCountsByVendor((p) => ({
-      ...p,
-      [vid]: {
-        ...Object.fromEntries(
-          (sub.entries || []).map((e) => [
-            e.itemId,
-            e.actualRemainingCases != null ? String(e.actualRemainingCases) : '',
-          ]),
-        ),
-        ...(p[vid] || {}),
-      },
-    }));
-    setUnitCountsByVendor((p) => ({
-      ...p,
-      [vid]: {
-        ...Object.fromEntries(
-          (sub.entries || []).map((e) => [
-            e.itemId,
-            unitsDisplayFor(e),
-          ]),
-        ),
-        ...(p[vid] || {}),
-      },
-    }));
-    setNotesByVendor((p) => ({
-      ...p,
-      [vid]: {
-        ...Object.fromEntries((sub.entries || []).map((e) => [e.itemId, e.notes || ''])),
-        ...(p[vid] || {}),
-      },
-    }));
+    setCaseCountsByVendor((p) => ({ ...p, [vid]: overlay(seedCases, p[vid], true) }));
+    setUnitCountsByVendor((p) => ({ ...p, [vid]: overlay(seedUnits, p[vid], true) }));
+    setNotesByVendor((p) => ({ ...p, [vid]: overlay(seedNotes, p[vid], false) }));
     // Spec 172 (AC-25) — seed the NO NEED marks from the submission, with the
     // same "user-typed wins" rule: an item with non-blank local case/unit text
     // (or an existing local mark) keeps its local state, which preserves the
@@ -656,14 +690,14 @@ export default function EODCountSection() {
     const localUnits = unitCountsByVendor[vid] || {};
     setNoNeedByVendor((p) => {
       const seeded: Record<string, boolean> = {};
-      for (const e of sub.entries || []) {
+      for (const e of entries) {
         if (e.noNeed !== true) continue;
         const typed = (localCases[e.itemId] ?? '').trim() !== '' || (localUnits[e.itemId] ?? '').trim() !== '';
         if (!typed) seeded[e.itemId] = true;
       }
       return { ...p, [vid]: { ...seeded, ...(p[vid] || {}) } };
     });
-  }, [selectedVendorId, currentVendorSubmission, caseCountsByVendor, unitCountsByVendor]);
+  }, [selectedVendorId, currentVendorSubmission, caseCountsByVendor, unitCountsByVendor, noNeedByVendor, currentStore.id, selectedIso]);
 
   // Category chips — derived from this vendor's items
   const categories = React.useMemo(() => {
@@ -675,10 +709,11 @@ export default function EODCountSection() {
     ];
   }, [vendorItems]);
 
-  // NOTE: `filteredItems` drives submission (enteredItems), counters, and
-  // totals — it must NOT be narrowed by the name search, or entered counts
-  // for searched-out items would be dropped on submit. The search is applied
-  // in `grouped` (render only) below.
+  // NOTE: `filteredItems` drives the completeness gate, counters, and totals —
+  // it must NOT be narrowed by the name search, or the gate would pass with
+  // searched-out rows uncounted. The search is applied in `grouped` (render
+  // only) below. Submission does NOT read it (spec 189 §5): it ships the
+  // vendor's whole change set, whatever the pill or search.
   const filteredItems = React.useMemo(() => {
     const base = selectedCategory === 'all' ? vendorItems : vendorItems.filter((i) => i.category === selectedCategory);
     if (additionalItems.size === 0) return base;
@@ -736,11 +771,11 @@ export default function EODCountSection() {
   const itemTotal = (i: typeof filteredItems[0]) =>
     eodTotal(liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
   // Spec 102 (§6c) — counted-once-globally. `localHasEntry` is the CURRENT
-  // tab's typed entry (used by buildSubmission — we only ship what was entered
-  // under this vendor). `countedItemIds` is the cross-tab + submitted set for
-  // this (store, date). `hasEntry` (the gate/counter/styling predicate) ORs
-  // them, so a shared item counted under another tab is NOT an outstanding gap
-  // here.
+  // tab's typed entry (we only ship what was entered under this vendor; spec
+  // 189's change set applies the same predicate over the vendor's whole input
+  // maps). `countedItemIds` is the cross-tab + submitted set for this (store,
+  // date). `hasEntry` (the gate/counter/styling predicate) ORs them, so a
+  // shared item counted under another tab is NOT an outstanding gap here.
   const countedItemIds = React.useMemo(
     () =>
       deriveCountedItemIds({
@@ -758,7 +793,8 @@ export default function EODCountSection() {
   );
   // Spec 171 (AC-7) — counted only when an ENABLED box is non-blank.
   // Spec 172 (AC-16) — …or the row is marked NO NEED in this tab. This is the
-  // counted predicate for the gate, buildSubmission and the phone tier.
+  // counted predicate for the gate and the phone tier; buildSubmission's
+  // change set uses the same rule (`eodRowEntryValues`).
   const localHasEntry = (id: string) =>
     eodRowCounted(noNeed[id], liveModeById(id), caseCounts[id], unitCounts[id]);
   // Spec 172 (AC-24) — NUMERIC-only predicate: a NO NEED row carries no
@@ -872,30 +908,56 @@ export default function EODCountSection() {
     }
   }, [buildExportGroups, currentStore.name, selectedIso, exportLocale, T]);
 
-  // Build the submission payload from current entered items. Returns null if
-  // no qty was entered (avoids empty-submit DB writes).
-  // Spec 020: includes vendorId + vendorName so the per-vendor RPC and the
-  // store's merge lookup partition correctly. The TODO call out below tracks
-  // the type widening backend-dev is shipping in src/types/index.ts.
-  const buildSubmission = (status: 'draft' | 'submitted') => {
-    // Spec 102 (§6c) — ship only items entered IN THIS TAB (localHasEntry), not
-    // items counted under another vendor's tab. The shared item's on-hand is
-    // reconciled server-side (§5) when it IS entered under this vendor; if it
-    // was only counted elsewhere it simply isn't part of this submission.
-    const enteredItems = filteredItems.filter((i) => localHasEntry(i.id));
-    if (enteredItems.length === 0) return null;
-    if (!selectedVendorId) return null;
+  // Spec 189 §5 — build the write for the CURRENT vendor. It is NOT a full
+  // replacement set: the server (`admin_submit_eod`) applies the shipped rows
+  // plus an explicit removal list and leaves every row the call doesn't name
+  // exactly as it is. `planEodSubmit` decides between the existing "enter at
+  // least one" toast (`empty`), a no-change success with no RPC (`noop`), and a
+  // write (`ship`). It reads the vendor's whole input maps plus the baseline,
+  // not `filteredItems`, so neither the category pill nor the search narrows
+  // it (D-4: a first SUBMIT under a pill also ships values typed under other
+  // pills). Spec 020: the submission carries vendorId + vendorName so the
+  // per-vendor RPC and the store's merge lookup partition correctly.
+  type BuiltSubmission =
+    | { kind: 'empty' }
+    | { kind: 'noop'; savedCount: number }
+    | {
+        kind: 'ship';
+        submission: Omit<EODSubmission, 'id'>;
+        removedItemIds: string[];
+        // What the baseline advances to for the shipped rows (SAVE DRAFT).
+        shipped: Record<string, EodRowSnapshot>;
+        // Entries the submission holds after the write, for the toasts.
+        resultCount: number;
+      };
+  const buildSubmission = (status: 'draft' | 'submitted'): BuiltSubmission => {
+    if (!selectedVendorId) return { kind: 'empty' };
+    const maps = { caseCounts, unitCounts, notes, noNeed };
+    const plan = planEodSubmit({
+      storeItems: storeInventory,
+      baseline: baselineRef.current[baselineKey(selectedVendorId)],
+      ...maps,
+      modeOf: liveModeById,
+      // Same-session draft → SUBMIT, or EDIT → SAVE DRAFT, with no row changed
+      // still has to carry the status change (design §5 "When the set is empty").
+      statusChanges: (currentVendorSubmission?.status ?? null) !== status,
+    });
+    if (plan.kind === 'empty') return plan;
+    const savedIds = (currentVendorSubmission?.entries || []).map((e) => e.itemId);
+    if (plan.kind === 'noop') return { kind: 'noop', savedCount: savedIds.length };
     const vendorName =
       vendorTabs.find((v) => v.id === selectedVendorId)?.name ||
       vendors.find((v) => v.id === selectedVendorId)?.name ||
       '';
     const now = new Date().toISOString();
-    const entries: Omit<EODEntry, 'id'>[] = enteredItems.flatMap((i): Omit<EODEntry, 'id'>[] => {
+    const itemsById = new Map(storeInventory.map((i) => [i.id, i]));
+    const entries: Omit<EODEntry, 'id'>[] = plan.itemIds.flatMap((id): Omit<EODEntry, 'id'>[] => {
+      const i = itemsById.get(id);
+      if (!i) return [];
       // Spec 171 (AC-7 / AC-16c) — values come from the ENABLED box(es) only;
       // a disabled or unparseable box ships `undefined` (submitEODCount maps it
-      // to NULL). `enteredItems` already filters on the mode-aware
-      // localHasEntry (the same predicate `eodRowEntryValues` gates on), so `v`
-      // is never null here; the empty-array arm only narrows the type.
+      // to NULL). The plan only names rows `eodRowEntryValues` gives a value
+      // for, so `v` is never null here; the empty-array arm only narrows the type.
       const v = eodRowEntryValues(noNeed[i.id], liveModeById(i.id), i.caseQty, caseCounts[i.id], unitCounts[i.id]);
       if (!v) return [];
       // Spec 172 (AC-21) — a NO NEED item ships no quantity, its note intact.
@@ -931,9 +993,19 @@ export default function EODCountSection() {
         notes: notes[i.id] || '',
       }];
     });
+    const removedItemIds = plan.removedItemIds;
+    // Defensive: the server refuses an empty call (Rule A).
+    if (entries.length === 0 && removedItemIds.length === 0) return { kind: 'empty' };
+    const removed = new Set(removedItemIds);
+    const resultCount = new Set([
+      ...savedIds.filter((id) => !removed.has(id)),
+      ...entries.map((e) => e.itemId),
+    ]).size;
+    const shipped: Record<string, EodRowSnapshot> = {};
+    for (const e of entries) shipped[e.itemId] = eodRowSnapshot(maps, e.itemId);
     // Spec 020: vendorId is required on EODSubmission; vendorName is hydrated
-    // client-side for display. submitEOD's local merge + submitEODCount's
-    // PostgREST upsert both partition on (storeId, date, vendorId).
+    // client-side for display. submitEOD's local merge + admin_submit_eod's
+    // parent upsert both partition on (storeId, date, vendorId).
     const submission: Omit<EODSubmission, 'id'> = {
       date: selectedIso,
       storeId: currentStore.id,
@@ -947,32 +1019,51 @@ export default function EODCountSection() {
       status,
       entries: entries as EODEntry[],
     };
-    return submission;
+    return { kind: 'ship', submission, removedItemIds, shipped, resultCount };
   };
 
   const onSaveDraft = async () => {
-    const submission = buildSubmission('draft');
-    if (!submission) {
+    const built = buildSubmission('draft');
+    if (built.kind === 'empty') {
       Toast.show({ type: 'error', text1: T('section.eod.enterAtLeastOne') });
       return;
     }
-    setSubmitting(true);
-    submitEOD(submission);
-    try {
-      await submitEODCount(submission);
+    const showDraftSaved = (itemCount: number) => {
       const submitterShort = (currentUser?.name || 'me').toLowerCase().split(' ')[0];
       const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       Toast.show({
         type: 'info',
         text1: T('section.eod.draftSavedToast'),
         text2: T('section.eod.draftSavedDetail', {
-          itemCount: submission.itemCount,
+          itemCount,
           totalItems: filteredItems.length,
           time,
           user: submitterShort,
         }),
       });
+    };
+    // Spec 189 §5 — nothing changed and the status stays: no RPC, no
+    // optimistic writes, no audit, no bell.
+    if (built.kind === 'noop') {
+      showDraftSaved(built.savedCount);
+      return;
+    }
+    const key = baselineKey(built.submission.vendorId);
+    setSubmitting(true);
+    const undo = submitEOD(built.submission, { removedItemIds: built.removedItemIds });
+    try {
+      await submitEODCount(built.submission, built.removedItemIds);
+      // Spec 189 §5 — the shipped rows are now known to be saved; the removed
+      // ones are gone. A later blank of a shipped row is then a removal.
+      const next = { ...(baselineRef.current[key] || {}) };
+      for (const id of built.removedItemIds) delete next[id];
+      baselineRef.current[key] = { ...next, ...built.shipped };
+      showDraftSaved(built.resultCount);
     } catch (e: any) {
+      // Spec 189 §8 (AC-22) — the server write is all-or-nothing, so revert
+      // the optimistic row + on-hand mirror. Typed values, EDIT mode and the
+      // baseline stay, so a retry computes the same diff.
+      undo();
       console.warn('[EOD] draft save failed:', e?.message || e);
       Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
     } finally {
@@ -987,8 +1078,10 @@ export default function EODCountSection() {
     // Belt for any path that reaches this without the button (e.g. a shortcut).
     if (nothingToCount) return;
     // Completeness gate (spec) — every item in the current worksheet scope
-    // (`filteredItems`, the same set buildSubmission ships) must be counted,
-    // even "0", before a final submit; partial work goes through Save Draft.
+    // (`filteredItems`: the pill + additional items) must be counted, even
+    // "0", before a final submit; partial work goes through Save Draft. Spec
+    // 189: the gate stays pill-scoped, but what ships is the vendor's whole
+    // change set (buildSubmission), not this scope.
     // A row counts once EITHER box has a value (hasEntry). Block on the first
     // blank, clear the search so a searched-out row can render, and reuse the
     // palette-action focus path to jump to it.
@@ -1013,8 +1106,8 @@ export default function EODCountSection() {
       });
       return;
     }
-    const submission = buildSubmission('submitted');
-    if (!submission) {
+    const built = buildSubmission('submitted');
+    if (built.kind === 'empty') {
       Toast.show({ type: 'error', text1: T('section.eod.enterAtLeastOne') });
       return;
     }
@@ -1024,33 +1117,38 @@ export default function EODCountSection() {
       Toast.show({ type: 'error', text1: T('section.eod.pickVendor') });
       return;
     }
-    setSubmitting(true);
-    submitEOD(submission);
-    try {
-      await submitEODCount(submission);
+    const vid = selectedVendorId;
+    const dateIso = selectedIso;
+    const finishSubmitted = (itemCount: number) => {
       // Spec 020: clear only THIS vendor's draft after submit; other vendors'
       // typed-but-unsaved drafts survive (Q4). Also drop EDIT mode for the
-      // vendor so it relocks to the read-only view. Moved inside the try
-      // (post-await) per code-reviewer S1 — clearing before the cloud write
-      // dropped the user's typed values on cloud failure, which is the worst
-      // possible UX for the escape-hatch path where the items aren't on the
-      // server-rendered list yet.
-      setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
-      setUnitCountsByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
-      setNotesByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
-      setNoNeedByVendor((p) => ({ ...p, [selectedVendorId]: {} }));
+      // vendor so it relocks to the read-only view. Only on success, per
+      // code-reviewer S1 — clearing before the cloud write dropped the user's
+      // typed values on cloud failure, which is the worst possible UX for the
+      // escape-hatch path where the items aren't on the server-rendered list
+      // yet. Spec 189 §5: the baseline is cleared with the maps, for EVERY
+      // date and store, not just this one. The maps are keyed by vendor only,
+      // so this clear also empties values typed on other dates; a surviving
+      // baseline there (e.g. a draft saved on Monday, then SUBMIT on Tuesday)
+      // would read each of its rows as "blanked" on Monday's next SUBMIT and
+      // delete the drafted counts behind a success toast.
+      dropVendorBaselines(baselineRef.current, vid);
+      setCaseCountsByVendor((p) => ({ ...p, [vid]: {} }));
+      setUnitCountsByVendor((p) => ({ ...p, [vid]: {} }));
+      setNotesByVendor((p) => ({ ...p, [vid]: {} }));
+      setNoNeedByVendor((p) => ({ ...p, [vid]: {} }));
       setEditingVendorIds((prev) => {
-        if (!prev.has(selectedVendorId)) return prev;
+        if (!prev.has(vid)) return prev;
         const next = new Set(prev);
-        next.delete(selectedVendorId);
+        next.delete(vid);
         return next;
       });
       Toast.show({
         type: 'success',
         text1: T('section.eod.countSubmitted'),
         text2: T('section.eod.countSubmittedDetail', {
-          itemCount: submission.itemCount,
-          date: selectedIso,
+          itemCount,
+          date: dateIso,
         }),
       });
       // 2026-07 — on a successful submit, jump to the Ordering destination so
@@ -1058,7 +1156,24 @@ export default function EODCountSection() {
       // (Ordering opens on its default Reorder tab). Spec 137 renamed the
       // former 'Reorder' section to the unified 'Ordering' destination.
       usePaletteAction.getState().request({ section: 'Ordering', selectedName: null });
+    };
+    // Spec 189 §5 — EDIT then UPDATE COUNT with nothing changed: no RPC, no
+    // optimistic writes, no audit, no bell, then the normal success path with
+    // the saved row count.
+    if (built.kind === 'noop') {
+      finishSubmitted(built.savedCount);
+      return;
+    }
+    setSubmitting(true);
+    const undo = submitEOD(built.submission, { removedItemIds: built.removedItemIds });
+    try {
+      await submitEODCount(built.submission, built.removedItemIds);
+      finishSubmitted(built.resultCount);
     } catch (e: any) {
+      // Spec 189 §8 (AC-22) — revert the optimistic row + on-hand mirror (a
+      // failed first SUBMIT no longer locks the vendor). Typed values, EDIT
+      // mode and the baseline stay; no success toast, no jump to Ordering.
+      undo();
       console.warn('[EOD] cloud save failed:', e?.message || e);
       Toast.show({ type: 'error', text1: T('section.eod.savedLocally'), text2: T('section.eod.cloudFailed') });
     } finally {

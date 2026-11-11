@@ -289,8 +289,11 @@ test.describe('staff Reorder', () => {
       );
     }
 
-    //    The entry row: eod_entries has no natural unique key, so delete-then-
-    //    insert keyed on (submission_id, item_id) for idempotency. A re-run's
+    //    The entry row: delete-then-insert keyed on (submission_id, item_id)
+    //    for idempotency. Since spec 189 that pair is a unique index
+    //    (eod_entries_submission_item_uidx), so a re-run without the
+    //    pre-delete would fail with 23505 rather than stack a second row; the
+    //    pre-delete runs as service role, so RLS doesn't deny it. A re-run's
     //    upsert above returns the SAME submission id (unique-key merge), so
     //    this can never orphan an entry.
     const { error: eodEntryDelErr } = await admin

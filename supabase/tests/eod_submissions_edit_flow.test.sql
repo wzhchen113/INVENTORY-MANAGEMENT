@@ -7,16 +7,19 @@
 -- (store, date, vendor) triple; a repeat submit "merges" into the
 -- existing row, preserving the id.
 --
--- Architect's caveat: the live RPC `staff_submit_eod` is granted only to
--- service_role and can't be called from a manager JWT inside pgTAP.
--- Per the architect's design (decision (b)), we exercise the table-level
--- contract via a direct INSERT with `on conflict do update`. The
--- end-state is the same: same (store, date, vendor) triple → same id;
--- `submitted_at` bumps on the second write.
+-- Scope: this file pins the TABLE-level contract via a direct INSERT with
+-- `on conflict do update` (same (store, date, vendor) triple → same id;
+-- `submitted_at` bumps on the second write). Spec 189 correction: the
+-- original caveat here said `staff_submit_eod` is granted only to
+-- service_role. That has been stale since spec 061 — it is granted to
+-- `authenticated`, revoked from service_role. The RPC-level EDIT flow (both
+-- staff_submit_eod and spec 189's admin_submit_eod) is covered in
+-- admin_submit_eod.test.sql and eod_update_notifications.test.sql.
 --
--- The fourth assertion exercises `actual_remaining` update by deleting
--- + reinserting the entry row (mirroring the RPC's internal
--- delete + insert sequence at staff_submit_eod_v2.sql).
+-- The entry assertion is an UPDATE of `actual_remaining` on the existing
+-- row, not a delete and reinsert: eod_entries has no DELETE policy, so a
+-- direct delete under a user JWT removes 0 rows. The RPC writers delete
+-- inside SECURITY DEFINER (eod_write_submission, spec 189).
 --
 -- Hermetic isolation: begin; ... rollback;.
 
@@ -159,8 +162,9 @@ select ok(
 );
 
 -- ─── (3) Entry mutation: UPDATE actual_remaining under admin JWT ──
--- The RPC's internal "replace entries" runs delete+insert as
--- service_role (bypasses RLS). The DELETE policy on eod_entries was
+-- The RPCs' internal "replace entries" runs delete+insert inside
+-- SECURITY DEFINER as the function owner (bypasses RLS; spec 189's
+-- eod_write_submission). The DELETE policy on eod_entries was
 -- DROPPED by spec 020's consistency migration (append-only posture),
 -- so neither admin nor manager can DELETE entries directly via
 -- PostgREST. The corresponding admin UPDATE policy IS preserved

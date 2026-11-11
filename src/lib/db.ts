@@ -49,7 +49,6 @@ import { isPlaceholderEmail } from './placeholderEmail';
 // Spec 171 — EOD count-mode normalizer (missing/unknown → 'cases_and_units').
 // Pure module (no supabase / no React), allowed in db.ts.
 import { normalizeEodCountMode } from './eodCountMode';
-import { isNumericEodEntry } from './eodNoNeed';
 import {
   InventoryItem, Recipe, WasteEntry, EODSubmission,
   Vendor, AuditEvent, Store, IngredientConversion,
@@ -1012,153 +1011,68 @@ export async function logWasteEntry(entry: Omit<WasteEntry, 'id'>): Promise<void
 }
 
 // ─── EOD SUBMISSIONS ─────────────────────────────────────────────────────
-// One row per (store_id, date) — anyone with store access can edit the same
-// count instead of forking off a per-user duplicate. Upsert so the "Edit
-// today's count" flow updates the existing row; submitted_by tracks whoever
-// last touched it (which is also what the audit log per entry preserves).
-// Entries are replaced wholesale (delete-then-insert) so items removed from
-// the edit screen disappear cleanly and we don't maintain diffing logic here.
+// One row per (store_id, date, vendor_id). Spec 189: every admin EOD write
+// (SUBMIT, UPDATE COUNT and SAVE DRAFT, desktop and phone) is ONE call to the
+// SECURITY DEFINER RPC `admin_submit_eod`. It upserts the parent (the id is
+// kept on EDIT), applies the entries and writes the on-hand in one
+// transaction, so it all lands or none of it does.
 //
-// Errors are console.warn'd before being rethrown so `.catch(() => null)` at
-// the call site still hides them from the user but developers can see the
-// real reason (RLS, unique-key mismatch, network) in the browser console.
-export async function submitEODCount(submission: Omit<EODSubmission, 'id'>): Promise<string> {
-  // Spec 020 — vendor_id is required and partitions the (store_id, date)
-  // unique key. The Cmd UI's admin-JWT path stays on direct PostgREST
-  // (RPC is gated to service_role and used by the staff-app Edge Function);
-  // the upsert ON CONFLICT uses the new (store_id, date, vendor_id) unique
-  // so two vendors on one date coexist and the EDIT path on the same
-  // vendor preserves the eod_submissions.id.
+// Contract: `submission.entries` holds only the CHANGED rows, and
+// `removedItemIds` names the rows the manager cleared. A row the call doesn't
+// name stays exactly as it is on the server, so stale client state can never
+// delete a count. The RPC refuses an empty call and any call that would leave
+// the submission with no entries (22023).
+//
+// There is no direct eod_entries / inventory_items access here any more. The
+// old delete-then-insert was silently denied by RLS (eod_entries has no DELETE
+// policy: 0 rows, HTTP 204), so re-submits stacked duplicate entries.
+//
+// The RPC is gated on auth_is_privileged() AND auth_can_see_store(). It forces
+// submitted_by = auth.uid() (so the client's id isn't sent) and stamps
+// submitted_at = now() and last_updated_by = auth.uid(). Entries go out sorted
+// by item id so admin and staff writers lock shared inventory_items rows in
+// the same order.
+//
+// Errors are console.warn'd before being rethrown, so the caller's existing
+// failure path runs and developers can see the real reason (RLS, a 22023
+// refusal, 23505, network) in the browser console.
+export async function submitEODCount(
+  submission: Omit<EODSubmission, 'id'>,
+  removedItemIds: readonly string[] = [],
+): Promise<{ submissionId: string; entryCount: number }> {
   return useInflight.getState().track(async (signal) => {
+    // Spec 172: `no_need` rides on EVERY element (never omitted for false),
+    // and a NO NEED element forces all three numerics to null (defense in
+    // depth for eod_entries_no_need_no_quantity_check). `unit` isn't sent;
+    // the admin path ignores it.
+    const entries = [...submission.entries]
+      .sort((a, b) => (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0))
+      .map((e) => ({
+        ingredient_id: e.itemId,
+        actual_remaining:       e.noNeed ? null : e.actualRemaining,
+        actual_remaining_cases: e.noNeed ? null : (e.actualRemainingCases ?? null),
+        actual_remaining_each:  e.noNeed ? null : (e.actualRemainingEach ?? null),
+        no_need:                e.noNeed === true,
+        notes: e.notes || '',
+      }));
+
     const { data, error } = await supabase
-      .from('eod_submissions')
-      .upsert(
-        {
-          store_id: submission.storeId,
-          date: new Date(submission.date).toISOString().split('T')[0],
-          vendor_id: submission.vendorId,
-          submitted_by: submission.submittedByUserId,
-          status: submission.status || 'submitted',
-          submitted_at: new Date().toISOString(),
-        },
-        { onConflict: 'store_id,date,vendor_id' }
-      )
-      .select()
-      .abortSignal(signal)
-      .single();
+      .rpc('admin_submit_eod', {
+        p_store_id: submission.storeId,
+        p_date: new Date(submission.date).toISOString().split('T')[0],
+        p_vendor_id: submission.vendorId,
+        p_status: submission.status || 'submitted',
+        p_entries: entries,
+        p_removed_item_ids: [...removedItemIds],
+      })
+      .abortSignal(signal);
     if (error) {
-      console.warn('[Supabase] submitEODCount upsert parent:', error.message, error);
+      console.warn('[Supabase] submitEODCount admin_submit_eod:', error.message, error);
       throw error;
     }
 
-    // Replace entries wholesale: drop the old set, then insert the new set.
-    const del = await supabase
-      .from('eod_entries')
-      .delete()
-      .eq('submission_id', data.id)
-      .abortSignal(signal);
-    if (del.error) {
-      console.warn('[Supabase] submitEODCount delete entries:', del.error.message, del.error);
-      throw del.error;
-    }
-
-    if (submission.entries.length > 0) {
-      const ins = await supabase.from('eod_entries').insert(
-        // Spec 172 — `no_need` rides on EVERY row (never omitted for false):
-        // supabase-js bulk insert defaults missing keys to NULL across a
-        // batch, which would violate NOT NULL (23502) on a mixed NO NEED +
-        // numeric submission. A NO NEED row forces all three numerics to
-        // null (defense in depth for eod_entries_no_need_no_quantity_check).
-        submission.entries.map((e) => ({
-          submission_id: data.id,
-          item_id: e.itemId,
-          actual_remaining:       e.noNeed ? null : e.actualRemaining,
-          actual_remaining_cases: e.noNeed ? null : (e.actualRemainingCases ?? null),
-          actual_remaining_each:  e.noNeed ? null : (e.actualRemainingEach ?? null),
-          no_need:                e.noNeed === true,
-          notes: e.notes || '',
-        }))
-      ).abortSignal(signal);
-      if (ins.error) {
-        console.warn('[Supabase] submitEODCount insert entries:', ins.error.message, ins.error);
-        throw ins.error;
-      }
-
-      // Spec 102 (§5a) — shared on-hand reconciliation. The on-hand is keyed
-      // by ITEM, not (item, vendor): an item is countable under this vendor
-      // iff it has an `item_vendors` link for the vendor, regardless of which
-      // link is "primary". We prefetch the set of item_ids legitimately
-      // covered by this vendor AT THIS STORE once, then gate the per-entry
-      // write on membership in that set. This replaces the old
-      // `.eq('vendor_id', submission.vendorId)` predicate so a SHARED item's
-      // on-hand is not silently dropped when counted under a non-primary
-      // vendor tab (AC-D / AC-F). An entry whose itemId is NOT in the set is
-      // the escape-hatch case (an off-vendor entry) → no on-hand write,
-      // matching the prior behavior and the staff RPC (§5b).
-      //
-      // Store-scoped: the embed inner-joins inventory_items and filters
-      // `item.store_id = submission.storeId` (mirroring the staff fetch's
-      // `fetchItemsForVendor`), so the set never spans wider than this
-      // submission's store — important for a multi-store admin where the same
-      // vendor links items in several accessible stores.
-      //
-      // The write now sets BOTH current_stock and eod_remaining (the staff
-      // RPC and the admin store optimistic mirror already set both) — a
-      // deliberate consistency fix (spec 102 §12) so the persisted admin
-      // state matches what the optimistic UI already mirrored at
-      // useStore.ts (currentStock).
-      const linkRows = await supabase
-        .from('item_vendors')
-        .select('item_id, item:inventory_items!inner(store_id)')
-        .eq('vendor_id', submission.vendorId)
-        .eq('item.store_id', submission.storeId)
-        .abortSignal(signal);
-      if (linkRows.error) {
-        // A failed prefetch would empty the membership set and silently skip
-        // EVERY on-hand update for the whole submission — entries persist but
-        // current_stock/eod_remaining go stale (reorder reads stale on-hand
-        // until the next fetch). Unlike the per-item write below (a
-        // nice-to-have for one item), a prefetch failure is batch-wide, so we
-        // throw — consistent with the parent/entry writes above and the
-        // store's optimistic-revert + toast path.
-        console.warn('[Supabase] submitEODCount fetch item_vendors:', linkRows.error.message);
-        throw linkRows.error;
-      }
-      const linkedItemIdsForVendor = new Set<string>(
-        (linkRows.data ?? []).map((r: { item_id: string }) => r.item_id),
-      );
-
-      for (const entry of submission.entries) {
-        // Spec 172 (AC-22): a NO NEED entry carries no quantity → never
-        // writes the on-hand. Mirrors staff_submit_eod hunk S3 and the
-        // store's optimistic skip in useStore.submitEOD. Gated on the same
-        // isNumericEodEntry predicate as the store (review-fix SF-3) so a
-        // non-NO-NEED entry with a null total can never write
-        // current_stock = NULL; it also narrows actualRemaining to number.
-        if (!isNumericEodEntry(entry)) continue;
-        // Escape-hatch: no link to the submitting vendor → skip the on-hand
-        // write (the eod_entries row above still persisted). Mirrors the
-        // staff RPC's EXISTS(item_vendors …) gate and the prior
-        // vendor-equality skip.
-        if (!linkedItemIdsForVendor.has(entry.itemId)) continue;
-        const upd = await supabase
-          .from('inventory_items')
-          .update({
-            eod_remaining: entry.actualRemaining,
-            current_stock: entry.actualRemaining,
-            last_updated_by: submission.submittedByUserId,
-          })
-          .eq('id', entry.itemId)
-          .abortSignal(signal);
-        if (upd.error) {
-          console.warn('[Supabase] submitEODCount update item:', entry.itemId, upd.error.message);
-          // Don't throw — parent + entries already landed, item-level on-hand
-          // is a nice-to-have. Surface in console for debugging.
-        }
-      }
-    }
-
-    return data.id;
+    const row = data as { submission_id: string; entry_count: number };
+    return { submissionId: row.submission_id, entryCount: row.entry_count };
   }, { kind: 'write', label: 'submitEODCount' });
 }
 

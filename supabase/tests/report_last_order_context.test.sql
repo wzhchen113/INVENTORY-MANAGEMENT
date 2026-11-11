@@ -4,7 +4,7 @@
 -- public.report_last_order_context(uuid, uuid[], date), shipped in
 -- supabase/migrations/20260803000000_report_last_order_context.sql.
 --
--- Plan (41 arms):
+-- Plan (42 arms):
 --   ANCHOR PRECEDENCE (AC-2 / R-C) — the precedence table walked row by row,
 --   one vendor per rung so each pick is isolated rather than inferred from a
 --   sequence of deletes:
@@ -41,11 +41,14 @@
 --          ordered_qty_base JSON **null**.
 --   FAN-OUT + MALFORMED ROWS (the two shapes that make ONE bad row poison the
 --   WHOLE screen, since this RPC returns one envelope for every vendor)
---     (D1) eod_entries has no (submission_id, item_id) uniqueness and both
---          writers delete-then-insert a client array: TWO entries for one item
---          on the anchoring submission still yield exactly ONE items[] element.
---     (D2) …and its counted_qty_base is the LAST-WRITTEN value, not a sum
---          (summing would invent a total the staff never entered — AC-10).
+--     (D1) the anchoring submission's entry for one item yields exactly ONE
+--          items[] element. Spec 189 rewrite: this arm used to plant TWO
+--          entries for one item; eod_entries_submission_item_uidx (spec 189
+--          D-1) now makes that impossible, so the fixture holds one row and
+--          DISTINCT ON stays as harmless defence.
+--     (D2) …and its counted_qty_base is that entry's value (9), never a sum.
+--     (D3) spec 189 — a second row for the same (submission_id, item_id)
+--          raises 23505 (the duplicate D1/D2 used to plant can't exist now).
 --     (G1) an approval whose lines[] carries a NON-UUID item_id does not 22P02
 --          the read: the malformed element is skipped and the vendor's other
 --          item still resolves.
@@ -116,7 +119,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(41);
+select plan(42);
 
 -- ─── fixtures ──────────────────────────────────────────────────
 do $$
@@ -306,7 +309,7 @@ select s.id::uuid,
     ('51550000-0000-0000-0000-000000000006', '51510000-0000-0000-0000-00000000000f', '2026-07-29', 'submitted'),
     -- (Q1) the cases+each count.
     ('51550000-0000-0000-0000-000000000007', '51510000-0000-0000-0000-000000000010', '2026-07-30', 'submitted'),
-    -- (D1/D2) the anchoring count that holds TWO entries for the same item.
+    -- (D1/D2) the anchoring count for the dedupe arms (one entry; see below).
     ('51550000-0000-0000-0000-000000000008', '51510000-0000-0000-0000-000000000015', '2026-07-19', 'submitted')
   ) as s(id, vendor, d, status);
 
@@ -328,14 +331,15 @@ select e.sub::uuid, e.item::uuid, e.rem::numeric,
     ('51550000-0000-0000-0000-000000000007', '51520001-0000-0000-0000-000000000004', '26.5', '4', '2.5')
   ) as e(sub, item, rem, cases, each);
 
--- (D1/D2) TWO entries for the SAME (submission_id, item_id). This is legal
--- today: eod_entries carries no uniqueness on that pair and both writers
--- delete-then-insert straight from a client-supplied array. created_at is
--- explicit so "last written wins" is a deterministic pin rather than a race.
+-- (D1/D2) ONE entry for the item. Spec 189 rewrite: this fixture used to
+-- insert TWO rows for the same (submission_id, item_id), which was legal then
+-- (no uniqueness; the admin writer's delete was silently denied by RLS, so
+-- re-submits stacked). eod_entries_submission_item_uidx now raises 23505 on
+-- the second row, so only the 9 row is inserted and (D3) pins the refusal.
+-- Dropping the index inside the test to keep a real duplicate was rejected:
+-- pinning a state that can't occur has no value.
 insert into public.eod_entries (submission_id, item_id, actual_remaining, created_at)
 values
-  ('51550000-0000-0000-0000-000000000008'::uuid,
-   '51520001-0000-0000-0000-000000000001'::uuid, 3::numeric, '2026-07-19 21:00:00+00'),
   ('51550000-0000-0000-0000-000000000008'::uuid,
    '51520001-0000-0000-0000-000000000001'::uuid, 9::numeric, '2026-07-19 22:30:00+00');
 
@@ -621,17 +625,17 @@ select is(
 
 
 -- ─── FAN-OUT + MALFORMED ROWS ──────────────────────────────────
--- (D1/D2) counted_lines is DISTINCT ON (vendor_id, item_id). Without it the
--- duplicate entry fans out through the left join and yields a duplicated items[]
--- element, an inflated total_n (so items_truncated could read true below 500
--- DISTINCT items) and a silent last-write-wins pick in the client mapper. sum()
--- is NOT the fix: adding two counts for one item invents a total the staff never
--- entered, which AC-10 forbids.
+-- (D1/D2) counted_lines is DISTINCT ON (vendor_id, item_id). Before spec 189 a
+-- duplicate entry would fan out through the left join (a duplicated items[]
+-- element, an inflated total_n, a silent pick in the client mapper). Spec 189's
+-- unique index means duplicates can't exist now, so these arms pin the one-row
+-- result and DISTINCT ON remains as harmless defence. sum() was never the fix:
+-- adding two counts for one item invents a total the staff never entered (AC-10).
 select is(
   (select jsonb_array_length(pg_temp.v151(payload, '51510000-0000-0000-0000-000000000015')->'items')
      from _ctx),
   1,
-  '(D1) two eod_entries rows for ONE item on the anchoring submission still yield exactly ONE items[] element (no left-join fan-out)'
+  '(D1) the anchoring submission''s entry for ONE item yields exactly ONE items[] element (no left-join fan-out)'
 );
 
 select is(
@@ -640,7 +644,7 @@ select is(
              '51520001-0000-0000-0000-000000000001')->>'counted_qty_base')::numeric
      from _ctx),
   9::numeric,
-  '(D2) …and its counted_qty_base is the LAST-WRITTEN entry (9), never the sum (12) — a summed duplicate would invent a count the staff never entered'
+  '(D2) …and its counted_qty_base is that entry (9), never a sum'
 );
 
 -- (G1/G2) The unguarded form of this cast raises 22P02 for the WHOLE envelope,
@@ -803,6 +807,17 @@ select is(
 -- ─── LINT + SHAPE (AC-21 / AC-23 / R-B) ────────────────────────
 reset role;
 select set_config('request.jwt.claims', null, true);
+
+-- (D3) Spec 189: the duplicate the old D1/D2 fixture planted now raises 23505.
+-- Run as postgres (after reset role) so RLS can't raise first; the item and
+-- the submission are in the same store, so eod_entries_check_store_trg passes.
+select throws_ok(
+  $q$insert into public.eod_entries (submission_id, item_id, actual_remaining, created_at)
+     values ('51550000-0000-0000-0000-000000000008'::uuid,
+             '51520001-0000-0000-0000-000000000001'::uuid, 3::numeric, '2026-07-19 21:00:00+00')$q$,
+  '23505', null,
+  '(D3) spec 189 — a second eod_entries row for the same (submission_id, item_id) raises 23505 (eod_entries_submission_item_uidx)'
+);
 
 -- (P1a/P1b) SECURITY INVOKER means these five SELECT policies ARE this
 -- function's authorization. There is deliberately NO copy of the spec-053

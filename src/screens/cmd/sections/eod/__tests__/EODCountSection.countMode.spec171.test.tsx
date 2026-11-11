@@ -128,7 +128,9 @@ function submittedSub(entries: Array<Record<string, unknown>>) {
   };
 }
 
-const submitEODSpy = jest.fn();
+// Spec 189 §8 — submitEOD returns an undo; the section calls it when the
+// server write rejects, so the spy must return one.
+const submitEODSpy = jest.fn<any, any[]>(() => jest.fn());
 
 function seed(inventory: InventoryItem[], eodSubmissions: unknown[] = []) {
   useStore.setState({
@@ -390,6 +392,10 @@ describe('EODCountSection desktop — spec 171 count mode', () => {
     expect(api.getByTestId('eod-case-input-legacy').props.value).toBe('');
   });
 
+  // Spec 189 §5: UPDATE COUNT with nothing changed no longer re-ships the row
+  // (no RPC at all), so the re-submit arm changes the cases value: the units
+  // box was seeded blank, so the total is cases × caseQty only, not
+  // cases × caseQty + the old 48 total.
   it('OQ-A: EDIT prefill of a cases-only submission seeds cases, leaves units blank (no double count on re-submit)', async () => {
     seed(
       [makeItem('b')],
@@ -400,11 +406,12 @@ describe('EODCountSection desktop — spec 171 count mode', () => {
     await waitFor(() => expect(api.getByTestId('eod-case-input-b').props.editable).toBe(true));
     expect(api.getByTestId('eod-case-input-b').props.value).toBe('2');
     expect(api.getByTestId('eod-unit-input-b').props.value).toBe('');
+    fireEvent.changeText(api.getByTestId('eod-case-input-b'), '3');
     await act(async () => {
       fireEvent.press(api.getByText('UPDATE COUNT'));
     });
     expect(submitEODSpy.mock.calls[0][0].entries[0]).toEqual(
-      expect.objectContaining({ itemId: 'b', actualRemaining: 48, actualRemainingCases: 2, actualRemainingEach: undefined }),
+      expect.objectContaining({ itemId: 'b', actualRemaining: 72, actualRemainingCases: 3, actualRemainingEach: undefined }),
     );
   });
 });

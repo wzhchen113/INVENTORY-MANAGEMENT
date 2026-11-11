@@ -759,7 +759,18 @@ interface StoreActions {
   logWaste: (entry: Omit<WasteEntry, 'id'>) => void;
 
   // EOD
-  submitEOD: (submission: Omit<EODSubmission, 'id'>) => void;
+  /**
+   * Spec 189 §8 — the optimistic half of an admin EOD write. Merges the
+   * shipped entries into the (storeId, date, vendorId) row, drops
+   * `opts.removedItemIds`, mirrors on-hand locally, writes the client audit
+   * rows and the bell. Returns an UNDO that restores the row (or removes it if
+   * it was new) and the on-hand mirror; the caller runs it when the server
+   * write rejects. Audit rows and the bell are not undone (D-5).
+   */
+  submitEOD: (
+    submission: Omit<EODSubmission, 'id'>,
+    opts?: { removedItemIds?: readonly string[] },
+  ) => () => void;
 
   /**
    * Spec 019 — submit an any-time inventory count. Parallel to submitEOD;
@@ -3150,7 +3161,7 @@ export const useStore = create<FullStore>((set, get) => ({
   },
 
   // EOD
-  submitEOD: (submission) => {
+  submitEOD: (submission, opts) => {
     // Spec 020: per-vendor partitioning. Merge lookup is now scoped on
     // (storeId, date, vendorId) to mirror the new DB UNIQUE (store_id, date,
     // vendor_id). Two same-day submissions for DIFFERENT vendors create two
@@ -3158,16 +3169,19 @@ export const useStore = create<FullStore>((set, get) => ({
     // row.
     const subVendorId = submission.vendorId;
     const subVendorName = submission.vendorName;
-    const existing = get().eodSubmissions.find(
-      (s) =>
-        s.storeId === submission.storeId &&
-        s.date === submission.date &&
-        s.vendorId === subVendorId
-    );
+    const sameKey = (s: EODSubmission) =>
+      s.storeId === submission.storeId &&
+      s.date === submission.date &&
+      s.vendorId === subVendorId;
+    const existing = get().eodSubmissions.find(sameKey);
+    // Spec 189 §8 / AC-23 — the server applies a set of shipped rows plus a
+    // removal list, so the slice does the same: drop the removed items, then
+    // update matching items and add new ones. It then matches what a reload
+    // returns, without one.
+    const removed = new Set(opts?.removedItemIds ?? []);
 
     if (existing) {
-      // Merge new entries with existing (update matching items, add new ones)
-      const mergedEntries = [...existing.entries];
+      const mergedEntries = existing.entries.filter((e) => !removed.has(e.itemId));
       submission.entries.forEach((newEntry) => {
         const idx = mergedEntries.findIndex((e) => e.itemId === newEntry.itemId);
         if (idx >= 0) mergedEntries[idx] = newEntry;
@@ -3186,24 +3200,35 @@ export const useStore = create<FullStore>((set, get) => ({
       set((s) => ({ eodSubmissions: [{ ...submission, id }, ...s.eodSubmissions] }));
     }
 
+    // Spec 189 §8 — the on-hand fields this call overwrites, per item, so the
+    // undo can put them back. First write wins (a payload never repeats an
+    // item, but the first value is the pre-call one either way).
+    type OnHandSnapshot = Pick<InventoryItem, 'currentStock' | 'eodRemaining' | 'lastUpdatedBy' | 'lastUpdatedAt'>;
+    const priorOnHand = new Map<string, OnHandSnapshot>();
+
     submission.entries.forEach((entry) => {
       // Spec 020 Q6 + Spec 102 §5c: on-hand writes are gated on the item being
       // legitimately countable under the submitting vendor. A vendor's EOD
       // mutates the SHARED on-hand of items it can order — which, post-102, is
       // junction membership (the item has an `item_vendors` link for this
-      // vendor), NOT scalar `vendorId` equality. This is the THIRD copy of the
-      // on-hand predicate (admin db.ts + the staff RPC are the other two, both
-      // already membership-based); it MUST agree or the optimistic UI disagrees
-      // with the server's junction-membership write — a shared item counted
-      // under its non-primary vendor would optimistically skip the on-hand
-      // mirror while the server persisted it.
+      // vendor), NOT scalar `vendorId` equality.
+      //
+      // Spec 189: there are now TWO copies of the on-hand predicate, this
+      // optimistic mirror and the server writer `eod_write_submission`, which
+      // both `admin_submit_eod` and `staff_submit_eod` call. This one MUST
+      // agree with it, or the optimistic UI disagrees with what a reload
+      // returns — a shared item counted under its non-primary vendor would
+      // optimistically skip the on-hand mirror while the server persisted it.
+      // This mirror is local only: the persisted on-hand is written by the
+      // server in the same transaction as the entries (the old
+      // `db.adjustItemStock` call here was removed, design §8).
       //
       // Items counted via the unscheduled-item escape hatch (NO link to the
       // submitting vendor, including null-vendor items) still produce
-      // eod_entries (via db.submitEODCount) and an audit row (below), but their
-      // inventory_items.current_stock is NOT touched here — the server skips
-      // the persisted write for the same reason (preserves the spec 020 Q6
-      // escape-hatch invariant + the code-reviewer round-2 C2 catch). Read
+      // eod_entries (via db.submitEODCount → admin_submit_eod) and an audit
+      // row (below), but their current_stock is NOT touched here — the server
+      // skips the persisted write for the same reason (preserves the spec 020
+      // Q6 escape-hatch invariant + the code-reviewer round-2 C2 catch). Read
       // membership off `vendorIds` (back-compat: fall back to the scalar for
       // legacy in-memory rows that predate the embed; treat undefined as the
       // scalar's singleton set).
@@ -3211,12 +3236,22 @@ export const useStore = create<FullStore>((set, get) => ({
       const itemVendorIds = item?.vendorIds ?? (item?.vendorId ? [item.vendorId] : []);
       const itemMatchesSubmittedVendor = !!subVendorId && itemVendorIds.includes(subVendorId);
       // Spec 172 (AC-23): a NO NEED entry carries no quantity, so it never
-      // mirrors or persists an on-hand. All three on-hand writers skip it:
-      // this one, the db.ts submitEODCount loop, and staff_submit_eod (S3).
+      // mirrors or persists an on-hand. Both on-hand writers skip it: this
+      // mirror and the server writer (`not no_need and actual_remaining is
+      // not null`, spec 189 §6), which uses the same predicate as
+      // isNumericEodEntry.
       const numeric = isNumericEodEntry(entry);
 
       if (numeric && itemMatchesSubmittedVendor) {
         const total = entry.actualRemaining;
+        if (item && !priorOnHand.has(item.id)) {
+          priorOnHand.set(item.id, {
+            currentStock: item.currentStock,
+            eodRemaining: item.eodRemaining,
+            lastUpdatedBy: item.lastUpdatedBy,
+            lastUpdatedAt: item.lastUpdatedAt,
+          });
+        }
         set((s) => ({
           inventory: s.inventory.map((it) =>
             it.id === entry.itemId
@@ -3234,17 +3269,6 @@ export const useStore = create<FullStore>((set, get) => ({
               : it
           ),
         }));
-        // Persist the recalibration so it survives reload. Mirrors the
-        // adjustStock action's db.adjustItemStock call (line ~325 above).
-        // Only fires for items matching the submitted vendor — escape-hatch
-        // items keep their server-side current_stock untouched per Q6.
-        db
-          .adjustItemStock(
-            entry.itemId,
-            total,
-            entry.submittedByUserId || get().currentUser?.id || '',
-          )
-          .catch((e: any) => console.warn('[Supabase]', e?.message || e));
       }
       // Audit row fires regardless of vendor match so the count is always
       // traceable. The prefix uses the action verb ("Count updated" /
@@ -3300,6 +3324,27 @@ export const useStore = create<FullStore>((set, get) => ({
         p_exclude_user_id: submission.submittedByUserId || null,
       })
     ).catch((e: any) => console.warn('[Supabase] broadcast_notification (eod):', e?.message || e));
+
+    // Spec 189 §8 — undo for a rejected server write. Restores the
+    // (storeId, date, vendorId) row as it was, or removes it if this call
+    // created it, and puts back the on-hand fields mirrored above. Without it
+    // a failed first SUBMIT would leave a local `submitted` row the server
+    // never saw: EDIT would then build its baseline from it and report
+    // "nothing changed". The audit rows and the bell above are NOT undone
+    // (D-5, named follow-up).
+    return () => {
+      set((s) => ({
+        eodSubmissions: existing
+          ? s.eodSubmissions.map((sub) => (sameKey(sub) ? existing : sub))
+          : s.eodSubmissions.filter((sub) => !sameKey(sub)),
+        inventory: priorOnHand.size === 0
+          ? s.inventory
+          : s.inventory.map((it) => {
+              const prior = priorOnHand.get(it.id);
+              return prior ? { ...it, ...prior } : it;
+            }),
+      }));
+    };
   },
 
   // Spec 019 — Any-time inventory count. No persistent slice mutation;

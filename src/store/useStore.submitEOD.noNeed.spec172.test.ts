@@ -1,12 +1,12 @@
 // src/store/useStore.submitEOD.noNeed.spec172.test.ts — Spec 172 (AC-23; design §8).
 //
-// The store's optimistic `submitEOD` is the THIRD on-hand writer (the db.ts
-// submitEODCount loop and the staff RPC's hunk S3 are the other two). For a
-// NO NEED entry it must:
+// The store's optimistic `submitEOD` mirrors on-hand locally; the server
+// writer `eod_write_submission` persists it (spec 189 — the client no longer
+// calls db.adjustItemStock at all, design §8). For a NO NEED entry it must:
 //   • NOT mirror currentStock / eodRemaining locally,
-//   • NOT call db.adjustItemStock,
 //   • still emit its audit event, with value 'NO NEED'.
-// A numeric entry in the same submission keeps today's behavior verbatim.
+// A numeric entry in the same submission keeps its local mirror. Spec 189
+// changed the adjustItemStock arms: it is never called, for any entry (AC-31).
 //
 // Mocking follows useStore.lastCounted.spec160.test.ts: stub ../lib/supabase
 // (module-eval crash guard; `rpc` resolves for the broadcast_notification
@@ -92,7 +92,7 @@ beforeEach(() => {
 });
 
 describe('useStore.submitEOD — NO NEED (AC-23)', () => {
-  it('skips the optimistic on-hand mirror and adjustItemStock for a NO NEED entry', () => {
+  it('skips the optimistic on-hand mirror for a NO NEED entry; never calls adjustItemStock (spec 189)', () => {
     useStore.getState().submitEOD(
       submission([
         mkEntry({ itemId: 'num', itemName: 'Numeric', actualRemaining: 3 }),
@@ -111,8 +111,9 @@ describe('useStore.submitEOD — NO NEED (AC-23)', () => {
     expect(num.currentStock).toBe(3);
     expect(num.eodRemaining).toBe(3);
 
-    expect(db.adjustItemStock).toHaveBeenCalledTimes(1);
-    expect(db.adjustItemStock).toHaveBeenCalledWith('num', 3, 'user-1');
+    // Spec 189 §8 — the server writes on-hand in the same transaction as the
+    // entries; the client never persists it.
+    expect(db.adjustItemStock).not.toHaveBeenCalled();
   });
 
   it("audits a NO NEED entry with value 'NO NEED' (and the numeric one unchanged)", () => {
@@ -144,10 +145,9 @@ describe('useStore.submitEOD — NO NEED (AC-23)', () => {
     expect(db.adjustItemStock).not.toHaveBeenCalled();
   });
 
-  // Review-fix SF-3: on-hand mirror, adjustItemStock and the audit value all
-  // key off the same isNumericEodEntry decision. A non-NO-NEED entry with a
-  // null total (no client builds one today) writes no on-hand and never
-  // audits "null <unit>".
+  // Review-fix SF-3: on-hand mirror and the audit value both key off the same
+  // isNumericEodEntry decision. A non-NO-NEED entry with a null total (no
+  // client builds one today) writes no on-hand and never audits "null <unit>".
   it('a non-NO-NEED entry with a null total: no on-hand write, no adjustItemStock, sane audit text', () => {
     useStore.getState().submitEOD(
       submission([
@@ -161,8 +161,7 @@ describe('useStore.submitEOD — NO NEED (AC-23)', () => {
     expect(nullItem.eodRemaining).toBe(7);
     expect(nullItem.lastUpdatedBy).toBe('seed');
 
-    expect(db.adjustItemStock).toHaveBeenCalledTimes(1);
-    expect(db.adjustItemStock).toHaveBeenCalledWith('num', 3, 'user-1');
+    expect(db.adjustItemStock).not.toHaveBeenCalled();
 
     const calls = (db.addAuditEvent as jest.Mock).mock.calls.map((c) => c[0]);
     expect(calls).toHaveLength(2);

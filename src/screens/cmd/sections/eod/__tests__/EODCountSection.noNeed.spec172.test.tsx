@@ -132,7 +132,9 @@ function submittedSub(entries: Array<Record<string, unknown>>) {
   };
 }
 
-const submitEODSpy = jest.fn();
+// Spec 189 §8 — submitEOD returns an undo; the section calls it when the
+// server write rejects, so the spy must return one.
+const submitEODSpy = jest.fn<any, any[]>(() => jest.fn());
 
 function seed(inventory: InventoryItem[], eodSubmissions: unknown[] = [], vendors: unknown[] = [{ id: 'v1', name: 'BJ' }]) {
   useStore.setState({
@@ -308,6 +310,9 @@ describe('EODCountSection desktop — spec 172 NO NEED', () => {
     );
   });
 
+  // Spec 189 §5: UPDATE COUNT with nothing changed issues no write at all, so
+  // the re-ship arm edits the row's note: the NO NEED entry ships again with
+  // no quantity.
   it('AC-25: EDIT prefill seeds the NO NEED state (not "0"); UPDATE re-ships it', async () => {
     seed([makeItem('n')], [submittedSub([LOCKED_NO_NEED])]);
     const api = render(<EODCountSection />);
@@ -317,11 +322,12 @@ describe('EODCountSection desktop — spec 172 NO NEED', () => {
     expect(api.getByTestId('eod-noneed-n').props.accessibilityState).toEqual(
       expect.objectContaining({ selected: true, disabled: false }),
     );
+    fireEvent.changeText(api.getByPlaceholderText('Note…'), 'still full');
     await act(async () => {
       fireEvent.press(api.getByText('UPDATE COUNT'));
     });
     expect(submitEODSpy.mock.calls[0][0].entries[0]).toEqual(
-      expect.objectContaining({ itemId: 'n', noNeed: true, actualRemaining: null }),
+      expect.objectContaining({ itemId: 'n', noNeed: true, actualRemaining: null, notes: 'still full' }),
     );
   });
 
