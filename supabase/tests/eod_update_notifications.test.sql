@@ -59,9 +59,13 @@
 -- changes: the notification triggers key on the parent upsert, not entries.
 --
 -- Fixture posture: every vendor / store / item the assertions read is created
--- INSIDE the transaction, with synthetic 1999-11-* dates, so the file is green
--- under the committed seed AND on a CI-fresh database and never collides with
--- other suites. Fresh vendors have NO item_vendors links, so their fresh
+-- INSIDE the transaction, with synthetic 1999-11-* dates for the direct
+-- inserts, so the file is green under the committed seed AND on a CI-fresh
+-- database and never collides with other suites. The staff_submit_eod triple
+-- chain (S1-S4) uses A - 14 (test.d_s, A = (now() at time zone
+-- 'America/New_York')::date): anchor-relative because spec 193 bounds
+-- store-member dates. Its vendor f2 is created in this transaction, so no
+-- leftover row can pre-exist and no pre-delete is needed. Fresh vendors have NO item_vendors links, so their fresh
 -- branch is deterministically 'eod' (until D3 adds a below-par link on
 -- purpose). Principals: seed admin 1111 (admin, brand A), seed manager 2222
 -- (role 'user', Towson + Frederick membership — mirrors
@@ -97,6 +101,9 @@ begin
   perform set_config('test.store_t1',   '18000000-0000-0000-0000-0000000000a1', true);
   perform set_config('test.store_t2',   '18000000-0000-0000-0000-0000000000a2', true);
   perform set_config('test.tag',        v_tag, true);
+  -- Spec 193: the S1-S4 staff_submit_eod triple date (see header).
+  perform set_config('test.d_s',
+    ((now() at time zone 'America/New_York')::date - 14)::text, true);
   -- Spec 189 O-1: staff_submit_eod now refuses an empty payload, so the S*
   -- calls send one entry for a Frederick item. The fresh vendors have no
   -- item_vendors links, so it writes no on-hand and the fresh branch stays
@@ -232,7 +239,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc001'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
+  current_setting('test.d_s', true)::date, null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 
 -- Edit (same triple, NEW client_uuid) as admin A.
@@ -245,7 +252,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc002'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
+  current_setting('test.d_s', true)::date, null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 
 reset role;
@@ -255,7 +262,7 @@ begin
   perform set_config('test.sub_s',
     (select id::text from public.eod_submissions
       where store_id = current_setting('test.frederick', true)::uuid
-        and date = date '1999-11-02'
+        and date = current_setting('test.d_s', true)::date
         and vendor_id = '18000000-0000-0000-0000-0000000000f2'), true);
 end $$;
 
@@ -296,7 +303,7 @@ set local role authenticated;
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc003'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
+  current_setting('test.d_s', true)::date, null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 reset role;
 
@@ -316,7 +323,7 @@ create temp table _s3_replay on commit drop as
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc001'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
+  current_setting('test.d_s', true)::date, null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid) as result;
 reset role;
 
@@ -696,7 +703,7 @@ select set_config('request.jwt.claims', jsonb_build_object(
 select public.staff_submit_eod(
   '18000000-0000-0000-0000-0000000cc003'::uuid,
   current_setting('test.frederick', true)::uuid,
-  date '1999-11-02', null, 'submitted', current_setting('test.payload', true)::jsonb,
+  current_setting('test.d_s', true)::date, null, 'submitted', current_setting('test.payload', true)::jsonb,
   '18000000-0000-0000-0000-0000000000f2'::uuid);
 reset role;
 

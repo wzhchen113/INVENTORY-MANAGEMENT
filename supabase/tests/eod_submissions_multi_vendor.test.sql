@@ -75,6 +75,18 @@ begin
   perform set_config('test.vendor1',      v_vendor1::text,    true);
   perform set_config('test.vendor2',      v_vendor2::text,    true);
   perform set_config('test.client',       v_client::text,     true);
+
+  -- Spec 193: the staff_submit_eod date is anchor-relative (A - 17, with
+  -- A = (now() at time zone 'America/New_York')::date) because spec 193
+  -- bounds store-member dates. Seed Frederick and the seed vendor V2 persist
+  -- outside this transaction, so any leftover row at the triple is
+  -- pre-deleted (eod_entries cascades; the rollback restores it).
+  perform set_config('test.d_eod',
+    ((now() at time zone 'America/New_York')::date - 17)::text, true);
+  delete from public.eod_submissions
+   where store_id = v_frederick
+     and vendor_id = v_vendor2
+     and date = (now() at time zone 'America/New_York')::date - 17;
 end $$;
 
 select ok(
@@ -160,13 +172,14 @@ select set_config(
 -- ─── Submit the count under V2 (the NON-primary vendor) ─────────
 -- Both items are in the payload with actual_remaining = 42. The SHARED item
 -- is linked to V2 → its on-hand must be written. The ESCAPE item is NOT
--- linked to V2 → its on-hand must be skipped. Test-only date 1999-12-27
--- (distinct from the other staff EOD tests' dates).
+-- linked to V2 → its on-hand must be skipped. Date A - 17 (test.d_eod):
+-- anchor-relative because spec 193 bounds store-member dates; leftover rows
+-- handled by the pre-delete.
 create temp table _call on commit drop as
 select public.staff_submit_eod(
   current_setting('test.client', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-27'::date,
+  current_setting('test.d_eod', true)::date,
   null,
   'submitted',
   jsonb_build_array(

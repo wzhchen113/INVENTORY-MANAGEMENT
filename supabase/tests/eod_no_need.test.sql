@@ -22,8 +22,11 @@
 -- assertions read is created INSIDE the transaction (three FRESH vendors in
 -- Frederick's brand), so the assertions are independent of the seed's
 -- vendor/item graph and of any scripts/smoke-staff-eod.sh residue for
--- today. All dates are synthetic (2001-*, 1999-12-2x) — no collision with
--- other suites or the smoke. No order_schedule rows are needed: a vendor
+-- today. Direct-insert dates are synthetic (2001-*). The two
+-- staff_submit_eod dates are anchor-relative (A - 12, A - 13, with
+-- A = (now() at time zone 'America/New_York')::date) because spec 193 bounds
+-- store-member dates; they sit on the in-transaction vendor V3, so no
+-- leftover row can pre-exist and no pre-delete is needed. No order_schedule rows are needed: a vendor
 -- with no schedule falls back to days_until = 7 (A5) and every fixture item
 -- has usage_per_portion = 0, so usage_forecasted is 0 and suggested_qty is
 -- the pure par term.
@@ -72,6 +75,11 @@ begin
   perform set_config('test.v2',           v_v2::text,        true);
   perform set_config('test.v3',           v_v3::text,        true);
   perform set_config('test.tag',          v_tag,             true);
+  -- Spec 193: anchor-relative staff_submit_eod dates (see header).
+  perform set_config('test.d_staff',
+    ((now() at time zone 'America/New_York')::date - 12)::text, true);
+  perform set_config('test.d_refused',
+    ((now() at time zone 'America/New_York')::date - 13)::text, true);
 end $$;
 
 create temp table _cat on commit drop as
@@ -283,7 +291,7 @@ create temp table _staff_call on commit drop as
 select public.staff_submit_eod(
   gen_random_uuid(),
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-27'::date,
+  current_setting('test.d_staff', true)::date,
   null,
   'submitted',
   jsonb_build_array(
@@ -299,11 +307,12 @@ select public.staff_submit_eod(
 -- AC-5: NO NEED + a quantity → 23514, whole call rolls back.
 select throws_ok(
   format($q$select public.staff_submit_eod(
-      gen_random_uuid(), %L::uuid, '1999-12-26'::date, null, 'submitted',
+      gen_random_uuid(), %L::uuid, %L::date, null, 'submitted',
       jsonb_build_array(jsonb_build_object(
         'ingredient_id', %L::uuid, 'no_need', true, 'actual_remaining', 3)),
       %L::uuid)$q$,
     current_setting('test.frederick_id', true),
+    current_setting('test.d_refused', true),
     current_setting('test.item_t', true),
     current_setting('test.v3', true)),
   '23514', null,
@@ -405,7 +414,7 @@ select is(
 select is(
   (select count(*)::bigint from public.eod_submissions
     where store_id = current_setting('test.frederick_id', true)::uuid
-      and date = '1999-12-26'::date
+      and date = current_setting('test.d_refused', true)::date
       and vendor_id = current_setting('test.v3', true)::uuid),
   0::bigint,
   '(31) AC-5: the refused call left no parent eod_submissions row (whole call rolled back)'

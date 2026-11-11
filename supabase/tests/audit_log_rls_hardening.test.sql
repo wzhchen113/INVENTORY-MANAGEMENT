@@ -95,6 +95,21 @@ begin
   perform set_config('test.item_name', '__test_spec170_item__', true);
 end $$;
 
+-- Spec 193: W-1's staff_submit_eod date is anchor-relative (A - 15, with
+-- A = (now() at time zone 'America/New_York')::date) because spec 193 bounds
+-- store-member dates. S1 and the seed BJs vendor persist outside this
+-- transaction, so any leftover row at that triple is pre-deleted (eod_entries
+-- cascades; the rollback restores it).
+do $$
+begin
+  perform set_config('test.d_w1',
+    ((now() at time zone 'America/New_York')::date - 15)::text, true);
+  delete from public.eod_submissions
+   where store_id = current_setting('test.s1', true)::uuid
+     and vendor_id = current_setting('test.vendor', true)::uuid
+     and date = current_setting('test.d_w1', true)::date;
+end $$;
+
 -- ── principals ────────────────────────────────────────────────────────────
 -- Runs as the postgres superuser: auth.uid() is NULL, so the
 -- profiles_self_brand_lock trigger's self-edit branch does not fire.
@@ -442,7 +457,7 @@ select lives_ok(
 select public.staff_submit_eod(
   gen_random_uuid(),
   current_setting('test.s1', true)::uuid,
-  '1999-12-29'::date,
+  current_setting('test.d_w1', true)::date,
   null,
   'submitted',
   jsonb_build_array(jsonb_build_object(

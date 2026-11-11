@@ -102,6 +102,21 @@ begin
   perform set_config('test.client_a',     v_client_a::text,     true);
   perform set_config('test.client_b',     v_client_b::text,     true);
   perform set_config('test.client_c',     v_client_c::text,     true);
+
+  -- Spec 193: store-member dates are bounded to [A - 35, A + 1], with
+  -- A = (now() at time zone 'America/New_York')::date, so the dates are
+  -- anchor-relative (A - 10, A - 11). Seed Frederick + a seed vendor persist
+  -- outside this transaction, so pre-delete any leftover row at each triple
+  -- (eod_entries cascades; the rollback restores it).
+  perform set_config('test.d_a',
+    ((now() at time zone 'America/New_York')::date - 10)::text, true);
+  perform set_config('test.d_c',
+    ((now() at time zone 'America/New_York')::date - 11)::text, true);
+  delete from public.eod_submissions
+   where store_id = v_frederick
+     and vendor_id = v_vendor_id
+     and date in (((now() at time zone 'America/New_York')::date - 10),
+                  ((now() at time zone 'America/New_York')::date - 11));
 end $$;
 
 -- ─── (1) GRANT pinned — authenticated still has EXECUTE ────────
@@ -131,16 +146,15 @@ select set_config(
 );
 
 -- ─── (2) Happy path with split keys returns a submission_id ────
--- Test-only date '1999-12-30' — NOT today (avoids colliding with the
--- non-transactional scripts/smoke-staff-eod.sh residue) and distinct
--- from staff_role_eod_rls.test.sql's '1999-12-31'. 2 cases + 3 units
+-- Date A - 10 (test.d_a): anchor-relative because spec 193 bounds
+-- store-member dates; leftover rows handled by the pre-delete. 2 cases + 3 units
 -- with a client-computed total of 17 (the RPC must store 17 verbatim,
 -- NOT recompute from the splits — see assertion (5)).
 create temp table _split_call on commit drop as
 select public.staff_submit_eod(
   current_setting('test.client_a', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-30'::date,
+  current_setting('test.d_a', true)::date,
   null,
   'submitted',
   jsonb_build_array(
@@ -184,7 +198,7 @@ create temp table _legacy_call on commit drop as
 select public.staff_submit_eod(
   current_setting('test.client_c', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-29'::date,
+  current_setting('test.d_c', true)::date,
   null,
   'submitted',
   jsonb_build_array(
@@ -228,7 +242,9 @@ select is(
 -- gate. The staff user attempts to submit for Charles (NOT in their
 -- user_stores), now carrying the split keys. The gate raises 42501
 -- BEFORE any insert lands. throws_ok (NOT `set role anon` — that
--- segfaults the CI Postgres image, spec 067).
+-- segfaults the CI Postgres image, spec 067). The date stays '1999-12-28'
+-- on purpose (spec 193): far outside the staff window, so this also pins
+-- that the store gate's 42501 fires before the date bound.
 select throws_ok(
   format(
     $q$select public.staff_submit_eod(

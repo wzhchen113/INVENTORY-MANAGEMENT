@@ -108,6 +108,12 @@ begin
   perform set_config('test.new_id',  'c1790007-0000-0000-0000-000000000001', true);
   perform set_config('test.new_id2', 'c1790007-0000-0000-0000-000000000002', true);
   perform set_config('test.eod_client', 'c1790008-0000-0000-0000-000000000001', true);
+  -- Spec 193: T22's staff_submit_eod date is anchor-relative (A - 16, with
+  -- A = (now() at time zone 'America/New_York')::date) because spec 193
+  -- bounds store-member dates. Its vendor is created in this transaction, so
+  -- no leftover row can pre-exist and no pre-delete is needed.
+  perform set_config('test.d_eod',
+    ((now() at time zone 'America/New_York')::date - 16)::text, true);
 end $$;
 
 -- Fixture store S_C (brand A) and fixture brand Z with store S_Z.
@@ -452,10 +458,11 @@ select lives_ok(
 
 -- T22 (AC-6) — the real staff EOD RPC.
 select lives_ok(
-  format($q$select public.staff_submit_eod(%L::uuid, %L::uuid, date '1999-12-20', null, 'submitted',
+  format($q$select public.staff_submit_eod(%L::uuid, %L::uuid, %L::date, null, 'submitted',
               jsonb_build_array(jsonb_build_object('ingredient_id', %L::uuid, 'actual_remaining', 17)),
               %L::uuid)$q$,
          current_setting('test.eod_client', true), current_setting('test.store_b', true),
+         current_setting('test.d_eod', true),
          current_setting('test.iB6', true), current_setting('test.vendor', true)),
   'T22 AC-6 staff_submit_eod for a same-store linked item is accepted'
 );

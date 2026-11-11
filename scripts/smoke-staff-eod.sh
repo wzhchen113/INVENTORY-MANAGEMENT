@@ -16,6 +16,24 @@
 # persisted row is no_need=true with NULL numerics. Like the rest of this
 # smoke it is non-transactional: it leaves that item's local on-hand at 7.
 #
+# Spec 193 (step 8c, AC-11): staff_submit_eod now refuses a store member's
+# p_date outside [A - 35, A + 1], A = today in America/New_York, with
+# SQLSTATE 22023. Step 8c sends A - 36 and asserts HTTP 400 (not 403), the
+# exact code and message, and that no row carries that call's client_uuid.
+# It is the only track that proves the SQLSTATE -> HTTP mapping the shipped
+# staff drain depends on. Every other submit now uses an in-window date
+# (A - k, k in [3, 33]) picked from triples that are still free.
+#
+# LOCAL-ONLY (spec 193 §8): in-window dates pointed at a real project could
+# replace a real count (step 8b also primes a real item's on-hand), so the
+# script refuses any SUPABASE_URL that isn't exactly a loopback origin
+# (http(s)://localhost, 127.0.0.1 or [::1], optional port, optional trailing
+# slash, case-insensitive; no userinfo, path, query or fragment), before it
+# fetches a token. There is no override flag on purpose. Rows it
+# creates are deleted on exit (best effort, via docker exec psql on the local
+# db container); audit_log / notifications rows and step 8b's on-hand of 7
+# remain as local residue.
+#
 # Why a real per-user JWT: spec 061 GRANTed staff_submit_eod to
 # `authenticated` (not service_role) and added a server-side
 # auth_can_see_store(p_store_id) gate that needs a real auth.uid()
@@ -27,9 +45,11 @@
 # same PASS/FAIL output convention, non-zero exit on first failure.
 #
 # Usage:
-#   bash scripts/smoke-staff-eod.sh                # default: local stack
-#   SUPABASE_URL=https://...                       # remote override
-#   SUPABASE_ANON_KEY=...                          # remote override
+#   bash scripts/smoke-staff-eod.sh                # local stack only
+#   SUPABASE_URL=http://127.0.0.1:<port>           # override (loopback origin
+#                                                  # only: localhost,
+#                                                  # 127.0.0.1 or [::1])
+#   SUPABASE_ANON_KEY=...                          # override
 #   STAFF_TOKEN=...                                # skip login round-trip
 #   STAFF_EMAIL=manager@local.test                 # override
 #   STAFF_PASSWORD=password                        # override
@@ -39,6 +59,8 @@
 #   NON_MEMBER_STORE_ID=<uuid>                     # override the
 #                                                  # negative-case store
 #                                                  # (default: Charles)
+#   CONTAINER=supabase_db_imr-inventory            # db container used for
+#                                                  # the exit cleanup
 #
 # Troubleshooting: if this script returns 503 or "function source not
 # found" on the edge function smoke (step 9), it's the same edge-
@@ -52,6 +74,20 @@
 set -u
 
 SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54321}"
+
+# Spec 193: local-only guard, BEFORE any login. No env flag overrides it.
+# Allowlist the WHOLE URL (not an extracted host): anything beyond scheme,
+# loopback host, optional port and optional trailing slash is refused, so
+# userinfo / '#@' / '?@' tricks (http://evil.invalid#@127.0.0.1) can't pass.
+LOCAL_URL_RE='^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?/?$'
+shopt -s nocasematch
+if [[ "$SUPABASE_URL" =~ $LOCAL_URL_RE ]]; then SMOKE_URL_OK=1; else SMOKE_URL_OK=0; fi
+shopt -u nocasematch
+if [[ "$SMOKE_URL_OK" != "1" ]]; then
+  printf '\033[31mREFUSED\033[0m: smoke-staff-eod.sh is local-only (SUPABASE_URL "%s" is not a loopback origin).\n' "$SUPABASE_URL" >&2
+  printf 'Since spec 193 it writes in-window EOD dates, which against a real project could replace a real count.\n' >&2
+  exit 2
+fi
 
 # Local publishable/anon API key. Stable across `supabase start`s on
 # the same project_id. (`supabase status` prints the current values.)
@@ -74,6 +110,64 @@ pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 skip() { printf '  \033[33mSKIP\033[0m %s (reason: %s)\n' "$1" "$2"; }
 step() { printf '\n== %s ==\n' "$1"; }
+
+# Spec 193: best-effort cleanup of the rows this run created, so smoke rows
+# don't use up the free in-window dates. Local by construction (the guard
+# above), matching scripts/test-db.sh's container default. Step 8b's stored
+# uuid is PRIME_UUID: the NO NEED call lands on the primed row and the
+# upsert keeps the first uuid. Step 8c's OOW_UUID is tracked too: it should
+# never write, but if the bound regresses it writes a real A - 36 row.
+# eod_entries cascade.
+CLIENT_UUID=""
+PRIME_UUID=""
+OOW_UUID=""
+cleanup() {
+  local ids=""
+  for u in "${CLIENT_UUID}" "${PRIME_UUID}" "${OOW_UUID}"; do
+    [[ -n "$u" ]] && ids="${ids:+${ids},}'${u}'"
+  done
+  [[ -z "$ids" ]] && return 0
+  if ! docker exec "${CONTAINER:-supabase_db_imr-inventory}" psql -U postgres -d postgres -qAt \
+       -c "delete from public.eod_submissions where client_uuid in (${ids})" >/dev/null 2>&1; then
+    printf '  \033[33mWARN\033[0m cleanup could not delete this run'"'"'s eod_submissions rows (%s)\n' "$ids"
+  fi
+}
+trap cleanup EXIT
+
+# Spec 193: the staff window is anchored on the America/New_York date.
+A_NY=$(TZ=America/New_York date +%Y-%m-%d)
+ny_days_ago() {
+  if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
+    TZ=America/New_York date -v-"$1"d +%Y-%m-%d       # BSD/macOS date
+  else
+    TZ=America/New_York date -d "$1 days ago" +%Y-%m-%d  # GNU/Linux date
+  fi
+}
+
+# First free in-window date for (STORE_ID, $1): candidates A - k, k in
+# [3, 33], in an order seeded by $2 (a uuid). k >= 3 and <= 33 keep clear of
+# today, yesterday and both bounds, so a run crossing New York midnight can't
+# flip an outcome. A fresh triple matters: step 6 looks the row up by
+# client_uuid, and the upsert keeps an older uuid on an existing row.
+# Prints the date, or nothing if every candidate is taken.
+pick_free_date() {
+  local vendor="$1" seed_hex="${2//-/}" start i k d n
+  start=$(( (16#${seed_hex:0:6}) % 31 ))
+  for (( i = 0; i < 31; i++ )); do
+    k=$(( 3 + (start + i) % 31 ))
+    d=$(ny_days_ago "$k")
+    n=$(curl -sS \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Authorization: Bearer ${STAFF_TOKEN}" \
+      "${SUPABASE_URL}/rest/v1/eod_submissions?store_id=eq.${STORE_ID}&vendor_id=eq.${vendor}&date=eq.${d}&select=id" \
+      | jq 'length' 2>/dev/null || echo "err")
+    if [[ "$n" == "0" ]]; then
+      printf '%s' "$d"
+      return 0
+    fi
+  done
+  return 1
+}
 
 ################################################################################
 # 0. Acquire a staff access_token (unless caller passed one)
@@ -142,22 +236,16 @@ NEG_ITEM_ID="${ITEM_ID}"
 # 4. Generate a client_uuid
 ################################################################################
 CLIENT_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-# Derive the test date deterministically from CLIENT_UUID so the
-# (store_id, date, vendor_id) triple is unique each run. Without this,
-# `ON CONFLICT (store_id, date, vendor_id) DO UPDATE` would preserve
-# the original `client_uuid` from a previous same-day run, and the
-# row-visibility check below would fail looking for a `client_uuid`
-# that never made it into the table. Historical date range (~3-27
-# years ago) means no collision with real prod data either.
-UUID_HEX=${CLIENT_UUID//-/}
-UUID_NUM=$((16#${UUID_HEX:0:6}))   # 24 bits = 0 .. 16M-1
-DAY_OFFSET=$((UUID_NUM % 9000 + 1000))  # ~3 to ~27 years ago
-if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
-  # BSD/macOS date
-  TODAY=$(date -v-${DAY_OFFSET}d +%Y-%m-%d)
-else
-  # GNU/Linux date
-  TODAY=$(date -d "${DAY_OFFSET} days ago" +%Y-%m-%d)
+# Spec 193: an in-window date (A - k, k in [3, 33], New York calendar) whose
+# (STORE_ID, date, VENDOR_ID) triple is still free, picked in a CLIENT_UUID-
+# seeded order. A fresh triple keeps CLIENT_UUID on the row: ON CONFLICT
+# (store_id, date, vendor_id) DO UPDATE would preserve an older client_uuid,
+# and the row-visibility check below looks the row up by CLIENT_UUID.
+TODAY=$(pick_free_date "${VENDOR_ID}" "${CLIENT_UUID}" || true)
+if [[ -z "${TODAY}" ]]; then
+  fail "no free in-window date for (${STORE_ID}, ${VENDOR_ID}); run \`npx supabase db reset\`"
+  printf '\n\033[31m✗ smoke-staff-eod failed at date selection\033[0m\n'
+  exit 1
 fi
 
 ################################################################################
@@ -277,6 +365,8 @@ fi
 # 8. Out-of-membership store negative case (Charles)
 ################################################################################
 step "POST /rpc/staff_submit_eod with non-membership store (expect non-200)"
+# Spec 193: TODAY is in the window, so this still tests the store gate
+# rather than the date bound.
 NEG_CLIENT_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 RESPONSE3=$(curl -sS -w '\n%{http_code}' -X POST \
   -H "apikey: ${SUPABASE_ANON_KEY}" \
@@ -348,12 +438,14 @@ else
       | jq -c '.[0] // empty' 2>/dev/null || echo ""
   }
   NN_CLIENT_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-  NN_HEX=${NN_CLIENT_UUID//-/}
-  NN_OFFSET=$(( (16#${NN_HEX:0:6}) % 9000 + 1000 ))
-  if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
-    NN_DATE=$(date -v-${NN_OFFSET}d +%Y-%m-%d)
-  else
-    NN_DATE=$(date -d "${NN_OFFSET} days ago" +%Y-%m-%d)
+  # Spec 193: a free in-window triple for (STORE_ID, NN_VENDOR_ID).
+  NN_DATE=$(pick_free_date "${NN_VENDOR_ID}" "${NN_CLIENT_UUID}" || true)
+  if [[ -z "${NN_DATE}" ]]; then
+    # Stop here, like step 4: priming / submitting with p_date "" would only
+    # bury this cause under secondary failures. The EXIT trap still cleans up.
+    fail "no free in-window date for (${STORE_ID}, ${NN_VENDOR_ID}); run \`npx supabase db reset\`"
+    printf '\n\033[31m✗ smoke-staff-eod failed at date selection (step 8b)\033[0m\n'
+    exit 1
   fi
 
   # Prime a known NON-ZERO on-hand (7) with a numeric count first, so the
@@ -428,6 +520,59 @@ else
       fail "unexpected NO NEED eod_entries row: ${NN_ROW:0:300}"
     fi
   fi
+fi
+
+################################################################################
+# 8c. Spec 193 (AC-11) — out-of-window date: HTTP 400 (not 403), SQLSTATE
+#     22023, the exact message, and no row for this call's client_uuid. Not
+#     "no row at the triple": real local data at A - 36 can exist. A was
+#     computed before the call on the same clock, so the server's A is never
+#     earlier and A - 36 stays outside the window even across midnight.
+################################################################################
+step "POST /rpc/staff_submit_eod at A - 36 (expect 400 + 22023, spec 193)"
+OOW_MSG='staff_submit_eod: p_date is outside the staff window (35 days back to 1 day ahead, America/New_York)'
+OOW_DATE=$(ny_days_ago 36)
+OOW_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+RESPONSE_OOW=$(curl -sS -w '\n%{http_code}' -X POST \
+  -H "apikey: ${SUPABASE_ANON_KEY}" \
+  -H "Authorization: Bearer ${STAFF_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"p_client_uuid\": \"${OOW_UUID}\",
+    \"p_store_id\": \"${STORE_ID}\",
+    \"p_date\": \"${OOW_DATE}\",
+    \"p_submitted_by\": null,
+    \"p_status\": \"submitted\",
+    \"p_entries\": [{\"ingredient_id\": \"${ITEM_ID}\", \"actual_remaining\": 4}],
+    \"p_vendor_id\": \"${VENDOR_ID}\"
+  }" \
+  "${SUPABASE_URL}/rest/v1/rpc/staff_submit_eod")
+CODE_OOW=$(printf '%s' "$RESPONSE_OOW" | tail -1)
+BODY_OOW=$(printf '%s' "$RESPONSE_OOW" | sed '$d')
+
+if [[ "$CODE_OOW" == "400" ]]; then
+  pass "A - 36 (${OOW_DATE}, A = ${A_NY}) returns 400 (not 403)"
+else
+  fail "A - 36 (${OOW_DATE}) returned ${CODE_OOW} (expected 400). Body: ${BODY_OOW:0:300}"
+fi
+
+OOW_CODE_FIELD=$(printf '%s' "$BODY_OOW" | jq -r '.code // empty' 2>/dev/null || echo "")
+OOW_MSG_FIELD=$(printf '%s' "$BODY_OOW" | jq -r '.message // empty' 2>/dev/null || echo "")
+if [[ "$OOW_CODE_FIELD" == "22023" && "$OOW_MSG_FIELD" == "$OOW_MSG" ]]; then
+  pass "body carries code 22023 and the exact window message"
+else
+  fail "unexpected refusal body (code='${OOW_CODE_FIELD}', message='${OOW_MSG_FIELD}')"
+fi
+
+OOW_ROWS=$(curl -sS \
+  -H "apikey: ${SUPABASE_ANON_KEY}" \
+  -H "Authorization: Bearer ${STAFF_TOKEN}" \
+  "${SUPABASE_URL}/rest/v1/eod_submissions?client_uuid=eq.${OOW_UUID}&select=id" \
+  | jq 'length' 2>/dev/null || echo "parse-error")
+if [[ "$OOW_ROWS" == "0" ]]; then
+  pass "no eod_submissions row carries the refused call's client_uuid"
+else
+  fail "refused call left ${OOW_ROWS} row(s) at client_uuid=${OOW_UUID}"
 fi
 
 ################################################################################

@@ -56,7 +56,11 @@
 -- Fixture posture: brands, stores, vendors, catalog rows, items and links are
 -- created INSIDE the transaction with fixed 18900000-… ids and 1999-12-* dates
 -- (plus one current_date - 200 date for AC-33), so the file is green under the
--- committed seed and on a CI-fresh database. Principals: seed admin 1111
+-- committed seed and on a CI-fresh database. D3 (the ST / O1 store-member
+-- staff_submit_eod chain) is anchor-relative, A - 19 with
+-- A = (now() at time zone 'America/New_York')::date, because spec 193 bounds
+-- store-member dates; store a1 and vendor f1 are created here, so no leftover
+-- row can pre-exist at that triple. Principals: seed admin 1111
 -- (admin, brand A) and seed user 2222 (role 'user', given membership of the
 -- test store here). No `set role anon` (segfaults CI per spec 067).
 -- now() is constant inside the transaction, so "submitted_at unchanged" arms
@@ -76,6 +80,9 @@ begin
     from public.profiles where id = '11111111-1111-1111-1111-111111111111';
   perform set_config('test.brand_a', v_brand_a::text, true);
   perform set_config('test.tag', substr(gen_random_uuid()::text, 1, 8), true);
+  -- Spec 193: D3 is anchor-relative (see header).
+  perform set_config('test.d3',
+    ((now() at time zone 'America/New_York')::date - 19)::text, true);
   perform set_config('test.claims_admin', jsonb_build_object(
     'sub', '11111111-1111-1111-1111-111111111111',
     'role', 'authenticated',
@@ -292,7 +299,7 @@ select is(
   '(15) AC-16: a direct delete from eod_entries under an admin JWT removes 0 rows (read back as postgres)');
 
 
--- ═══ ST — staff path after the refactor (D3 = 1999-12-03) ═════════
+-- ═══ ST — staff path after the refactor (D3 = A - 19, test.d3) ═════
 -- I1=5, I2=7, I3=9, I4 non-NO-NEED with a NULL total. p_submitted_by names
 -- someone else; the trigger must still record the caller.
 set local role authenticated;
@@ -300,7 +307,7 @@ select set_config('request.jwt.claims', current_setting('test.claims_user', true
 select set_config('test.r_staff', public.staff_submit_eod(
   '18900000-0000-0000-0000-0000000cc001'::uuid,
   '18900000-0000-0000-0000-0000000000a1'::uuid,
-  date '1999-12-03',
+  current_setting('test.d3', true)::date,
   '33333333-3333-3333-3333-333333333333',
   'submitted',
   '[{"ingredient_id":"18900000-0000-0000-0000-000000000101","actual_remaining":5,"unit":"lbs"},
@@ -312,7 +319,7 @@ reset role;
 select set_config('request.jwt.claims', '', true);
 
 select set_config('test.sub_d3',
-  pg_temp.sub_of('18900000-0000-0000-0000-0000000000a1', date '1999-12-03', '18900000-0000-0000-0000-0000000000f1')::text,
+  pg_temp.sub_of('18900000-0000-0000-0000-0000000000a1', current_setting('test.d3', true)::date, '18900000-0000-0000-0000-0000000000f1')::text,
   true);
 
 select is(
@@ -377,7 +384,7 @@ set local role authenticated;
 select set_config('request.jwt.claims', current_setting('test.claims_admin', true), true);
 select set_config('test.r_as', public.admin_submit_eod(
   '18900000-0000-0000-0000-0000000000a1'::uuid,
-  date '1999-12-03',
+  current_setting('test.d3', true)::date,
   '18900000-0000-0000-0000-0000000000f1'::uuid,
   'submitted',
   '[{"ingredient_id":"18900000-0000-0000-0000-000000000101","actual_remaining":50}]'::jsonb,
@@ -433,7 +440,7 @@ select set_config('request.jwt.claims', current_setting('test.claims_user', true
 select set_config('test.r_replay', public.staff_submit_eod(
   '18900000-0000-0000-0000-0000000cc001'::uuid,
   '18900000-0000-0000-0000-0000000000a1'::uuid,
-  date '1999-12-03', null, 'submitted',
+  current_setting('test.d3', true)::date, null, 'submitted',
   '[{"ingredient_id":"18900000-0000-0000-0000-000000000101","actual_remaining":5}]'::jsonb,
   '18900000-0000-0000-0000-0000000000f1'::uuid)::text, true);
 reset role;
@@ -937,7 +944,7 @@ select set_config('request.jwt.claims', current_setting('test.claims_user', true
 select throws_ok(
   $q$select public.staff_submit_eod(
        '18900000-0000-0000-0000-0000000cc0e1'::uuid, '18900000-0000-0000-0000-0000000000a1'::uuid,
-       date '1999-12-03', null, 'submitted', '[]'::jsonb,
+       current_setting('test.d3', true)::date, null, 'submitted', '[]'::jsonb,
        '18900000-0000-0000-0000-0000000000f1'::uuid)$q$,
   '22023', 'staff_submit_eod: p_entries must be a non-empty array',
   '(77) AC-34: staff_submit_eod with ''[]'' raises 22023');
@@ -945,7 +952,7 @@ select throws_ok(
 select throws_ok(
   $q$select public.staff_submit_eod(
        '18900000-0000-0000-0000-0000000cc0e2'::uuid, '18900000-0000-0000-0000-0000000000a1'::uuid,
-       date '1999-12-03', null, 'submitted', null,
+       current_setting('test.d3', true)::date, null, 'submitted', null,
        '18900000-0000-0000-0000-0000000000f1'::uuid)$q$,
   '22023', 'staff_submit_eod: p_entries must be a non-empty array',
   '(78) AC-34: staff_submit_eod with NULL raises 22023');
@@ -953,14 +960,14 @@ select throws_ok(
 select throws_ok(
   $q$select public.staff_submit_eod(
        '18900000-0000-0000-0000-0000000cc0e3'::uuid, '18900000-0000-0000-0000-0000000000a1'::uuid,
-       date '1999-12-03', null, 'submitted', '{}'::jsonb,
+       current_setting('test.d3', true)::date, null, 'submitted', '{}'::jsonb,
        '18900000-0000-0000-0000-0000000000f1'::uuid)$q$,
   '22023', 'staff_submit_eod: p_entries must be a non-empty array',
   '(79) O-1: staff_submit_eod with a non-array raises 22023');
 
 select set_config('test.r_replay_empty', public.staff_submit_eod(
   '18900000-0000-0000-0000-0000000cc001'::uuid, '18900000-0000-0000-0000-0000000000a1'::uuid,
-  date '1999-12-03', null, 'submitted', '[]'::jsonb,
+  current_setting('test.d3', true)::date, null, 'submitted', '[]'::jsonb,
   '18900000-0000-0000-0000-0000000000f1'::uuid)::text, true);
 reset role;
 select set_config('request.jwt.claims', '', true);

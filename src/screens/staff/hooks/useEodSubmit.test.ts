@@ -1,8 +1,10 @@
-// src/hooks/useEodSubmit.test.ts — orchestrator outcome coverage.
+// src/screens/staff/hooks/useEodSubmit.test.ts — orchestrator outcome coverage.
 //
 // Tests all 4 outcomes (success / success-replay / forbidden / queued)
-// + offline-at-submit-time path. Mocks supabase.rpc at the boundary
-// per spec 062 §0 Q5 (hook test → mock lower layers).
+// + offline-at-submit-time path, plus the spec 193 date-window refusal
+// (the "other error" branch: failed online, kept and retried in the drain).
+// Mocks supabase.rpc at the boundary per spec 062 §0 Q5 (hook test → mock
+// lower layers).
 
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 
@@ -27,8 +29,10 @@ jest.mock('react-native-toast-message', () => ({
   default: { show: jest.fn(), hide: jest.fn() },
 }));
 
+import Toast from 'react-native-toast-message';
 import { useEodSubmit } from './useEodSubmit';
 import { useStaffStore } from '../store/useStaffStore';
+import { t } from '../i18n';
 import type { Outcome } from '../lib/types';
 
 beforeEach(() => {
@@ -411,5 +415,117 @@ describe('useEodSubmit — NO NEED (spec 172)', () => {
       }),
     );
     await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+  });
+});
+
+// ─── Spec 193 — the staff date-window refusal is a plain "failed" ───
+// The server refuses a store member's staff_submit_eod call whose p_date is
+// outside [A - 35, A + 1] (A = the America/New_York date) with SQLSTATE 22023
+// and a constant message (supabase/migrations/20261109190000_staff_eod_date_bound.sql).
+// These arms pin that the SHIPPED classifiers send that error down the
+// "other error" branch: not forbidden (dequeue, count lost) and not network
+// (breaks the drain loop). Test-only; the hook is unchanged. Nothing ties MSG
+// to the migration except review: keep them identical.
+describe('useEodSubmit — spec 193 date-window refusal', () => {
+  const MSG =
+    'staff_submit_eod: p_date is outside the staff window (35 days back to 1 day ahead, America/New_York)';
+  // The shape supabase.rpc resolves `error` with (no throwOnError): in
+  // @supabase/postgrest-js 2.101.1 it is the PLAIN parsed JSON body
+  // (PostgrestBuilder `error = JSON.parse(body)`), not an Error / PostgrestError
+  // instance, and it has no `status` or `name`.
+  const windowRefusal = () => ({
+    code: '22023',
+    message: MSG,
+    details: null,
+    hint: null,
+  });
+
+  it('AC-9: the drain bumps attempts on the refused item, keeps it, and continues to the next', async () => {
+    jest.mocked(Toast.show).mockClear();
+    useStaffStore.setState({
+      authState: { kind: 'signed-in', userId: 'user-1', stores: [] },
+      eodQueue: [
+        {
+          client_uuid: 'q-old',
+          store_id: 'store-1',
+          date: '2026-01-01',
+          vendor_id: 'vendor-1',
+          status: 'submitted',
+          entries: [
+            {
+              item_id: 'item-1',
+              actual_remaining: 3,
+              actual_remaining_cases: null,
+              actual_remaining_each: 3,
+            },
+          ],
+          queued_at: '2026-05-24T00:00:00.000Z',
+          intent_user_id: 'user-1',
+          attempts: 0,
+        },
+        {
+          client_uuid: 'q-good',
+          store_id: 'store-1',
+          date: '2026-05-24',
+          vendor_id: 'vendor-2',
+          status: 'submitted',
+          entries: [
+            {
+              item_id: 'item-2',
+              actual_remaining: 5,
+              actual_remaining_cases: null,
+              actual_remaining_each: 5,
+            },
+          ],
+          queued_at: '2026-05-24T00:00:01.000Z',
+          intent_user_id: 'user-1',
+          attempts: 0,
+        },
+      ],
+    });
+
+    mockRpc
+      .mockResolvedValueOnce({ data: null, error: windowRefusal() })
+      .mockResolvedValueOnce({
+        data: { submission_id: 'sub-good', conflict: false },
+        error: null,
+      });
+
+    renderHook(() => useEodSubmit());
+
+    // Two calls = the loop did not `break` after the refusal.
+    await waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(2));
+    expect(mockRpc.mock.calls[0][1]).toMatchObject({ p_client_uuid: 'q-old' });
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({ p_client_uuid: 'q-good' });
+
+    await waitFor(() =>
+      expect(
+        useStaffStore.getState().eodQueue.find((q) => q.client_uuid === 'q-good'),
+      ).toBeUndefined(),
+    );
+    const queueAfter = useStaffStore.getState().eodQueue;
+    // The refused item stays queued (not dequeued) with attempts bumped. The
+    // hook records `err instanceof Error ? err.message : 'unknown'`, so for
+    // the plain-object error real traffic produces, lastError is 'unknown'
+    // (not the server message, and not the network branch's 'network').
+    expect(queueAfter).toHaveLength(1);
+    expect(queueAfter[0].client_uuid).toBe('q-old');
+    expect(queueAfter[0].attempts).toBe(1);
+    expect(queueAfter[0].lastError).toBe('unknown');
+    // The dequeue branch's persistent error toast never fired.
+    expect(Toast.show).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error' }),
+    );
+  });
+
+  it('AC-10: an online submit that gets the refusal returns failed (not forbidden, not queued)', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: windowRefusal() });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'failed', message: t('eod.toast.failed') });
+    expect(useStaffStore.getState().eodQueue).toHaveLength(0);
   });
 });

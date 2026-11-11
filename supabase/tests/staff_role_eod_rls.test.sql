@@ -102,6 +102,19 @@ begin
   perform set_config('test.client_a',      v_client_a::text,      true);
   perform set_config('test.client_b',      v_client_b::text,      true);
   perform set_config('test.client_c',      v_client_c::text,      true);
+
+  -- Spec 193: the in-membership staff_submit_eod date is anchor-relative
+  -- (A - 18, with A = (now() at time zone 'America/New_York')::date) because
+  -- spec 193 bounds store-member dates. Seed Frederick and the seed vendor
+  -- persist outside this transaction, so leftover rows are pre-deleted
+  -- (eod_entries cascades; the rollback restores them). The pre-delete covers
+  -- every Frederick row at that date, not just the vendor's triple, because
+  -- arm (7) counts per (store, date).
+  perform set_config('test.d_eod',
+    ((now() at time zone 'America/New_York')::date - 18)::text, true);
+  delete from public.eod_submissions
+   where store_id = v_frederick
+     and date = (now() at time zone 'America/New_York')::date - 18;
 end $$;
 
 -- ─── (pre) service_role has NO EXECUTE on staff_submit_eod ────
@@ -134,18 +147,14 @@ select set_config(
 -- Frederick (in their user_stores). The call should return cleanly
 -- (no exception) and return a JSON envelope with submission_id.
 --
--- Test-only date '1999-12-31'. NOT today's date — using today would
--- collide with the row left behind by scripts/smoke-staff-eod.sh
--- (which writes to today/Frederick/vendor and is not transactional).
--- The hermetic begin/rollback wrapper rolls back the test's writes,
--- but doesn't undo prior-run smoke residue; using a date no other
--- test or smoke ever writes avoids that coupling. Same posture as
--- eod_submissions_consistency.test.sql which uses 2026-05-01.
+-- Date A - 18 (test.d_eod), never today or yesterday: anchor-relative
+-- because spec 193 bounds store-member dates; leftover rows (smoke residue,
+-- manual use) are handled by the pre-delete in the fixture block.
 create temp table _first_call on commit drop as
 select public.staff_submit_eod(
   current_setting('test.client_a', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-31'::date,
+  current_setting('test.d_eod', true)::date,
   null,
   'submitted',
   jsonb_build_array(
@@ -177,7 +186,7 @@ select is(
     select count(*)::bigint
       from public.eod_submissions
      where store_id   = current_setting('test.frederick_id', true)::uuid
-       and date       = '1999-12-31'::date
+       and date       = current_setting('test.d_eod', true)::date
        and vendor_id  = current_setting('test.vendor_id', true)::uuid
   ),
   1::bigint,
@@ -196,7 +205,7 @@ select is(
     select submitted_by
       from public.eod_submissions
      where store_id  = current_setting('test.frederick_id', true)::uuid
-       and date      = '1999-12-31'::date
+       and date      = current_setting('test.d_eod', true)::date
        and vendor_id = current_setting('test.vendor_id', true)::uuid
   ),
   current_setting('test.manager_id', true)::uuid,
@@ -277,7 +286,7 @@ select is(
     select count(*)::bigint
       from public.eod_submissions
      where store_id = current_setting('test.frederick_id', true)::uuid
-       and date     = '1999-12-31'::date
+       and date     = current_setting('test.d_eod', true)::date
   ),
   1::bigint,
   '(7) staff user can SELECT own-store eod_submissions'
@@ -347,7 +356,7 @@ create temp table _replay on commit drop as
 select public.staff_submit_eod(
   current_setting('test.client_a', true)::uuid,
   current_setting('test.frederick_id', true)::uuid,
-  '1999-12-31'::date,
+  current_setting('test.d_eod', true)::date,
   null,
   'submitted',
   jsonb_build_array(
