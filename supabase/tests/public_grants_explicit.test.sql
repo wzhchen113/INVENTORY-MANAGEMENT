@@ -39,6 +39,9 @@
 -- so it would have stayed green while a blanket `GRANT ALL` re-opened the
 -- spec-041 TRUNCATE escalation AND re-granted the spec-093 audit table.
 --
+-- Schema-wide client-TRUNCATE and default-ACL checks live in
+-- public_no_client_truncate.test.sql (spec 197).
+--
 -- SENTINEL = SELECT (positive arm). We assert `has_table_privilege(<role>,
 -- 'public.<table>', 'SELECT')` is true for anon, authenticated, AND
 -- service_role across every base table in public (minus the allowlist).
@@ -138,10 +141,14 @@
 -- SUBTLETY (inverse of spec 053 arm 3): a freshly created throwaway table
 -- is owned by the test's current_user (postgres). The migration's
 -- `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` means the synthetic table is
--- BORN with the (no-TRUNCATE) grant for anon/authenticated and ALL for
--- service_role already attached. So arm 3 must explicitly REVOKE SELECT ...
--- FROM authenticated to manufacture the violation (spec 053 arm 3 ADDS a
--- wide policy; here we REMOVE a grant). Arm 4 leaves the inherited grant
+-- BORN with the spec 097 grant for anon/authenticated and ALL for
+-- service_role already attached. It is born WITHOUT client TRUNCATE only
+-- since spec 197's 20261109230000_revoke_client_truncate.sql; before that the
+-- image's (postgres, public, tables) default ACL still carried `D` for
+-- anon/authenticated (GRANT only adds, so spec 097 never removed it). So
+-- arm 3 must explicitly REVOKE SELECT ... FROM authenticated to manufacture
+-- the violation (spec 053 arm 3 ADDS a wide policy; here we REMOVE a
+-- grant). Arm 4 leaves the inherited grant
 -- intact to prove the detector does not false-flag a correctly-granted
 -- table — which incidentally proves the §1b future-table default-privileges
 -- inheritance actually fired (the durability mechanism this spec rests on).
@@ -266,9 +273,11 @@ select is(
 
 -- ─── Arm (3): throwaway table missing SELECT IS caught (regression
 -- guard) ───────────────────────────────────────────────────────
--- Create a throwaway public table (born WITH the no-TRUNCATE grant for
+-- Create a throwaway public table (born WITH the spec 097 grant for
 -- anon/authenticated + ALL for service_role via the migration's ALTER
--- DEFAULT PRIVILEGES FOR ROLE postgres), REVOKE SELECT from authenticated
+-- DEFAULT PRIVILEGES FOR ROLE postgres; without client TRUNCATE only since
+-- spec 197's 20261109230000, before which the default ACL still carried
+-- `D`), REVOKE SELECT from authenticated
 -- to manufacture a violation, run the same detection CTE scoped to that
 -- table, capture the count into a session variable, DROP the synthetic
 -- table, THEN run the pgTAP `is()`. If a future drive-by edit breaks the
@@ -372,6 +381,8 @@ select is(
 -- TRUNCATE (separate grant audience), asserted true for documentation of
 -- the asymmetry. No synthetic table — has_table_privilege reads the live
 -- catalog for an arbitrary role regardless of session role.
+-- Schema-wide client-TRUNCATE and default-ACL checks live in
+-- public_no_client_truncate.test.sql (spec 197).
 select ok(
   not has_table_privilege('authenticated', 'public.profiles', 'TRUNCATE'),
   'arm (5a): public_grants_explicit — `authenticated` does NOT hold TRUNCATE on public.profiles. ' ||
