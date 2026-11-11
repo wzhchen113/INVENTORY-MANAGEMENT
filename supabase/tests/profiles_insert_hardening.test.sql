@@ -8,8 +8,9 @@
 --   - SECURITY DEFINER RPC public.register_invited_profile()
 --   - invitations INSERT/UPDATE policies tightened to P_INV
 --
--- Arm map (design section 8.1). plan(73).
---   Catalog K-1..K-15 (15)       as postgres
+-- Arm map (design section 8.1; spec 191 design 6.2 adds K-16..K-18 and E).
+-- plan(80).
+--   Catalog K-1..K-18 (18)       as postgres (K-16..K-18: spec 191)
 --   Section A  A-1..A-17 (17)    profiles INSERT under JWT impersonation
 --   Section B  B-1..B-2  (2)     guard skips postgres + service_role
 --                                (B-3, the SECURITY DEFINER skip, is C-5)
@@ -17,6 +18,11 @@
 --                                refusals, atomicity (C-5, C-6, C-8 carry
 --                                two assertions each)
 --   Section D  D-1..D-18 (18)    invitations INSERT/UPDATE under JWT
+--   Section E  E-1..E-3  (4)     spec 191 / 164-M2: a stale admin claim on a
+--                                role=user profile is refused on all three
+--                                role-creating writes (profiles-backed check);
+--                                E-2-pre checks E-2's target invitation from
+--                                section D still exists
 --
 -- Spec correction D6: Postgres runs BEFORE ROW triggers before the RLS WITH
 -- CHECK. A non-'user' role insert by a non-super_admin authenticated caller
@@ -48,7 +54,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(73);
+select plan(80);
 
 
 -- --- fixtures (constants stashed via set_config) -------------------
@@ -84,6 +90,8 @@ begin
   perform set_config('test.c14',  'e1640000-0000-0000-0000-00000000001e', true);
   perform set_config('test.c15',  'e1640000-0000-0000-0000-00000000001f', true);
   perform set_config('test.c17',  'e1640000-0000-0000-0000-000000000020', true);
+  -- section E orphan (spec 191)
+  perform set_config('test.e1',   'e1910000-0000-0000-0000-000000000001', true);
 end $$;
 
 
@@ -143,7 +151,8 @@ select v.id::uuid,
     (current_setting('test.c13', true), 'c13-164@local.test'),
     (current_setting('test.c14', true), 'c14-164@local.test'),
     (current_setting('test.c15', true), 'c15-164@local.test'),
-    (current_setting('test.c17', true), 'c17-164@local.test')
+    (current_setting('test.c17', true), 'c17-164@local.test'),
+    (current_setting('test.e1', true),  'e1-191@local.test')
   ) as v(id, email)
 on conflict (id) do nothing;
 
@@ -231,13 +240,14 @@ select is(
 
 select ok(
   (select nc !~ 'auth\.uid\(\) is not null'
-          and nc like '%auth_is_privileged%'
+          and nc like '%auth_profile_is_privileged()%'
+          and nc not like '%auth_is_privileged()%'
           and nc like '%auth_can_see_brand%'
      from (select lower(regexp_replace(coalesce(with_check, ''), '\s+', ' ', 'g')) as nc
              from pg_policies
             where schemaname = 'public' and tablename = 'profiles'
               and permissive = 'PERMISSIVE' and cmd in ('INSERT', 'ALL')) x),
-  'K-2: profiles INSERT with_check has no auth.uid() IS NOT NULL and is auth_is_privileged + auth_can_see_brand'
+  'K-2: profiles INSERT with_check has no auth.uid() IS NOT NULL and is auth_profile_is_privileged (spec 191, not auth_is_privileged) + auth_can_see_brand'
 );
 
 select ok(
@@ -332,6 +342,41 @@ select is(
       and permissive = 'PERMISSIVE' and cmd in ('UPDATE', 'ALL')),
   1,
   'K-15: exactly one permissive UPDATE/ALL policy on public.invitations'
+);
+
+-- K-16..K-18 (spec 191 / 164-M2): the role-creating policies read profiles.role.
+select ok(
+  (select count(*) = 3
+          and bool_and(nc like '%auth_profile_is_privileged()%'
+                       and nc not like '%auth_is_privileged()%')
+     from (select lower(regexp_replace(with_check, '\s+', ' ', 'g')) as nc
+             from pg_policies
+            where schemaname = 'public' and tablename = 'invitations'
+              and policyname in ('Admins can insert invitations', 'Admins can update invitations')
+           union all
+           select lower(regexp_replace(qual, '\s+', ' ', 'g'))
+             from pg_policies
+            where schemaname = 'public' and tablename = 'invitations'
+              and policyname = 'Admins can update invitations') x),
+  'K-16: invitations INSERT with_check and UPDATE qual + with_check use auth_profile_is_privileged(), not auth_is_privileged()'
+);
+
+select ok(
+  (select count(*) = 3
+          and bool_and(coalesce(obj_description(pol.oid, 'pg_policy') ~ 'spec 191', false))
+     from pg_policy pol
+    where (pol.polrelid = 'public.profiles'::regclass
+           and pol.polname = 'Admins can insert profiles in own brand')
+       or (pol.polrelid = 'public.invitations'::regclass
+           and pol.polname in ('Admins can insert invitations', 'Admins can update invitations'))),
+  'K-17: the three recreated policies each carry a spec 191 comment (C6)'
+);
+
+select ok(
+  has_function_privilege('authenticated', 'public.auth_profile_is_privileged()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.auth_profile_is_privileged()', 'EXECUTE')
+  and not has_function_privilege('public', 'public.auth_profile_is_privileged()', 'EXECUTE'),
+  'K-18: auth_profile_is_privileged EXECUTE: authenticated yes, anon no, PUBLIC no'
 );
 
 
@@ -936,6 +981,58 @@ select throws_ok(
          current_setting('test.manager_id', true)),
   '42501', null,
   'D-18: a role=user caller cannot insert any invitation (42501)'
+);
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+
+-- ============================================================
+-- Section E - spec 191 / 164-M2: stale admin claim, profile role=user
+-- ============================================================
+-- Caller: the seed manager (profile role user, brand A) carrying a stale
+-- app_metadata.role = 'admin' claim, e.g. a just-demoted admin whose access
+-- token has not expired. auth_is_privileged() is still true for this token;
+-- the three role-creating policies must refuse it anyway.
+
+-- E-2-pre (as postgres): E-2 asserts 0 rows affected, which would also pass
+-- if the target row were missing. It relies on section D's invitation.
+select ok(
+  exists (select 1 from public.invitations where email = 'd1-164@local.test'),
+  'E-2-pre: section D invitation d1-164@local.test exists (E-2 target)'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', current_setting('test.manager_id', true), 'role', 'authenticated',
+                     'app_metadata', jsonb_build_object('role', 'admin'))::text, true);
+
+select throws_ok(
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
+            values ('e1-191@local.test', 'E1', 'admin', array[]::text[], %L::uuid, %L::uuid)$q$,
+         current_setting('test.brand_a', true), current_setting('test.manager_id', true)),
+  '42501', null,
+  'E-1: stale admin claim on a role=user profile cannot insert a brand-A admin invitation (42501)'
+);
+
+-- An RLS UPDATE whose USING fails filters the row silently (design 3).
+with u as (
+  update public.invitations
+     set name = 'stale-191'
+   where email = 'd1-164@local.test'
+  returning 1
+)
+select is(
+  (select count(*)::int from u),
+  0,
+  'E-2: stale admin claim UPDATE of an existing brand-A invitation affects 0 rows'
+);
+
+select throws_ok(
+  format($q$insert into public.profiles (id, name, role, brand_id) values (%L::uuid, 'e1', 'user', %L::uuid)$q$,
+         current_setting('test.e1', true), current_setting('test.brand_a', true)),
+  '42501', null,
+  'E-3: stale admin claim on a role=user profile cannot insert a brand-A profile (42501)'
 );
 
 reset role;

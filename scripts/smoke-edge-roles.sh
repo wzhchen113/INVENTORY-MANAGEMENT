@@ -43,6 +43,14 @@
 #   docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -c \
 #     "delete from auth.users where email like 'zz_s167_selfdel_%@local.test';"
 #
+# Arm 7b (spec 191) creates a second-brand admin target and removes it in the
+# same EXIT trap. It may also set admin@local.test to (admin, brand A) for the
+# arm and puts the snapshot back afterwards. If interrupted with kill -9,
+# recover with the admin restore above plus the XB_CLEANUP_SQL statement
+# defined next to XB_BRAND / XB_TARGET below (the one copy of that SQL):
+#   docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -c \
+#     "<value of XB_CLEANUP_SQL>"
+#
 # Exit code: non-zero on failure.
 
 set -u
@@ -80,6 +88,12 @@ FN_URL="${SUPABASE_URL}/functions/v1/send-invite-email"
 FAILED=0
 PROMOTED=0  # tracks whether Arm 4 ran the promotion (so trap knows to restore)
 SELFDEL_CREATED=0  # tracks whether Arm 8 created its disposable admin (trap removes it)
+XB_CREATED=0       # tracks whether Arm 7b created its brand-B fixture (trap removes it)
+XB_BRAND="b1910000-0000-0000-0000-00000000000b"
+XB_TARGET="d1910000-0000-0000-0000-0000000000a8"
+# The only copy of the Arm 7b fixture cleanup (pre-clean, post-arm, EXIT trap,
+# header recovery note).
+XB_CLEANUP_SQL="delete from public.profiles where id='${XB_TARGET}'; delete from auth.users where id='${XB_TARGET}'; delete from public.brands where id='${XB_BRAND}';"
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
@@ -111,6 +125,16 @@ restore_admin() {
       pass "removed zz_s167_selfdel disposable admin"
     else
       printf '  \033[31mWARN\033[0m could not remove zz_s167_selfdel admin — recover manually (see header)\n'
+    fi
+  fi
+  # Spec 191 Arm 7b - remove the brand-B target and brand.
+  if [[ "$XB_CREATED" == "1" ]]; then
+    printf '\n== remove Arm 7b brand-B fixture ==\n'
+    if docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+      "${XB_CLEANUP_SQL}" >/dev/null 2>&1; then
+      pass "removed Arm 7b brand-B fixture"
+    else
+      printf '  \033[31mWARN\033[0m could not remove the Arm 7b fixture - recover manually (see header)\n'
     fi
   fi
   exit "$exit_code"
@@ -484,6 +508,126 @@ else
       pass "post-check: admin role/brand_id unchanged (role=${POST_ROLE}, brand=${POST_BRAND})"
     else
       fail "post-check: admin mutated (role ${PRE_ROLE}→${POST_ROLE}, brand ${PRE_BRAND}→${POST_BRAND})"
+    fi
+  fi
+fi
+
+################################################################################
+# Arm 7b - cross-brand demote refused with HTTP 403 (spec 191 F3).
+#
+# No pgTAP arm sees PostgREST's real status mapping, so this arm pins it:
+# 42501 'forbidden: target is in a different brand' must come back as HTTP
+# 403 with that exact message, and the target row must be unchanged.
+#
+# The local seed has one brand, so the arm creates (and the EXIT trap removes)
+# a brand B plus an admin profile in it. The caller is the plain admin from
+# Arm 3. Arm 4 has usually promoted admin@local.test to super_admin, and a
+# super_admin may legitimately demote across brands, so when the caller's
+# profile is not 'admin' the arm sets it to (admin, brand A) as postgres for
+# the request and puts the snapshot back afterwards. The EXIT trap
+# restore_admin stays the final safety net.
+#
+# Placed after Arm 7 and before Arm 8, which must stay last (spec 167).
+# Named 7b rather than 8 because Arm 8 already exists.
+################################################################################
+step "Arm 7b: cross-brand demote refused with 403 (spec 191)"
+
+# xb_psql <sql> -> prints the result with spaces stripped and RETURNS psql's
+# exit status (same capture-then-strip shape as sd_psql in Arm 8).
+xb_psql() {
+  local o
+  o=$(docker exec -i supabase_db_imr-inventory psql -U postgres -d postgres -v ON_ERROR_STOP=1 -tAc "$1" 2>/dev/null) || return 1
+  printf '%s' "$o" | tr -d ' '
+}
+
+if [[ -z "${ADMIN_BEARER}" ]]; then
+  skip "cross-brand demote arm" "no ADMIN_BEARER (Arm 3 login failed?)"
+else
+  XB_CALLER=$(xb_psql "select id from auth.users where email='${ADMIN_EMAIL}' limit 1")
+  # Pre-clean any leftover from an interrupted run, then create the fixture.
+  if [[ -z "$XB_CALLER" ]]; then
+    fail "could not resolve admin uid for ${ADMIN_EMAIL}"
+  elif ! xb_psql "${XB_CLEANUP_SQL}" >/dev/null; then
+    fail "could not pre-clean the Arm 7b fixture"
+  else
+    XB_CREATED=1
+    if ! xb_psql "insert into public.brands (id, name) values ('${XB_BRAND}', 'Foreign Brand (smoke 191)'); \
+                  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, \
+                    email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, \
+                    is_super_admin, is_anonymous, confirmation_token, recovery_token, \
+                    email_change_token_new, email_change, email_change_token_current, phone_change, \
+                    phone_change_token, reauthentication_token) \
+                  values ('${XB_TARGET}', '00000000-0000-0000-0000-000000000000', 'authenticated', \
+                    'authenticated', 'zz_s191_xb@local.test', '', now(), now(), now(), \
+                    '{\"provider\":\"email\",\"providers\":[\"email\"]}'::jsonb, '{}'::jsonb, false, false, \
+                    '', '', '', '', '', '', '', ''); \
+                  insert into public.profiles (id, name, role, brand_id) \
+                  values ('${XB_TARGET}', 'zz_s191 brand-B admin', 'admin', '${XB_BRAND}')" >/dev/null; then
+      fail "could not create the Arm 7b brand-B fixture"
+    else
+      # Snapshot the caller, then make sure it is a plain (admin, brand A) for
+      # the request. If either step fails, fail the arm WITHOUT sending the
+      # request: as a super_admin the cross-brand demote would legitimately
+      # succeed and demote the fixture.
+      XB_READY=1
+      XB_SWAPPED=0
+      if ! XB_PRE=$(xb_psql "select role || '|' || coalesce(brand_id::text, 'NULL') from public.profiles where id='${XB_CALLER}'") \
+         || [[ -z "$XB_PRE" ]]; then
+        fail "could not snapshot ${ADMIN_EMAIL}'s profile; request not sent"
+        XB_READY=0
+      elif [[ "${XB_PRE%%|*}" != "admin" ]]; then
+        if xb_psql "update public.profiles set role='admin', brand_id='${BRAND_A}' where id='${XB_CALLER}'" >/dev/null; then
+          XB_SWAPPED=1
+        else
+          fail "could not set ${ADMIN_EMAIL} to (admin, brand A) for the arm; request not sent"
+          XB_READY=0
+        fi
+      fi
+
+      if [[ "$XB_READY" == "1" ]]; then
+        RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+          -H "apikey: ${SUPABASE_ANON_KEY}" \
+          -H "Authorization: Bearer ${ADMIN_BEARER}" \
+          -H "Content-Type: application/json" \
+          -d "{\"target_user_id\":\"${XB_TARGET}\"}" \
+          "${SUPABASE_URL}/rest/v1/rpc/demote_profile_to_user")
+        CODE=$(printf '%s' "$RESPONSE" | tail -1)
+        BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+
+        # PostgREST maps 42501 -> HTTP 403 for an authenticated caller.
+        if [[ "$CODE" == "403" ]]; then
+          if printf '%s' "$BODY" | grep -qE '"message":"forbidden: target is in a different brand"'; then
+            pass "cross-brand demote refused (HTTP 403, $BODY)"
+          else
+            fail "expected message 'forbidden: target is in a different brand', got: ${BODY:0:200}"
+          fi
+        else
+          fail "expected 403, got $CODE: ${BODY:0:200}"
+        fi
+
+        if [[ "$(xb_psql "select role || '|' || brand_id::text from public.profiles where id='${XB_TARGET}'")" == "admin|${XB_BRAND}" ]]; then
+          pass "post-check: brand-B target still (admin, brand B)"
+        else
+          fail "post-check: brand-B target was changed (cross-brand demote went through)"
+        fi
+      fi
+
+      if [[ "$XB_SWAPPED" == "1" ]]; then
+        XB_PRE_ROLE="${XB_PRE%%|*}"
+        XB_PRE_BRAND="${XB_PRE#*|}"
+        if [[ "$XB_PRE_BRAND" == "NULL" ]]; then XB_PRE_BRAND_SQL="null"; else XB_PRE_BRAND_SQL="'${XB_PRE_BRAND}'"; fi
+        if xb_psql "update public.profiles set role='${XB_PRE_ROLE}', brand_id=${XB_PRE_BRAND_SQL} where id='${XB_CALLER}'" >/dev/null; then
+          pass "restored ${ADMIN_EMAIL} to its pre-arm snapshot (${XB_PRE})"
+        else
+          fail "could not restore ${ADMIN_EMAIL} to ${XB_PRE} (EXIT trap will still restore admin)"
+        fi
+      fi
+    fi
+
+    if xb_psql "${XB_CLEANUP_SQL}" >/dev/null; then
+      XB_CREATED=0
+    else
+      fail "could not remove the Arm 7b fixture (EXIT trap will retry)"
     fi
   fi
 fi
