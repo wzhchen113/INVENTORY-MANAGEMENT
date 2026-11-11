@@ -688,8 +688,12 @@ revoke execute on function public.assert_not_last_of_role(uuid, text) from publi
 grant  execute on function public.assert_not_last_of_role(uuid, text) to authenticated, service_role;
 
 -- D-6: no caller since spec 164; any account could burn an invitation with
--- it. service_role keeps its grant. Body unchanged.
+-- it. service_role keeps EXECUTE. Body unchanged.
+-- The explicit service_role grant is needed on a fresh build: 20260531000000
+-- revoked PUBLIC, and service_role had no grant of its own there. Prod and the
+-- long-lived local stack already hold one, so it is a no-op on them.
 revoke execute on function public.consume_invitation(uuid, text) from public, anon, authenticated;
+grant  execute on function public.consume_invitation(uuid, text) to service_role;
 
 
 -- ------------------------------------------------------------
