@@ -248,6 +248,9 @@ describe('fetchBrandAdmins — spec 084 NULL-brand inference + pending pollution
 
   // (e) A NULL-brand invite matched by profile_id resolves a NON-EMPTY email
   // for the active profile when a brandId is passed (AC #1, the symmetric fix).
+  // Spec 198 (F4) — kept; the mock bypasses RLS. Since spec 198 a brand-less
+  // invitation reaches a brand admin only with in-scope stores or when they
+  // sent it (D-7); the super_admin (this tab's caller) still sees every one.
   // In PRODUCTION the old `.eq('brand_id', BRAND)` query would have excluded the
   // brand_id:null invite → empty email; under the harness `eq` ignores its args
   // (see the NOTE above), so this arm verifies the inference CONTRACT

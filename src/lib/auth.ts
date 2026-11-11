@@ -5,6 +5,7 @@ import { isValidOverride } from './sidebarLayout';
 import { fetchStoreIdsForBrand, fetchInvitationsForUserLookup, fetchProfileEmails } from './db';
 import { resolveRecoveryRedirectUrl, RECOVERY_URL_UNSET_ERROR } from './recoveryRedirect';
 import { isPlaceholderEmail } from './placeholderEmail';
+import { isInviteCode, normalizeInviteCode } from './inviteLink';
 
 export interface AuthResult {
   user: User | null;
@@ -385,8 +386,23 @@ export interface InviteUserOptions {
   username?: string | null;
 }
 
-/** Invite a new user (admin only — creates invitation record in Supabase) */
-export async function inviteUser(opts: InviteUserOptions): Promise<{ error: string | null }> {
+/** Spec 198 — client copy for the register screen's invite-code checks. */
+export const INVITE_CODE_REQUIRED_ERROR = 'Enter the invite code from your invitation link.';
+export const NO_PENDING_INVITATION_ERROR =
+  'No pending invitation matches this email and invite code. Check the link, or ask your admin to invite you again.';
+
+/** Spec 198 — on success the plaintext invite code is returned ONCE; the
+ *  database keeps only its sha256. The drawer turns it into the invite link. */
+export type InviteUserResult =
+  | { error: null; inviteCode: string; expiresAt: string }
+  | { error: string; inviteCode?: undefined; expiresAt?: undefined };
+
+/** Invite a new user (admin only). Spec 198 — goes through the SECURITY
+ *  INVOKER RPC `create_invitation`, which replaces any pending invitation for
+ *  the same email that the caller can see (B8), stores only the code's hash,
+ *  and returns the plaintext code once. RLS stays the single authority on who
+ *  may invite into which brand/stores. */
+export async function inviteUser(opts: InviteUserOptions): Promise<InviteUserResult> {
   try {
     // Spec 012b — pre-flight gate: admin invites without a brand assignment
     // would fail the profiles_role_brand_consistent CHECK at registration
@@ -396,33 +412,17 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       return { error: 'Admin invitations require a brand assignment' };
     }
 
-    // Clean up expired invitations first
-    await supabase.from('invitations').delete().lt('expires_at', new Date().toISOString()).eq('used', false);
-
-    // Check if invitation already exists for this email
-    const { data: existing } = await supabase
-      .from('invitations')
-      .select('id')
-      .eq('email', opts.email.toLowerCase())
-      .eq('used', false)
-      .single();
-
-    if (existing) {
-      return { error: 'An invitation for this email already exists' };
-    }
-
     // Spec 090 — defense-in-depth: derive the brand from the first assigned
     // store when a user (non-admin) invite arrives brand-less but store-scoped.
-    // The sole caller (InviteUserDrawer) now passes the derived brand, but
-    // auth.ts is a shared module and a future second caller could pass an
-    // unguarded null. The single-brand-store invariant (spec 068) makes
-    // storeIds[0] unambiguous, and this mirrors the server-side
-    // COALESCE(brand_id, brand of first store) in
-    // get_pending_invitation.resolved_brand_id (spec 069). Gated on
-    // storeIds.length > 0 so the legitimate zero-store user invite stays
-    // NULL-brand (the profile is stamped later at register time once a store
-    // is assigned). The admin path is unchanged: role==='admin' is excluded
-    // and already returned above when brandId was missing.
+    // The drawers pass the derived brand already, but auth.ts is a shared
+    // module and a future caller could pass an unguarded null. The
+    // single-brand-store invariant (spec 068) makes storeIds[0] unambiguous,
+    // and create_invitation applies the same COALESCE(brand_id, brand of
+    // first store) server-side (spec 198 §3.1 step 5). Gated on
+    // storeIds.length > 0; a zero-store user invite passes NULL and
+    // create_invitation stamps the inviting admin's own brand (spec 198 AD-4).
+    // The admin path is unchanged: role==='admin' already returned above when
+    // brandId was missing.
     // NB: storeIds[0] is JS 0-indexed; the RPC's store_ids[1] is Postgres
     // 1-indexed — same first store, do not introduce an off-by-one.
     let resolvedBrandId = opts.brandId;
@@ -435,104 +435,106 @@ export async function inviteUser(opts: InviteUserOptions): Promise<{ error: stri
       resolvedBrandId = store?.brand_id ?? null;
     }
 
-    // Create invitation record — profile + auth user created at registration time
-    const { error: inviteError } = await supabase.from('invitations').insert({
-      email: opts.email.toLowerCase(),
-      profile_id: '00000000-0000-0000-0000-000000000000',
-      name: opts.name,
-      role: opts.role,
-      store_ids: opts.storeIds,
-      // Spec 012b — load-bearing. Spec 164 — the invitation row is the
-      // authority; register_invited_profile() copies role/brand/username/
-      // stores server-side, so this becomes profiles.brand_id.
-      // Spec 090 — now the store-derived brand for user/manager invites
-      // (resolvedBrandId), not the raw opts.brandId, so the invitation row is
-      // no longer written NULL-brand when it carries stores.
-      brand_id: resolvedBrandId,
-      // Spec 095 — case-folded on write (mirrors the lower() idiom used for
-      // email throughout this codebase and the lower() UNIQUE index on
-      // profiles.username). Null when the admin left it blank. The
-      // invitations row carries it; register_invited_profile() (spec 164)
-      // copies it onto profiles.username server-side.
-      username: opts.username ? opts.username.trim().toLowerCase() : null,
+    // Spec 198 — one RPC creates (or replaces) the invitation. No direct
+    // invitations reads/writes from the client any more: the old expired-row
+    // delete, the "already exists" check and the direct insert are gone.
+    // Email and username are case-folded here as before (spec 095); the RPC
+    // folds them again server-side.
+    const { data, error: rpcError } = await supabase.rpc('create_invitation', {
+      p_email: opts.email.trim().toLowerCase(),
+      p_name: opts.name,
+      p_role: opts.role,
+      p_store_ids: opts.storeIds,
+      p_brand_id: resolvedBrandId,
+      p_username: opts.username ? opts.username.trim().toLowerCase() : null,
     });
 
-    if (inviteError) return { error: inviteError.message };
+    if (rpcError) return { error: rpcError.message };
 
-    // Send invitation email (non-blocking). Payload unchanged — brand
-    // name not surfaced in the template (out of scope per spec).
+    // jsonb {"invitation_id", "code", "expires_at"} — snake → camel here.
+    const payload = (data ?? null) as { code?: unknown; expires_at?: unknown } | null;
+    const inviteCode = typeof payload?.code === 'string' ? payload.code : '';
+    const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at : '';
+    if (!isInviteCode(inviteCode)) {
+      return { error: 'Unexpected response from server' };
+    }
+
+    // Send invitation email (non-blocking). Spec 198 AD-7 — the client sends
+    // the CODE, never a URL: send-invite-email validates it and builds the
+    // link from its own fixed APP_URL.
     callEdgeFunction('send-invite-email', {
       email: opts.email,
       name: opts.name,
       role: opts.role,
       storeNames: opts.storeNames || '',
+      inviteCode,
     });
 
-    return { error: null };
+    return { error: null, inviteCode, expiresAt };
   } catch (e: any) {
     return { error: e.message || 'Failed to invite user' };
   }
 }
 
-/** Register an invited user (creates Supabase auth account + profile) */
+/**
+ * Register an invited user (creates the Supabase auth account + profile).
+ *
+ * Spec 198 (B10) — the claim needs the one-time invite code:
+ *   1. no valid-format code → INVITE_CODE_REQUIRED_ERROR, no network call;
+ *   2. `check_invitation_code(email, code)` pre-check (anon-executable,
+ *      returns `{ name }` only when the claim would succeed). Zero rows or an
+ *      error → NO_PENDING_INVITATION_ERROR and signUp is NOT called, so a
+ *      wrong code never leaves an orphan auth user;
+ *   3. `signUp` (still no `role` in options.data — spec 164);
+ *   4. exactly one `register_invited_profile({ p_code })`, which re-applies
+ *      every check server-side and writes profile + user_stores atomically.
+ * No direct table writes; `get_pending_invitation` is gone (dropped server-side).
+ */
 export async function registerInvitedUser(
   email: string,
   password: string,
-  name: string
+  inviteCode: string,
 ): Promise<AuthResult> {
   try {
-    // Fetch the pending invitation via SECURITY DEFINER RPC —
-    // anon cannot select from the invitations table directly.
-    const { data: rpcRows, error: invError } = await supabase
-      .rpc('get_pending_invitation', { p_email: email.toLowerCase() });
-
-    const invitation = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
-    if (invError || !invitation) {
-      return { user: null, error: 'No invitation found for this email. Please ask an admin to invite you.' };
+    const code = normalizeInviteCode(inviteCode);
+    if (!isInviteCode(code)) {
+      return { user: null, error: INVITE_CODE_REQUIRED_ERROR };
     }
 
-    // Spec 012b §4 — defensive validation BEFORE auth.signUp creates an
-    // orphaned auth user. Catches the migration-window case where a
-    // legacy invitation row has brand_id IS NULL but role='admin' — it
-    // would be refused server-side (register_invited_profile() R6, spec 164)
-    // after signUp, leaving an orphan auth user. Surface a clear error
-    // so the operator can re-issue the invite via the new flow.
-    if (invitation.role === 'admin' && !invitation.brand_id) {
-      return {
-        user: null,
-        error: 'Invitation is missing a brand assignment. Please ask your admin to re-issue the invite.',
-      };
+    const { data: rows, error: checkError } = await supabase.rpc('check_invitation_code', {
+      p_email: email.trim().toLowerCase(),
+      p_code: code,
+    });
+    const row = (Array.isArray(rows) ? rows[0] : rows) as { name?: unknown } | null | undefined;
+    if (checkError || !row) {
+      return { user: null, error: NO_PENDING_INVITATION_ERROR };
     }
+    const inviteName = typeof row.name === 'string' ? row.name : '';
 
     // Create the Supabase auth user. Spec 164 — no `role` in user metadata:
     // the client sends no role anywhere in registration.
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name: invitation.name } },
+      options: { data: { name: inviteName } },
     });
 
     if (signUpError) return { user: null, error: signUpError.message };
     if (!authData.user) return { user: null, error: 'Registration failed' };
 
-    // Spec 164 — finish registration server-side. register_invited_profile()
-    // (SECURITY DEFINER) binds to the calling user (auth.uid() + its
-    // auth.users email), reads the single pending invitation, and atomically
-    // inserts the profile (role, brand_id, username, initials derived from the
-    // invitation row — including the spec 069 store-resolved brand for staff),
-    // the user_stores links, and marks the invitation used. The client no
-    // longer inserts profiles / user_stores or calls consume_invitation; the
-    // profiles INSERT policy no longer admits a self-insert. Requires the fresh
-    // signUp session (anon has no EXECUTE). See
-    // specs/164-profiles-insert-hardening.md.
-    const { error: regError } = await supabase.rpc('register_invited_profile');
+    // Spec 164 / 198 — finish registration server-side. The SECURITY DEFINER
+    // register_invited_profile(p_code) selects the invitation BY CODE, binds it
+    // to the caller's auth email, re-checks expiry and the inviter (D3), then
+    // atomically inserts the profile + user_stores links and marks the
+    // invitation used. Requires the fresh signUp session (anon has no EXECUTE).
+    const { error: regError } = await supabase.rpc('register_invited_profile', { p_code: code });
 
     if (regError) {
       return { user: null, error: `Account created but profile setup failed: ${regError.message}` };
     }
 
     // Send welcome email (non-blocking)
-    callEdgeFunction('send-welcome-email', { email, name: invitation.name });
+    callEdgeFunction('send-welcome-email', { email, name: inviteName });
 
     return { user: null, error: null };
   } catch (e: any) {

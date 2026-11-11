@@ -17,6 +17,13 @@
 //      stays disabled until email + name are filled.
 //   5. brand-switch prunes a stale storeIds entry so the counter stays
 //      honest and a cross-brand store can't be carried in form state.
+//   6. spec 198 (B7/B8): after a successful invite the drawer stays open and
+//      shows the one-time invite link (`invite-link`); `invite-done` closes
+//      it; the web `invite-link-copy` writes the link to the clipboard; on
+//      native with no web URL configured the bare code is shown and there is
+//      no copy button; a second invite shows the new code. The old
+//      client-side "already exists" refusal is gone (re-invite replaces the
+//      pending invitation server-side, pgTAP B8-srv).
 //
 // Boundary mocking mirrors CopyToBrandDialog.test.tsx:
 //   - react-native-toast-message (global jest.setup.ts) — Toast.show fn.
@@ -96,9 +103,16 @@ jest.mock('../../store/useStore', () => {
   return { useStore: fn };
 });
 
-// inviteUser — default resolves success; tests assert call args.
+// inviteUser — default resolves success (spec 198 shape: the one-time code);
+// tests assert call args.
+// (The literal is inlined: the hoisted factory runs before module-level consts
+// initialize. MOCK_CODE below must stay equal to it.)
 jest.mock('../../lib/auth', () => ({
-  inviteUser: jest.fn().mockResolvedValue({ error: null }),
+  inviteUser: jest.fn().mockResolvedValue({
+    error: null,
+    inviteCode: '0123456789abcdef0123456789abcdef',
+    expiresAt: '2026-11-12T12:00:00Z',
+  }),
 }));
 
 // useIsMaster — pinned per test (default true so the role picker renders).
@@ -114,6 +128,7 @@ import { InviteUserDrawer } from './InviteUserDrawer';
 import { useIsMaster } from '../../hooks/useRole';
 
 const toastShowMock = Toast.show as jest.Mock;
+const MOCK_CODE = '0123456789abcdef0123456789abcdef';
 
 const useStoreModule = jest.requireMock('../../store/useStore');
 const useIsMasterMock = useIsMaster as jest.Mock;
@@ -351,11 +366,12 @@ describe('InviteUserDrawer — "username taken" error heuristic (spec 095)', () 
 
   it('does NOT mislabel an unrelated 23505 (different index) as "username taken"', async () => {
     const { inviteUser } = jest.requireMock('../../lib/auth');
-    // An unrelated unique violation (e.g. a duplicate-email invitation). The
-    // old broad regex (/23505|duplicate key|already exists|username/i) would
-    // have mislabeled this as a username collision.
+    // An unrelated unique violation on a different index. The old broad regex
+    // (/23505|duplicate key|already exists|username/i) would have mislabeled
+    // this as a username collision. (Spec 198: the fixture used to name a
+    // non-existent `invitations_email_key`; it now names the real code index.)
     const otherError =
-      'duplicate key value violates unique constraint "invitations_email_key" (23505)';
+      'duplicate key value violates unique constraint "invitations_code_hash_key" (23505)';
     inviteUser.mockResolvedValueOnce({ error: otherError });
     setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
     render(<InviteUserDrawer visible onClose={() => {}} />);
@@ -391,5 +407,187 @@ describe('InviteUserDrawer — stale-selection prune on brand switch', () => {
     // selection was pruned — counter resets to 0 of 1, not 1 of 1.
     expect(screen.queryByText('Charles')).toBeNull();
     expect(screen.getByText('· 0 of 1 selected')).toBeTruthy();
+  });
+});
+
+// ─── Spec 198 (B7/B8) — the one-time invite link ─────────────────────
+describe('InviteUserDrawer — invite link (spec 198)', () => {
+  const { Platform } = require('react-native');
+  const ORIGINAL_ENV = process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
+  let restoreOS: (() => void) | null = null;
+  const setOS = (os: string) => {
+    const replaced = jest.replaceProperty(Platform, 'OS', os);
+    restoreOS = () => replaced.restore();
+  };
+  afterEach(() => {
+    restoreOS?.();
+    restoreOS = null;
+    if (ORIGINAL_ENV === undefined) delete process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
+    else process.env.EXPO_PUBLIC_WEB_RECOVERY_URL = ORIGINAL_ENV;
+  });
+
+  const submitInvite = async (email = 'bob@example.com') => {
+    fireEvent.changeText(screen.getByTestId('invite-email'), email);
+    fireEvent.changeText(screen.getByTestId('invite-name'), 'Bob');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-submit'));
+    });
+  };
+
+  it('web: shows the link with ?register=true&invite=<code> and stays open', async () => {
+    setOS('web');
+    const onClose = jest.fn();
+    const onInvited = jest.fn();
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={onClose} onInvited={onInvited} />);
+    await submitInvite();
+
+    const link = screen.getByTestId('invite-link');
+    expect(link.props.children).toBe(`${window.location.origin}/?register=true&invite=${MOCK_CODE}`);
+    expect(link.props.selectable).toBe(true);
+    expect(onInvited).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    // The form (and its SEND button) is replaced by the link panel.
+    expect(screen.queryByTestId('invite-email')).toBeNull();
+    expect(screen.queryByTestId('invite-submit')).toBeNull();
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', text1: 'Invitation created', text2: 'bob@example.com' }),
+    );
+  });
+
+  it('renders the server-issued expiry, not a hard-coded "48 hours" (review CR-2)', async () => {
+    setOS('web');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+
+    // The mocked inviteUser returns expiresAt '2026-11-12T12:00:00Z'.
+    const { formatInviteExpiry } = jest.requireActual('../../lib/inviteLink');
+    const label = formatInviteExpiry('2026-11-12T12:00:00Z');
+    expect(label).not.toBeNull();
+    expect(
+      screen.getByText(`Send this link to bob@example.com. It works once and expires ${label}.`),
+    ).toBeTruthy();
+    expect(screen.queryByText(/48 hours/)).toBeNull();
+  });
+
+  it('invite-done calls onClose exactly once', async () => {
+    setOS('web');
+    const onClose = jest.fn();
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={onClose} />);
+    await submitInvite();
+
+    fireEvent.press(screen.getByTestId('invite-done'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('web: invite-link-copy writes the link to navigator.clipboard', async () => {
+    setOS('web');
+    const writeText = jest.fn(() => Promise.resolve());
+    Object.defineProperty(window.navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+      render(<InviteUserDrawer visible onClose={() => {}} />);
+      await submitInvite();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('invite-link-copy'));
+      });
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/?register=true&invite=${MOCK_CODE}`);
+      expect(toastShowMock).toHaveBeenCalledWith(expect.objectContaining({ text1: 'Link copied' }));
+    } finally {
+      delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it('web: a missing clipboard API shows the copy-failed toast', async () => {
+    setOS('web');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('invite-link-copy'));
+    });
+    expect(toastShowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', text1: 'Copy failed. Select the link and copy it.' }),
+    );
+  });
+
+  it('native with no web URL configured: no copy button, the bare code is shown', async () => {
+    setOS('ios');
+    delete process.env.EXPO_PUBLIC_WEB_RECOVERY_URL;
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+
+    expect(screen.getByTestId('invite-link').props.children).toBe(MOCK_CODE);
+    expect(screen.queryByTestId('invite-link-copy')).toBeNull();
+    expect(screen.getByText('Invite code')).toBeTruthy();
+    expect(screen.getByText('Ask them to open Register in the app and enter this code.')).toBeTruthy();
+  });
+
+  it('native with a web URL configured: the link is built on its origin', async () => {
+    setOS('ios');
+    process.env.EXPO_PUBLIC_WEB_RECOVERY_URL = 'https://imr.example.com/reset-password';
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+
+    expect(screen.getByTestId('invite-link').props.children).toBe(
+      `https://imr.example.com/?register=true&invite=${MOCK_CODE}`,
+    );
+    expect(screen.queryByTestId('invite-link-copy')).toBeNull();
+  });
+
+  it('a second invite (re-opened drawer) shows the new code', async () => {
+    setOS('web');
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    const SECOND = 'fedcba9876543210fedcba9876543210';
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    const { rerender } = render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+    expect(screen.getByTestId('invite-link').props.children).toContain(MOCK_CODE);
+
+    // Close + re-open resets to the form.
+    rerender(<InviteUserDrawer visible={false} onClose={() => {}} />);
+    rerender(<InviteUserDrawer visible onClose={() => {}} />);
+    expect(screen.queryByTestId('invite-link')).toBeNull();
+
+    inviteUser.mockResolvedValueOnce({ error: null, inviteCode: SECOND, expiresAt: '2026-11-12T13:00:00Z' });
+    await submitInvite();
+    const text = screen.getByTestId('invite-link').props.children;
+    expect(text).toContain(SECOND);
+    expect(text).not.toContain(MOCK_CODE);
+  });
+
+  it('an error keeps the form and shows no link', async () => {
+    setOS('web');
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    inviteUser.mockResolvedValueOnce({ error: 'forbidden' });
+    const onInvited = jest.fn();
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} onInvited={onInvited} />);
+    await submitInvite();
+
+    expect(screen.queryByTestId('invite-link')).toBeNull();
+    expect(screen.getByTestId('invite-email')).toBeTruthy();
+    expect(onInvited).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+Enter while the link is showing does not re-submit', async () => {
+    setOS('web');
+    const { inviteUser } = jest.requireMock('../../lib/auth');
+    setStoreState({ stores: STORES_ALL, brand: BRAND_2AM });
+    render(<InviteUserDrawer visible onClose={() => {}} />);
+    await submitInvite();
+    expect(inviteUser).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, cancelable: true }));
+    });
+    expect(inviteUser).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('invite-link')).toBeTruthy();
   });
 });

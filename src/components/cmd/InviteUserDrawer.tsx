@@ -9,6 +9,7 @@ import { useIsPhone } from '../../theme/breakpoints';
 import { inviteUser } from '../../lib/auth';
 import { useIsMaster } from '../../hooks/useRole';
 import { validateUsername } from '../../lib/usernameValidation';
+import { InviteLinkPanel, buildIssuedInviteLink, type IssuedInvite } from './InviteLinkPanel';
 
 interface Props {
   visible: boolean;
@@ -59,9 +60,12 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
 
   const [values, setValues] = React.useState<FormValues>(blank);
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 198 — set after a successful invite; the body then shows the link.
+  const [issued, setIssued] = React.useState<IssuedInvite | null>(null);
 
   React.useEffect(() => {
     if (!visible) return;
+    setIssued(null);
     setValues({
       email: '',
       name: '',
@@ -142,7 +146,9 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
   };
 
   const handleSave = async () => {
-    if (!requiredValid || submitting) return;
+    // Spec 198 — once the link is showing, Cmd+Enter must not re-submit (a
+    // second create_invitation would silently replace the code just shown).
+    if (issued || !requiredValid || submitting) return;
     setSubmitting(true);
     // Spec 068 §2 — resolve names against the brand-filtered list, not
     // the global `stores`, so a stale storeId from a brand-switch can't
@@ -157,12 +163,12 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
     // already brand-filtered to the single active brand (brandStores, spec
     // 068), so storeIds[0]'s brand is unambiguous — this mirrors the
     // server-side COALESCE(brand_id, brand of first store) derivation in
-    // get_pending_invitation.resolved_brand_id (spec 069). The store-first
+    // create_invitation step 5 (spec 198 §3.1; spec 069 originally). The store-first
     // form (`brandStores.find(...storeIds[0]).brandId`) makes the written
     // value provably the brand of the assigned store; `?? brandId` is the
     // practical result under today's single-active-brand UI. A zero-store
-    // user invite stays null (legitimate — the profile is stamped later at
-    // register time once a store is assigned). Admin path is unchanged
+    // user invite passes null here; create_invitation then stamps the
+    // inviting admin's/master's own brand (spec 198 AD-4). Admin path is unchanged
     // (passes brandId verbatim; the missing-brand error fires in inviteUser).
     // NB: storeIds[0] is JS 0-indexed; the RPC's store_ids[1] is Postgres
     // 1-indexed — same first store, do not introduce an off-by-one.
@@ -183,7 +189,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
       username: usernameTrimmed.length > 0 ? usernameTrimmed : null,
     });
     setSubmitting(false);
-    if (result.error) {
+    if (result.error !== null) {
       // Spec 095 — map the PostgREST unique-violation on the username index to
       // the human-readable "username taken". Distinct from the generic login
       // oracle: this is an authenticated, brand-scoped admin action where
@@ -202,13 +208,20 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
       });
       return;
     }
+    // Spec 198 (B7) — keep the drawer open and show the one-time link. The
+    // code is stored hashed, so this is the inviter's only chance to copy it.
     Toast.show({
       type: 'success',
-      text1: 'Invitation sent',
+      text1: 'Invitation created',
       text2: values.email.trim(),
     });
     onInvited?.();
-    onClose();
+    setIssued({
+      email: values.email.trim(),
+      code: result.inviteCode,
+      link: buildIssuedInviteLink(result.inviteCode),
+      expiresAt: result.expiresAt,
+    });
   };
 
   // Cmd+S / Cmd+Enter saves, Esc closes. handleSave through a ref to
@@ -316,9 +329,22 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
       desktopWidth={600}
       tabletSheetHeight={0.85}
       header={header}
-      footer={footer}
+      // Spec 198 — while the link is showing, its panel carries the only
+      // action (DONE); the CANCEL / SEND footer is hidden.
+      footer={issued ? undefined : footer}
       accessibilityLabel="Invite user"
     >
+      {issued ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+          <InviteLinkPanel
+            email={issued.email}
+            code={issued.code}
+            link={issued.link}
+            expiresAt={issued.expiresAt}
+            onDone={onClose}
+          />
+        </ScrollView>
+      ) : (
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <Field
           testID="invite-email"
@@ -581,6 +607,7 @@ export const InviteUserDrawer: React.FC<Props> = ({ visible, onClose, onInvited 
           )}
         </View>
       </ScrollView>
+      )}
     </ResponsiveSheet>
   );
 };

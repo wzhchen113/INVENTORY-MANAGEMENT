@@ -31,7 +31,7 @@
 -- catalog / vendor, profiles.brand_id mutation, and any inserted invitation are
 -- all restored on rollback.
 --
--- Arms (plan(13)):
+-- Arms (plan(11) since spec 198; arms 8, 9 and 13 retired):
 --   (1)  NULL-brand staff CANNOT read brand-A catalog (pre-fix proof):
 --        auth_can_see_brand(A) = FALSE and the catalog SELECT returns 0 rows.
 --   (2)  After fix (brand_id = A, simulating the backfill) NULL-brand-then-fixed
@@ -53,9 +53,11 @@
 --        THE LITERAL BUG.
 --   (7)  Brand-A admin still sees 0 brand-B catalog AND 0 brand-B vendors
 --        (spec-012a isolation regression guard, probes 1–7 of 20260509000000).
---   (8)  get_pending_invitation returns the correct resolved_brand_id for a
+--   (8)  RETIRED (spec 198; see invitations_hardening B2-staff). Was:
+--        get_pending_invitation returns the correct resolved_brand_id for a
 --        staff invite (brand_id NULL, store_ids=[brand-A store] → brand A).
---   (9)  get_pending_invitation passes brand_id straight through (resolved ==
+--   (9)  RETIRED (spec 198; see invitations_hardening B2-admin). Was:
+--        get_pending_invitation passes brand_id straight through (resolved ==
 --        brand_id) for an admin invite — admin path unchanged.
 --   (10) Backfill correctness: a NULL-brand role='user' profile with a single
 --        brand-A user_stores grant, after the backfill UPDATE, has brand_id = A.
@@ -65,13 +67,14 @@
 --   (12) Zero-store staff are skipped, not errored: a NULL-brand role='user'
 --        profile with NO user_stores rows is left NULL by the backfill logic
 --        (and the backfill does not fail) — matches the §3a flagging design.
---   (13) get_pending_invitation resolved_brand_id is NULL for a staff invite
+--   (13) RETIRED (spec 198; see invitations_hardening B2-zero (a)). Was:
+--        get_pending_invitation resolved_brand_id is NULL for a staff invite
 --        with zero store_ids and NULL brand_id (benign no-op, matches §4).
 
 begin;
 create extension if not exists pgtap;
 
-select plan(14);
+select plan(11);
 
 -- ─── fixtures (constants stashed via set_config) ───────────────
 do $$
@@ -347,12 +350,9 @@ values (
   now() + interval '7 days'
 );
 
-select is(
-  (select resolved_brand_id
-     from public.get_pending_invitation('staff069pgtap@test.local')),
-  current_setting('test.brand_a', true)::uuid,
-  'arm (8): get_pending_invitation returns resolved_brand_id = store brand for a staff invite (brand_id NULL)'
-);
+-- RETIRED (spec 198): get_pending_invitation(text) is dropped. The claim's
+-- store-resolved staff brand is asserted by
+-- supabase/tests/invitations_hardening.test.sql arm B2-staff.
 
 
 -- ─── Arm (9): get_pending_invitation passes admin brand through ─
@@ -371,12 +371,9 @@ values (
   now() + interval '7 days'
 );
 
-select is(
-  (select resolved_brand_id
-     from public.get_pending_invitation('admin069pgtap@test.local')),
-  current_setting('test.brand_a', true)::uuid,
-  'arm (9): get_pending_invitation resolved_brand_id == brand_id for an admin invite (admin path unchanged)'
-);
+-- RETIRED (spec 198): get_pending_invitation(text) is dropped. The admin
+-- brand passthrough is asserted by invitations_hardening.test.sql arm
+-- B2-admin.
 
 
 -- ─── Arm (10): backfill correctness ────────────────────────────
@@ -479,12 +476,10 @@ values (
   now() + interval '7 days'
 );
 
-select is(
-  (select resolved_brand_id
-     from public.get_pending_invitation('staff069nostore@test.local')),
-  null::uuid,
-  'arm (13): get_pending_invitation resolved_brand_id is NULL for a zero-store NULL-brand staff invite (benign no-op)'
-);
+-- RETIRED (spec 198): get_pending_invitation(text) is dropped. A brand-less
+-- zero-store staff claim is asserted by invitations_hardening.test.sql arm
+-- B2-zero (a); an admin's zero-store invite now carries the admin's brand
+-- (AD-4, B2-zero (b)).
 
 
 select * from finish();

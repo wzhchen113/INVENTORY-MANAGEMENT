@@ -1,17 +1,33 @@
 // src/screens/RegisterScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { WebScrollView } from '../components/WebScrollView';
 import { PasswordInput } from '../components/PasswordInput';
-import { registerInvitedUser } from '../lib/auth';
+import { registerInvitedUser, INVITE_CODE_REQUIRED_ERROR } from '../lib/auth';
+import { isInviteCode, normalizeInviteCode } from '../lib/inviteLink';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 
+// Spec 198 (AD-6) — LoginScreen reads `?register=true&invite=<code>` on web and
+// hands the code over as a route param (it strips the query string straight
+// after navigating, so this screen can't read the URL itself).
+type RegisterRouteParams = { Register: { invite?: string } | undefined };
+
 export default function RegisterScreen() {
+  const route = useRoute<RouteProp<RegisterRouteParams, 'Register'>>();
   const [email, setEmail] = useState('');
+  // Spec 198 (B9) — the one-time invite code. A pasted full link is fine:
+  // normalizeInviteCode extracts the code on submit.
+  const [code, setCode] = useState(() => normalizeInviteCode(route.params?.invite));
+  // A later navigate('Register', { invite }) onto an already-mounted screen
+  // updates params without remounting; pick the new code up too.
+  const routeInvite = route.params?.invite;
+  useEffect(() => {
+    if (routeInvite) setCode(normalizeInviteCode(routeInvite));
+  }, [routeInvite]);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,6 +38,8 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!email.trim()) { setError('Email is required'); return; }
+    const inviteCode = normalizeInviteCode(code);
+    if (!isInviteCode(inviteCode)) { setError(INVITE_CODE_REQUIRED_ERROR); return; }
     if (!password) { setError('Password is required'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
@@ -29,7 +47,7 @@ export default function RegisterScreen() {
     setError('');
     setLoading(true);
     try {
-      const result = await registerInvitedUser(email.trim(), password, '');
+      const result = await registerInvitedUser(email.trim(), password, inviteCode);
       if (result.error) {
         setError(result.error);
       } else {
@@ -53,11 +71,11 @@ export default function RegisterScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: C.bgPrimary }]}>
-            <Text style={[styles.formTitle, { color: C.success }]}>Registration successful!</Text>
+            <Text testID="register-success" style={[styles.formTitle, { color: C.success }]}>Registration successful!</Text>
             <Text style={[styles.successText, { color: C.textSecondary }]}>
               Your account has been created. You can now sign in with your email and password.
             </Text>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: C.textPrimary }]} onPress={() => nav.navigate('Login')}>
+            <TouchableOpacity testID="register-go-signin" style={[styles.btn, { backgroundColor: C.textPrimary }]} onPress={() => nav.navigate('Login')}>
               <Text style={[styles.btnText, { color: C.bgPrimary }]}>Go to Sign in</Text>
             </TouchableOpacity>
           </View>
@@ -80,18 +98,19 @@ export default function RegisterScreen() {
         <View style={[styles.card, { backgroundColor: C.bgPrimary }]}>
           <Text style={[styles.formTitle, { color: C.textPrimary }]}>Register</Text>
           <Text style={[styles.formSub, { color: C.textTertiary }]}>
-            Enter the email address your invitation was sent to.
+            Enter the email address you were invited with and the invite code from your invitation link.
           </Text>
 
           {error ? (
             <View style={[styles.errorBox, { backgroundColor: C.dangerBg }]}>
-              <Text style={[styles.errorText, { color: C.danger }]}>{error}</Text>
+              <Text testID="register-error" style={[styles.errorText, { color: C.danger }]}>{error}</Text>
             </View>
           ) : null}
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: C.textSecondary }]}>Email address</Text>
             <TextInput
+              testID="register-email"
               style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
               value={email}
               onChangeText={setEmail}
@@ -99,6 +118,20 @@ export default function RegisterScreen() {
               placeholderTextColor={C.textTertiary}
               autoCapitalize="none"
               keyboardType="email-address"
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: C.textSecondary }]}>Invite code</Text>
+            <TextInput
+              testID="register-code"
+              style={[styles.input, { color: C.textPrimary, backgroundColor: C.bgSecondary, borderColor: C.borderMedium }]}
+              value={code}
+              onChangeText={setCode}
+              placeholder="From your invitation link"
+              placeholderTextColor={C.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
           </View>
 
@@ -128,7 +161,7 @@ export default function RegisterScreen() {
             />
           </View>
 
-          <TouchableOpacity style={[styles.btn, { backgroundColor: C.textPrimary }]} onPress={handleRegister} disabled={loading}>
+          <TouchableOpacity testID="register-submit" style={[styles.btn, { backgroundColor: C.textPrimary }]} onPress={handleRegister} disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color={C.bgPrimary} />
             ) : (

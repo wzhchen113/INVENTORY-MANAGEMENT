@@ -5,7 +5,7 @@
 --     (privileged + brand-scoped, no self-arm, no wide OR-tail)
 --   - BEFORE INSERT guard trigger profiles_insert_role_guard
 --     (public.assert_profile_insert_role_allowed(), SECURITY INVOKER)
---   - SECURITY DEFINER RPC public.register_invited_profile()
+--   - SECURITY DEFINER RPC public.register_invited_profile(text)
 --   - invitations INSERT/UPDATE policies tightened to P_INV
 --
 -- Arm map (design section 8.1; spec 191 design 6.2 adds K-16..K-18 and E).
@@ -14,7 +14,7 @@
 --   Section A  A-1..A-17 (17)    profiles INSERT under JWT impersonation
 --   Section B  B-1..B-2  (2)     guard skips postgres + service_role
 --                                (B-3, the SECURITY DEFINER skip, is C-5)
---   Section C  C-1..C-18 (21)    register_invited_profile() success,
+--   Section C  C-1..C-18 (21)    register_invited_profile(text) success,
 --                                refusals, atomicity (C-5, C-6, C-8 carry
 --                                two assertions each)
 --   Section D  D-1..D-18 (18)    invitations INSERT/UPDATE under JWT
@@ -167,63 +167,70 @@ on conflict (id) do nothing;
 -- which is the only way to write the super_admin / master / brandless-admin
 -- rows that C-12..C-14 need). profile_id is NOT NULL with no FK; the seed
 -- admin id stands in as the inviter sentinel.
-insert into public.invitations (email, name, role, store_ids, brand_id, username, profile_id, used, expires_at)
+-- Spec 198: every row carries its own code_hash (sha256 of a known 32-hex
+-- code, claimed as register_invited_profile('<code>')) and an invited_by that
+-- passes the claim's inviter re-check (D3) on its own: brand-A rows name the
+-- seed admin 1111, brand-less rows name the super_admin SA (an admin inviter
+-- would fail D3 against a NULL resolved brand). expires_at is now()+1 day
+-- (NULL now counts as expired), except C-11, which stays expired.
+insert into public.invitations (email, name, role, store_ids, brand_id, username, profile_id, used, expires_at, invited_by, code_hash)
 values
   -- C-1: staff invite, brand NULL, resolves brand A from store_a
   ('c1-164@local.test', 'mary jane watson', 'user',
    array[current_setting('test.store_a', true)], null, 'reg164u',
-   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day'),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.admin_id', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000001', 'UTF8')), 'hex')),
   -- C-5: admin invite, brand A, store_a
   ('c5-164@local.test', 'Admin Reg', 'admin',
    array[current_setting('test.store_a', true)], current_setting('test.brand_a', true)::uuid, null,
-   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day'),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.admin_id', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000005', 'UTF8')), 'hex')),
   -- C-6: staff invite, explicit brand A, no stores
   ('c6-164@local.test', 'Explicit Brand', 'user',
    array[]::text[], current_setting('test.brand_a', true)::uuid, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.admin_id', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000006', 'UTF8')), 'hex')),
   -- C-7: mixed-case stored email
   ('Mixed.164@Example.test', 'Mixed Case', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000007', 'UTF8')), 'hex')),
   -- C-9: invitation exists only for a DIFFERENT email
   ('someone-else-164@local.test', 'Someone Else', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000009', 'UTF8')), 'hex')),
   -- C-10: used
   ('c10-164@local.test', 'Used Invite', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, true, null),
+   current_setting('test.admin_id', true)::uuid, true, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000010', 'UTF8')), 'hex')),
   -- C-11: expired
   ('c11-164@local.test', 'Expired Invite', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, now() - interval '1 hour'),
+   current_setting('test.admin_id', true)::uuid, false, now() - interval '1 hour', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000011', 'UTF8')), 'hex')),
   -- C-12: super_admin invitation (written directly as postgres)
   ('c12-164@local.test', 'Super Invite', 'super_admin',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000012', 'UTF8')), 'hex')),
   -- C-13: master invitation
   ('c13-164@local.test', 'Master Invite', 'master',
    array[]::text[], current_setting('test.brand_a', true)::uuid, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.admin_id', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000013', 'UTF8')), 'hex')),
   -- C-14: admin invitation with NULL brand
   ('c14-164@local.test', 'Brandless Admin', 'admin',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
-  -- C-15: two pending invitations for the same email
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000014', 'UTF8')), 'hex')),
+  -- C-15: two pending invitations for the same email (spec 198: each has its
+  -- own code; the claim selects by code, so this no longer refuses)
   ('c15-164@local.test', 'Dup One', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000015', 'UTF8')), 'hex')),
   ('c15-164@local.test', 'Dup Two', 'user',
    array[]::text[], null, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000016', 'UTF8')), 'hex')),
   -- C-17: staff invite brand A but a brand-B store -> cross-brand failure
   ('c17-164@local.test', 'Cross Brand', 'user',
    array[current_setting('test.store_b', true)], current_setting('test.brand_a', true)::uuid, null,
-   current_setting('test.admin_id', true)::uuid, false, null),
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.admin_id', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000017', 'UTF8')), 'hex')),
   -- D-12: brand-B invitation an admin of brand A must not be able to update
   ('d12-164@local.test', 'Brand B Invite', 'user',
    array[current_setting('test.store_b', true)], current_setting('test.brand_b', true)::uuid, null,
-   current_setting('test.admin_id', true)::uuid, false, null);
+   current_setting('test.admin_id', true)::uuid, false, now() + interval '1 day', current_setting('test.sa', true)::uuid, encode(sha256(convert_to('c0de1640000000000000000000000012d', 'UTF8')), 'hex'));
 
 
 -- ============================================================
@@ -275,34 +282,34 @@ select ok(
 );
 
 select has_function(
-  'public', 'register_invited_profile', array[]::text[],
-  'K-6: public.register_invited_profile() exists'
+  'public', 'register_invited_profile', array['text'],
+  'K-6: public.register_invited_profile(text) exists (spec 198: the zero-argument version is dropped)'
 );
 
 select ok(
   (select prosecdef and proowner::regrole::text = 'postgres' from pg_proc
-    where oid = 'public.register_invited_profile()'::regprocedure),
+    where oid = 'public.register_invited_profile(text)'::regprocedure),
   'K-7: register_invited_profile is SECURITY DEFINER and owned by postgres'
 );
 
 select ok(
   (select 'search_path=public' = any(proconfig) from pg_proc
-    where oid = 'public.register_invited_profile()'::regprocedure),
+    where oid = 'public.register_invited_profile(text)'::regprocedure),
   'K-8: register_invited_profile pins search_path = public'
 );
 
 select ok(
-  has_function_privilege('authenticated', 'public.register_invited_profile()', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.register_invited_profile(text)', 'EXECUTE'),
   'K-9: authenticated has EXECUTE on register_invited_profile'
 );
 
 select ok(
-  not has_function_privilege('anon', 'public.register_invited_profile()', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.register_invited_profile(text)', 'EXECUTE'),
   'K-10: anon has NO EXECUTE on register_invited_profile'
 );
 
 select ok(
-  not has_function_privilege('public', 'public.register_invited_profile()', 'EXECUTE'),
+  not has_function_privilege('public', 'public.register_invited_profile(text)', 'EXECUTE'),
   'K-11: PUBLIC has NO EXECUTE on register_invited_profile'
 );
 
@@ -317,13 +324,19 @@ select ok(
   'K-12: profiles_self_brand_lock, profiles_self_delete_lock, profiles_sync_role_to_jwt and profiles_role_brand_consistent are all still present'
 );
 
+-- K-13 (rewritten by spec 198, 195-H1a): SELECT and DELETE are no longer the
+-- bare auth_is_privileged() policies. Full coverage, including the brand/store
+-- scope and the D-7 rule, is in invitations_hardening.test.sql (K-a, K-b).
 select is(
   (select count(*)::int from pg_policies
     where schemaname = 'public' and tablename = 'invitations'
       and cmd in ('SELECT', 'DELETE')
-      and qual = 'auth_is_privileged()'),
+      and roles = '{authenticated}'::name[]
+      and lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%auth_profile_is_privileged()%'
+      and lower(regexp_replace(qual, '\s+', ' ', 'g')) not like '%auth_is_privileged()%'
+      and lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%invited_by = auth.uid()%'),
   2,
-  'K-13: invitations SELECT and DELETE policies are unchanged (qual = auth_is_privileged())'
+  'K-13: invitations SELECT and DELETE are to authenticated, use auth_profile_is_privileged() (not auth_is_privileged()) and carry the D-7 invited_by arm (spec 198)'
 );
 
 -- K-14 / K-15 mirror the migration's fail-closed DO block (architect S1):
@@ -581,8 +594,15 @@ select set_config('request.jwt.claims', '', true);
 
 
 -- ============================================================
--- Section C - register_invited_profile()
+-- Section C - register_invited_profile(text)
 -- ============================================================
+-- Spec 198: the claim now takes the invitation's code. Every call passes the
+-- seeded row's code; C-9 now presents the right code of someone else's
+-- invitation with a mismatched auth email. C-15 used to pin the
+-- 'multiple pending invitations' refusal; that refusal is gone (the claim
+-- selects by code, B5), so C-15 now asserts that the second invitation's own
+-- code claims it. It keeps its slot, so plan(80) is unchanged. Full coverage:
+-- invitations_hardening.test.sql (B2, B3, B5, D3).
 
 -- --- C-1: staff invitation, brand resolved from store_a ---
 set local role authenticated;
@@ -591,7 +611,7 @@ select set_config('request.jwt.claims',
                      'app_metadata', '{}'::jsonb)::text, true);
 
 select is(
-  public.register_invited_profile(),
+  public.register_invited_profile('c0de1640000000000000000000000001'),
   current_setting('test.c1', true)::uuid,
   'C-1: user invitation registers and the RPC returns the caller uid'
 );
@@ -629,7 +649,7 @@ select set_config('request.jwt.claims',
                      'app_metadata', '{}'::jsonb)::text, true);
 
 select is(
-  public.register_invited_profile(),
+  public.register_invited_profile('c0de1640000000000000000000000005'),
   current_setting('test.c5', true)::uuid,
   'C-5a: admin invitation registers via the SECURITY DEFINER RPC (guard skips; B-3)'
 );
@@ -653,7 +673,7 @@ select set_config('request.jwt.claims',
                      'app_metadata', '{}'::jsonb)::text, true);
 
 select is(
-  public.register_invited_profile(),
+  public.register_invited_profile('c0de1640000000000000000000000006'),
   current_setting('test.c6', true)::uuid,
   'C-6a: user invitation with an explicit brand registers'
 );
@@ -674,7 +694,7 @@ select set_config('request.jwt.claims',
                      'app_metadata', '{}'::jsonb)::text, true);
 
 select is(
-  public.register_invited_profile(),
+  public.register_invited_profile('c0de1640000000000000000000000007'),
   current_setting('test.c7', true)::uuid,
   'C-7: invitation for Mixed.164@Example.test is claimed by auth email mixed.164@example.test'
 );
@@ -685,7 +705,7 @@ select set_config('request.jwt.claims',
                      'app_metadata', '{}'::jsonb)::text, true);
 
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000001'')',
   'P0001', 'profile already exists',
   'C-8a: a second call by an already-registered caller is refused'
 );
@@ -708,16 +728,16 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c9', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000009'')',
   'P0001', 'no pending invitation',
-  'C-9: invitation exists only for a different email -> no pending invitation'
+  'C-9: the right code of someone else''s invitation with a mismatched auth email -> no pending invitation'
 );
 
 select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c10', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000010'')',
   'P0001', 'no pending invitation',
   'C-10: used invitation -> no pending invitation'
 );
@@ -726,7 +746,7 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c11', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000011'')',
   'P0001', 'no pending invitation',
   'C-11: expired invitation -> no pending invitation'
 );
@@ -735,7 +755,7 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c12', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000012'')',
   'P0001', 'invitation role not allowed',
   'C-12: super_admin invitation -> invitation role not allowed'
 );
@@ -744,7 +764,7 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c13', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000013'')',
   'P0001', 'invitation role not allowed',
   'C-13: master invitation -> invitation role not allowed'
 );
@@ -753,7 +773,7 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c14', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000014'')',
   'P0001', 'admin invitation requires a brand',
   'C-14: admin invitation with NULL brand -> admin invitation requires a brand'
 );
@@ -761,16 +781,16 @@ select throws_ok(
 select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c15', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
-select throws_ok(
-  'select public.register_invited_profile()',
-  'P0001', 'multiple pending invitations',
-  'C-15: two pending invitations for the same email -> multiple pending invitations'
+select is(
+  public.register_invited_profile('c0de1640000000000000000000000016'),
+  current_setting('test.c15', true)::uuid,
+  'C-15: two pending invitations for one email no longer refuse; the second one''s own code claims it (spec 198 B5)'
 );
 
 -- --- C-16: no claims -> auth.uid() is null ---
 select set_config('request.jwt.claims', '', true);
 select throws_ok(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000001'')',
   'P0001', 'not authenticated',
   'C-16: authenticated role with no JWT subject -> not authenticated'
 );
@@ -780,7 +800,7 @@ select set_config('request.jwt.claims',
   jsonb_build_object('sub', current_setting('test.c17', true), 'role', 'authenticated',
                      'app_metadata', '{}'::jsonb)::text, true);
 select throws_like(
-  'select public.register_invited_profile()',
+  'select public.register_invited_profile(''c0de1640000000000000000000000017'')',
   'cross-brand user_stores assignment rejected%',
   'C-17: brand-A invitation with a brand-B store fails in user_stores_brand_match (P0001)'
 );
@@ -795,30 +815,34 @@ select ok(
       current_setting('test.c9', true),  current_setting('test.c10', true),
       current_setting('test.c11', true), current_setting('test.c12', true),
       current_setting('test.c13', true), current_setting('test.c14', true),
-      current_setting('test.c15', true), current_setting('test.c17', true)]::uuid[]))
+      current_setting('test.c17', true)]::uuid[]))
   and (select count(*) = 0 from public.user_stores
         where user_id = any(array[
           current_setting('test.c9', true),  current_setting('test.c10', true),
           current_setting('test.c11', true), current_setting('test.c12', true),
           current_setting('test.c13', true), current_setting('test.c14', true),
-          current_setting('test.c15', true), current_setting('test.c17', true)]::uuid[]))
-  and (select bool_and(used = false) and count(*) = 8 from public.invitations
+          current_setting('test.c17', true)]::uuid[]))
+  and (select bool_and(used = false) and count(*) = 6 from public.invitations
         where email in ('someone-else-164@local.test', 'c11-164@local.test',
                         'c12-164@local.test', 'c13-164@local.test', 'c14-164@local.test',
-                        'c15-164@local.test', 'c17-164@local.test'))
+                        'c17-164@local.test'))
   and (select bool_and(not (raw_app_meta_data ? 'role')) from auth.users
         where id = any(array[
           current_setting('test.c9', true),  current_setting('test.c10', true),
           current_setting('test.c11', true), current_setting('test.c12', true),
           current_setting('test.c13', true), current_setting('test.c14', true),
-          current_setting('test.c15', true), current_setting('test.c17', true)]::uuid[])),
-  'C-18: refused registrants (C-9..C-15, C-17) have no profile, no user_stores, invitations still unused, no app_metadata role'
+          current_setting('test.c17', true)]::uuid[])),
+  'C-18: refused registrants (C-9..C-14, C-17; C-15 now registers, spec 198) have no profile, no user_stores, invitations still unused, no app_metadata role'
 );
 
 
 -- ============================================================
 -- Section D - invitations INSERT / UPDATE under JWT
 -- ============================================================
+-- Spec 198: the INSERT policy now also requires a code_hash (AD-2) and a
+-- bounded expires_at (the default now()+48h is in bound). Every insert below
+-- carries its own distinct code_hash (the column has a partial unique index),
+-- so each refusal still tests only its own predicate.
 
 -- --- D-1..D-12: admin A ---
 set local role authenticated;
@@ -827,47 +851,47 @@ select set_config('request.jwt.claims',
                      'app_metadata', jsonb_build_object('role', 'admin'))::text, true);
 
 select lives_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d1-164@local.test', 'D1', 'user', array[%L], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d1-164@local.test', 'D1', 'user', array[%L], %L::uuid, %L::uuid, encode(sha256(convert_to('d1', 'UTF8')), 'hex'))$q$,
          current_setting('test.store_a', true), current_setting('test.brand_a', true),
          current_setting('test.admin_id', true)),
   'D-1: brand-A admin can insert a user invite with brand-A stores'
 );
 
 select lives_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d2-164@local.test', 'D2', 'admin', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d2-164@local.test', 'D2', 'admin', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d2', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_a', true), current_setting('test.admin_id', true)),
   'D-2: brand-A admin can insert an admin invite with brand A'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d3-164@local.test', 'D3', 'super_admin', array[]::text[], null, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d3-164@local.test', 'D3', 'super_admin', array[]::text[], null, %L::uuid, encode(sha256(convert_to('d3', 'UTF8')), 'hex'))$q$,
          current_setting('test.admin_id', true)),
   '42501', null,
   'D-3: brand-A admin cannot insert a super_admin invite (42501)'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d4-164@local.test', 'D4', 'master', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d4-164@local.test', 'D4', 'master', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d4', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_a', true), current_setting('test.admin_id', true)),
   '42501', null,
   'D-4: brand-A admin cannot insert a master invite (42501)'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d5-164@local.test', 'D5', 'user', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d5-164@local.test', 'D5', 'user', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d5', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_b', true), current_setting('test.admin_id', true)),
   '42501', null,
   'D-5: brand-A admin cannot insert a brand-B invite (42501)'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d6-164@local.test', 'D6', 'user', array[%L], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d6-164@local.test', 'D6', 'user', array[%L], %L::uuid, %L::uuid, encode(sha256(convert_to('d6', 'UTF8')), 'hex'))$q$,
          current_setting('test.store_b', true), current_setting('test.brand_a', true),
          current_setting('test.admin_id', true)),
   '42501', null,
@@ -875,39 +899,56 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d7-164@local.test', 'D7', 'user', array[%L], null, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d7-164@local.test', 'D7', 'user', array[%L], null, %L::uuid, encode(sha256(convert_to('d7', 'UTF8')), 'hex'))$q$,
          current_setting('test.store_b', true), current_setting('test.admin_id', true)),
   '42501', null,
   'D-7: brand-A admin cannot insert a NULL-brand invite carrying a brand-B store (store arm alone, 42501)'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d8-164@local.test', 'D8', 'user', array['not-a-uuid'], null, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d8-164@local.test', 'D8', 'user', array['not-a-uuid'], null, %L::uuid, encode(sha256(convert_to('d8', 'UTF8')), 'hex'))$q$,
          current_setting('test.admin_id', true)),
   '42501', null,
   'D-8: malformed store id fails closed as 42501 (text comparison, not 22P02)'
 );
 
+-- Spec 198 review H1: invitations UPDATE is super_admin-only and admits only
+-- unused rows, so a brand admin's UPDATE now matches 0 rows instead of
+-- reaching WITH CHECK. D-9 and D-10 run as the super_admin (the only caller
+-- whose UPDATE reaches WITH CHECK) and keep pinning its role and store arms;
+-- D-11 pins the brand admin's 0-row result. plan(80) is unchanged.
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', current_setting('test.sa', true), 'role', 'authenticated',
+                     'app_metadata', jsonb_build_object('role', 'super_admin'))::text, true);
+
 select throws_ok(
   $q$update public.invitations set role = 'super_admin' where email = 'd1-164@local.test'$q$,
   '42501', null,
-  'D-9: brand-A admin cannot update an invite to role=super_admin (42501)'
+  'D-9: even the super_admin cannot update an invite to role=super_admin (42501, spec 198 H1)'
 );
 
 select throws_ok(
-  format($q$update public.invitations set store_ids = array[%L] where email = 'd1-164@local.test'$q$,
-         current_setting('test.store_b', true)),
+  $q$update public.invitations set store_ids = array['not-a-uuid'] where email = 'd1-164@local.test'$q$,
   '42501', null,
-  'D-10: brand-A admin cannot update an invite to carry a brand-B store (42501)'
+  'D-10: the super_admin cannot update an invite to carry an unknown store id (42501, fail-closed store arm, spec 198 H1)'
 );
 
-select throws_ok(
-  format($q$update public.invitations set brand_id = %L::uuid where email = 'd1-164@local.test'$q$,
-         current_setting('test.brand_b', true)),
-  '42501', null,
-  'D-11: brand-A admin cannot update an invite to brand B (42501)'
+select set_config('request.jwt.claims',
+  jsonb_build_object('sub', current_setting('test.admin_id', true), 'role', 'authenticated',
+                     'app_metadata', jsonb_build_object('role', 'admin'))::text, true);
+
+with u as (
+  update public.invitations
+     set brand_id = current_setting('test.brand_b', true)::uuid
+   where email = 'd1-164@local.test'
+  returning 1
+)
+select is(
+  (select count(*)::int from u),
+  0,
+  'D-11: a brand-A admin UPDATE of its own brand-A invite (here to brand B) affects 0 rows: invitations UPDATE is super_admin-only (spec 198 H1)'
 );
 
 with u as (
@@ -928,31 +969,31 @@ select set_config('request.jwt.claims',
                      'app_metadata', jsonb_build_object('role', 'super_admin'))::text, true);
 
 select lives_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d13-164@local.test', 'D13', 'user', array[%L], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d13-164@local.test', 'D13', 'user', array[%L], %L::uuid, %L::uuid, encode(sha256(convert_to('d13', 'UTF8')), 'hex'))$q$,
          current_setting('test.store_b', true), current_setting('test.brand_b', true),
          current_setting('test.sa', true)),
   'D-13: super_admin can insert a brand-B user invite with a brand-B store'
 );
 
 select lives_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d14-164@local.test', 'D14', 'admin', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d14-164@local.test', 'D14', 'admin', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d14', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_b', true), current_setting('test.sa', true)),
   'D-14: super_admin can insert a brand-B admin invite'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d15-164@local.test', 'D15', 'super_admin', array[]::text[], null, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d15-164@local.test', 'D15', 'super_admin', array[]::text[], null, %L::uuid, encode(sha256(convert_to('d15', 'UTF8')), 'hex'))$q$,
          current_setting('test.sa', true)),
   '42501', null,
   'D-15: super_admin cannot insert a super_admin invite (42501)'
 );
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d16-164@local.test', 'D16', 'master', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d16-164@local.test', 'D16', 'master', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d16', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_b', true), current_setting('test.sa', true)),
   '42501', null,
   'D-16: super_admin cannot insert a master invite (42501)'
@@ -964,8 +1005,8 @@ select set_config('request.jwt.claims',
                      'app_metadata', jsonb_build_object('role', 'master'))::text, true);
 
 select lives_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d17-164@local.test', 'D17', 'user', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d17-164@local.test', 'D17', 'user', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('d17', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_a', true), current_setting('test.master_id', true)),
   'D-17: brand-A master can insert a brand-A user invite'
 );
@@ -976,8 +1017,8 @@ select set_config('request.jwt.claims',
                      'app_metadata', jsonb_build_object('role', 'user'))::text, true);
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('d18-164@local.test', 'D18', 'user', array[]::text[], null, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('d18-164@local.test', 'D18', 'user', array[]::text[], null, %L::uuid, encode(sha256(convert_to('d18', 'UTF8')), 'hex'))$q$,
          current_setting('test.manager_id', true)),
   '42501', null,
   'D-18: a role=user caller cannot insert any invitation (42501)'
@@ -1008,8 +1049,8 @@ select set_config('request.jwt.claims',
                      'app_metadata', jsonb_build_object('role', 'admin'))::text, true);
 
 select throws_ok(
-  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id)
-            values ('e1-191@local.test', 'E1', 'admin', array[]::text[], %L::uuid, %L::uuid)$q$,
+  format($q$insert into public.invitations (email, name, role, store_ids, brand_id, profile_id, code_hash)
+            values ('e1-191@local.test', 'E1', 'admin', array[]::text[], %L::uuid, %L::uuid, encode(sha256(convert_to('e1', 'UTF8')), 'hex'))$q$,
          current_setting('test.brand_a', true), current_setting('test.manager_id', true)),
   '42501', null,
   'E-1: stale admin claim on a role=user profile cannot insert a brand-A admin invitation (42501)'

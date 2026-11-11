@@ -1,63 +1,44 @@
-// src/lib/registerInvitedUser.test.ts — Spec 164 (jest).
+// src/lib/registerInvitedUser.test.ts — Spec 198 B10 (jest), rewritten from 164.
 //
-// Pins the spec 164 registration contract: after signUp, registerInvitedUser
-// finishes registration with exactly ONE call to the SECURITY DEFINER RPC
-// register_invited_profile(), which derives role / brand / username / stores
-// server-side from the pending invitation. The client must NOT:
-//   - insert into `profiles` or `user_stores`
-//   - call consume_invitation
-//   - send a `role` in signUp options.data
+// Pins the client half of the code-gated claim:
+//   - an invalid / missing code → INVITE_CODE_REQUIRED_ERROR with NO network
+//     call (no RPC, no signUp)
+//   - the pre-check is check_invitation_code({ p_email, p_code }) with both
+//     normalized (trimmed + lower-cased; a pasted full link yields the code)
+//   - zero rows or an error from the pre-check → NO_PENDING_INVITATION_ERROR
+//     and signUp is NOT called (no orphan auth user on a wrong code)
+//   - success order: check_invitation_code → signUp (no `role`, name from the
+//     pre-check row) → register_invited_profile({ p_code }) exactly once
+//   - never calls get_pending_invitation (dropped server-side) and makes no
+//     from() writes; never calls consume_invitation
+//   - a claim error → "Account created but profile setup failed: …"
 //
-// Spec 069 brand-stamp cases that used to live here were deleted: brand
-// derivation is now server-side, and the spec 069 rule (staff brand resolved
-// from store_ids[1] when the invitation brand is NULL; explicit brand wins) is
-// pinned by pgTAP supabase/tests/profiles_insert_hardening.test.sql arms
-// C-2 and C-6.
-//
-// Boundary mocked: `./supabase`. registerInvitedUser touches
-//   - supabase.rpc('get_pending_invitation', …)  → the invitation envelope
-//   - supabase.auth.signUp(…)                     → the new auth user (captured)
-//   - supabase.rpc('register_invited_profile')    → per-test { data, error }
-//   - supabase.auth.getSession()                  → via callEdgeFunction for the
-//                                                    fire-and-forget welcome
-//                                                    email (returns no session,
-//                                                    so no network call)
-//   - supabase.from(…)                            → spy only; must NOT be hit
-//                                                    for profiles / user_stores
+// The server half (selection by code, inviter re-check, refusal matrix,
+// pre-check / claim agreement) is pgTAP:
+// supabase/tests/invitations_hardening.test.sql.
 //
 // Welcome-email detection: callEdgeFunction lives in the same module, so it
 // cannot be spied through the import. Its first statement is
 // supabase.auth.getSession(), so "getSession was called" is the observable
 // proxy for "the welcome email was attempted".
 
-const BRAND_A = '2a000000-0000-0000-0000-000000000001';
+const CODE = '0123456789abcdef0123456789abcdef';
 
-// Per-test fixtures. Prefixed `mock` so the hoisted jest.mock() factory below
-// may reference them (jest's out-of-scope-variable guard allows `mock*`).
-let mockInvitationRow: any = null;
-let mockRegisterResult: { data: unknown; error: { message: string } | null } = {
-  data: null,
-  error: null,
-};
+// Prefixed `mock` so the hoisted jest.mock() factory may reference them.
+let mockCheckResult: { data: unknown; error: { message: string } | null } = { data: [], error: null };
+let mockRegisterResult: { data: unknown; error: { message: string } | null } = { data: null, error: null };
 let mockSignUpResult: { data: { user: { id: string } | null }; error: { message: string } | null } = {
-  data: { user: { id: 'new-user-id-164' } },
+  data: { user: { id: 'new-user-id-198' } },
   error: null,
 };
 
 jest.mock('./supabase', () => ({
   supabase: {
     rpc: jest.fn((fn: string) => {
-      if (fn === 'get_pending_invitation') {
-        return Promise.resolve({
-          data: mockInvitationRow ? [mockInvitationRow] : [],
-          error: null,
-        });
-      }
-      if (fn === 'register_invited_profile') {
-        return Promise.resolve(mockRegisterResult);
-      }
-      // Anything else (e.g. a regressed consume_invitation call) → benign
-      // success; the assertions below catch it by name.
+      if (fn === 'check_invitation_code') return Promise.resolve(mockCheckResult);
+      if (fn === 'register_invited_profile') return Promise.resolve(mockRegisterResult);
+      // Anything else (a regressed get_pending_invitation / consume_invitation
+      // call) → benign; the assertions below catch it by name.
       return Promise.resolve({ data: null, error: null });
     }),
     auth: {
@@ -66,12 +47,17 @@ jest.mock('./supabase', () => ({
     },
     from: jest.fn(() => ({
       insert: jest.fn(() => Promise.resolve({ error: null })),
-      delete: jest.fn(() => ({ lt: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) })),
+      update: jest.fn(() => Promise.resolve({ error: null })),
+      delete: jest.fn(() => Promise.resolve({ error: null })),
     })),
   },
 }));
 
-import { registerInvitedUser } from './auth';
+import {
+  registerInvitedUser,
+  INVITE_CODE_REQUIRED_ERROR,
+  NO_PENDING_INVITATION_ERROR,
+} from './auth';
 import { supabase } from './supabase';
 
 const rpcMock = supabase.rpc as unknown as jest.Mock;
@@ -83,115 +69,114 @@ function rpcCallsNamed(name: string): unknown[][] {
   return rpcMock.mock.calls.filter((c: unknown[]) => c[0] === name);
 }
 
-function fromTables(): unknown[] {
-  return fromMock.mock.calls.map((c: unknown[]) => c[0]);
-}
-
-const STAFF_INVITE = {
-  id: 'inv-staff-164',
-  email: 'staff164@test.local',
-  name: 'Staff Member',
-  role: 'user',
-  store_ids: ['00000000-0000-0000-0000-000000000001'],
-  brand_id: null,
-  resolved_brand_id: BRAND_A,
-  username: 'staff164',
-  expires_at: null,
-};
-
-describe('registerInvitedUser (spec 164 — server-side registration RPC)', () => {
+describe('registerInvitedUser (spec 198 — code-gated claim)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockInvitationRow = null;
-    mockRegisterResult = { data: 'new-user-id-164', error: null };
-    mockSignUpResult = { data: { user: { id: 'new-user-id-164' } }, error: null };
+    mockCheckResult = { data: [{ name: 'Staff Member' }], error: null };
+    mockRegisterResult = { data: 'new-user-id-198', error: null };
+    mockSignUpResult = { data: { user: { id: 'new-user-id-198' } }, error: null };
   });
 
-  it('success: signUp without role, then exactly one register_invited_profile call and no direct writes', async () => {
-    mockInvitationRow = STAFF_INVITE;
+  it.each([
+    ['empty', ''],
+    ['whitespace', '   '],
+    ['too short', CODE.slice(1)],
+    ['non-hex', `${CODE.slice(1)}z`],
+    ['a recovery-style link', `https://app.example/?code=${CODE}`],
+  ])('an invalid code (%s) → INVITE_CODE_REQUIRED_ERROR, no RPC, no signUp', async (_label, code) => {
+    const result = await registerInvitedUser('staff@test.local', 'password', code);
 
-    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
+    expect(result).toEqual({ user: null, error: INVITE_CODE_REQUIRED_ERROR });
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(signUpMock).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the pre-check arguments (email trimmed + lower-cased; code from a pasted link)', async () => {
+    await registerInvitedUser(
+      '  Staff@Test.Local ',
+      'password',
+      ` https://app.example/?register=true&invite=${CODE.toUpperCase()} `,
+    );
+
+    const checks = rpcCallsNamed('check_invitation_code');
+    expect(checks).toHaveLength(1);
+    expect(checks[0][1]).toEqual({ p_email: 'staff@test.local', p_code: CODE });
+  });
+
+  it.each([
+    ['zero rows', { data: [], error: null }],
+    ['null data', { data: null, error: null }],
+    ['an RPC error', { data: null, error: { message: 'permission denied' } }],
+  ])('pre-check %s → NO_PENDING_INVITATION_ERROR and signUp is not called', async (_label, res) => {
+    mockCheckResult = res;
+
+    const result = await registerInvitedUser('staff@test.local', 'password', CODE);
+
+    expect(result).toEqual({ user: null, error: NO_PENDING_INVITATION_ERROR });
+    expect(signUpMock).not.toHaveBeenCalled();
+    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
+  });
+
+  it('success: check_invitation_code → signUp (no role, name from pre-check) → one register_invited_profile({ p_code })', async () => {
+    const result = await registerInvitedUser('staff@test.local', 'password', CODE);
 
     expect(result.error).toBeNull();
 
-    // signUp called once; options.data is exactly { name } — no role key.
+    // signUp once; options.data is exactly { name } from the pre-check row.
     expect(signUpMock).toHaveBeenCalledTimes(1);
     const signUpArg = signUpMock.mock.calls[0][0];
+    expect(signUpArg.email).toBe('staff@test.local');
     expect(signUpArg.options.data).toEqual({ name: 'Staff Member' });
     expect(signUpArg.options.data).not.toHaveProperty('role');
 
-    // Exactly one RPC call, with no args object.
+    // Exactly one claim, carrying the code.
     const regCalls = rpcCallsNamed('register_invited_profile');
     expect(regCalls).toHaveLength(1);
-    expect(regCalls[0][1]).toBeUndefined();
+    expect(regCalls[0][1]).toEqual({ p_code: CODE });
 
-    // The RPC runs after signUp.
+    // Order: pre-check < signUp < claim.
+    const checkIdx = rpcMock.mock.calls.findIndex((c: unknown[]) => c[0] === 'check_invitation_code');
+    const regIdx = rpcMock.mock.calls.findIndex((c: unknown[]) => c[0] === 'register_invited_profile');
     const signUpOrder = signUpMock.mock.invocationCallOrder[0];
-    const regIndex = rpcMock.mock.calls.findIndex((c: unknown[]) => c[0] === 'register_invited_profile');
-    expect(rpcMock.mock.invocationCallOrder[regIndex]).toBeGreaterThan(signUpOrder);
+    expect(rpcMock.mock.invocationCallOrder[checkIdx]).toBeLessThan(signUpOrder);
+    expect(rpcMock.mock.invocationCallOrder[regIdx]).toBeGreaterThan(signUpOrder);
 
-    // No direct table writes, no consume_invitation.
-    expect(fromTables()).not.toContain('profiles');
-    expect(fromTables()).not.toContain('user_stores');
+    // Never the dropped lookup, never consume_invitation, no table writes.
+    expect(rpcCallsNamed('get_pending_invitation')).toHaveLength(0);
     expect(rpcCallsNamed('consume_invitation')).toHaveLength(0);
+    expect(fromMock).not.toHaveBeenCalled();
 
     // Welcome email attempted (callEdgeFunction reads the session first).
     expect(getSessionMock).toHaveBeenCalled();
   });
 
-  it('RPC error: returns the "profile setup failed" error and does not send the welcome email', async () => {
-    mockInvitationRow = STAFF_INVITE;
+  it('accepts a single-object pre-check payload as well as an array', async () => {
+    mockCheckResult = { data: { name: 'Solo Row' }, error: null };
+
+    const result = await registerInvitedUser('staff@test.local', 'password', CODE);
+
+    expect(result.error).toBeNull();
+    expect(signUpMock.mock.calls[0][0].options.data).toEqual({ name: 'Solo Row' });
+  });
+
+  it('a claim error → "profile setup failed" and no welcome email', async () => {
     mockRegisterResult = { data: null, error: { message: 'no pending invitation' } };
 
-    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
+    const result = await registerInvitedUser('staff@test.local', 'password', CODE);
 
     expect(result.error).toBe('Account created but profile setup failed: no pending invitation');
     expect(result.user).toBeNull();
     expect(rpcCallsNamed('register_invited_profile')).toHaveLength(1);
     expect(getSessionMock).not.toHaveBeenCalled();
-    expect(rpcCallsNamed('consume_invitation')).toHaveLength(0);
   });
 
-  it('admin invitation with NULL brand: existing pre-check error; signUp and the RPC are not called', async () => {
-    mockInvitationRow = {
-      id: 'inv-admin-164-nobrand',
-      email: 'admin164@test.local',
-      name: 'Admin Person',
-      role: 'admin',
-      store_ids: [],
-      brand_id: null,
-      resolved_brand_id: null,
-      username: null,
-      expires_at: null,
-    };
-
-    const result = await registerInvitedUser('admin164@test.local', 'password', 'Admin Person');
-
-    expect(result.error).toBe(
-      'Invitation is missing a brand assignment. Please ask your admin to re-issue the invite.',
-    );
-    expect(signUpMock).not.toHaveBeenCalled();
-    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
-  });
-
-  it('no invitation: existing "No invitation found" error; signUp is not called', async () => {
-    mockInvitationRow = null;
-
-    const result = await registerInvitedUser('nobody164@test.local', 'password', 'Nobody');
-
-    expect(result.error).toBe('No invitation found for this email. Please ask an admin to invite you.');
-    expect(signUpMock).not.toHaveBeenCalled();
-    expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
-  });
-
-  it('signUp error: returns its message and the RPC is not called', async () => {
-    mockInvitationRow = STAFF_INVITE;
+  it('a signUp error returns its message and no claim is made', async () => {
     mockSignUpResult = { data: { user: null }, error: { message: 'User already registered' } };
 
-    const result = await registerInvitedUser('staff164@test.local', 'password', 'Staff Member');
+    const result = await registerInvitedUser('staff@test.local', 'password', CODE);
 
     expect(result.error).toBe('User already registered');
     expect(rpcCallsNamed('register_invited_profile')).toHaveLength(0);
-    expect(fromTables()).not.toContain('profiles');
+    expect(fromMock).not.toHaveBeenCalled();
   });
 });

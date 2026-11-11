@@ -122,6 +122,12 @@ describe('fetchAllUsers — spec 083 NULL-brand email inference', () => {
   // non-empty email for a profile whose only matching invitation is NULL-brand,
   // matched by profile_id. Pre-083 the brand filter dropped that invitation and
   // the email rendered '' → "(email not loaded)".
+  //
+  // Spec 198 (F4) — kept. supabase is mocked, so RLS doesn't reach this pin; it
+  // exercises client-side matching only. Under the spec 198 SELECT policy a
+  // brand admin receives a brand-less invitation only when it carries
+  // in-scope stores or they sent it (D-7); the super_admin receives all of
+  // them. get_profile_emails (spec 163) is the primary email source either way.
   it('resolves a non-empty email for a NULL-brand invitation matched by profile_id when a brandId is supplied', async () => {
     profilesResult = {
       data: [profileRow({ id: 'p-bob', name: 'Bobby', role: 'admin', brand_id: BRAND })],

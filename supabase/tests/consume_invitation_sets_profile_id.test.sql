@@ -28,10 +28,11 @@
 -- 11111…/22222… and their seeded auth.users.email rather than mint
 -- synthetic UUIDs).
 --
--- JWT-context idiom: set local role authenticated; +
--- set_config('request.jwt.claims', …, true). consume_invitation is
--- SECURITY DEFINER and reads auth.uid() per-call, so the JWT context
--- applies.
+-- JWT-context idiom: set_config('request.jwt.claims', …, true).
+-- consume_invitation is SECURITY DEFINER and reads auth.uid() per-call, so
+-- the JWT context applies. Spec 198 (D-6) revoked EXECUTE from
+-- authenticated, so arms A/B now call it as postgres with the claims set
+-- (no `set local role authenticated`); the function body is unchanged.
 --
 -- DRIFT DISCIPLINE: Arm C/D execute the backfill UPDATE inline (pgTAP
 -- can't re-run a migration mid-transaction). That inline UPDATE must stay
@@ -74,7 +75,8 @@ insert into public.invitations (email, name, role, store_ids, profile_id, used)
   values (current_setting('test.admin_email', true), 'Admin Invitee', 'manager',
           array[]::text[], current_setting('test.sentinel', true)::uuid, false);
 
-set local role authenticated;
+-- Spec 198 (D-6): authenticated no longer has EXECUTE on consume_invitation,
+-- so this runs as postgres; auth.uid() reads the request.jwt.claims GUC.
 select set_config(
   'request.jwt.claims',
   jsonb_build_object(
@@ -111,7 +113,8 @@ select is(
 -- The row is now used=true. A second consume must return false (the
 -- `where used = false` guard matches zero rows) and must NOT overwrite the
 -- profile_id set in Arm A.
-set local role authenticated;
+-- Spec 198 (D-6): authenticated no longer has EXECUTE on consume_invitation,
+-- so this runs as postgres; auth.uid() reads the request.jwt.claims GUC.
 select set_config(
   'request.jwt.claims',
   jsonb_build_object(
@@ -199,7 +202,10 @@ select is(
   'arm D: re-running the backfill leaves the already-linked row unchanged (idempotent)'
 );
 
--- ─── Arm E: grant lockdown — anon/public EXECUTE revoked, authenticated kept ──
+-- ─── Arm E: grant lockdown — anon/public/authenticated EXECUTE revoked ──
+-- Spec 198 (D-6) flipped this arm: consume_invitation has had no caller since
+-- spec 164, and any account could use it to burn an invitation, so
+-- authenticated lost EXECUTE too. service_role keeps it.
 -- spec 082 review fold-in (security-auditor + architect): the migration adds
 -- `revoke execute ... from public, anon` to match the spec-005 anon-lockdown
 -- standard. Pin it via a CATALOG-QUERY (has_function_privilege) — NOT
@@ -208,8 +214,9 @@ select is(
 -- (neither explicit nor via PUBLIC), while authenticated retains its grant.
 select ok(
   not has_function_privilege('anon', 'public.consume_invitation(uuid, text)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.consume_invitation(uuid, text)', 'EXECUTE'),
-  'arm E: anon/public EXECUTE revoked; authenticated EXECUTE retained'
+  and not has_function_privilege('authenticated', 'public.consume_invitation(uuid, text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.consume_invitation(uuid, text)', 'EXECUTE'),
+  'arm E: anon, PUBLIC and authenticated EXECUTE revoked (spec 198 D-6); service_role retained'
 );
 
 select * from finish();

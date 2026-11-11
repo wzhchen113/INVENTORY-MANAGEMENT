@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { email, name, role, storeNames } = await req.json();
+    const { email, name, role, storeNames, inviteCode } = await req.json();
 
     if (!email || !name) {
       return new Response(JSON.stringify({ error: "email and name required" }), {
@@ -67,6 +67,20 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Spec 198 (AD-7): the client sends the one-time invite code, not a URL.
+    // The link is built here from the fixed APP_URL, so a caller cannot put an
+    // arbitrary href into mail from the app's sender. Format parity with
+    // src/lib/inviteLink.ts INVITE_CODE_RE.
+    if (typeof inviteCode !== "string" || !/^[0-9a-f]{32}$/.test(inviteCode)) {
+      return new Response(JSON.stringify({ error: "inviteCode required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const inviteUrl = `${APP_URL}/?register=true&invite=${inviteCode}`;
+    // Legacy register URL, used only by the inviteUserByEmail fallback below
+    // (unchanged by spec 198; the fallback is out of scope).
     const registerUrl = `${APP_URL}?register=true`;
     const expiresText = "48 hours";
 
@@ -81,7 +95,7 @@ Deno.serve(async (req: Request) => {
           from: "I.M.R Inventory <onboarding@resend.dev>",
           to: [email],
           subject: "You're invited to I.M.R — Inventory Management for Restaurant",
-          html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:40px 20px"><div style="background:#1A1A18;border-radius:12px;padding:32px;text-align:center;margin-bottom:24px"><h1 style="color:#FFF;font-size:28px;margin:0;letter-spacing:1px">I.M.R</h1><p style="color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:14px">Inventory Management for Restaurant</p></div><h2 style="color:#1A1A18;font-size:20px">Welcome, ${escapeHtml(name)}!</h2><p style="color:#6B6A65;font-size:15px;line-height:1.6">You've been invited to join <strong>I.M.R</strong> as a <strong>${escapeHtml(role)}</strong>${storeNames ? ` with access to <strong>${escapeHtml(storeNames)}</strong>` : ""}.</p><p style="color:#6B6A65;font-size:15px;line-height:1.6">Click the button below to create your account:</p><div style="text-align:center;margin:32px 0"><a href="${escapeHtml(registerUrl)}" style="background:#1A1A18;color:#FFF;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;display:inline-block">Create your account</a></div><p style="color:#9B9A95;font-size:13px;text-align:center">This invitation expires in <strong>${escapeHtml(expiresText)}</strong>.</p><hr style="border:none;border-top:1px solid #EEEDE8;margin:32px 0"/><p style="color:#9B9A95;font-size:12px;text-align:center">I.M.R — Inventory Management for Restaurant</p></div>`,
+          html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:40px 20px"><div style="background:#1A1A18;border-radius:12px;padding:32px;text-align:center;margin-bottom:24px"><h1 style="color:#FFF;font-size:28px;margin:0;letter-spacing:1px">I.M.R</h1><p style="color:rgba(255,255,255,0.7);margin:4px 0 0;font-size:14px">Inventory Management for Restaurant</p></div><h2 style="color:#1A1A18;font-size:20px">Welcome, ${escapeHtml(name)}!</h2><p style="color:#6B6A65;font-size:15px;line-height:1.6">You've been invited to join <strong>I.M.R</strong> as a <strong>${escapeHtml(role)}</strong>${storeNames ? ` with access to <strong>${escapeHtml(storeNames)}</strong>` : ""}.</p><p style="color:#6B6A65;font-size:15px;line-height:1.6">Click the button below to create your account:</p><div style="text-align:center;margin:32px 0"><a href="${escapeHtml(inviteUrl)}" style="background:#1A1A18;color:#FFF;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;display:inline-block">Create your account</a></div><p style="color:#9B9A95;font-size:13px;text-align:center;word-break:break-all">If the button does not work, open this link: ${escapeHtml(inviteUrl)}</p><p style="color:#9B9A95;font-size:13px;text-align:center">This invitation expires in <strong>${escapeHtml(expiresText)}</strong>.</p><hr style="border:none;border-top:1px solid #EEEDE8;margin:32px 0"/><p style="color:#9B9A95;font-size:12px;text-align:center">I.M.R — Inventory Management for Restaurant</p></div>`,
         }),
       });
 

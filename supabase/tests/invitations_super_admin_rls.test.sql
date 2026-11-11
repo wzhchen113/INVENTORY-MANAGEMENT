@@ -23,6 +23,12 @@
 -- role value itself is P_INV-legal). Full P_INV coverage lives in
 -- profiles_insert_hardening.test.sql section D.
 --
+-- Spec 198: the INSERT policy now also requires a code_hash (AD-2), so each
+-- arm inserts its own distinct one (partial unique index). The count reads in
+-- (i) and (ii) still see the new row: the brand-less, store-less row is
+-- visible to its inviter (invited_by, stamped by the provenance trigger) and
+-- to the super_admin (D-7).
+--
 -- Hermetic begin; ... rollback; isolation. Mirrors the shape of
 -- supabase/tests/eod_submissions_consistency.test.sql.
 --
@@ -79,10 +85,11 @@ select set_config(
 -- profile_id is NOT NULL with no default and no FK constraint
 -- (see information_schema). Reuse the caller's auth.uid() as the
 -- inviter's profile id — same shape the inviteUser flow uses in prod.
-insert into public.invitations (email, name, role, store_ids, profile_id)
+insert into public.invitations (email, name, role, store_ids, profile_id, code_hash)
   values ('test-admin@example.invalid', 'Admin Test', 'user',
           array[]::text[],
-          current_setting('test.admin_id', true)::uuid);
+          current_setting('test.admin_id', true)::uuid,
+          encode(sha256(convert_to('arm-i', 'UTF8')), 'hex'));
 
 select is(
   (select count(*)::bigint
@@ -106,10 +113,11 @@ select set_config(
   true
 );
 
-insert into public.invitations (email, name, role, store_ids, profile_id)
+insert into public.invitations (email, name, role, store_ids, profile_id, code_hash)
   values ('test-superadmin@example.invalid', 'Super Test', 'user',
           array[]::text[],
-          current_setting('test.super_id', true)::uuid);
+          current_setting('test.super_id', true)::uuid,
+          encode(sha256(convert_to('arm-ii', 'UTF8')), 'hex'));
 
 select is(
   (select count(*)::bigint
@@ -136,9 +144,10 @@ select set_config(
 
 select throws_ok(
   format(
-    $q$insert into public.invitations (email, name, role, store_ids, profile_id)
+    $q$insert into public.invitations (email, name, role, store_ids, profile_id, code_hash)
        values ('test-user@example.invalid', 'User Test', 'user',
-               array[]::text[], %L::uuid)$q$,
+               array[]::text[], %L::uuid,
+               encode(sha256(convert_to('arm-iii', 'UTF8')), 'hex'))$q$,
     current_setting('test.user_id', true)
   ),
   '42501',
