@@ -113,9 +113,14 @@ describe('useEodSubmit.submit', () => {
   });
 
   it('returns forbidden when RPC error code === 42501', async () => {
+    // Spec 199 (AC-21) — under the narrowed isForbidden only the real
+    // store-gate message counts, so the fixture carries it verbatim.
     mockRpc.mockResolvedValueOnce({
       data: null,
-      error: { code: '42501', message: 'cannot see store' },
+      error: {
+        code: '42501',
+        message: 'staff_submit_eod: caller cannot see store 00000000-0000-0000-0000-000000000001',
+      },
     });
     const { result } = renderHook(() => useEodSubmit());
     let outcome: Outcome | undefined;
@@ -527,5 +532,305 @@ describe('useEodSubmit — spec 193 date-window refusal', () => {
     });
     expect(outcome).toEqual({ kind: 'failed', message: t('eod.toast.failed') });
     expect(useStaffStore.getState().eodQueue).toHaveLength(0);
+  });
+});
+
+// ─── Spec 199 — narrowed isForbidden + skipped-items notice ─────────
+// Only the RPC's step-1.5 store gate ('staff_submit_eod: caller cannot see
+// store <uuid>', 42501) or an HTTP 403 without a non-gate 42501 dequeues a
+// queued count / returns `forbidden`. Any other 42501 (the eod_entries
+// store-mismatch trigger, an anon-session "permission denied for function")
+// is kept and retried. A success envelope's `skipped_item_ids` surfaces as
+// `skipped_count` online and as ONE debounced notice in the drain.
+describe('useEodSubmit — spec 199 skip unknown items', () => {
+  const STORE_GATE_MSG =
+    'staff_submit_eod: caller cannot see store 00000000-0000-0000-0000-000000000001';
+  const TRIGGER_MSG = 'eod_entries: item store mismatch with parent submission';
+
+  function queued(clientUuid: string, queuedAt: string, vendorId = 'vendor-1') {
+    return {
+      client_uuid: clientUuid,
+      store_id: 'store-1',
+      date: '2026-05-24',
+      vendor_id: vendorId,
+      status: 'submitted' as const,
+      entries: [
+        {
+          item_id: 'item-1',
+          actual_remaining: 3,
+          actual_remaining_cases: null,
+          actual_remaining_each: 3,
+        },
+      ],
+      queued_at: queuedAt,
+      intent_user_id: 'user-1',
+      attempts: 0,
+    };
+  }
+
+  const toastCalls = () =>
+    (Toast.show as jest.Mock).mock.calls.map((c) => c[0] as Record<string, unknown>);
+
+  // Earlier describes can leave a 400 ms debounced drain toast pending
+  // (no unmount cleanup in the hook); let it fire before these arms start
+  // clearing + asserting on Toast.show.
+  beforeAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  });
+
+  beforeEach(() => {
+    jest.mocked(Toast.show).mockClear();
+  });
+
+  it('AC-13: drain + store-gate 42501 dequeues the item and shows the sync-error toast', async () => {
+    useStaffStore.setState({ eodQueue: [queued('q-gate', '2026-05-24T00:00:00.000Z')] });
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '42501', message: STORE_GATE_MSG, details: null, hint: null },
+    });
+
+    renderHook(() => useEodSubmit());
+
+    await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(Toast.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        text1: t('chrome.queue.syncErrorBanner', { date: '2026-05-24', vendor: 'vendor-1' }),
+      }),
+    );
+  });
+
+  it.each([
+    ['the eod_entries store-mismatch trigger', { code: '42501', message: TRIGGER_MSG }],
+    [
+      'an anon-session permission denied',
+      { code: '42501', message: 'permission denied for function staff_submit_eod' },
+    ],
+    [
+      'the trigger message with status 403 attached (R12 b)',
+      { code: '42501', message: TRIGGER_MSG, status: 403 },
+    ],
+  ])(
+    'AC-14: drain + %s keeps the item (attempts bumped) and still submits the next FIFO item',
+    async (_label, error) => {
+      useStaffStore.setState({
+        eodQueue: [
+          queued('q-stale', '2026-05-24T00:00:00.000Z'),
+          queued('q-next', '2026-05-24T00:00:01.000Z', 'vendor-2'),
+        ],
+      });
+      mockRpc
+        .mockResolvedValueOnce({ data: null, error })
+        .mockResolvedValueOnce({
+          data: { submission_id: 'sub-next', conflict: false, skipped_item_ids: [] },
+          error: null,
+        });
+
+      renderHook(() => useEodSubmit());
+
+      // Two calls = not dequeued-and-stopped, not a network `break`.
+      await waitFor(() => expect(mockRpc).toHaveBeenCalledTimes(2));
+      expect(mockRpc.mock.calls[0][1]).toMatchObject({ p_client_uuid: 'q-stale' });
+      expect(mockRpc.mock.calls[1][1]).toMatchObject({ p_client_uuid: 'q-next' });
+      await waitFor(() =>
+        expect(
+          useStaffStore.getState().eodQueue.find((q) => q.client_uuid === 'q-next'),
+        ).toBeUndefined(),
+      );
+      const queueAfter = useStaffStore.getState().eodQueue;
+      expect(queueAfter).toHaveLength(1);
+      expect(queueAfter[0].client_uuid).toBe('q-stale');
+      expect(queueAfter[0].attempts).toBe(1);
+      // The other-error branch, not the network branch.
+      expect(queueAfter[0].lastError).not.toBe('network');
+      // The dequeue branch's sync-error toast never fired.
+      expect(Toast.show).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' }),
+      );
+    },
+  );
+
+  it('AC-15: drain + a bare HTTP 403 (no code) dequeues the item', async () => {
+    useStaffStore.setState({ eodQueue: [queued('q-403', '2026-05-24T00:00:00.000Z')] });
+    mockRpc.mockResolvedValueOnce({ data: null, error: { status: 403, message: 'Forbidden' } });
+
+    renderHook(() => useEodSubmit());
+
+    await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(Toast.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        text1: t('chrome.queue.syncErrorBanner', { date: '2026-05-24', vendor: 'vendor-1' }),
+      }),
+    );
+  });
+
+  it('AC-16: online store-gate 42501 → forbidden', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '42501', message: STORE_GATE_MSG, details: null, hint: null },
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'forbidden', message: t('eod.error.forbidden') });
+    expect(useStaffStore.getState().eodQueue).toHaveLength(0);
+  });
+
+  it('AC-16: online trigger-style 42501 → failed (not forbidden, not queued), nothing enqueued', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '42501', message: TRIGGER_MSG, details: null, hint: null },
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'failed', message: t('eod.toast.failed') });
+    expect(useStaffStore.getState().eodQueue).toHaveLength(0);
+  });
+
+  it('AC-17 (hook half): 2 skipped ids → success with skipped_count 2; the hook shows no toast', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        submission_id: 'sub-1',
+        conflict: false,
+        entry_ids: ['e-1'],
+        stock_updates: [],
+        skipped_item_ids: ['gone-1', 'gone-2'],
+      },
+      error: null,
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'success', submission_id: 'sub-1', skipped_count: 2 });
+    expect(Toast.show).not.toHaveBeenCalled();
+  });
+
+  it('AC-17: an empty skipped_item_ids list omits skipped_count', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { submission_id: 'sub-1', conflict: false, skipped_item_ids: [] },
+      error: null,
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'success', submission_id: 'sub-1' });
+    expect('skipped_count' in (outcome as object)).toBe(false);
+  });
+
+  it('AC-18: two drained items reporting 1 + 2 skips → ONE notice with N = 3 that allSynced does not overwrite', async () => {
+    useStaffStore.setState({
+      eodQueue: [
+        queued('q-a', '2026-05-24T00:00:00.000Z'),
+        queued('q-b', '2026-05-24T00:00:01.000Z', 'vendor-2'),
+      ],
+    });
+    mockRpc
+      .mockResolvedValueOnce({
+        data: { submission_id: 'sub-a', conflict: false, skipped_item_ids: ['gone-1'] },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { submission_id: 'sub-b', conflict: false, skipped_item_ids: ['gone-2', 'gone-3'] },
+        error: null,
+      });
+
+    renderHook(() => useEodSubmit());
+
+    await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled(), { timeout: 1500 });
+    // Outlast another debounce window: nothing later may replace the notice.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const calls = toastCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[calls.length - 1]).toEqual({
+      type: 'info',
+      text1: t('eod.toast.skippedItems', { count: 3 }),
+      text2: t('eod.toast.allSynced'),
+      position: 'bottom',
+      visibilityTime: 6000,
+    });
+    // allSynced never shown as its own (later) toast.
+    expect(calls.some((c) => c.text1 === t('eod.toast.allSynced'))).toBe(false);
+  });
+
+  it('AC-18: a drain with no skips still shows the allSynced toast exactly as before', async () => {
+    useStaffStore.setState({ eodQueue: [queued('q-ok', '2026-05-24T00:00:00.000Z')] });
+    mockRpc.mockResolvedValueOnce({
+      data: { submission_id: 'sub-ok', conflict: false, skipped_item_ids: [] },
+      error: null,
+    });
+
+    renderHook(() => useEodSubmit());
+
+    await waitFor(() => expect(Toast.show).toHaveBeenCalled(), { timeout: 1500 });
+    const calls = toastCalls();
+    expect(calls[calls.length - 1]).toEqual({
+      type: 'success',
+      text1: t('eod.toast.allSynced'),
+      position: 'bottom',
+      visibilityTime: 2500,
+    });
+  });
+
+  it('AC-19: online success without the key → unchanged outcome, no skipped_count property', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { submission_id: 'sub-1', conflict: false },
+      error: null,
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome).toEqual({ kind: 'success', submission_id: 'sub-1' });
+    expect('skipped_count' in (outcome as object)).toBe(false);
+  });
+
+  it('AC-19: a drained success (and a replay) without the key shows no skipped notice', async () => {
+    useStaffStore.setState({
+      eodQueue: [
+        queued('q-old-server', '2026-05-24T00:00:00.000Z'),
+        queued('q-replay', '2026-05-24T00:00:01.000Z', 'vendor-2'),
+      ],
+    });
+    mockRpc
+      .mockResolvedValueOnce({
+        data: { submission_id: 'sub-old', conflict: false },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { submission_id: 'sub-replay', conflict: true, reason: 'client_uuid already processed' },
+        error: null,
+      });
+
+    renderHook(() => useEodSubmit());
+
+    await waitFor(() => expect(useStaffStore.getState().eodQueue).toHaveLength(0));
+    await waitFor(
+      () =>
+        expect(toastCalls().some((c) => c.text1 === t('eod.toast.allSynced'))).toBe(true),
+      { timeout: 1500 },
+    );
+    const calls = toastCalls();
+    expect(calls.some((c) => c.type === 'info')).toBe(false);
+    expect(calls[calls.length - 1]).toEqual({
+      type: 'success',
+      text1: t('eod.toast.allSynced'),
+      position: 'bottom',
+      visibilityTime: 2500,
+    });
   });
 });

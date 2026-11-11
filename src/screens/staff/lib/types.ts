@@ -145,12 +145,17 @@ export type StaffSubmitEodResponse = {
   submission_id: string;
   conflict: boolean;
   reason?: string;
+  /** Spec 199 — ids the server dropped (missing, or not at this store).
+   *  On every non-replay success from a spec-199 server ([] when none);
+   *  absent on a replay and on older servers → treat as 0. */
+  skipped_item_ids?: string[];
 };
 
 /** Outcome of a single submit() call — drives the UI presentation
- *  layer. See spec 062 §4. */
+ *  layer. See spec 062 §4. Spec 199 — `skipped_count` is present on
+ *  `success` only when the server skipped > 0 items (omitted at 0). */
 export type Outcome =
-  | { kind: 'success';        submission_id: string }
+  | { kind: 'success';        submission_id: string; skipped_count?: number }
   | { kind: 'success-replay'; submission_id: string }
   | { kind: 'forbidden';      message: string }
   | { kind: 'queued';         client_uuid: string }

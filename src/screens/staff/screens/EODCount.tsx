@@ -919,10 +919,19 @@ export function EODCount() {
       };
 
       if (outcome.kind === 'success') {
+        // Spec 199 (R14) — the skipped-items notice rides the SINGLE success
+        // toast as text2 so nothing in this branch can overwrite it. With no
+        // skips the call is byte-identical to before.
         Toast.show({
           type: 'success',
           text1: t('eod.toast.submitted'),
           position: 'bottom',
+          ...(outcome.skipped_count
+            ? {
+                text2: t('eod.toast.skippedItems', { count: outcome.skipped_count }),
+                visibilityTime: 6000,
+              }
+            : {}),
         });
         await enterLockedAfterWrite();
       } else if (outcome.kind === 'success-replay') {

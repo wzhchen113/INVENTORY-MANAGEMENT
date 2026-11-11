@@ -58,13 +58,33 @@ function isNetworkError(err: unknown): boolean {
   );
 }
 
+// Spec 199 (R12/R13) — the ONLY 42501 that counts as a real store-access
+// refusal is staff_submit_eod's step-1.5 store gate, raised as
+// 'staff_submit_eod: caller cannot see store <uuid>'. The store id is
+// interpolated, so this is a substring match. The prefix is a client
+// contract pinned server-side by pgTAP arm SK9 in
+// supabase/tests/staff_submit_eod_skip_unknown.test.sql — a server edit to
+// that message would otherwise silently turn every store-gate refusal into
+// a retry-forever.
+const STORE_GATE_TEXT = 'staff_submit_eod: caller cannot see store';
+
 function isForbidden(err: unknown): boolean {
   if (!err) return false;
   const e = err as { code?: string; message?: string; status?: number };
-  if (e.code === '42501') return true;
-  if (e.status === 403) return true;
-  // Some supabase-js shapes surface the SQLSTATE in the message.
-  return Boolean(e.message && e.message.includes('42501'));
+  const msg = typeof e.message === 'string' ? e.message : '';
+  // SQLSTATE + message are the more specific signal, so they beat a status
+  // (R12). Any other 42501 (the eod_entries store-mismatch trigger, an
+  // anon-session "permission denied for function …") falls through to the
+  // caller's "other error" branch: kept + retried in the drain, `failed`
+  // online. The old bare "message contains 42501" fallback is gone.
+  if (e.code === '42501') return msg.includes(STORE_GATE_TEXT);
+  return e.status === 403; // R12 (b)
+}
+
+// Spec 199 (R14) — how many payload items the server dropped. Absent key
+// (replay, or a pre-199 server) → 0. Only meaningful when conflict !== true.
+function skippedCount(res: StaffSubmitEodResponse): number {
+  return Array.isArray(res.skipped_item_ids) ? res.skipped_item_ids.length : 0;
 }
 
 function entriesForRpc(entries: EodEntry[]): Array<{
@@ -126,6 +146,10 @@ export function useEodSubmit(): {
   const wasOnlineRef = useRef<boolean>(isOnline);
   // Debounce timer for "All counts synced" toast.
   const allSyncedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Spec 199 (R14) — skipped-item total not yet shown. A ref (not a
+  // per-pass local) so back-to-back passes inside the debounce window roll
+  // into ONE notice instead of a later pass's clearTimeout dropping it.
+  const skippedPendingRef = useRef<number>(0);
   // Guard against overlapping drains.
   const drainingRef = useRef<boolean>(false);
 
@@ -171,6 +195,9 @@ export function useEodSubmit(): {
               position: 'bottom',
               visibilityTime: 2500,
             });
+          } else {
+            // Spec 199 — accumulate server-skipped items for one notice.
+            skippedPendingRef.current += skippedCount(res);
           }
         } catch (err) {
           if (isForbidden(err)) {
@@ -206,18 +233,32 @@ export function useEodSubmit(): {
       }
       // Debounced "All counts synced" — only when queue is empty AFTER
       // the drain pass AND we actually drained at least one item.
-      if (
-        drainedAny &&
-        useStaffStore.getState().pendingCountForUser(me) === 0
-      ) {
+      // Spec 199 (R14) — a pending skipped-item total also schedules the
+      // (single) debounced toast, which then carries the skipped notice as
+      // text1 and allSynced as text2, so allSynced can never overwrite it.
+      const showAllSynced =
+        drainedAny && useStaffStore.getState().pendingCountForUser(me) === 0;
+      if (showAllSynced || skippedPendingRef.current > 0) {
         if (allSyncedTimerRef.current) clearTimeout(allSyncedTimerRef.current);
         allSyncedTimerRef.current = setTimeout(() => {
-          Toast.show({
-            type: 'success',
-            text1: t('eod.toast.allSynced'),
-            position: 'bottom',
-            visibilityTime: 2500,
-          });
+          const n = skippedPendingRef.current;
+          skippedPendingRef.current = 0;
+          if (n > 0) {
+            Toast.show({
+              type: 'info',
+              text1: t('eod.toast.skippedItems', { count: n }),
+              ...(showAllSynced ? { text2: t('eod.toast.allSynced') } : {}),
+              position: 'bottom',
+              visibilityTime: 6000,
+            });
+          } else {
+            Toast.show({
+              type: 'success',
+              text1: t('eod.toast.allSynced'),
+              position: 'bottom',
+              visibilityTime: 2500,
+            });
+          }
         }, DRAIN_TOAST_DEBOUNCE_MS);
       }
     } finally {
@@ -287,7 +328,12 @@ export function useEodSubmit(): {
             submission_id: res.submission_id,
           };
         }
-        return { kind: 'success', submission_id: res.submission_id };
+        // Spec 199 (R14) — the screen owns the toast; the hook only reports
+        // the count. Omitted at 0 so the no-skip outcome is unchanged.
+        const n = skippedCount(res);
+        return n > 0
+          ? { kind: 'success', submission_id: res.submission_id, skipped_count: n }
+          : { kind: 'success', submission_id: res.submission_id };
       } catch (err) {
         if (isForbidden(err)) {
           return {

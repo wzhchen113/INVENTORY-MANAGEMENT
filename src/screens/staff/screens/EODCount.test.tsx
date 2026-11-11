@@ -111,6 +111,7 @@ jest.mock('../lib/submittedStatus', () => ({
 
 import { EODCount } from './EODCount';
 import { useStaffStore } from '../store/useStaffStore';
+import { t } from '../i18n';
 
 // Spec 102 (§6d) — fetchItemsForVendor now queries `item_vendors` and
 // embeds the inventory item under `item:` (a shared item links to N
@@ -1264,5 +1265,75 @@ describe('EODCount — spec 171 count mode', () => {
     await waitFor(() => expect(Toast.show).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
     expect((Toast.show as jest.Mock).mock.calls[0][0]).toMatchObject({ text1: 'Count every item first' });
+  });
+});
+
+// ─── Spec 199 — skipped-items notice rides the single success toast ───
+// AC-17 (screen half). The hook reports `skipped_count` on a fresh success
+// when the server dropped items no longer in the store's catalog; the screen
+// folds the notice into its ONE success toast (text2) so nothing in the
+// success branch can overwrite it, and still enters SUBMITTED_LOCKED.
+describe('EODCount — spec 199 skipped-items notice', () => {
+  const flourRow = itemVendorRow({
+    id: 'item-1',
+    catalog: { name: 'Flour', unit: 'lb', case_qty: 12 },
+  });
+
+  function seed() {
+    mockNextResultStack = [
+      { data: [{ vendor_id: 'v-1', vendor_name: 'Sysco', vendor: { id: 'v-1', name: 'Sysco' } }], error: null },
+      { data: [flourRow], error: null },
+      { data: null, error: null },
+      // post-submit existing refetch → the written submission.
+      {
+        data: {
+          id: 'sub-1',
+          submitted_at: '2026-05-24T18:30:00Z',
+          eod_entries: [
+            { item_id: 'item-1', actual_remaining: 3, actual_remaining_cases: null, actual_remaining_each: 3 },
+          ],
+        },
+        error: null,
+      },
+    ];
+  }
+
+  it('AC-17: a success with skipped_count 2 shows ONE submitted toast carrying the notice, then locks', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-1', skipped_count: 2 });
+    seed();
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    // Locked state as in the spec 129 success arm.
+    expect(await api.findByText('Edit')).toBeTruthy();
+    await waitFor(() => expect(wellDisabled(api, 'item-1', 'units')).toBe(true));
+
+    const calls = (Toast.show as jest.Mock).mock.calls;
+    expect(calls).toHaveLength(1);
+    const last = calls[calls.length - 1][0];
+    expect(last).toMatchObject({
+      type: 'success',
+      text1: t('eod.toast.submitted'),
+      text2: t('eod.toast.skippedItems', { count: 2 }),
+    });
+    expect(last.text2).toContain('2');
+  });
+
+  it('a no-skip success still shows the plain submitted toast with NO text2 key', async () => {
+    mockSubmit.mockResolvedValue({ kind: 'success', submission_id: 'sub-1' });
+    seed();
+    const api = render(<EODCount />);
+    await enterCount(api, 'item-1', 'units', '3');
+    fireEvent.press(api.getByTestId('eod-submit'));
+    expect(await api.findByText('Edit')).toBeTruthy();
+    const calls = (Toast.show as jest.Mock).mock.calls;
+    const last = calls[calls.length - 1][0];
+    expect(last).toEqual({
+      type: 'success',
+      text1: t('eod.toast.submitted'),
+      position: 'bottom',
+    });
+    expect('text2' in last).toBe(false);
   });
 });

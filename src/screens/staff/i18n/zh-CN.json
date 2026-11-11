@@ -102,7 +102,8 @@
       "countAllTitle": "请先清点每个项目",
       "countAllRemaining": "还有 {count} 项未清点",
       "queued": "已加入队列 — 联网后将同步",
-      "allSynced": "所有盘点已同步"
+      "allSynced": "所有盘点已同步",
+      "skippedItems": "已跳过 {count} 项：已不在目录中"
     },
     "error": {
       "forbidden": "无法为此门店提交 — 你的权限已变更。请退出后重新登录。"

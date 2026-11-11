@@ -324,8 +324,8 @@ select set_config('test.sub_d3',
 
 select is(
   (select array_agg(k order by k) from jsonb_object_keys(current_setting('test.r_staff', true)::jsonb) k),
-  array['conflict', 'entry_ids', 'stock_updates', 'submission_id']::text[],
-  '(16) staff envelope keys are unchanged by the refactor');
+  array['conflict', 'entry_ids', 'skipped_item_ids', 'stock_updates', 'submission_id']::text[],
+  '(16) staff envelope keys are unchanged by the refactor, plus spec 199''s skipped_item_ids');
 
 select is(
   pg_temp.entries_of(current_setting('test.sub_d3', true)::uuid),

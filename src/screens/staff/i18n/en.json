@@ -102,7 +102,8 @@
       "countAllTitle": "Count every item first",
       "countAllRemaining": "{count} still need a count",
       "queued": "Queued — will sync when online",
-      "allSynced": "All counts synced"
+      "allSynced": "All counts synced",
+      "skippedItems": "{count} skipped: no longer in your catalog"
     },
     "error": {
       "forbidden": "Cannot submit for this store — your access has changed. Sign out and back in."
