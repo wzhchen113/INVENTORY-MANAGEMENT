@@ -34,15 +34,14 @@
 --
 --   Arms (8)-(11): public.user_stores tightening (Matrix B).
 --     (8) seed manager INSERT into user_stores granting another
---         user a store → 42501 (own-row policy: user_id !=
---         auth.uid(); admin arm fails: not privileged). This is
+--         user a store → 42501 (no own-row write policy exists
+--         (spec 195); admin arm fails: not privileged). This is
 --         the same-brand cross-user grant leak the legacy
 --         `Users can manage own store links` left open.
 --     (9) seed manager INSERT into user_stores granting THEMSELF
---         a brand-A store they have no current grant for → admit
---         (own-row policy WITH CHECK: user_id = auth.uid();
---         trigger admits: same brand). No-regression for the
---         legitimate self-onboarding path.
+--         a brand-A store they have no current grant for → 42501
+--         (spec 195 removed the own-row write arm; trigger admits:
+--         same brand, so RLS WITH CHECK is what refuses).
 --     (10) brand-A admin INSERT into user_stores granting a
 --          brand-A user a brand-A store → admit (admin arm:
 --          privileged + brand match). No-regression for the
@@ -108,8 +107,8 @@ declare
   v_store_charles uuid := '1ea549bb-8b50-4078-9301-479311d9fdec';  -- seed Charles (brand A) — manager has NO user_stores grant for it
   v_store_b       uuid := 'b1000001-0000-0000-0000-000000000051';  -- test-only foreign-brand store
   -- A synthetic brand-A target user for arm (10) (the admin grants
-  -- this user access to Charles). Distinct from the seed manager
-  -- so arm (10) doesn't bump into arm (9)'s INSERT.
+  -- this user access to Charles). Distinct from the seed manager,
+  -- whose own-row INSERT is refused in arm (9).
   v_target_a      uuid := 'aaaaa051-0000-0000-0000-000000000001';
   -- A synthetic brand-A target user for arm (8) — the seed manager
   -- attempts to grant THIS user (not themselves) a store. Same
@@ -454,8 +453,8 @@ select is(
 -- user grant — pre-051 the legacy `Users can manage own store
 -- links` policy admitted via the second OR-arm (auth.uid() IS
 -- NOT NULL), and the trigger admitted because both users are in
--- brand A. Post-051: own-row policy fails (user_id != auth.uid()),
--- admin arm fails (manager is not privileged) → 42501.
+-- brand A. Post-195: there is no own-row write policy; admin arm
+-- fails (not privileged) → 42501.
 select throws_ok(
   format(
     $q$insert into public.user_stores (user_id, store_id)
@@ -469,38 +468,31 @@ select throws_ok(
 );
 
 
--- ─── Arm (9): manager INSERT user_stores for SELF — admit ─────
--- JWT unchanged. INSERT a user_stores row granting `auth.uid()`
--- (the manager) access to Charles — a brand-A store the manager
--- has no current grant for. Post-051: own-row policy WITH CHECK
--- admits (user_id = auth.uid()); trigger admits (manager and
--- Charles are both in brand A). The row should exist after the
--- INSERT.
-insert into public.user_stores (user_id, store_id)
-values (
-  current_setting('test.manager_id', true)::uuid,
-  current_setting('test.store_charles', true)::uuid
-);
-
--- Use the postgres role for the verification SELECT (the
--- manager's own-row SELECT policy `Users can read own store
--- links` would also admit this read, but flipping to postgres
--- mirrors the canonical project pattern and decouples this
--- assertion from any future change to the own-row SELECT
--- policy).
-reset role;
-select set_config('request.jwt.claims', '', true);
-select is(
-  (select count(*)::int from public.user_stores
-    where user_id  = current_setting('test.manager_id', true)::uuid
-      and store_id = current_setting('test.store_charles', true)::uuid),
-  1,
-  'arm (9): seed manager INSERT into user_stores for SELF on same-brand store admits (own-row policy + trigger)'
+-- ─── Arm (9): manager INSERT user_stores for SELF — 42501 ─────
+-- JWT unchanged (seed manager, set in arm (7); arm (8)'s throws_ok
+-- does not change it). INSERT a user_stores row granting
+-- `auth.uid()` (the manager) access to Charles — a brand-A store
+-- the manager has no current grant for. The trigger admits
+-- (manager and Charles are both in brand A), then RLS WITH CHECK
+-- refuses: spec 195 dropped `Users can manage own store links`,
+-- and the admin arm fails because the manager is not privileged.
+-- Reversed from spec 051's "self-onboarding" admit; no such path
+-- exists in the app (spec 195).
+select throws_ok(
+  format(
+    $q$insert into public.user_stores (user_id, store_id)
+       values (%L::uuid, %L::uuid)$q$,
+    current_setting('test.manager_id', true),
+    current_setting('test.store_charles', true)
+  ),
+  '42501',
+  'new row violates row-level security policy for table "user_stores"',
+  'arm (9): seed manager INSERT into user_stores for SELF is rejected (spec 195: no own-row write arm)'
 );
 
 
 -- ─── Arm (10): brand-A admin INSERT user_stores in own brand ──
--- Re-impersonate the brand-A admin (claims cleared). INSERT a
+-- Re-impersonate the brand-A admin. INSERT a
 -- user_stores row granting `target_a` (a brand-A user) access to
 -- Charles (a brand-A store). The new admin arm admits:
 -- auth_is_privileged() (admin JWT) + EXISTS subquery returns true
@@ -545,8 +537,8 @@ select is(
 --   (i) The new admin POLICY introduced in this migration would
 --       reject the INSERT: the admin arm's brand-check EXISTS
 --       subquery evaluates auth_can_see_brand(s.brand_id = brand
---       B), which returns false for the brand-A admin; the
---       own-row arm fails (target_a != auth.uid()). Pre-051 the
+--       B), which returns false for the brand-A admin. There
+--       is no own-row write arm (spec 195). Pre-051, the
 --       wide ALL policy admitted the INSERT and the trigger was
 --       the sole gate. Verified structurally by the migration's
 --       policy text and by arm (10) showing the same admin policy
