@@ -708,6 +708,10 @@ export async function applyItemVendorsToBrand(
 export async function applyItemScalarsToBrand(
   catalogId: string,
   scalars: { parLevel?: number | null; costPerUnit?: number | null; casePrice?: number | null },
+  // Store-scope picker — when given, only these stores' rows are overwritten
+  // (still visibility-gated server-side). Omitted → every visible store of the
+  // brand (spec 122 behavior; the RPC's p_store_ids defaults to NULL).
+  storeIds?: string[],
 ): Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] }> {
   return useInflight.getState().track(async (signal) => {
     const { data, error } = await supabase.rpc('apply_item_scalars_to_brand', {
@@ -717,6 +721,7 @@ export async function applyItemScalarsToBrand(
       p_par_level: scalars.parLevel ?? null,
       p_cost_per_unit: scalars.costPerUnit ?? null,
       p_case_price: scalars.casePrice ?? null,
+      ...(storeIds ? { p_store_ids: storeIds } : {}),
     // Spec 055 discipline — thread the inflight abort signal so the 30s
     // hard-abort timer can cancel a hung RPC (matches every sibling wrapper).
     }).abortSignal(signal);

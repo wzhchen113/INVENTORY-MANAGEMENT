@@ -15,6 +15,7 @@ import { InventoryItem, LocalizedNames } from '../../types';
 import { confirmAction } from '../../utils/confirmAction';
 import { useT } from '../../hooks/useT';
 import { DEFAULT_EOD_COUNT_MODE } from '../../lib/eodCountMode';
+import { StoreScopePicker, StoreScope, initialStoreScope, resolveScopeStoreIds } from './StoreScopePicker';
 
 type Mode = 'edit' | 'new';
 
@@ -24,9 +25,10 @@ interface Props {
   /** EDIT mode: the item to edit. Required when mode='edit'. */
   item?: InventoryItem;
   /**
-   * Spec 122 — when true (the brand-level catalog.tsv view), an edit Save also
-   * fans the CONFIG scalars (par/cost/case_price) out to every store of the
-   * brand. Default false = per-store items.tsv behavior (single store only).
+   * Spec 122 — when true (the brand-level catalog.tsv view), the Save store
+   * scope DEFAULTS to "All stores" (par/cost/case_price fan out to every store
+   * of the brand). Default false = items.tsv, scope defaults to "This store".
+   * Either way the admin can switch the scope in the footer picker.
    */
   brandWide?: boolean;
   onClose: () => void;
@@ -219,6 +221,17 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
     [mode, item, catalogRow],
   );
   const [values, setValues] = React.useState<IngredientFormValues>(initial);
+
+  // Store scope for Save / Create. "This store" is the edited row's store in
+  // EDIT mode (in catalog.tsv that can be a fallback row from another store)
+  // and the current store in NEW mode.
+  const selfStoreId = mode === 'edit' && item ? item.storeId : currentStore.id;
+  const brandStores = React.useMemo(
+    () => stores.filter((s) => s.brandId === currentStore.brandId),
+    [stores, currentStore.brandId],
+  );
+  const defaultScopeMode = mode === 'edit' && brandWide ? 'all' : 'this';
+  const [scope, setScope] = React.useState<StoreScope>(() => initialStoreScope(defaultScopeMode, selfStoreId));
   const [vendorDrawerOpen, setVendorDrawerOpen] = React.useState(false);
   // Spec 119 — in-flight guard for the brand-wide "Apply vendors to all stores"
   // action so a double-tap can't fire the RPC twice.
@@ -229,6 +242,9 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
   React.useEffect(() => {
     if (visible) setValues(initial);
   }, [visible, initial]);
+  React.useEffect(() => {
+    if (visible) setScope(initialStoreScope(defaultScopeMode, selfStoreId));
+  }, [visible, defaultScopeMode, selfStoreId]);
 
   // Inline vendor-add: when the form's "+ new vendor" sentinel fires,
   // snapshot the current vendor ids, open the VendorFormDrawer. When the
@@ -275,8 +291,23 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
       Toast.show({ type: 'error', text1: 'Required field missing', text2: 'Name, category, and unit are required' });
       return;
     }
+    const targetStoreIds = resolveScopeStoreIds(scope, brandStores, selfStoreId);
+    if (targetStoreIds.length === 0) {
+      Toast.show({ type: 'error', text1: T('section.inventory.storeScopeEmptyError') });
+      return;
+    }
     if (mode === 'edit' && item) {
-      updateItem(item.id, toUpdates(values));
+      // Store scope: the edited row always gets the brand-level fields,
+      // vendors and expiry. Its par/cost/case_price are only written when its
+      // store is in scope — otherwise they're stripped so a "Pick stores"
+      // that excludes this store leaves this store's values alone.
+      const updates = toUpdates(values);
+      if (!targetStoreIds.includes(item.storeId)) {
+        delete updates.parLevel;
+        delete updates.costPerUnit;
+        delete updates.casePrice;
+      }
+      updateItem(item.id, updates);
       // Spec 010 §6 — brand-level catalog write for defaultShelfLifeDays.
       // Only fires when (a) we know the catalog id and (b) the value
       // changed. parseInt('') is NaN → coerce to null. Empty input clears
@@ -301,24 +332,32 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
           setCatalogI18nNames(catalogId, nextI18n);
         }
       }
-      // Spec 122 — from the catalog.tsv view (`brandWide`), fan the three
-      // CONFIG scalars (par/cost/case_price) out to EVERY store of the brand.
-      // `updateItem` above already wrote the CURRENT store's row (incl.
-      // current_stock / expiry / count fields — those NEVER fan out); this
-      // adds the brand-wide overwrite of just the three scalars. Fire-and-
-      // forget with its own summary toast; failure surfaces via
-      // notifyBackendError inside the action (AC-10). Blank field → null so a
-      // cleared value skips rather than zeroing every store.
-      if (brandWide && catalogId) {
-        applyScalarsToAllStores(catalogId, {
+      // Spec 122 + store scope — fan the three CONFIG scalars
+      // (par/cost/case_price) out to the OTHER stores in scope. `updateItem`
+      // above already wrote the edited row (incl. current_stock / expiry /
+      // count fields — those NEVER fan out). "All stores" calls the RPC with
+      // no store list (every store of the brand, spec 122 behavior); "Pick
+      // stores" passes the picked ids; "This store" (or a pick of only this
+      // store) skips the fan-out. Fire-and-forget with its own summary toast;
+      // failure surfaces via notifyBackendError inside the action (AC-10).
+      // Blank field → null so a cleared value skips rather than zeroing.
+      const fansOut = scope.mode === 'all' || targetStoreIds.some((id) => id !== item.storeId);
+      if (fansOut && catalogId) {
+        const scalars = {
           parLevel: scalarOrNull(values.parLevel),
           costPerUnit: scalarOrNull(values.costPerUnit),
           casePrice: scalarOrNull(values.casePrice),
-        }).then((summary) => {
+        };
+        const fanOut = scope.mode === 'all'
+          ? applyScalarsToAllStores(catalogId, scalars)
+          : applyScalarsToAllStores(catalogId, scalars, targetStoreIds);
+        fanOut.then((summary) => {
           if (summary) {
             Toast.show({
               type: 'success',
-              text1: T('section.inventory.applyScalarsSuccessTitle'),
+              text1: scope.mode === 'all'
+                ? T('section.inventory.applyScalarsSuccessTitle')
+                : T('section.inventory.applyScalarsPickedSuccessTitle'),
               text2: T('section.inventory.applyScalarsSuccessDetail', {
                 updated: summary.updatedCount,
                 skipped: summary.skippedCount,
@@ -332,14 +371,12 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
       onClose();
       return;
     }
-    // NEW mode — create across one or all stores.
-    // "Create at all stores" applies only within the CURRENT brand. RLS
-    // already rejects cross-brand inserts on inventory_items, but
-    // filtering client-side keeps the loop honest for super-admin users
-    // whose `stores` slice spans multiple brands.
-    const targets = values.createAtAllStores
-      ? stores.filter((s) => s.brandId === currentStore.brandId)
-      : [currentStore];
+    // NEW mode — create at the stores in scope (This store / All / Pick).
+    // `brandStores` limits targets to the CURRENT brand. RLS already rejects
+    // cross-brand inserts on inventory_items, but filtering client-side keeps
+    // the loop honest for super-admin users whose `stores` slice spans
+    // multiple brands.
+    const targets = targetStoreIds.map((id) => ({ id }));
     const i18n = buildI18nNames(values);
     // Spec 102 — `toUpdates` carries the `vendors` link-set payload; pull it
     // out so it's threaded EXPLICITLY through addItem (rather than relying on
@@ -432,7 +469,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, values, mode, item]);
+  }, [visible, values, mode, item, scope, brandStores]);
 
   // Render the inline VendorFormDrawer as a sibling so it stacks on top
   // of (rather than inside) the ingredient drawer's Modal — avoids
@@ -485,7 +522,19 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
   );
 
   const footer = (
-    <View style={{ minHeight: 54, paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.panel, flexWrap: 'wrap' }}>
+    <View style={{ borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.panel }}>
+    {brandStores.length > 1 ? (
+      <View style={{ paddingHorizontal: 18, paddingTop: 10, paddingBottom: 2 }}>
+        <StoreScopePicker
+          scope={scope}
+          onChange={setScope}
+          brandStores={brandStores}
+          selfStoreId={selfStoreId}
+          mode={isNew ? 'new' : 'edit'}
+        />
+      </View>
+    ) : null}
+    <View style={{ minHeight: 54, paddingHorizontal: 18, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <Text style={{ fontFamily: mono(400), fontSize: 10, color: C.fg3 }}>
         {isNew
           ? `${requiredValid ? '3/3' : '0/3'} required valid · creates audit entry`
@@ -504,6 +553,7 @@ export const IngredientFormDrawer: React.FC<Props> = ({ visible, mode, item, bra
           {isNew ? 'CREATE  ⌘⏎' : 'SAVE  ⌘S'}
         </Text>
       </TouchableOpacity>
+    </View>
     </View>
   );
 

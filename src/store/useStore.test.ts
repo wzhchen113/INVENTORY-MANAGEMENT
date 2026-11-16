@@ -541,4 +541,24 @@ describe('applyScalarsToAllStores (spec 122)', () => {
     // Error surfaced via notifyBackendError (→ toast).
     expect(toastShowMock).toHaveBeenCalled();
   });
+  it('with storeIds, patches ONLY the picked stores\' rows and passes the ids to the RPC', async () => {
+    useStore.setState({
+      currentStore: { id: 'store-1', name: 'Frederick' } as any,
+      inventory: [
+        seedRow({ id: 'r1', storeId: 'store-1', parLevel: 1 }),
+        seedRow({ id: 'r2', storeId: 'store-2', parLevel: 2 }),
+        seedRow({ id: 'r3', storeId: 'store-3', parLevel: 3 }),
+      ],
+    });
+
+    await useStore.getState().applyScalarsToAllStores(CAT, { parLevel: 50 }, ['store-2', 'store-3']);
+
+    const inv = useStore.getState().inventory;
+    expect(inv.find((i) => i.id === 'r1')!.parLevel).toBe(1);
+    expect(inv.find((i) => i.id === 'r2')!.parLevel).toBe(50);
+    expect(inv.find((i) => i.id === 'r3')!.parLevel).toBe(50);
+
+    const db = require('../lib/db');
+    expect(db.applyItemScalarsToBrand).toHaveBeenCalledWith(CAT, { parLevel: 50 }, ['store-2', 'store-3']);
+  });
 });

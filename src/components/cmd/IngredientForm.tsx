@@ -45,8 +45,6 @@ export interface IngredientFormValues {
   countNightly: boolean;
   trackWaste: boolean;
   allowSubstitute: boolean;
-  // Multi-store create-time toggle (NEW mode only)
-  createAtAllStores: boolean;
   // Spec 010 — expiry tracking
   // `defaultShelfLifeDays` writes through to catalog_ingredients (brand-
   // level); `expiryDate` writes through to inventory_items (per row). Held
@@ -97,7 +95,6 @@ export const blankValues = (): IngredientFormValues => ({
   sku: 'auto',
   reorderPoint: '', max: '',
   countNightly: true, trackWaste: true, allowSubstitute: false,
-  createAtAllStores: false,
   defaultShelfLifeDays: '', expiryDate: '',
   nameEs: '', nameZh: '',
   vendors: [],
@@ -1432,16 +1429,8 @@ export const IngredientForm: React.FC<Props> = ({ mode, values, onChange, autoFo
         <FlagRow label="allow_substitute" desc="OK for chefs to swap in recipes" on={values.allowSubstitute} onToggle={() => set('allowSubstitute', !values.allowSubstitute)} />
       </View>
 
-      {isNew ? (
-        <>
-          <View style={{ height: 14 }} />
-          <SectionCaption tone="fg3" size={9.5}>STORE SCOPE</SectionCaption>
-          <View style={{ marginTop: 4 }}>
-            <FlagRow label="create_at_all_stores" desc="loop addItem over every store"
-              on={values.createAtAllStores} onToggle={() => set('createAtAllStores', !values.createAtAllStores)} />
-          </View>
-        </>
-      ) : null}
+      {/* Store scope (This store / All stores / Pick stores) lives in the
+          drawer footer next to SAVE / CREATE — see StoreScopePicker. */}
 
       <Text style={{ marginTop: 18, fontFamily: mono(400), fontSize: 9.5, color: C.fg3, lineHeight: 14 }}>
         Fields shaded grey are read-only stubs awaiting a schema migration —

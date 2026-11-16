@@ -648,6 +648,8 @@ interface StoreActions {
   applyScalarsToAllStores: (
     catalogId: string,
     scalars: { parLevel?: number | null; costPerUnit?: number | null; casePrice?: number | null },
+    /** Store-scope picker — only these stores. Omitted → every store of the brand. */
+    storeIds?: string[],
   ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
   deleteItem: (id: string) => void;
   adjustStock: (id: string, newStock: number, by: string) => void;
@@ -2582,18 +2584,26 @@ export const useStore = create<FullStore>((set, get) => ({
   // supplied (non-null) scalars, fire the RPC, and revert every patched row to
   // its snapshot on failure. `current_stock` and count-like fields are never
   // touched here — they are not parameters and never patched (AC-5/AC-6).
-  applyScalarsToAllStores: async (catalogId, scalars) => {
+  applyScalarsToAllStores: async (catalogId, scalars, storeIds) => {
     if (!catalogId) return null;
-    // Snapshot the pre-patch rows for this catalog so a failed RPC can revert
+    // Store-scope picker: when `storeIds` is given, only those stores' rows
+    // are targets (local patch AND the RPC); omitted → every store's row.
+    const inScope = (i: InventoryItem) =>
+      i.catalogId === catalogId && (!storeIds || storeIds.includes(i.storeId));
+    const callRpc = () =>
+      storeIds
+        ? db.applyItemScalarsToBrand(catalogId, scalars, storeIds)
+        : db.applyItemScalarsToBrand(catalogId, scalars);
+    // Snapshot the pre-patch rows in scope so a failed RPC can revert
     // exactly what it changed (keyed by row id — stable across the set()).
     const prevById = new Map(
-      get().inventory.filter((i) => i.catalogId === catalogId).map((r) => [r.id, r]),
+      get().inventory.filter(inScope).map((r) => [r.id, r]),
     );
     if (prevById.size === 0) {
       // Nothing local to patch — still fire the RPC (server may have rows this
       // client hasn't loaded) and surface the summary.
       try {
-        return await db.applyItemScalarsToBrand(catalogId, scalars);
+        return await callRpc();
       } catch (e: any) {
         notifyBackendError('Apply to all stores', e);
         return null;
@@ -2603,7 +2613,7 @@ export const useStore = create<FullStore>((set, get) => ({
     // this catalog. current_stock and every other field are left untouched.
     set((s) => ({
       inventory: s.inventory.map((i) =>
-        i.catalogId === catalogId
+        inScope(i)
           ? {
               ...i,
               ...(scalars.parLevel != null ? { parLevel: scalars.parLevel } : {}),
@@ -2614,7 +2624,7 @@ export const useStore = create<FullStore>((set, get) => ({
       ),
     }));
     try {
-      return await db.applyItemScalarsToBrand(catalogId, scalars);
+      return await callRpc();
     } catch (e: any) {
       // Revert every patched row to its pre-patch snapshot.
       set((s) => ({

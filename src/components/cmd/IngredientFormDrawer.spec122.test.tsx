@@ -95,7 +95,6 @@ jest.mock('./IngredientForm', () => ({
     caseQty: '1', casePrice: '0', subUnitSize: '1', subUnitUnit: '',
     sku: 'auto', reorderPoint: '', max: '',
     countNightly: true, trackWaste: true, allowSubstitute: false,
-    createAtAllStores: false,
     defaultShelfLifeDays: '', expiryDate: '',
     nameEs: '', nameZh: '',
     vendors: [],
