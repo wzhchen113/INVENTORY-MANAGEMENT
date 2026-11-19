@@ -90,6 +90,16 @@ function mapReorderVendor(v: any): ReorderVendor {
               vendorName: String(av?.vendor_name ?? ''),
             }))
           : [],
+        // Spec 201 (R5) — primary-wins hint, same mapping as the admin
+        // db.ts:mapReorderVendor copy. Non-empty only on the primary's row on
+        // a coincident day; absent (pre-201 server) → []. Staff render it as
+        // text only (no switch — OQ-3b).
+        yieldedFromVendors: Array.isArray(it?.yielded_from_vendors)
+          ? it.yielded_from_vendors.map((yv: any) => ({
+              vendorId: String(yv?.vendor_id ?? ''),
+              vendorName: String(yv?.vendor_name ?? ''),
+            }))
+          : [],
       }))
     : [];
   const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';

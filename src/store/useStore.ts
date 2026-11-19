@@ -46,6 +46,18 @@ import { visibleStoresFor } from '../lib/storeVisibility';
 // Spec 181 — Hermes-safe v4 minter for client_uuid idempotency keys.
 import { uuidv4 } from '../lib/uuid';
 
+/**
+ * Spec 201 (§5) — the stable, byte-for-byte substring of the
+ * `set_item_primary_vendor` RPC's 3c refusal ("the item is already on today's
+ * order for the current primary vendor"). Changing the server string is a
+ * contract change; the client matches by substring only.
+ */
+export const PRIMARY_SWITCH_OPEN_ORDER_REFUSAL =
+  'item is on an open order for the current primary vendor';
+
+/** Spec 201 (§8) — outcome of `switchItemPrimaryVendor`. */
+export type PrimaryVendorSwitchResult = 'switched' | 'refused' | 'cancelled' | 'failed';
+
 // Surface a backend failure to the user instead of swallowing it in
 // console.warn. Used by the recipe + prep recipe CRUD paths to revert
 // optimistic local-state mutations and tell the admin what happened.
@@ -626,6 +638,37 @@ interface StoreActions {
     vendors: Array<{ vendorId: string; costPerUnit?: number; casePrice?: number; orderCode?: string; productPageUrl?: string }>,
     primaryVendorId: string | null,
   ) => Promise<{ updatedCount: number; skippedCount: number; skippedStoreIds: string[] } | null>;
+  /**
+   * Spec 201 (§8) — make `toVendorId` the PRIMARY vendor of one item at the
+   * current store (admin only; the reorder "also from … — switch" control).
+   * Permanent for this store; no other store's rows change.
+   *
+   * Order (every refusal fires before any write):
+   *   1. 3c pre-check `db.isItemOnOpenOrder` for (store, `fromVendorId`,
+   *      `asOfDate`). On an open order → `'refused'` (the caller toasts) and
+   *      `confirm` is NEVER called. A failed read → `notifyBackendError` +
+   *      `'failed'` (fail closed — no confirm either).
+   *   2. `confirm()` (the component wraps `confirmAction` in a Promise). False
+   *      → `'cancelled'`, nothing written.
+   *   3. Optimistic patch of the `inventory` row (`vendorId` + the
+   *      `vendors[].isPrimary` mirror), then `db.setItemPrimaryVendor` (the
+   *      `set_item_primary_vendor` RPC — spec 124 demote-first, atomic, and
+   *      re-runs the 3c check server-side).
+   *   4. Error → revert. The server 3c refusal (matched by
+   *      `PRIMARY_SWITCH_OPEN_ORDER_REFUSAL`) → `'refused'` with NO
+   *      `notifyBackendError`; anything else → `notifyBackendError` +
+   *      `'failed'`.
+   *   5. Success → reload the reorder list for `asOfDate` (authoritative — the
+   *      item moves between cards; `reorderPayload` is never patched
+   *      optimistically), add an 'Item edit' audit event, `'switched'`.
+   */
+  switchItemPrimaryVendor: (args: {
+    itemId: string;
+    fromVendorId: string;
+    toVendorId: string;
+    asOfDate: string;
+    confirm: () => Promise<boolean>;
+  }) => Promise<PrimaryVendorSwitchResult>;
   /**
    * Spec 122 — brand-wide propagation of per-store CONFIG scalars
    * (`par_level`, `cost_per_unit`, `case_price`) for a catalog ingredient.
@@ -2575,6 +2618,77 @@ export const useStore = create<FullStore>((set, get) => ({
       notifyBackendError('Apply vendors to all stores', e);
       return null;
     }
+  },
+
+  // Spec 201 (§8) — the reorder primary-vendor switch. See the interface doc.
+  switchItemPrimaryVendor: async ({ itemId, fromVendorId, toVendorId, asOfDate, confirm }) => {
+    const storeId = get().currentStore?.id;
+    if (!storeId || storeId === '__all__') {
+      notifyBackendError('Switch primary vendor', new Error('No active store'));
+      return 'failed';
+    }
+    // 1. 3c pre-check — refuse BEFORE the confirm when the item is already on
+    //    the current primary's order for this date (AC-26). Fail closed.
+    try {
+      const onOrder = await db.isItemOnOpenOrder({
+        storeId,
+        itemId,
+        vendorId: fromVendorId,
+        referenceDate: asOfDate,
+      });
+      if (onOrder) return 'refused';
+    } catch (e: any) {
+      notifyBackendError('Switch primary vendor', e);
+      return 'failed';
+    }
+    // 2. Confirm — cancel writes nothing (AC-25.4).
+    if (!(await confirm())) return 'cancelled';
+    // 3. Optimistic patch of the local inventory row (vendorId + the SD-1
+    //    is_primary mirror). `reorderPayload` is NOT patched — the reload below
+    //    is authoritative (the item moves between cards, KPIs change).
+    const prev = get().inventory.find((i) => i.id === itemId);
+    if (prev) {
+      const patched: InventoryItem = {
+        ...prev,
+        vendorId: toVendorId,
+        ...(prev.vendors
+          ? { vendors: prev.vendors.map((l) => ({ ...l, isPrimary: l.vendorId === toVendorId })) }
+          : {}),
+      };
+      set((s) => ({ inventory: s.inventory.map((i) => (i.id === itemId ? patched : i)) }));
+    }
+    const revert = () => {
+      if (!prev) return;
+      set((s) => ({ inventory: s.inventory.map((i) => (i.id === itemId ? prev : i)) }));
+    };
+    // 4. The atomic server write (spec 124 demote-first inside the RPC).
+    try {
+      await db.setItemPrimaryVendor(itemId, toVendorId, asOfDate);
+    } catch (e: any) {
+      revert();
+      const message = String(e?.message ?? e ?? '');
+      // Server 3c backstop (TOCTOU — e.g. FILL CART pressed in another tab):
+      // same outcome as the pre-check, no error toast.
+      if (message.includes(PRIMARY_SWITCH_OPEN_ORDER_REFUSAL)) return 'refused';
+      notifyBackendError('Switch primary vendor', e);
+      return 'failed';
+    }
+    // 5. Reload the reorder list for the date on screen (AC-25.3), then audit.
+    await get().loadReorderSuggestions(asOfDate);
+    const vendorName = (id: string) => get().vendors.find((v) => v.id === id)?.name || id;
+    get().addAuditEvent({
+      timestamp: new Date().toLocaleString(),
+      userId: get().currentUser?.id || '',
+      userName: get().currentUser?.name || '',
+      userRole: get().currentUser?.role || 'user',
+      storeId: get().currentStore.id,
+      storeName: get().currentStore.name,
+      action: 'Item edit',
+      detail: 'Primary vendor switched',
+      itemRef: get().inventory.find((i) => i.id === itemId)?.name || itemId,
+      value: `${vendorName(fromVendorId)} → ${vendorName(toVendorId)}`,
+    });
+    return 'switched';
   },
 
   // Spec 122 — brand-wide scalar propagation (par/cost/case_price). See the

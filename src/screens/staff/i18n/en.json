@@ -151,6 +151,7 @@
       "order": "Order: {suggested}",
       "alsoFromOne": "also available from {vendors} — order from one",
       "alsoFromMany": "also available from {count} other vendors ({vendors}) — order from one",
+      "yieldedFrom": "also from {vendors} — order it here",
       "inStock": "In stock: {qty}",
       "noNeed": "No need"
     },

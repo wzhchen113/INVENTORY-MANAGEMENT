@@ -4784,6 +4784,17 @@ function mapReorderVendor(v: any): ReorderVendor {
               vendorName: String(av?.vendor_name ?? ''),
             }))
           : [],
+        // Spec 201 (R5) — primary-wins hint. Non-empty ONLY on the primary
+        // vendor's row on a coincident order-out day: the coincident vendors
+        // whose cards gave this item up. `[]` everywhere else, and when absent
+        // (pre-201 server). The diagnostic keys `item_on_hand_source` /
+        // `on_hand_borrowed_from` are deliberately NOT mapped (design §7).
+        yieldedFromVendors: Array.isArray(it?.yielded_from_vendors)
+          ? it.yielded_from_vendors.map((yv: any) => ({
+              vendorId: String(yv?.vendor_id ?? ''),
+              vendorName: String(yv?.vendor_name ?? ''),
+            }))
+          : [],
       }))
     : [];
   const source: OnHandSource = v?.on_hand_source === 'stock' ? 'stock' : 'eod';
@@ -4803,6 +4814,80 @@ function mapReorderVendor(v: any): ReorderVendor {
     // below-par-only path shows "+ CREATE PO").
     hasPo: Boolean(v?.has_po ?? false),
   };
+}
+
+// ─── PRIMARY-VENDOR SWITCH (Spec 201) ───────────────────────────────────
+/**
+ * Spec 201 R7 — make `vendorId` the item's primary vendor at the item's store
+ * (this store only). Calls the SECURITY INVOKER RPC
+ * `set_item_primary_vendor(p_item_id, p_vendor_id, p_as_of_date)` (migration
+ * 20261118120100), which runs the spec 124 demote-first order atomically —
+ * demote the old `is_primary` link, promote the new one, mirror
+ * `inventory_items.vendor_id` — after its guards: privileged only (42501),
+ * store visibility (42501), vendor linked (P0001), and the 3c refusal when the
+ * item is already on a non-cancelled PO for (store, current primary,
+ * `asOfDate`) (P0001, message contains
+ * `item is on an open order for the current primary vendor`).
+ *
+ * Already primary → `changed: false` with no writes.
+ *
+ * Errors are thrown RAW (the PostgREST error object) so the store action can
+ * read `.message` and tell the 3c refusal apart from other failures.
+ */
+export async function setItemPrimaryVendor(
+  itemId: string,
+  vendorId: string,
+  asOfDate: string,
+): Promise<{ changed: boolean; previousVendorId: string | null; vendorId: string }> {
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase.rpc('set_item_primary_vendor', {
+      p_item_id: itemId,
+      p_vendor_id: vendorId,
+      p_as_of_date: asOfDate,
+    }).abortSignal(signal);
+
+    if (error) throw error;
+
+    const row = (data || {}) as any;
+    return {
+      changed: Boolean(row.changed),
+      previousVendorId: row.previous_vendor_id == null ? null : String(row.previous_vendor_id),
+      vendorId: String(row.vendor_id ?? vendorId),
+    };
+  }, { kind: 'write', label: 'setItemPrimaryVendor' });
+}
+
+/**
+ * Spec 201 (3c) — the client pre-check run BEFORE the switch confirm: is the
+ * item already on a non-cancelled purchase order for (store, vendor,
+ * reference date)? Same keying as `report_reorder_list`'s `has_po` (and the
+ * RPC's server-side backstop in `set_item_primary_vendor` step 7). FILL CART
+ * drafts are included — `upsertVendorDraftOrder` writes `reference_date`.
+ *
+ * Throws on error (the caller fails closed: no confirm, no write).
+ */
+export async function isItemOnOpenOrder(params: {
+  storeId: string;
+  itemId: string;
+  vendorId: string;
+  referenceDate: string;
+}): Promise<boolean> {
+  const { storeId, itemId, vendorId, referenceDate } = params;
+  return useInflight.getState().track(async (signal) => {
+    const { data, error } = await supabase
+      .from('po_items')
+      .select('id, purchase_orders!inner(id)')
+      .eq('item_id', itemId)
+      .eq('purchase_orders.store_id', storeId)
+      .eq('purchase_orders.vendor_id', vendorId)
+      .eq('purchase_orders.reference_date', referenceDate)
+      .neq('purchase_orders.status', 'cancelled')
+      .limit(1)
+      .abortSignal(signal);
+
+    if (error) throw error;
+    return Array.isArray(data) && data.length > 0;
+  }, { kind: 'read', label: 'isItemOnOpenOrder' });
 }
 
 // ─── COUNTED-ON-HAND REORDER (Spec 105) ─────────────────────────────────

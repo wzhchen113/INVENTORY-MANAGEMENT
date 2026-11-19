@@ -50,6 +50,8 @@ import {
 import { buildPoQuickOrderText, type NameResolver } from '../../../../utils/poQuickOrderText';
 import { getLocalizedName } from '../../../../i18n/localizedName';
 import { sharePurchaseOrder } from '../../lib/sharePo';
+// Spec 201 — the shared (desktop + phone) "switch primary vendor" flow.
+import { runPrimaryVendorSwitch } from '../../lib/primaryVendorSwitch';
 import { ResponsiveSheet } from '../../../../components/cmd/ResponsiveSheet';
 // Spec 183 — the per-export language prompt, hosted by the ROOT (it must
 // outlive the ··· sheet, which unmounts on every action — AC-19).
@@ -201,6 +203,29 @@ export function VendorOrderCard({
   const vendorLastOrder = lastOrderContext?.[vendor.vendorId] ?? null;
   const [filled, setFilled] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  // Spec 201 (R6/R7/§9) — the "also from … — switch" line on a primary row
+  // that other vendors yielded to. The SWITCH only renders on the ordering
+  // surface (`footer === 'default'`): the Approve Order screen (footer='none')
+  // reviews a fixed order for approval, so it shows the line text-only rather
+  // than offering a control that would move the item off the order under
+  // review. The as-of date is the envelope's (the date on screen).
+  const switchItemPrimaryVendor = useStore((s) => s.switchItemPrimaryVendor);
+  const reorderAsOfDate = useStore((s) => s.reorderPayload?.asOfDate ?? null);
+  const [switchingItemId, setSwitchingItemId] = React.useState<string | null>(null);
+  const allowPrimarySwitch = footer === 'default';
+  const onSwitchPrimary = (item: ReorderItem, target: { vendorId: string; vendorName: string }) => {
+    if (switchingItemId || !reorderAsOfDate) return;
+    setSwitchingItemId(item.itemId);
+    void runPrimaryVendorSwitch({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      from: { vendorId: vendor.vendorId, vendorName: vendor.vendorName || '' },
+      to: target,
+      asOfDate: reorderAsOfDate.slice(0, 10),
+      T,
+      switchItemPrimaryVendor,
+    }).finally(() => setSwitchingItemId(null));
+  };
 
   const notSubmitted = isReorderCountNotSubmitted(vendor);
   const extensionOrdering =
@@ -493,6 +518,56 @@ export function VendorOrderCard({
                             </Text>
                           ) : null}
                         </Text>
+                      ) : null}
+                      {/* Spec 201 — "also from … — switch". Phone had no old
+                          spec-102 hint line, so this is purely additive. Same
+                          testIDs as desktop; one switch per yielded vendor;
+                          44 px-ish touch target via hitSlop on the 390 px row. */}
+                      {(item.yieldedFromVendors?.length ?? 0) > 0 ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                          <Text
+                            testID={`reorder-yielded-from-${item.itemId}`}
+                            style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, fontStyle: 'italic' }}
+                          >
+                            {T('section.reorder.yieldedFrom', {
+                              vendors: (item.yieldedFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                            })}
+                          </Text>
+                          {allowPrimarySwitch
+                            ? (item.yieldedFromVendors ?? []).map((target) => {
+                                const many = (item.yieldedFromVendors ?? []).length > 1;
+                                const switching = switchingItemId === item.itemId;
+                                return (
+                                  <TouchableOpacity
+                                    key={target.vendorId}
+                                    testID={`reorder-switch-primary-${item.itemId}-${target.vendorId}`}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={T('section.reorder.switchPrimaryAria', {
+                                      vendor: target.vendorName,
+                                      item: item.itemName,
+                                    })}
+                                    accessibilityState={{ disabled: switching || !reorderAsOfDate }}
+                                    disabled={switching || !reorderAsOfDate}
+                                    onPress={() => onSwitchPrimary(item, target)}
+                                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontFamily: mono(600),
+                                        fontSize: 10.5,
+                                        color: switching ? C.fg3 : C.accent,
+                                        textDecorationLine: 'underline',
+                                      }}
+                                    >
+                                      {many
+                                        ? T('section.reorder.switchPrimaryTo', { vendor: target.vendorName })
+                                        : T('section.reorder.switchPrimary')}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            : null}
+                        </View>
                       ) : null}
                     </View>
                     <LineStepper

@@ -275,8 +275,22 @@ function VendorCard({ vendor, needsOrder }: { vendor: ReorderVendor; needsOrder:
                   under each of their cards; surface "also available from N" so
                   the manager orders it from ONE vendor, not several. Advisory
                   only — does not change which card the item is on. Renders
-                  nothing for a single-vendor item (otherVendorCount 0). */}
-              {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
+                  nothing for a single-vendor item (otherVendorCount 0).
+                  Spec 201 (R6/§9) — on a coincident day the server keeps a
+                  shared item ONLY on its primary vendor's card and names the
+                  vendors that gave it up in `yieldedFromVendors`. That row
+                  renders the "also from …" line INSTEAD of the old hint, and
+                  staff get NO switch control (OQ-3b — admin only). */}
+              {(item.yieldedFromVendors?.length ?? 0) > 0 ? (
+                <Text
+                  style={[styles.itemAlsoFrom, { color: c.textTertiary }]}
+                  testID={`reorder-yielded-from-${item.itemId}`}
+                >
+                  {t('reorder.item.yieldedFrom', {
+                    vendors: (item.yieldedFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                  })}
+                </Text>
+              ) : (item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
                 <Text
                   style={[styles.itemAlsoFrom, { color: c.textTertiary }]}
                   testID={`reorder-also-from-${item.itemId}`}

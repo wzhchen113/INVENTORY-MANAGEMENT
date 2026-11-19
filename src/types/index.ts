@@ -1009,9 +1009,12 @@ export type OnHandSource = 'eod' | 'stock';
  * the item name. Known tokens:
  *   - `'no_par'`           — par_level NULL or 0
  *   - `'no_usage_rate'`    — usage_per_portion NULL or 0
- *   - `'eod_missing_for_item'` — vendor is EOD-sourced but THIS item's
- *     EOD entry is missing (fell back to current_stock for this row
- *     only). Vendor-level `onHandSource` stays `'eod'`.
+ *   - `'eod_missing_for_item'` — this row's OWN vendor submitted today's
+ *     EOD but it has no numeric entry for THIS item, no other vendor's
+ *     submitted EOD for the same store + date counted it (spec 201 borrow
+ *     source), and it is not marked NO NEED (spec 172). The row fell back
+ *     to current_stock. A row that borrowed another vendor's count is NOT
+ *     flagged. Vendor-level `onHandSource` is unaffected.
  *   - `'truncated'`        — recipe-graph depth cap hit during forecast.
  */
 export interface ReorderItem {
@@ -1073,6 +1076,19 @@ export interface ReorderItem {
    */
   otherVendorCount?: number;
   alsoFromVendors?: Array<{ vendorId: string; vendorName: string }>;
+  /**
+   * Spec 201 (R5) — "primary vendor wins" hint. On a coincident order-out
+   * day (2+ of the item's linked vendors order out on the as-of weekday and
+   * the item's primary is one of them) the server drops the item from every
+   * coincident non-primary card; the PRIMARY's row carries those vendors here
+   * (id + name, sorted by name). Non-empty ONLY on that row; `[]` on every
+   * other row and on non-coincident days. Optional so a pre-201 payload
+   * (absent key) reads as `[]`. Hydrated by both the admin
+   * `db.mapReorderVendor` and the staff `fetchReorder` mapper from
+   * `yielded_from_vendors`. When non-empty the UI renders "also from …"
+   * (admin: with a switch) INSTEAD of the spec 102 "order from one" line.
+   */
+  yieldedFromVendors?: Array<{ vendorId: string; vendorName: string }>;
 }
 
 /**

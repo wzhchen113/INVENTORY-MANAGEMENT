@@ -9,8 +9,11 @@
 -- works for the SINGLE-vendor shape. This file pins the genuinely-new
 -- contract the rewrite added:
 --
---   (1) EXPLOSION — a shared item linked to TWO vendors, both scheduled the
---       SAME day, appears under BOTH vendor cards.
+--   (1) EXPLOSION — a shared item linked to TWO vendors whose order-out
+--       days are NOT the same as-of weekday appears under BOTH vendor
+--       cards. Spec 201 changed the coincident-day outcome (primary wins —
+--       pinned by report_reorder_list_primary_wins.test.sql AC-1); this
+--       suite keeps its spec 102 meaning on a NON-coincident day.
 --   (2) PER-VENDOR COST — its estimated_cost under each card is priced at
 --       THAT vendor's per-(item,vendor) junction cost, NOT a single item
 --       cost. V1 @ $5 → 10*5 = 50; V2 @ $8 → 10*8 = 80 (DISTINCT, so a
@@ -24,7 +27,7 @@
 -- Eleven assertions:
 --   (1) fixture resolve.
 --   (2) shared item present under V1 card.
---   (3) shared item present under V2 card.
+--   (3) shared item present under V2 card (non-coincident day).
 --   (4) shared item estimated_cost under V1 == 50 (per-vendor cost $5).
 --   (5) shared item estimated_cost under V2 == 80 (per-vendor cost $8).
 --   (6) shared item other_vendor_count == 1 under V1 card.
@@ -37,7 +40,13 @@
 --
 -- Schedule: both vendors get an order_schedule row whose delivery_day is
 -- TODAY's weekday → days_offset 0 → next_delivery_date = today → both vendors
--- surface a card on the as-of day (the coincident-schedule case, OQ-1).
+-- surface a card on the as-of day.
+--
+-- Spec 201 (C4): order-out days are deterministically NON-coincident —
+-- V1's day_of_week is TODAY's weekday and V2's is TOMORROW's. The fixture
+-- used to hard-code 'monday' for both, so it was coincident only when CI ran
+-- on a Monday; under spec 201's primary-wins rule arms (3), (5) and (11)
+-- would then fail one day in seven.
 --
 -- All fixtures (catalog, items, item_vendors links, schedule) are created
 -- INSIDE the transaction, so the test is identical under the 564-row backfill
@@ -102,10 +111,11 @@ delete from public.order_schedule
 -- UNIQUE (store_id, day_of_week, vendor_id). day_of_week is "when the order
 -- goes out"; the RPC's offset math reads delivery_day ("when the truck
 -- arrives"). delivery_day = TODAY's weekday → offset 0 → next_delivery = today
--- → both vendors surface a card on the as-of day (the OQ-1 coincident case).
+-- → both vendors surface a card on the as-of day. Spec 201: day_of_week is
+-- today (V1) vs tomorrow (V2) → never coincident, so explosion holds.
 insert into public.order_schedule (store_id, day_of_week, vendor_id, vendor_name, delivery_day)
 select current_setting('test.frederick_id', true)::uuid,
-       'monday',
+       lower(to_char(current_date, 'FMDay')),
        current_setting('test.vendor1', true)::uuid,
        v.name,
        lower(to_char(current_date, 'FMDay'))
@@ -114,7 +124,7 @@ select current_setting('test.frederick_id', true)::uuid,
 
 insert into public.order_schedule (store_id, day_of_week, vendor_id, vendor_name, delivery_day)
 select current_setting('test.frederick_id', true)::uuid,
-       'monday',
+       lower(to_char(current_date + 1, 'FMDay')),
        current_setting('test.vendor2', true)::uuid,
        v.name,
        lower(to_char(current_date, 'FMDay'))
@@ -203,7 +213,7 @@ select is(
     where item_id = current_setting('test.item_shared', true)
       and vendor_id = current_setting('test.vendor2', true)),
   1::bigint,
-  '(3) shared item appears under the V2 vendor card (explosion to both)'
+  '(3) shared item appears under the V2 vendor card on a non-coincident day (explosion to both)'
 );
 
 -- ─── (4)/(5) per-vendor cost — DISTINCT estimated_cost per card ──

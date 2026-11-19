@@ -151,6 +151,7 @@
       "order": "订购：{suggested}",
       "alsoFromOne": "也可从 {vendors} 订购 — 仅选其一",
       "alsoFromMany": "也可从其他 {count} 家供应商订购（{vendors}）— 仅选其一",
+      "yieldedFrom": "也可从 {vendors} 订购 — 请在此订购",
       "inStock": "库存：{qty}",
       "noNeed": "无需"
     },

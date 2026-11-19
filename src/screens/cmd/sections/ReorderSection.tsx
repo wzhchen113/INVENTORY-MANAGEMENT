@@ -15,6 +15,8 @@ import { confirmAction } from '../../../utils/confirmAction';
 import { getLocalizedName } from '../../../i18n/localizedName';
 import { buildPoQuickOrderText, type NameResolver } from '../../../utils/poQuickOrderText';
 import { sharePurchaseOrder } from '../lib/sharePo';
+// Spec 201 — the shared (desktop + phone) "switch primary vendor" flow.
+import { runPrimaryVendorSwitch } from '../lib/primaryVendorSwitch';
 import ReorderDatePicker from '../../../components/cmd/ReorderDatePicker';
 import { toISODate } from '../../../utils/reportDates';
 import {
@@ -704,6 +706,26 @@ function VendorCard({
   // (applyReorderEdits), so `item.suggestedUnits` is the current base — used to
   // seed the input AND as the no-op reference in poResolveEdit.
   const setReorderEditQty = useStore((s) => s.setReorderEditQty);
+  // Spec 201 (R7) — the admin "switch primary vendor" control on a primary
+  // row that other vendors yielded to. The as-of date is the envelope's (the
+  // date on screen); `switchingItemId` disables the row's switch while the
+  // pre-check / confirm / write / reload is in flight (no double-fire).
+  const switchItemPrimaryVendor = useStore((s) => s.switchItemPrimaryVendor);
+  const reorderAsOfDate = useStore((s) => s.reorderPayload?.asOfDate ?? null);
+  const [switchingItemId, setSwitchingItemId] = React.useState<string | null>(null);
+  const onSwitchPrimary = (item: ReorderItem, target: { vendorId: string; vendorName: string }) => {
+    if (switchingItemId || !reorderAsOfDate) return;
+    setSwitchingItemId(item.itemId);
+    void runPrimaryVendorSwitch({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      from: { vendorId: vendor.vendorId, vendorName: vendor.vendorName || '' },
+      to: target,
+      asOfDate: reorderAsOfDate.slice(0, 10),
+      T,
+      switchItemPrimaryVendor,
+    }).finally(() => setSwitchingItemId(null));
+  };
   // Spec 151 (AC-15) — the last-order context, subscribed here (this is a
   // component; it already calls hooks) exactly as the phone VendorOrderCard
   // does, so both tiers read the SAME slice through the SAME pure formatter.
@@ -1086,9 +1108,61 @@ function VendorCard({
               of their cards; surface "also available from N" so the manager
               orders it from ONE vendor, not several. Advisory only — does not
               change which card the item is on. Renders nothing for a
-              single-vendor item (otherVendorCount 0). Admin surface is English
-              (matches the rest of this section + the byte-for-byte exports). */}
-          {(item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
+              single-vendor item (otherVendorCount 0). This legacy line stays an
+              English literal, byte-unchanged (spec 201 D8 — only NEW admin
+              text goes through T()).
+              Spec 201 (R6/R7/§9) — on a coincident day the server keeps a
+              shared item ONLY on its primary vendor's card and names the
+              vendors that gave it up in `yieldedFromVendors`. That row renders
+              "also from … — switch" INSTEAD of the old line; every other row
+              keeps the old line exactly. One switch control per yielded vendor
+              (the switch has to name its target when two vendors yielded). */}
+          {(item.yieldedFromVendors?.length ?? 0) > 0 ? (
+            <View style={{ paddingLeft: 2, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <Text
+                style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, fontStyle: 'italic' }}
+                testID={`reorder-yielded-from-${item.itemId}`}
+              >
+                {T('section.reorder.yieldedFrom', {
+                  vendors: (item.yieldedFromVendors ?? []).map((v) => v.vendorName).join(', '),
+                })}
+              </Text>
+              {(item.yieldedFromVendors ?? []).map((target) => {
+                const many = (item.yieldedFromVendors ?? []).length > 1;
+                const busy = switchingItemId === item.itemId;
+                return (
+                  <React.Fragment key={target.vendorId}>
+                    <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>—</Text>
+                    <TouchableOpacity
+                      testID={`reorder-switch-primary-${item.itemId}-${target.vendorId}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={T('section.reorder.switchPrimaryAria', {
+                        vendor: target.vendorName,
+                        item: item.itemName,
+                      })}
+                      accessibilityState={{ disabled: busy || !reorderAsOfDate }}
+                      disabled={busy || !reorderAsOfDate}
+                      onPress={() => onSwitchPrimary(item, target)}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: mono(600),
+                          fontSize: 10.5,
+                          color: busy ? C.fg3 : C.accent,
+                          textDecorationLine: 'underline',
+                        }}
+                      >
+                        {many
+                          ? T('section.reorder.switchPrimaryTo', { vendor: target.vendorName })
+                          : T('section.reorder.switchPrimary')}
+                      </Text>
+                    </TouchableOpacity>
+                  </React.Fragment>
+                );
+              })}
+            </View>
+          ) : (item.otherVendorCount ?? 0) > 0 && (item.alsoFromVendors?.length ?? 0) > 0 ? (
             <View style={{ paddingLeft: 2 }}>
               <Text
                 style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3, fontStyle: 'italic' }}
