@@ -65,6 +65,14 @@ import { todayIso } from '../lib/date';
 import { fetchYesterdayIncomplete } from '../lib/yesterdayStatus';
 import { fetchSubmittedVendorIds } from '../lib/submittedStatus';
 import { fetchUpdatedItemIds } from '../lib/itemsUpdated';
+import { fetchBorrowSources } from '../lib/borrowSources';
+import {
+  borrowedEntryCopy,
+  deriveBorrowedEntries,
+  entrySeed,
+  stockMismatchIds,
+} from '../lib/borrowedEntries';
+import { fetchCurrentStock } from '../lib/stockCheck';
 import { currentStaffUserId, useStaffStore } from '../store/useStaffStore';
 import { useEodSubmit } from '../hooks/useEodSubmit';
 import { t, useI18n } from '../i18n';
@@ -72,7 +80,14 @@ import { getLocalizedName } from '../../../i18n/localizedName';
 import { matchesQuery } from '../../../i18n/matchesQuery';
 import type { LocalizedNames } from '../../../types';
 import { useStaffColors, useStaffTokens, type StaffTokens } from '../theme';
-import type { EodEntry, EodItem, ExistingSubmission, Vendor } from '../lib/types';
+import type {
+  BorrowedEntry,
+  EodEntry,
+  EodItem,
+  ExistingSubmission,
+  ServerEodSource,
+  Vendor,
+} from '../lib/types';
 
 const WEEKDAYS = [
   'Sunday',
@@ -372,6 +387,42 @@ export function EODCount() {
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [forbidden, setForbidden] = useState<boolean>(false);
+  // Spec 200 (R1/R9) — other vendors' submitted submissions at (store, count
+  // date): a snapshot read on a vendor / date / store switch and after a
+  // confirmed submit. Best-effort: a failed read leaves it [] (no server
+  // borrows) and never blocks the list. `borrowReqRef` is a request token so a
+  // stale read (fast vendor switch, an older refresh) can't land last.
+  const [serverSources, setServerSources] = useState<ServerEodSource[]>([]);
+  const borrowReqRef = useRef(0);
+  // Spec 200 (R1) — this device's offline queue; queued submissions by the
+  // signed-in user for other vendors are borrow sources too (read-only).
+  const eodQueue = useStaffStore((s) => s.eodQueue);
+  // Spec 200 (AC-20) — items whose borrowed count failed the pre-submit stock
+  // check (stock changed since that count, or the check couldn't run). They
+  // are treated as NOT borrowed until the next vendor / date / store load, so
+  // the gate asks for a real count. The value is WHY (round 2): 'changed' =
+  // the read showed a different on-hand; 'unchecked' = the read failed.
+  const [recountIds, setRecountIds] = useState<ReadonlyMap<string, 'changed' | 'unchecked'>>(
+    new Map(),
+  );
+
+  // ─── count date: today (default) or yesterday for a missed/late count ──
+  // Owner request (2026-07): if staff missed a vendor's count date they can
+  // step back ONE day and count it, flagged as a late submission. "Late" is
+  // purely derived (dayOffset > 0) — it needs no storage because the DB
+  // already records it implicitly: eod_submissions.date (the count date) is
+  // earlier than submitted_at::date (the wall-clock write). Overloading
+  // `status` was rejected — admin's fetchRecentEodDates filters
+  // status = 'submitted', so a 'late' status would hide the count.
+  const [dayOffset, setDayOffset] = useState(0); // 0 = today, 1 = yesterday
+  const countDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - dayOffset);
+    return d;
+  }, [dayOffset]);
+  // Local YYYY-MM-DD for the selected count date — the submission date key.
+  const countIso = useMemo(() => todayIso(countDate), [countDate]);
+  const isLate = dayOffset > 0;
 
   // Spec 129 — SUBMITTED_LOCKED: the selected vendor has an existing submission
   // and we're not editing it. The Cases/Units inputs render read-only.
@@ -407,14 +458,102 @@ export function EODCount() {
     () => orderedForAdvance.find((i) => i.id === sheetItemId) ?? null,
     [orderedForAdvance, sheetItemId],
   );
-  // Counted-once predicate (spec 102) — an ENABLED box (spec 171 AC-7) is
-  // non-blank; under the default mode that is cases OR units, as before. The
-  // single source feeding the row indicator, the "X of N" label, the gate,
-  // isDone, and advance.
+  // Spec 200 (design §3/§4) — per item, the entry another vendor recorded at
+  // (store, count date) that this tab borrows. All source + ordering rules
+  // live in the pure helper; the vendor-name map names a QUEUED source (R4).
+  const vendorNameById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const v of vendors) m[v.id] = v.name;
+    return m;
+  }, [vendors]);
+  const borrowed = useMemo(
+    () =>
+      activeStore && selectedVendorId
+        ? deriveBorrowedEntries({
+            serverSources,
+            queue: eodQueue,
+            storeId: activeStore.id,
+            countIso,
+            vendorId: selectedVendorId,
+            userId,
+            vendorNameById,
+          })
+        : new Map<string, BorrowedEntry>(),
+    [activeStore, selectedVendorId, serverSources, eodQueue, countIso, userId, vendorNameById],
+  );
+  // Own-counted predicate (spec 102) — an ENABLED box (spec 171 AC-7) is
+  // non-blank; under the default mode that is cases OR units, as before.
   // Spec 172 (AC-32) — a NO NEED mark also counts.
-  const isCounted = useCallback(
+  // Spec 200 (D5) — "own" ≡ "would be in this vendor's payload today".
+  const ownCounted = useCallback(
     (it: EodItem) => eodRowCounted(noNeed[it.id], modeFor(it), caseCounts[it.id], unitCounts[it.id]),
     [caseCounts, unitCounts, noNeed, modeFor],
+  );
+  // Spec 200 (R2) — the borrowed entry a row SHOWS: only when it has no own
+  // entry (this vendor's own entry always wins in its own tab).
+  // Spec 200 (AC-20) — an item flagged for recount is not borrowed.
+  const borrowableFor = useCallback(
+    (id: string): BorrowedEntry | null => (recountIds.has(id) ? null : borrowed.get(id) ?? null),
+    [borrowed, recountIds],
+  );
+  const borrowedFor = useCallback(
+    (it: EodItem): BorrowedEntry | null => (ownCounted(it) ? null : borrowableFor(it.id)),
+    [ownCounted, borrowableFor],
+  );
+  // Counted-once predicate — own OR borrowed (spec 200 R3; a borrowed row
+  // counts regardless of the live count mode, R7). The single source feeding
+  // the row indicator, the "X of N" label, the gate + its jump target, isDone,
+  // and advance.
+  const isCounted = useCallback(
+    (it: EodItem) => ownCounted(it) || borrowableFor(it.id) !== null,
+    [ownCounted, borrowableFor],
+  );
+  // Spec 200 (R4/R7/R10) — what a row (and the keypad sheet) DISPLAYS. A
+  // borrowed row shows the recorded entry via the shared `entrySeed` rule in
+  // the LEGACY layout (the locked-row model — never re-derived through the
+  // live mode), its total is the recorded `actual_remaining`, and it carries
+  // the "Counted under {vendor}" label. Any other row is unchanged.
+  const rowDisplay = useCallback(
+    (it: EodItem) => {
+      const b = borrowedFor(it);
+      if (!b) {
+        const countMode = modeFor(it);
+        const caseRaw = caseCounts[it.id] ?? '';
+        const unitRaw = unitCounts[it.id] ?? '';
+        return {
+          caseRaw,
+          unitRaw,
+          noNeed: noNeed[it.id] === true,
+          countMode,
+          total: eodTotal(countMode, it.caseQty, caseRaw, unitRaw),
+          borrowedLabel: null as string | null,
+          // Spec 200 (AC-20) — a row the stock check sent back for a real
+          // count says why, until it is counted (the toast can sit under the
+          // keypad sheet).
+          recountLabel:
+            recountIds.has(it.id) && !ownCounted(it)
+              ? t(
+                  recountIds.get(it.id) === 'unchecked'
+                    ? 'eod.borrowed.stockUnchecked'
+                    : 'eod.borrowed.stockChanged',
+                )
+              : null,
+        };
+      }
+      const seed = entrySeed(b.entry);
+      return {
+        caseRaw: seed.caseRaw,
+        unitRaw: seed.unitRaw,
+        noNeed: seed.noNeed,
+        countMode: effectiveEodCountMode(it.caseQty),
+        total: b.entry.actual_remaining ?? 0,
+        borrowedLabel: b.vendorName
+          ? t('eod.borrowed.countedUnder', { vendor: b.vendorName })
+          : t('eod.borrowed.countedUnderOther'),
+        recountLabel: null as string | null,
+      };
+    },
+    [borrowedFor, modeFor, caseCounts, unitCounts, noNeed, t, recountIds, ownCounted],
   );
   // Live progress for the "X of N counted" label — the same predicate the
   // indicator + gate use.
@@ -424,10 +563,13 @@ export function EODCount() {
     [orderedForAdvance, isCounted],
   );
   // Running total for the currently-seated sheet item (existing case/unit math).
-  const sheetTotal = useMemo(() => {
-    if (!sheetItem) return 0;
-    return eodTotal(modeFor(sheetItem), sheetItem.caseQty, caseCounts[sheetItem.id], unitCounts[sheetItem.id]);
-  }, [sheetItem, caseCounts, unitCounts, modeFor]);
+  // Spec 200 — the sheet shows what the row shows (a borrowed row's recorded
+  // values + total until the first committed key makes it own).
+  const sheetDisplay = useMemo(
+    () => (sheetItem ? rowDisplay(sheetItem) : null),
+    [sheetItem, rowDisplay],
+  );
+  const sheetTotal = sheetDisplay?.total ?? 0;
   // Spec 171 §9 — clamp the seated field to an ENABLED box (live mode; the
   // sheet only opens unlocked) so a stale `activeField` can never write into a
   // hidden map.
@@ -455,13 +597,27 @@ export function EODCount() {
         delete next[id];
         return next;
       });
+      // Spec 200 (R5) — the FIRST committed key on a borrowed row makes it own:
+      // own state = the borrowed values, with the SEATED field replaced by the
+      // key typed into an empty field (typing 7 on a borrowed 5 gives own 7).
+      // A first backspace blanks the seated field; if the other is blank too
+      // the row is still borrowed.
+      const b = borrowedFor(sheetItem);
+      if (b) {
+        const seed = entrySeed(b.entry);
+        const caseNext = seatedField === 'cases' ? appendKeypadDigit('', key) : seed.caseRaw;
+        const unitNext = seatedField === 'units' ? appendKeypadDigit('', key) : seed.unitRaw;
+        setCaseCounts((p) => ({ ...p, [id]: caseNext }));
+        setUnitCounts((p) => ({ ...p, [id]: unitNext }));
+        return;
+      }
       if (seatedField === 'cases') {
         setCaseCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
       } else {
         setUnitCounts((p) => ({ ...p, [id]: appendKeypadDigit(p[id] || '', key) }));
       }
     },
-    [sheetItem, seatedField],
+    [sheetItem, seatedField, borrowedFor],
   );
   // Spec 172 — write one row's NO NEED transition (rules in the pure
   // `eodNoNeed.ts`) back to the three maps. A map key is written only when its
@@ -533,29 +689,22 @@ export function EODCount() {
 
   // Spec 129 — seed the Cases/Units maps from an existing submission. Shared by
   // the vendor-change load effect and the EDIT→Cancel revert so the two paths
-  // can't drift (the legacy-row fallback below is subtle — cases-only rows must
-  // NOT re-seed Units from the total, per spec 086 OQ-4).
+  // can't drift (the legacy-row fallback in `entrySeed` is subtle — cases-only
+  // rows must NOT re-seed Units from the total, per spec 086 OQ-4).
   const seedFromExisting = useCallback((ex: ExistingSubmission | null) => {
     const caseSeed: Record<string, string> = {};
     const unitSeed: Record<string, string> = {};
     const noNeedSeed: Record<string, boolean> = {};
     if (ex) {
       for (const e of ex.entries) {
-        // Spec 172 (AC-33) — restore the NO NEED mark; its numerics are null,
-        // so the seeds below stay blank (never "0").
-        if (e.no_need === true) noNeedSeed[e.item_id] = true;
-        if (e.actual_remaining_cases != null) {
-          caseSeed[e.item_id] = String(e.actual_remaining_cases);
-        }
-        const units =
-          e.actual_remaining_each != null
-            ? e.actual_remaining_each
-            : e.actual_remaining_cases == null
-              ? e.actual_remaining
-              : null;
-        if (units != null) {
-          unitSeed[e.item_id] = String(units);
-        }
+        // Spec 200 — the per-entry rule is the shared `entrySeed` (also used by
+        // the borrowed display, R4), so the two can't drift. Spec 172 (AC-33):
+        // a NO NEED mark is restored with both seeds blank (never "0"); a blank
+        // seed leaves its key absent, as before.
+        const seed = entrySeed(e);
+        if (seed.noNeed) noNeedSeed[e.item_id] = true;
+        if (seed.caseRaw !== '') caseSeed[e.item_id] = seed.caseRaw;
+        if (seed.unitRaw !== '') unitSeed[e.item_id] = seed.unitRaw;
       }
     }
     setCaseCounts(caseSeed);
@@ -575,24 +724,6 @@ export function EODCount() {
     seedFromExisting(existing);
     setEditing(false);
   }, [existing, seedFromExisting]);
-
-  // ─── count date: today (default) or yesterday for a missed/late count ──
-  // Owner request (2026-07): if staff missed a vendor's count date they can
-  // step back ONE day and count it, flagged as a late submission. "Late" is
-  // purely derived (dayOffset > 0) — it needs no storage because the DB
-  // already records it implicitly: eod_submissions.date (the count date) is
-  // earlier than submitted_at::date (the wall-clock write). Overloading
-  // `status` was rejected — admin's fetchRecentEodDates filters
-  // status = 'submitted', so a 'late' status would hide the count.
-  const [dayOffset, setDayOffset] = useState(0); // 0 = today, 1 = yesterday
-  const countDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - dayOffset);
-    return d;
-  }, [dayOffset]);
-  // Local YYYY-MM-DD for the selected count date — the submission date key.
-  const countIso = useMemo(() => todayIso(countDate), [countDate]);
-  const isLate = dayOffset > 0;
 
   // Recompute when `t` or the selected count date changes so the header date
   // label re-translates (spec 099) and reflects Today vs Yesterday.
@@ -660,21 +791,43 @@ export function EODCount() {
     };
   }, [activeStore, countDate, countIso]);
 
+  // ─── Spec 200: other vendors' submitted counts (borrow sources) ───
+  // Vendor-independent read of (store, count date); the request token drops a
+  // stale landing. A failure degrades to [] — queued sources still apply and
+  // the count list is never blocked (R9, AC-15).
+  const loadBorrowSources = useCallback((storeId: string, iso: string) => {
+    const token = ++borrowReqRef.current;
+    fetchBorrowSources(storeId, iso)
+      .then((rows) => {
+        if (borrowReqRef.current === token) setServerSources(rows);
+      })
+      .catch((err) => {
+        notifyBackendError('fetchBorrowSources', err);
+        if (borrowReqRef.current === token) setServerSources([]);
+      });
+  }, []);
+
   // ─── load items + existing submission when vendor changes ─────────
   useEffect(() => {
     // Spec 129 — a vendor switch always lands in that vendor's OWN derived
     // state (UNSUBMITTED or SUBMITTED_LOCKED per its own `existing`), never
     // carrying the previous vendor's EDITING flag.
     setEditing(false);
+    // Spec 200 (AC-20) — recount flags belong to one (store, date, vendor).
+    setRecountIds(new Map());
     if (!activeStore || !selectedVendorId) {
       setItems([]);
       setExisting(null);
       setCaseCounts({});
       setUnitCounts({});
       setNoNeed({});
+      borrowReqRef.current += 1; // drop any in-flight borrow read
+      setServerSources([]);
       return;
     }
     setLoading(true);
+    // Spec 200 (R9) — in parallel with, and never blocking, the item load.
+    loadBorrowSources(activeStore.id, countIso);
     Promise.all([
       fetchItemsForVendor(activeStore.id, selectedVendorId),
       fetchExistingSubmission(activeStore.id, countIso, selectedVendorId),
@@ -706,7 +859,34 @@ export function EODCount() {
         setNoNeed({});
       })
       .finally(() => setLoading(false));
-  }, [activeStore, selectedVendorId, countIso, seedFromExisting]);
+  }, [activeStore, selectedVendorId, countIso, seedFromExisting, loadBorrowSources]);
+
+  // ─── Spec 200 (R9 drain gap): re-read when a queued source drains ──
+  // A queued submission (this user, this store + count date) that leaves the
+  // queue has just become a server row (or was dropped) — re-read so the
+  // borrow overlay doesn't briefly read it as uncounted until the next switch.
+  const queuedIdsKey = useMemo(() => {
+    if (!activeStore) return '';
+    return eodQueue
+      .filter(
+        (q) => q.store_id === activeStore.id && q.date === countIso && q.intent_user_id === userId,
+      )
+      .map((q) => q.client_uuid)
+      .sort()
+      .join(',');
+  }, [eodQueue, activeStore, countIso, userId]);
+  const prevQueuedRef = useRef<{ scope: string; ids: string }>({ scope: '', ids: '' });
+  useEffect(() => {
+    const scope = activeStore ? `${activeStore.id}|${countIso}|${userId ?? ''}` : '';
+    const prev = prevQueuedRef.current;
+    prevQueuedRef.current = { scope, ids: queuedIdsKey };
+    // A store / date / user switch is handled by the load effect's read.
+    if (!activeStore || prev.scope !== scope || !prev.ids) return;
+    const now = new Set(queuedIdsKey ? queuedIdsKey.split(',') : []);
+    if (prev.ids.split(',').some((id) => !now.has(id))) {
+      loadBorrowSources(activeStore.id, countIso);
+    }
+  }, [queuedIdsKey, activeStore, countIso, userId, loadBorrowSources]);
 
   // ─── Spec 103: load the saved custom order for (this vendor) on change ──
   // The order is per-(staff-eod, vendor). On open, if a saved order exists for
@@ -805,8 +985,9 @@ export function EODCount() {
     // Spec 171 (AC-7) — "blank" means no ENABLED box has a value; a stale value
     // in a now-disabled box does not satisfy the gate (AC-16b).
     // Spec 172 (AC-32) — a NO NEED mark satisfies the gate.
-    const isBlank = (it: EodItem) =>
-      !eodRowCounted(noNeed[it.id], modeFor(it), caseCounts[it.id], unitCounts[it.id]);
+    // Spec 200 (R3) — so does a borrowed entry (another vendor's count of a
+    // shared item tonight): `isCounted` is own OR borrowed.
+    const isBlank = (it: EodItem) => !isCounted(it);
     // Completeness COUNT is against the FULL item set, order-independent (AC-9).
     const uncounted = items.filter(isBlank);
     if (uncounted.length > 0) {
@@ -834,7 +1015,9 @@ export function EODCount() {
     // default mode the result is byte-identical to the pre-spec-171 builder.
     // Spec 172 (AC-32) — a NO NEED item ships the §6.3 NO NEED shape (no
     // quantity); numeric entries are unchanged (no `no_need` key).
-    const entries: EodEntry[] = items
+    // Spec 200 (R8) — reads only the OWN maps, so an untouched borrowed row is
+    // omitted by construction (no on-hand write / audit row under this vendor).
+    let entries: EodEntry[] = items
       .map((it): EodEntry | null => {
         const v = eodRowEntryValues(noNeed[it.id], modeFor(it), it.caseQty, caseCounts[it.id], unitCounts[it.id]);
         if (!v) return null;
@@ -855,6 +1038,77 @@ export function EODCount() {
         };
       })
       .filter((x): x is EodEntry => x !== null);
+    // Spec 200 (R8 exception, OQ-1a) — an ALL-BORROWED vendor (every row
+    // borrowed, no own entry) would send nothing; ship VERBATIM copies of the
+    // borrowed entries instead so it gets a submission (chip + reminder clear).
+    // Never rebuilt through the live-mode builder (R7). Mixed lists omit.
+    let allBorrowed = false;
+    if (entries.length === 0 && items.length > 0) {
+      const copies: EodEntry[] = [];
+      for (const it of items) {
+        const b = borrowedFor(it);
+        if (!b) break;
+        copies.push(borrowedEntryCopy(it.id, b.entry));
+      }
+      if (copies.length === items.length) {
+        // Spec 200 (AC-20) — the writer sets on-hand from every numeric copy,
+        // so only send copies whose count still equals the item's live
+        // current_stock. A mismatch means stock changed after that count
+        // (receiving, auto-receive, an adjustment, an admin edit) or the source
+        // is a queued count not yet on the server: those items need a real
+        // count. A failed read fails CLOSED (every numeric copy needs one).
+        // NO NEED copies never write on-hand and are not checked.
+        const numericIds = copies.filter((e) => e.no_need !== true).map((e) => e.item_id);
+        let mismatched: string[] = [];
+        let reason: 'changed' | 'unchecked' = 'changed';
+        if (numericIds.length > 0) {
+          // Double-tap guard: `submitting` is true while the stock read is in
+          // flight, so a second press is ignored by the guard at the top. It is
+          // reset here (`finally` runs before the early return below) and set
+          // again just before the submit itself.
+          setSubmitting(true);
+          try {
+            mismatched = stockMismatchIds(copies, await fetchCurrentStock(activeStore.id, numericIds));
+          } catch (err) {
+            notifyBackendError('fetchCurrentStock', err);
+            mismatched = numericIds;
+            reason = 'unchecked';
+          } finally {
+            setSubmitting(false);
+          }
+        }
+        if (mismatched.length > 0) {
+          const flagged = new Set(mismatched);
+          setRecountIds((prev) => {
+            const next = new Map(prev);
+            for (const id of flagged) next.set(id, reason);
+            return next;
+          });
+          if (search.trim()) setSearch('');
+          const ordered =
+            viewMode === 'custom' ? applyCountOrder(items, savedIds, (i) => i.id) : items;
+          const target = ordered.find((it) => flagged.has(it.id));
+          setPendingFocusId((target ?? items.find((it) => flagged.has(it.id)))?.id ?? null);
+          // Round 2 — an honest message when the check couldn't run.
+          Toast.show({
+            type: 'error',
+            text1: t(
+              reason === 'unchecked' ? 'eod.toast.stockUncheckedTitle' : 'eod.toast.stockChangedTitle',
+            ),
+            text2: t(
+              reason === 'unchecked'
+                ? 'eod.toast.stockUncheckedRemaining'
+                : 'eod.toast.stockChangedRemaining',
+              { count: mismatched.length },
+            ),
+            position: 'bottom',
+          });
+          return;
+        }
+        entries = copies;
+        allBorrowed = true;
+      }
+    }
     if (entries.length === 0) {
       Toast.show({
         type: 'error',
@@ -877,12 +1131,20 @@ export function EODCount() {
 
     setSubmitting(true);
     try {
-      const outcome = await submit({
+      const payload = {
         store_id: activeStore.id,
         date: dateIso,
         vendor_id: selectedVendorId,
         entries,
-      });
+      };
+      // Spec 200 (AC-21) — all-borrowed copies are only safe right after the
+      // stock check, so they must NOT fall back to the offline queue (a later
+      // drain would skip the check). Offline / network error → a `failed`
+      // outcome; the screen stays unlocked and the next Submit re-checks.
+      // Own-count and mixed submits queue on network failure as before.
+      const outcome = allBorrowed
+        ? await submit(payload, { allowQueue: false })
+        : await submit(payload);
       // Spec 129 — a confirmed server write (fresh 'success' or idempotent
       // 'success-replay') enters SUBMITTED_LOCKED. Shared so the two branches
       // don't drift. Synthesize a local `existing` from the just-written
@@ -891,6 +1153,13 @@ export function EODCount() {
       // a swallowed refetch error would leave a green chip with an unlocked
       // "Submit" button. The refetch then refines it (real submission_id /
       // submitted_at) when it succeeds.
+      // Spec 200 (design §4) — after an all-borrowed write the copies ARE this
+      // vendor's own entries: seed the own maps from them so the locked view
+      // shows them as own (no "Counted under" label), exactly as a later
+      // reload would. Mixed writes keep the typed inputs as-is (spec 129).
+      const seedOwnFromCopies = () => {
+        if (allBorrowed) seedFromExisting({ submission_id: '(local)', submitted_at: '', entries });
+      };
       const enterLockedAfterWrite = async () => {
         setSubmittedVendorIds((prev) => new Set(prev).add(selectedVendorId));
         setExisting({
@@ -898,6 +1167,7 @@ export function EODCount() {
           submitted_at: new Date().toISOString(),
           entries,
         });
+        seedOwnFromCopies();
         try {
           const fresh = await fetchExistingSubmission(
             activeStore.id,
@@ -908,6 +1178,8 @@ export function EODCount() {
         } catch {
           // keep the synthesized locked state — primary write succeeded
         }
+        // Spec 200 (R9, AC-15) — refresh the borrow sources (best-effort).
+        loadBorrowSources(activeStore.id, countIso);
         // Authoritative reconcile of the chip set (picks up OTHER vendors
         // submitted meanwhile). Union so a degraded-to-empty fetch can't wipe
         // the optimistic green.
@@ -961,6 +1233,7 @@ export function EODCount() {
           submitted_at: new Date().toISOString(),
           entries,
         });
+        seedOwnFromCopies();
         setEditing(false);
       } else {
         Toast.show({
@@ -972,19 +1245,17 @@ export function EODCount() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, noNeed, submit, submitting, search, viewMode, savedIds, t, modeFor]);
+  }, [activeStore, selectedVendorId, items, caseCounts, unitCounts, noNeed, submit, submitting, search, viewMode, savedIds, t, modeFor, isCounted, borrowedFor, loadBorrowSources, countIso, seedFromExisting]);
 
   // Spec 103 — one shared row body, rendered by BOTH the default FlatList and
   // the Custom drag list, so the Custom view shows byte-identical rows (the
   // custom order is render-only). Factored out of the FlatList renderItem.
   const renderEodRow = useCallback(
     (item: EodItem) => {
-      const caseRaw = caseCounts[item.id] ?? '';
-      const unitRaw = unitCounts[item.id] ?? '';
+      // Spec 200 — own values, or a borrowed row's recorded values + label.
+      const d = rowDisplay(item);
       const hasPack = (item.caseQty ?? 0) > 1;
       const counted = isCounted(item);
-      const countMode = modeFor(item);
-      const total = eodTotal(countMode, item.caseQty, caseRaw, unitRaw);
       const displayName = getLocalizedName(
         { name: item.name, i18nNames: item.i18nNames },
         locale,
@@ -994,19 +1265,21 @@ export function EODCount() {
           item={item}
           displayName={displayName}
           counted={counted}
-          caseValue={caseRaw}
-          unitValue={unitRaw}
-          total={total}
+          caseValue={d.caseRaw}
+          unitValue={d.unitRaw}
+          total={d.total}
           hasPack={hasPack}
-          countMode={countMode}
+          countMode={d.countMode}
           locked={inputsLocked}
           onOpenWell={openSheet}
-          noNeed={noNeed[item.id] === true}
+          noNeed={d.noNeed}
           onToggleNoNeed={onToggleNoNeed}
+          borrowedLabel={d.borrowedLabel}
+          recountLabel={d.recountLabel}
         />
       );
     },
-    [caseCounts, unitCounts, noNeed, isCounted, modeFor, locale, inputsLocked, openSheet, onToggleNoNeed],
+    [rowDisplay, isCounted, locale, inputsLocked, openSheet, onToggleNoNeed],
   );
 
   if (!activeStore) {
@@ -1523,10 +1796,10 @@ export function EODCount() {
         }
         activeField={seatedField}
         setActiveField={setActiveField}
-        caseValue={sheetItem ? caseCounts[sheetItem.id] ?? '' : ''}
-        unitValue={sheetItem ? unitCounts[sheetItem.id] ?? '' : ''}
+        caseValue={sheetDisplay?.caseRaw ?? ''}
+        unitValue={sheetDisplay?.unitRaw ?? ''}
         runningTotal={sheetTotal}
-        noNeed={sheetItem ? noNeed[sheetItem.id] === true : false}
+        noNeed={sheetDisplay?.noNeed ?? false}
         onNoNeed={onSheetNoNeed}
         isDone={isDone}
         onKey={onKey}

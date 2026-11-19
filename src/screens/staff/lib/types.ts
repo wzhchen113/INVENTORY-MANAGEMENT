@@ -151,6 +151,13 @@ export type StaffSubmitEodResponse = {
   skipped_item_ids?: string[];
 };
 
+/** Spec 200 (AC-21) — per-call submit options. `allowQueue: false` (an
+ *  all-borrowed copy submit) turns the offline / network-error fallback into
+ *  a `failed` outcome instead of queueing. Omitted → queue as before. */
+export type SubmitOptions = {
+  allowQueue?: boolean;
+};
+
 /** Outcome of a single submit() call — drives the UI presentation
  *  layer. See spec 062 §4. Spec 199 — `skipped_count` is present on
  *  `success` only when the server skipped > 0 items (omitted at 0). */
@@ -235,4 +242,32 @@ export type ExistingSubmission = {
   submission_id: string;
   submitted_at: string;            // ISO timestamp
   entries: EodEntry[];
+};
+
+/** Spec 200 (design §2) — one `status = 'submitted'` eod_submissions row at
+ *  (store, count date), ANY vendor, read by `fetchBorrowSources`. A borrow
+ *  candidate for the shared-item "counted once" overlay. `submittedAt` is the
+ *  RAW PostgREST ISO string so its microsecond digits survive (the tiebreak
+ *  must match SQL's `submitted_at DESC NULLS LAST, id DESC`). Entries are a
+ *  faithful read: a null `actual_remaining` is NEVER coerced to 0. */
+export type ServerEodSource = {
+  submissionId: string;
+  storeId: string;
+  date: string;
+  vendorId: string | null;
+  vendorName: string | null;
+  status: string;
+  submittedAt: string | null;
+  entries: EodEntry[];
+};
+
+/** Spec 200 (design §2/§3) — the entry another vendor's submission (server or
+ *  this device's queued one) recorded for an item, as chosen by
+ *  `deriveBorrowedEntries`. `vendorName` null → the renderer shows the
+ *  generic "another vendor" label (R4: never blank). */
+export type BorrowedEntry = {
+  vendorId: string | null;
+  vendorName: string | null;
+  entry: EodEntry;
+  source: 'server' | 'queued';
 };

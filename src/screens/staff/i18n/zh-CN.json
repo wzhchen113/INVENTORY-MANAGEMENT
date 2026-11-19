@@ -60,6 +60,12 @@
       "counted": "已清点",
       "uncounted": "未清点"
     },
+    "borrowed": {
+      "countedUnder": "已在 {vendor} 下清点",
+      "countedUnderOther": "已在其他供应商下清点",
+      "stockChanged": "库存已变化 — 请重新清点",
+      "stockUnchecked": "无法核对库存 — 请清点"
+    },
     "sheet": {
       "close": "关闭",
       "casesWell": "箱 ×{qty}",
@@ -101,6 +107,11 @@
       "noCountsEntered": "未输入盘点数",
       "countAllTitle": "请先清点每个项目",
       "countAllRemaining": "还有 {count} 项未清点",
+      "stockUncheckedTitle": "无法核对库存",
+      "stockUncheckedRemaining": "请清点这些项目（{count} 项）",
+      "notSentOffline": "无网络 — 未发送，请重试。",
+      "stockChangedTitle": "此盘点之后库存已变化",
+      "stockChangedRemaining": "请重新清点（{count} 项）",
       "queued": "已加入队列 — 联网后将同步",
       "allSynced": "所有盘点已同步",
       "skippedItems": "已跳过 {count} 项：已不在目录中"

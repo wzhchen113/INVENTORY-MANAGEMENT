@@ -54,6 +54,16 @@ export interface StaffEodCountRowProps {
    *  only when unlocked, or locked with `noNeed` (shown active + disabled).
    *  Optional so pre-172 callers / fixtures are unchanged. */
   onToggleNoNeed?: (item: EodItem) => void;
+  /** Spec 200 (R4) — set when the row SHOWS another vendor's count of this
+   *  shared item tonight ("Counted under {vendor}"). One full-card-width line
+   *  under the row (ListRow `footer`) — the leading column is too narrow at
+   *  phone width (AC-19) — tail-truncated only past the card width.
+   *  Null/absent → no label, and the row layout is unchanged. */
+  borrowedLabel?: string | null;
+  /** Spec 200 (AC-20) — set when the pre-submit stock check sent this row
+   *  back for a real count ("Stock changed since this was counted — count it
+   *  again"). Same footer line, warning color. Null/absent → no line. */
+  recountLabel?: string | null;
 }
 
 export function StaffEodCountRow({
@@ -69,6 +79,8 @@ export function StaffEodCountRow({
   onOpenWell,
   noNeed = false,
   onToggleNoNeed,
+  borrowedLabel = null,
+  recountLabel = null,
 }: StaffEodCountRowProps) {
   const box = eodBoxes(countMode ?? (hasPack ? 'cases_and_units' : 'units_only'));
   const c = useStaffColors();
@@ -121,6 +133,27 @@ export function StaffEodCountRow({
   return (
     <ListRow
       testID={`eod-item-row-${item.id}`}
+      footer={
+        borrowedLabel ? (
+          <Text
+            testID={`eod-borrowed-${item.id}`}
+            style={[styles.footerLabel, { color: c.info }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {borrowedLabel}
+          </Text>
+        ) : recountLabel ? (
+          <Text
+            testID={`eod-recount-${item.id}`}
+            style={[styles.footerLabel, { color: c.warning }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {recountLabel}
+          </Text>
+        ) : undefined
+      }
       leading={
         <View style={styles.leadingRow}>
           {/* Counted/uncounted indicator (AC-1) — replaces the red-name. */}
@@ -251,6 +284,12 @@ const makeStyles = (T: StaffTokens) =>
     itemUnit: {
       fontSize: T.typography.caption,
       marginTop: 2,
+    },
+    // Spec 200 — the row's full-width footer line ("Counted under {vendor}" or
+    // the stock-check recount reason), one line, tail ellipsis.
+    footerLabel: {
+      fontSize: T.typography.caption,
+      fontWeight: T.typography.semibold,
     },
     itemTotal: {
       fontSize: T.typography.caption,

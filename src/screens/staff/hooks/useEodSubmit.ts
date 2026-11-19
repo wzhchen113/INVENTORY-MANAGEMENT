@@ -38,6 +38,7 @@ import type {
   Outcome,
   QueuedSubmission,
   StaffSubmitEodResponse,
+  SubmitOptions,
   SubmitPayload,
 } from '../lib/types';
 
@@ -130,7 +131,7 @@ async function callStaffSubmitEod(
 }
 
 export function useEodSubmit(): {
-  submit: (payload: SubmitPayload) => Promise<Outcome>;
+  submit: (payload: SubmitPayload, options?: SubmitOptions) => Promise<Outcome>;
   pending: number;
   draining: boolean;
 } {
@@ -290,8 +291,15 @@ export function useEodSubmit(): {
   }, []);
 
   const submit = useCallback(
-    async (payload: SubmitPayload): Promise<Outcome> => {
+    async (payload: SubmitPayload, options?: SubmitOptions): Promise<Outcome> => {
       const clientUuid = uuidv4();
+      // Spec 200 (AC-21) — an all-borrowed copy submit passes
+      // `allowQueue: false`: its copies were stock-checked just now, and a
+      // queued drain hours later would skip that check. Offline / network
+      // error → `failed` (nothing enqueued) so the screen can retry. Every
+      // other caller omits it and queues exactly as before. Items already in
+      // the queue are untouched (the drain is unchanged).
+      const allowQueue = options?.allowQueue !== false;
       const me = userId;
       if (!me) {
         return {
@@ -316,6 +324,7 @@ export function useEodSubmit(): {
 
       // Snapshot connectivity. If offline, persist + return queued.
       if (!isOnline) {
+        if (!allowQueue) return { kind: 'failed', message: t('eod.toast.notSentOffline') };
         await useStaffStore.getState().enqueueEod(queueItem);
         return { kind: 'queued', client_uuid: clientUuid };
       }
@@ -342,6 +351,7 @@ export function useEodSubmit(): {
           };
         }
         if (isNetworkError(err)) {
+          if (!allowQueue) return { kind: 'failed', message: t('eod.toast.notSentOffline') };
           await useStaffStore.getState().enqueueEod(queueItem);
           return { kind: 'queued', client_uuid: clientUuid };
         }

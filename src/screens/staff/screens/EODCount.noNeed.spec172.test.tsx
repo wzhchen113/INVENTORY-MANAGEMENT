@@ -109,6 +109,16 @@ jest.mock('../lib/submittedStatus', () => ({
   fetchSubmittedVendorIds: (...args: unknown[]) => mockSubmittedVendorIds(...args),
 }));
 
+// Spec 200 — the cross-vendor borrow-source read (fetchBorrowSources) is its
+// own mock seam so it never consumes a fixture from the shared
+// vendor/item/existing stack (that stack pins the vendor-only
+// fetchExistingSubmission shape). Default [] → no borrowed rows, so every
+// pre-spec-200 arm behaves exactly as before.
+const mockFetchBorrowSources = jest.fn().mockResolvedValue([]);
+jest.mock('../lib/borrowSources', () => ({
+  fetchBorrowSources: (...args: unknown[]) => mockFetchBorrowSources(...args),
+}));
+
 import { EODCount } from './EODCount';
 import { useStaffStore } from '../store/useStaffStore';
 
@@ -179,6 +189,8 @@ beforeEach(() => {
   mockYesterdayIncomplete.mockResolvedValue(false);
   mockSubmittedVendorIds.mockReset();
   mockSubmittedVendorIds.mockResolvedValue(new Set<string>());
+  mockFetchBorrowSources.mockReset();
+  mockFetchBorrowSources.mockResolvedValue([]);
   mockNavigate.mockReset();
   // Reset to English between tests — locale is global store state.
   useStaffStore.setState({ locale: 'en' });

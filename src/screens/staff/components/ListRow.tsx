@@ -22,6 +22,10 @@ type Props = {
   leading: ReactNode;
   /** Right-side content: usually an Input or chevron. */
   trailing?: ReactNode;
+  /** Spec 200 — optional full-card-width line under leading + trailing (the
+   *  EOD row's "Counted under {vendor}" label, which doesn't fit the narrow
+   *  leading column at phone width). Absent → the layout is unchanged. */
+  footer?: ReactNode;
 };
 
 export function ListRow({
@@ -31,6 +35,7 @@ export function ListRow({
   accessibilityRole,
   leading,
   trailing,
+  footer,
 }: Props) {
   const c = useStaffColors();
   const e = useStaffElevation();
@@ -49,12 +54,13 @@ export function ListRow({
     borderWidth: isDark ? 1 : 0,
     borderColor: isDark ? c.borderStrong : 'transparent',
   };
-  const base = [styles.row, e.card, cardChrome];
+  const base = [styles.row, e.card, cardChrome, footer ? styles.rowWithFooter : null];
 
   const inner = (
     <>
       <View style={styles.leading}>{leading}</View>
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+      {footer ? <View style={styles.footer}>{footer}</View> : null}
     </>
   );
 
@@ -109,5 +115,14 @@ const makeStyles = (T: StaffTokens) => StyleSheet.create({
   trailing: {
     marginLeft: T.spacing.md,
     flexShrink: 0,
+  },
+  // Spec 200 — wrap so a 100%-basis footer drops onto its own line beneath
+  // leading + trailing (which keep sharing the first line, as before).
+  rowWithFooter: {
+    flexWrap: 'wrap',
+  },
+  footer: {
+    flexBasis: '100%',
+    marginTop: T.spacing.xs,
   },
 });

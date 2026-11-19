@@ -60,6 +60,12 @@
       "counted": "Counted",
       "uncounted": "Not counted"
     },
+    "borrowed": {
+      "countedUnder": "Counted under {vendor}",
+      "countedUnderOther": "Counted under another vendor",
+      "stockChanged": "Stock changed since this count — count it again",
+      "stockUnchecked": "Couldn't check stock — please count it"
+    },
     "sheet": {
       "close": "Close",
       "casesWell": "CS ×{qty}",
@@ -101,6 +107,11 @@
       "noCountsEntered": "No counts entered",
       "countAllTitle": "Count every item first",
       "countAllRemaining": "{count} still need a count",
+      "stockUncheckedTitle": "Couldn't check stock",
+      "stockUncheckedRemaining": "Please count these items ({count})",
+      "notSentOffline": "No connection — not sent. Try again.",
+      "stockChangedTitle": "Stock changed since this was counted",
+      "stockChangedRemaining": "Please count it again ({count})",
       "queued": "Queued — will sync when online",
       "allSynced": "All counts synced",
       "skippedItems": "{count} skipped: no longer in your catalog"

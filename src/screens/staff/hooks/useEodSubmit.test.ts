@@ -834,3 +834,58 @@ describe('useEodSubmit — spec 199 skip unknown items', () => {
     });
   });
 });
+
+describe('useEodSubmit — spec 200 AC-21 allowQueue: false (all-borrowed copies)', () => {
+  const notSent = t('eod.toast.notSentOffline');
+
+  it('offline + allowQueue: false → failed with the no-connection message; nothing enqueued, no RPC', async () => {
+    mockOnline = false;
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload, { allowQueue: false });
+    });
+    expect(outcome).toEqual({ kind: 'failed', message: notSent });
+    expect(useStaffStore.getState().eodQueue).toHaveLength(0);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it('network error + allowQueue: false → failed; nothing enqueued', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'Network request failed', name: 'TypeError' },
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload, { allowQueue: false });
+    });
+    expect(outcome).toEqual({ kind: 'failed', message: notSent });
+    expect(useStaffStore.getState().eodQueue).toHaveLength(0);
+  });
+
+  it('network error with options omitted (mixed / own counts) → still queued', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'Failed to fetch', name: 'TypeError' },
+    });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload);
+    });
+    expect(outcome?.kind).toBe('queued');
+    expect(useStaffStore.getState().eodQueue).toHaveLength(1);
+  });
+
+  it('allowQueue: false does not change a successful online submit', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { submission_id: 'sub-1', conflict: false }, error: null });
+    const { result } = renderHook(() => useEodSubmit());
+    let outcome: Outcome | undefined;
+    await act(async () => {
+      outcome = await result.current.submit(samplePayload, { allowQueue: false });
+    });
+    expect(outcome).toEqual({ kind: 'success', submission_id: 'sub-1' });
+  });
+});
+

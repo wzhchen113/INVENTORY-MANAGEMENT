@@ -60,6 +60,12 @@
       "counted": "Contado",
       "uncounted": "Sin contar"
     },
+    "borrowed": {
+      "countedUnder": "Contado con {vendor}",
+      "countedUnderOther": "Contado con otro proveedor",
+      "stockChanged": "El inventario cambió — vuelve a contarlo",
+      "stockUnchecked": "No se pudo verificar el inventario — cuéntalo"
+    },
     "sheet": {
       "close": "Cerrar",
       "casesWell": "CJ ×{qty}",
@@ -101,6 +107,11 @@
       "noCountsEntered": "No se ingresaron conteos",
       "countAllTitle": "Cuenta cada artículo primero",
       "countAllRemaining": "Faltan {count} por contar",
+      "stockUncheckedTitle": "No se pudo verificar el inventario",
+      "stockUncheckedRemaining": "Cuenta estos artículos ({count})",
+      "notSentOffline": "Sin conexión: no se envió. Reintenta.",
+      "stockChangedTitle": "El inventario cambió desde este conteo",
+      "stockChangedRemaining": "Vuelve a contarlo ({count})",
       "queued": "En cola — se sincronizará al conectarse",
       "allSynced": "Todos los conteos sincronizados",
       "skippedItems": "{count} omitidos: ya no están en el catálogo"
