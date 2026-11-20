@@ -2,8 +2,8 @@
 # scripts/smoke-rpc.sh — Spec 022 Track 3 example smoke for a PostgREST RPC.
 #
 # Same shape as scripts/smoke-edge.sh: env-var driven, sectioned PASS/FAIL
-# output, non-zero exit on first failure. Single check by design — this is
-# the v1 *example*; future smoke specs add more.
+# output, non-zero exit on first failure. Section 1 is the v1 *example*
+# (report_run); section 2 (spec 198) adds the anon invitations checks.
 #
 # Architect's pick (spec 022 §9): smoke `report_run('stub', ...)`. The
 # `stub` template returns a fixed-shape envelope independent of seed data,
@@ -124,6 +124,98 @@ elif [[ "$COL_COUNT" == "parse-error" ]]; then
   fail "could not parse .columns length"
 else
   fail "stub envelope.columns has ${COL_COUNT} entries (expected 2)"
+fi
+
+################################################################################
+# 2. Spec 198 — anon behaviour on invitations (review: test-engineer
+#    Should-fix 7). pgTAP can't `set role anon` (it segfaults the CI image,
+#    spec 067), so A7/B6 there are catalog-only; these are the behavioural
+#    checks. The apikey alone (no Authorization header) makes PostgREST run as
+#    anon. None of these requests can create or change a row while RLS holds.
+#      - GET /invitations                       -> 200 []
+#      - DELETE /invitations (local stack only) -> 200 [] (or a 401/403 refusal)
+#      - rpc/check_invitation_code, wrong code  -> 200 []
+#      - rpc/get_pending_invitation (dropped)   -> 404 PGRST202
+#      - rpc/register_invited_profile           -> 401/403 42501
+#      - rpc/create_invitation                  -> 401/403 42501
+################################################################################
+step "spec 198: anon cannot read, delete, probe or claim invitations"
+
+# anon_call METHOD PATH [JSON_BODY] -> sets ANON_CODE and ANON_BODY
+anon_call() {
+  local method="$1" url_path="$2" body="${3:-}"
+  local resp
+  if [[ -n "$body" ]]; then
+    resp=$(curl -sS -w '\n%{http_code}' -X "$method" \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Content-Type: application/json" \
+      -H "Prefer: return=representation" \
+      -d "$body" \
+      "${SUPABASE_URL}${url_path}")
+  else
+    resp=$(curl -sS -w '\n%{http_code}' -X "$method" \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Prefer: return=representation" \
+      "${SUPABASE_URL}${url_path}")
+  fi
+  ANON_CODE=$(printf '%s' "$resp" | tail -1)
+  ANON_BODY=$(printf '%s' "$resp" | sed '$d')
+}
+
+# A valid-format (32 lowercase hex) code that no invitation's hash matches.
+WRONG_CODE="5e1ec7ed00000000000000000000198f"
+PROBE_EMAIL="smoke-rpc-198@example.invalid"
+
+anon_call GET "/rest/v1/invitations?select=id,email,code_hash&limit=5"
+if [[ "$ANON_CODE" == "200" && "$(printf '%s' "$ANON_BODY" | tr -d '[:space:]')" == "[]" ]]; then
+  pass "anon GET /invitations returns 200 []"
+else
+  fail "anon GET /invitations returned ${ANON_CODE}: ${ANON_BODY:0:300}"
+fi
+
+# The unfiltered-in-effect DELETE would remove rows if RLS ever admitted anon,
+# so it only runs against a local stack, never a remote SUPABASE_URL.
+if [[ "$SUPABASE_URL" =~ ^https?://(127\.0\.0\.1|localhost)(:|/|$) ]]; then
+  anon_call DELETE "/rest/v1/invitations?id=not.is.null"
+  if [[ "$ANON_CODE" == "200" && "$(printf '%s' "$ANON_BODY" | tr -d '[:space:]')" == "[]" ]]; then
+    pass "anon DELETE /invitations deletes nothing (200 [])"
+  elif [[ "$ANON_CODE" == "401" || "$ANON_CODE" == "403" ]]; then
+    pass "anon DELETE /invitations is refused (HTTP ${ANON_CODE})"
+  else
+    fail "anon DELETE /invitations returned ${ANON_CODE}: ${ANON_BODY:0:300}"
+  fi
+else
+  skip "anon DELETE /invitations" "SUPABASE_URL is not a local stack"
+fi
+
+anon_call POST "/rest/v1/rpc/check_invitation_code" \
+  "{\"p_email\":\"${PROBE_EMAIL}\",\"p_code\":\"${WRONG_CODE}\"}"
+if [[ "$ANON_CODE" == "200" && "$(printf '%s' "$ANON_BODY" | tr -d '[:space:]')" == "[]" ]]; then
+  pass "anon check_invitation_code with a wrong code returns 200 []"
+else
+  fail "anon check_invitation_code returned ${ANON_CODE}: ${ANON_BODY:0:300}"
+fi
+
+anon_call POST "/rest/v1/rpc/get_pending_invitation" "{\"p_email\":\"${PROBE_EMAIL}\"}"
+if [[ "$ANON_CODE" == "404" ]] && printf '%s' "$ANON_BODY" | grep -q 'PGRST202'; then
+  pass "anon get_pending_invitation is gone (404 PGRST202)"
+else
+  fail "anon get_pending_invitation returned ${ANON_CODE} (expected 404 PGRST202): ${ANON_BODY:0:300}"
+fi
+
+anon_call POST "/rest/v1/rpc/register_invited_profile" "{\"p_code\":\"${WRONG_CODE}\"}"
+if [[ "$ANON_CODE" == "401" || "$ANON_CODE" == "403" ]] && printf '%s' "$ANON_BODY" | grep -q '42501'; then
+  pass "anon register_invited_profile is refused (HTTP ${ANON_CODE}, 42501)"
+else
+  fail "anon register_invited_profile returned ${ANON_CODE} (expected 401/403 42501): ${ANON_BODY:0:300}"
+fi
+
+anon_call POST "/rest/v1/rpc/create_invitation" \
+  "{\"p_email\":\"${PROBE_EMAIL}\",\"p_name\":\"smoke\",\"p_role\":\"user\",\"p_store_ids\":[],\"p_brand_id\":null,\"p_username\":null}"
+if [[ "$ANON_CODE" == "401" || "$ANON_CODE" == "403" ]] && printf '%s' "$ANON_BODY" | grep -q '42501'; then
+  pass "anon create_invitation is refused (HTTP ${ANON_CODE}, 42501)"
+else
+  fail "anon create_invitation returned ${ANON_CODE} (expected 401/403 42501): ${ANON_BODY:0:300}"
 fi
 
 printf '\n'

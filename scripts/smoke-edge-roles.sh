@@ -211,7 +211,8 @@ else
   CODE=$(printf '%s' "$RESPONSE" | tail -1)
   BODY=$(printf '%s' "$RESPONSE" | sed '$d')
   # Gate-passes shape: empty body triggers the post-gate "email and name
-  # required" check (line 49 of send-invite-email/index.ts) → 400. A 200
+  # required" check (the first body check in send-invite-email/index.ts,
+  # before spec 198's inviteCode check) → 400. A 200
   # would mean the body was valid + Resend succeeded (won't happen on
   # local — no RESEND_API_KEY — but accept it for prod-style runs). 401
   # means the gate rejected the token entirely (or login was stale).
@@ -230,6 +231,33 @@ else
     fail "admin JWT rejected by role gate (403) — admin should always pass: ${BODY:0:200}"
   else
     fail "admin JWT returned unexpected ${CODE}: ${BODY:0:200}"
+  fi
+fi
+
+################################################################################
+# Arm 3b - email + name but no inviteCode -> 400 "inviteCode required".
+# Spec 198 (AD-7): the function builds the invite link from its fixed APP_URL
+# and the client-supplied code, which must match ^[0-9a-f]{32}$. The check runs
+# after the "email and name required" check (Arms 3/4 still see that message
+# for `{}`) and before any mail or inviteUserByEmail call, so this arm sends no
+# mail and creates no auth.users row. Reuses Arm 3's $ADMIN_BEARER.
+################################################################################
+step "Arm 3b: missing inviteCode refused with 400 (spec 198)"
+if [[ -z "${ADMIN_BEARER}" ]]; then
+  skip "missing-inviteCode arm" "no ADMIN_BEARER (no local stack?)"
+else
+  RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${ADMIN_BEARER}" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"x@example.invalid","name":"x"}' \
+    "$FN_URL")
+  CODE=$(printf '%s' "$RESPONSE" | tail -1)
+  BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+  if [[ "$CODE" == "400" ]] && printf '%s' "$BODY" | grep -q 'inviteCode required'; then
+    pass "no inviteCode -> 400 inviteCode required"
+  else
+    fail "expected 400 'inviteCode required', got ${CODE}: ${BODY:0:200}"
   fi
 fi
 
@@ -306,13 +334,19 @@ fi
 # Reuses Arm 3's $ADMIN_BEARER. SKIPs if Arm 3 could not mint a token.
 # Best-effort cleanup deletes the auth.users row created via the
 # auth.admin.inviteUserByEmail fallback (no RESEND_API_KEY locally).
+#
+# Spec 198: the payload carries a valid-format inviteCode (32 lowercase hex).
+# Without it the function now returns 400 "inviteCode required" before it
+# reads `name`, which would make this arm pass vacuously. The code is
+# arbitrary and claims nothing (no invitation row has its hash).
 ################################################################################
 step "Arm 5: response body does not echo unescaped <script> markup (spec 028)"
 if [[ -z "${ADMIN_BEARER}" ]]; then
   skip "escape-test arm" "no ADMIN_BEARER (no local stack?)"
 else
   ESCAPE_EMAIL="escape-test-${RANDOM}@local.test"
-  PAYLOAD=$(printf '{"email":"%s","name":"<script>x</script>","role":"user","storeNames":""}' "$ESCAPE_EMAIL")
+  ESCAPE_CODE="5e1ec7ed0000000000000000000000a5"
+  PAYLOAD=$(printf '{"email":"%s","name":"<script>x</script>","role":"user","storeNames":"","inviteCode":"%s"}' "$ESCAPE_EMAIL" "$ESCAPE_CODE")
   RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
     -H "apikey: ${SUPABASE_ANON_KEY}" \
     -H "Authorization: Bearer ${ADMIN_BEARER}" \

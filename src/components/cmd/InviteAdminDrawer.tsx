@@ -7,6 +7,7 @@ import { useStore } from '../../store/useStore';
 import { ResponsiveSheet } from './ResponsiveSheet';
 import { useIsPhone } from '../../theme/breakpoints';
 import { inviteUser } from '../../lib/auth';
+import { InviteLinkPanel, buildIssuedInviteLink, type IssuedInvite } from './InviteLinkPanel';
 
 interface Props {
   visible: boolean;
@@ -52,6 +53,17 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
 
   const [values, setValues] = React.useState<FormValues>(blank);
   const [submitting, setSubmitting] = React.useState(false);
+  // Spec 198 (AD-10) — set after a successful invite; the body then shows the
+  // one-time link. Without it, invitations sent from here could never be
+  // claimed (the claim needs the code).
+  const [issued, setIssued] = React.useState<IssuedInvite | null>(null);
+
+  // Spec 198 — reset the issued link only when the drawer (re)opens. Kept out
+  // of the form-reset effect below, which also re-runs on a `stores` refresh
+  // and would otherwise wipe a link the admin has not copied yet.
+  React.useEffect(() => {
+    if (visible) setIssued(null);
+  }, [visible]);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -83,7 +95,8 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
   };
 
   const handleSave = async () => {
-    if (!requiredValid || submitting) return;
+    // Spec 198 — no re-submit (Cmd+Enter) while the issued link is showing.
+    if (issued || !requiredValid || submitting) return;
     setSubmitting(true);
     const storeNames = values.storeIds
       .map((id) => brandStores.find((s) => s.id === id)?.name)
@@ -98,7 +111,7 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
       storeNames,
     });
     setSubmitting(false);
-    if (result.error) {
+    if (result.error !== null) {
       Toast.show({
         type: 'error',
         text1: 'Invite failed',
@@ -109,11 +122,17 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
     }
     Toast.show({
       type: 'success',
-      text1: 'Invitation sent',
+      text1: 'Invitation created',
       text2: values.email.trim(),
     });
     onInvited?.();
-    onClose();
+    // Spec 198 — stay open and show the link instead of closing.
+    setIssued({
+      email: values.email.trim(),
+      code: result.inviteCode,
+      link: buildIssuedInviteLink(result.inviteCode),
+      expiresAt: result.expiresAt,
+    });
   };
 
   // Cmd+S / Cmd+Enter saves, Esc closes. Cleanup #7 — handleSave through
@@ -219,9 +238,22 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
       desktopWidth={600}
       tabletSheetHeight={0.85}
       header={header}
-      footer={footer}
+      // Spec 198 — while the link is showing, its panel carries the only
+      // action (DONE); the CANCEL / SEND footer is hidden.
+      footer={issued ? undefined : footer}
       accessibilityLabel="Invite admin"
     >
+      {issued ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
+          <InviteLinkPanel
+            email={issued.email}
+            code={issued.code}
+            link={issued.link}
+            expiresAt={issued.expiresAt}
+            onDone={onClose}
+          />
+        </ScrollView>
+      ) : (
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, gap: 14 }}>
         <Field
           label="Email"
@@ -412,6 +444,7 @@ export const InviteAdminDrawer: React.FC<Props> = ({ visible, brandId, brandName
           )}
         </View>
       </ScrollView>
+      )}
     </ResponsiveSheet>
   );
 };

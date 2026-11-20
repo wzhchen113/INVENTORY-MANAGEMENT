@@ -1,164 +1,186 @@
-// src/lib/inviteUser.test.ts — Spec 090 Track 1 (jest).
+// src/lib/inviteUser.test.ts — Spec 198 §8.3 (jest), rewritten from spec 090.
 //
-// Covers the write-side source fix: inviteUser must stop writing NULL-brand
-// invitations for user/manager invites that carry assigned stores. The brand
-// is DERIVED from the first assigned store's brand (mirroring the server-side
-// COALESCE(brand_id, store_ids[1] brand) in get_pending_invitation, spec 069).
-// A zero-store user invite legitimately stays NULL-brand, and the admin path is
-// unchanged (verbatim passthrough + the existing missing-brand error).
+// Spec 198 moved invitation creation behind the SECURITY INVOKER RPC
+// `create_invitation`, which replaces a visible pending invitation for the same
+// email (B8), stores only the code's sha256, and returns the plaintext code
+// once. This file pins the CLIENT half of that contract:
+//   - exactly one rpc('create_invitation', <exact args>)
+//   - ZERO from('invitations') calls (no expired-row delete, no "already
+//     exists" read, no direct insert); from('stores') is allowed (spec 090)
+//   - the send-invite-email payload carries `inviteCode` (AD-7: the code, not
+//     a URL)
+//   - success returns { error: null, inviteCode, expiresAt } (snake → camel)
+//   - an RPC error returns { error } and sends no email
+//   - a malformed `data.code` is an error
+//   - an admin invite without a brand makes no RPC
+//   - the spec 090 store-derived brand is retained
 //
-// Boundary mocked: `./supabase`. inviteUser touches
-//   - supabase.from('invitations').delete().lt().eq()        → expired cleanup (ignored)
-//   - supabase.from('invitations').select().eq().eq().single() → dup check (no row)
-//   - supabase.from('stores').select().eq().single()         → THE DERIVE READ
-//   - supabase.from('invitations').insert(…)                 → THE ASSERTION TARGET
-//   - supabase.auth.getSession()                             → via callEdgeFunction for
-//                                                              the fire-and-forget invite email
-// We record the object passed to the invitations INSERT and assert its brand_id,
-// and track whether the stores derive read fired.
+// The server half (RLS scope, replace-on-reinvite, hash storage, AD-4 brand
+// stamp) is pgTAP: supabase/tests/invitations_hardening.test.sql.
 //
-// This file does NOT reuse src/lib/auth.test.ts's module mock (which only stubs
-// supabase.auth.getSession) — inviteUser needs the full from() surface, so a
-// dedicated mock is cleaner than widening the other file's stub. Mock shape
-// originally modeled on src/lib/registerInvitedUser.test.ts (spec 069). Since
-// spec 164 the register-time brand stamp is server-side
-// (register_invited_profile()); its coverage lives in pgTAP
-// supabase/tests/profiles_insert_hardening.test.sql arms C-2 (store-resolved
-// brand) and C-6 (explicit brand).
+// Boundary mocked: `./supabase` (rpc / from / auth.getSession) and global
+// fetch. callEdgeFunction lives in auth.ts and reads getSession first, so a
+// session is returned and `fetch` captures the edge-function body.
 
 const BRAND_A = '2a000000-0000-0000-0000-000000000001';
 const STORE_IN_BRAND_A = '00000000-0000-0000-0000-000000000001';
+const CODE = '0123456789abcdef0123456789abcdef';
+const EXPIRES = '2026-11-12T12:00:00+00:00';
 
-// Captured payload from the invitations INSERT, per test. Prefixed `mock` so the
-// hoisted jest.mock() factory below is permitted to reference it (jest's
-// out-of-scope-variable guard allows `mock*`-prefixed names).
-let mockInvitationInsertPayload: any = null;
-// True when the secondary stores derive read fired.
-let mockStoresReadFired = false;
-// What the stores derive read resolves to (the assigned store's brand).
-// Typed to the real `supabase.from('stores').select('brand_id').single()`
-// data shape so the factory closure narrows (spec 091 C2).
+// Prefixed `mock` so the hoisted jest.mock() factory may reference them.
+let mockRpcResult: { data: unknown; error: { message: string } | null } = { data: null, error: null };
 let mockStoreBrandRow: { brand_id: string } | null = null;
 
 jest.mock('./supabase', () => ({
   supabase: {
     auth: {
-      // callEdgeFunction (send-invite-email) reads this; return no session so
-      // it short-circuits to { error: 'Not authenticated' } without a network
-      // call. The invite email is fire-and-forget; inviteUser does not await or
-      // branch on it, so this does not affect the result.
-      getSession: jest.fn(() => Promise.resolve({ data: { session: null } })),
+      getSession: jest.fn(() =>
+        Promise.resolve({ data: { session: { access_token: 'tok-198' } } }),
+      ),
     },
+    rpc: jest.fn(() => Promise.resolve(mockRpcResult)),
     from: jest.fn((table: string) => {
       if (table === 'stores') {
         return {
           select: jest.fn(() => ({
             eq: jest.fn(() => ({
-              single: jest.fn(() => {
-                mockStoresReadFired = true;
-                return Promise.resolve({ data: mockStoreBrandRow, error: null });
-              }),
+              single: jest.fn(() => Promise.resolve({ data: mockStoreBrandRow, error: null })),
             })),
           })),
         };
       }
-      // table === 'invitations'
-      return {
-        // Expired-invite cleanup: .delete().lt().eq()
-        delete: jest.fn(() => ({
-          lt: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-        })),
-        // Dup check: .select('id').eq('email', …).eq('used', false).single()
-        // → no existing row.
-        select: jest.fn(() => ({
-          eq: jest.fn(() => ({
-            eq: jest.fn(() => ({
-              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-            })),
-          })),
-        })),
-        insert: jest.fn((payload: any) => {
-          mockInvitationInsertPayload = payload;
-          return Promise.resolve({ error: null });
-        }),
-      };
+      // Any other table is a regression; return a chain that resolves so the
+      // assertion on from() calls (not a crash) is what fails.
+      const chain: any = {};
+      for (const m of ['select', 'insert', 'delete', 'update', 'eq', 'lt', 'single']) {
+        chain[m] = jest.fn(() => chain);
+      }
+      chain.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null });
+      return chain;
     }),
   },
 }));
 
 import { inviteUser } from './auth';
+import { supabase } from './supabase';
 
-describe('inviteUser brand derivation (spec 090)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockInvitationInsertPayload = null;
-    mockStoresReadFired = false;
-    // Default: the assigned store belongs to BRAND_A.
-    mockStoreBrandRow = { brand_id: BRAND_A };
-  });
+const rpcMock = supabase.rpc as unknown as jest.Mock;
+const fromMock = supabase.from as unknown as jest.Mock;
+const fetchMock = jest.fn();
 
-  it('derives a non-null brand_id from the assigned store for a user invite (AC-110)', async () => {
-    // The drawer passes brandId: null for user invites; the assigned store is
-    // in BRAND_A, so the invitation row must be written with brand_id === BRAND_A.
+function fromTables(): unknown[] {
+  return fromMock.mock.calls.map((c: unknown[]) => c[0]);
+}
+
+/** Bodies POSTed to send-invite-email (callEdgeFunction → fetch). */
+function inviteEmailBodies(): Record<string, unknown>[] {
+  return fetchMock.mock.calls
+    .filter((c: unknown[]) => String(c[0]).endsWith('/functions/v1/send-invite-email'))
+    .map((c: unknown[]) => JSON.parse((c[1] as { body: string }).body));
+}
+
+// callEdgeFunction is fire-and-forget; let its awaited getSession + fetch run.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+beforeAll(() => {
+  (global as unknown as { fetch: unknown }).fetch = fetchMock;
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  fetchMock.mockResolvedValue({ ok: true, text: () => Promise.resolve('{"success":true}') });
+  mockRpcResult = {
+    data: { invitation_id: 'inv-198', code: CODE, expires_at: EXPIRES },
+    error: null,
+  };
+  mockStoreBrandRow = { brand_id: BRAND_A };
+});
+
+describe('inviteUser → create_invitation (spec 198)', () => {
+  it('calls create_invitation exactly once with the exact args and touches no invitations table', async () => {
     const result = await inviteUser({
-      email: 'StaffWithStore@test.local',
+      email: '  StaffWithStore@Test.Local ',
       name: 'Staff With Store',
       role: 'user',
-      brandId: null,
-      storeIds: [STORE_IN_BRAND_A],
-      storeNames: 'Store A',
-    });
-
-    expect(result.error).toBeNull();
-    expect(mockStoresReadFired).toBe(true);
-    expect(mockInvitationInsertPayload).not.toBeNull();
-    // THE CORE ASSERTION — brand_id is the assigned store's brand, NOT null.
-    expect(mockInvitationInsertPayload.brand_id).toBe(BRAND_A);
-    expect(mockInvitationInsertPayload.role).toBe('user');
-    // Email is lower-cased on write.
-    expect(mockInvitationInsertPayload.email).toBe('staffwithstore@test.local');
-  });
-
-  it('leaves a zero-store user invite NULL-brand and does NOT fire the derive read (AC-122)', async () => {
-    // A zero-store user invite is legitimate (the invitee gains access when
-    // stores are assigned). With no store to derive from, brand_id stays null
-    // and the stores read must be skipped.
-    const result = await inviteUser({
-      email: 'nostore@test.local',
-      name: 'No Store Staff',
-      role: 'user',
-      brandId: null,
-      storeIds: [],
-    });
-
-    expect(result.error).toBeNull();
-    expect(mockStoresReadFired).toBe(false);
-    expect(mockInvitationInsertPayload).not.toBeNull();
-    expect(mockInvitationInsertPayload.brand_id).toBeNull();
-    expect(mockInvitationInsertPayload.role).toBe('user');
-  });
-
-  it('passes an admin invite brand_id through verbatim and does NOT fire the derive read (AC-116, half 1)', async () => {
-    // Admin invites already carry an explicit brand; the derive branch is gated
-    // on role !== 'admin', so it must not fire. The brand is written verbatim.
-    const result = await inviteUser({
-      email: 'admin@test.local',
-      name: 'Admin Person',
-      role: 'admin',
       brandId: BRAND_A,
       storeIds: [STORE_IN_BRAND_A],
+      storeNames: 'Towson',
+      username: '  Staff_B ',
     });
 
-    expect(result.error).toBeNull();
-    expect(mockStoresReadFired).toBe(false);
-    expect(mockInvitationInsertPayload).not.toBeNull();
-    expect(mockInvitationInsertPayload.brand_id).toBe(BRAND_A);
-    expect(mockInvitationInsertPayload.role).toBe('admin');
+    expect(result).toEqual({ error: null, inviteCode: CODE, expiresAt: EXPIRES });
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalledWith('create_invitation', {
+      p_email: 'staffwithstore@test.local',
+      p_name: 'Staff With Store',
+      p_role: 'user',
+      p_store_ids: [STORE_IN_BRAND_A],
+      p_brand_id: BRAND_A,
+      p_username: 'staff_b',
+    });
+    expect(fromTables()).not.toContain('invitations');
   });
 
-  it('returns the existing missing-brand error for an admin invite with no brand and writes NO row (AC-116, half 2)', async () => {
-    // The admin guard fires before any side-effect: no invitations INSERT, no
-    // stores read. The error string is unchanged.
+  it('passes p_username null when no username is given', async () => {
+    await inviteUser({ email: 'a@test.local', name: 'A', role: 'user', brandId: BRAND_A, storeIds: [] });
+    expect(rpcMock.mock.calls[0][1]).toEqual(expect.objectContaining({ p_username: null }));
+  });
+
+  it('sends the invite code (not a URL) in the send-invite-email payload', async () => {
+    await inviteUser({
+      email: 'Invitee@test.local',
+      name: 'Invitee',
+      role: 'user',
+      brandId: BRAND_A,
+      storeIds: [STORE_IN_BRAND_A],
+      storeNames: 'Towson',
+    });
+    await flush();
+
+    const bodies = inviteEmailBodies();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toEqual({
+      email: 'Invitee@test.local',
+      name: 'Invitee',
+      role: 'user',
+      storeNames: 'Towson',
+      inviteCode: CODE,
+    });
+  });
+
+  it('an RPC error returns { error } and sends no email', async () => {
+    mockRpcResult = {
+      data: null,
+      error: { message: 'new row violates row-level security policy for table "invitations"' },
+    };
+    const result = await inviteUser({
+      email: 'x@test.local', name: 'X', role: 'user', brandId: BRAND_A, storeIds: [STORE_IN_BRAND_A],
+    });
+    await flush();
+
+    expect(result.error).toBe('new row violates row-level security policy for table "invitations"');
+    expect(result.inviteCode).toBeUndefined();
+    expect(inviteEmailBodies()).toHaveLength(0);
+  });
+
+  it.each([
+    ['missing', { invitation_id: 'i', expires_at: EXPIRES }],
+    ['upper case', { invitation_id: 'i', code: CODE.toUpperCase(), expires_at: EXPIRES }],
+    ['too short', { invitation_id: 'i', code: CODE.slice(2), expires_at: EXPIRES }],
+    ['not a string', { invitation_id: 'i', code: 12345, expires_at: EXPIRES }],
+    ['null data', null],
+  ])('a malformed data.code (%s) is an error and sends no email', async (_label, data) => {
+    mockRpcResult = { data, error: null };
+    const result = await inviteUser({
+      email: 'x@test.local', name: 'X', role: 'user', brandId: BRAND_A, storeIds: [],
+    });
+    await flush();
+
+    expect(result.error).toBe('Unexpected response from server');
+    expect(inviteEmailBodies()).toHaveLength(0);
+  });
+
+  it('an admin invite without a brand returns the existing error and makes no RPC', async () => {
     const result = await inviteUser({
       email: 'admin-nobrand@test.local',
       name: 'Admin No Brand',
@@ -168,7 +190,55 @@ describe('inviteUser brand derivation (spec 090)', () => {
     });
 
     expect(result.error).toBe('Admin invitations require a brand assignment');
-    expect(mockInvitationInsertPayload).toBeNull();
-    expect(mockStoresReadFired).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('inviteUser brand derivation (spec 090, retained by spec 198)', () => {
+  it('derives p_brand_id from the first assigned store for a brand-less user invite', async () => {
+    const result = await inviteUser({
+      email: 'staff@test.local',
+      name: 'Staff',
+      role: 'user',
+      brandId: null,
+      storeIds: [STORE_IN_BRAND_A],
+    });
+
+    expect(result.error).toBeNull();
+    expect(fromTables()).toEqual(['stores']);
+    expect(rpcMock.mock.calls[0][1]).toEqual(expect.objectContaining({ p_brand_id: BRAND_A }));
+  });
+
+  it('a zero-store user invite passes p_brand_id null and skips the stores read (server stamps AD-4)', async () => {
+    const result = await inviteUser({
+      email: 'nostore@test.local',
+      name: 'No Store Staff',
+      role: 'user',
+      brandId: null,
+      storeIds: [],
+    });
+
+    expect(result.error).toBeNull();
+    expect(fromMock).not.toHaveBeenCalled();
+    expect(rpcMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ p_brand_id: null, p_store_ids: [] }),
+    );
+  });
+
+  it('an admin invite passes its brand verbatim and skips the stores read', async () => {
+    const result = await inviteUser({
+      email: 'admin@test.local',
+      name: 'Admin Person',
+      role: 'admin',
+      brandId: BRAND_A,
+      storeIds: [STORE_IN_BRAND_A],
+    });
+
+    expect(result.error).toBeNull();
+    expect(fromMock).not.toHaveBeenCalled();
+    expect(rpcMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ p_role: 'admin', p_brand_id: BRAND_A }),
+    );
   });
 });

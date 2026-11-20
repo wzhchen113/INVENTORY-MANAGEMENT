@@ -4,7 +4,7 @@
 --   * format CHECK (3–20, allowed [A-Za-z0-9_.], NULL tolerated)
 --   * case-insensitive global UNIQUE (lower(username))
 --   * backfill determinism / collision-safety / short-pad / empty-fallback
---   * get_pending_invitation returns the new username column
+--   * (retired by spec 198) get_pending_invitation returned the username column
 --
 -- Hermetic isolation: begin; … rollback;. Every insert/mutation is scoped to
 -- this transaction and restored on rollback (the seed is untouched). Backfill
@@ -12,7 +12,7 @@
 -- the post-backfill invariant (0 NULLs) and the suffix/pad/fallback behavior are
 -- exercised without depending on the live seed's exact rows.
 --
--- Arms (plan(16)):
+-- Arms (plan(15); arm 16 retired by spec 198):
 --   (1)  format CHECK rejects a 2-char username (too short).
 --   (2)  format CHECK rejects a 21-char username (too long).
 --   (3)  format CHECK rejects a disallowed char ('-').
@@ -30,12 +30,14 @@
 --   (14) backfill algorithm — empty-after-sanitize falls back to user_<8hex>.
 --   (15) backfill algorithm — determinism: re-running the assign produces the
 --        SAME username and never overwrites the already-set value.
---   (16) get_pending_invitation returns the new `username` column.
+--   (16) RETIRED (spec 198): get_pending_invitation(text) is dropped. The
+--        invitation username reaching profiles.username is asserted by
+--        invitations_hardening.test.sql B2-staff.
 
 begin;
 create extension if not exists pgtap;
 
-select plan(16);
+select plan(15);
 
 -- ─── fixtures: a brand-A profile id we can mutate freely ───────
 -- Reuse the seed manager (role='user') for the constraint arms; insert a fresh
@@ -330,26 +332,11 @@ select is(
 );
 
 
--- ─── Arm (16): get_pending_invitation returns username ─────────
-insert into public.invitations
-  (email, profile_id, name, role, store_ids, brand_id, username, used, expires_at)
-values (
-  'spec095invite@test.local',
-  '00000000-0000-0000-0000-000000000000',
-  'Spec095 Invite',
-  'admin',
-  array['00000000-0000-0000-0000-000000000001'],
-  '2a000000-0000-0000-0000-000000000001'::uuid,
-  'invited_user',
-  false,
-  now() + interval '7 days'
-);
-
-select is(
-  (select username from public.get_pending_invitation('spec095invite@test.local')),
-  'invited_user',
-  'arm (16): get_pending_invitation returns the assigned username column'
-);
+-- ─── Arm (16): RETIRED (spec 198) ──────────────────────────────
+-- get_pending_invitation(text) was dropped by
+-- 20261110120000_invitations_hardening.sql (it was an anon email oracle). The
+-- invitation username -> profiles.username path is asserted by
+-- supabase/tests/invitations_hardening.test.sql arm B2-staff.
 
 
 select * from finish();

@@ -24,6 +24,7 @@ import { WebScrollView } from '../components/WebScrollView';
 import { PasswordInput } from '../components/PasswordInput';
 import { useStore } from '../store/useStore';
 import { signIn } from '../lib/auth';
+import { INVITE_URL_PARAM } from '../lib/inviteLink';
 import { checkAuthGate } from '../lib/authGate';
 import { Colors, useColors, Spacing, Radius, FontSize, Shadow } from '../theme/colors';
 import { USERS, STORES } from '../data/seed';
@@ -47,12 +48,17 @@ export default function LoginScreen() {
   // byte-unchanged card layout below; phone gets the im.cmd▮ console restyle.
   const isPhone = useIsPhone();
 
-  // Auto-navigate to Register if ?register=true in URL
+  // Auto-navigate to Register if ?register=true in URL.
+  // Spec 198 (AD-6) — an invite link also carries `invite=<code>`. Hand it to
+  // RegisterScreen as a route param, because the replaceState below strips the
+  // query string before RegisterScreen mounts (and takes the code out of the
+  // address bar and history entry at the same time).
   useEffect(() => {
     if (Platform.OS === 'web') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('register') === 'true') {
-        nav.navigate('Register');
+        const invite = params.get(INVITE_URL_PARAM);
+        nav.navigate('Register', invite ? { invite } : undefined);
         // Clean up the URL
         window.history.replaceState({}, '', window.location.pathname);
       }
