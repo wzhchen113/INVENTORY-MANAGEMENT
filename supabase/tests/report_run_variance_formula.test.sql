@@ -144,22 +144,24 @@ values
 -- Purchase order receiving (reference_date 2026-05-02, between anchors
 -- per the > v_from AND <= v_to half-open rule).
 --
--- po_number is set explicitly as a fixture convenience: the
--- generate_po_number() BEFORE-INSERT trigger only fires WHEN po_number
--- IS NULL, so this row skips it. Numbering is unrelated to this test;
--- the trigger's own coverage is generate_po_number_sequence.test.sql
--- and generate_po_number_malformed_guard.test.sql (spec 190).
+-- po_number is omitted because it is server-assigned (spec 196). This
+-- block runs as authenticated (`set local role` above), and a client
+-- role can't supply one (P0001 'po_number is server-assigned'). The
+-- set_po_number trigger assigns the number; since spec 190 it is
+-- SECURITY DEFINER, so RLS doesn't affect it. Numbering is unrelated to
+-- this test; its coverage is generate_po_number_sequence.test.sql,
+-- generate_po_number_malformed_guard.test.sql and
+-- po_number_server_assigned.test.sql.
 create temp table _po on commit drop as
 with ins as (
   insert into public.purchase_orders
-    (store_id, vendor_id, status, received_at, reference_date, po_number)
+    (store_id, vendor_id, status, received_at, reference_date)
   values
     (current_setting('test.frederick_id', true)::uuid,
      current_setting('test.vendor_id',    true)::uuid,
      'received',
      '2026-05-01 23:59:00+00'::timestamptz,
-     '2026-05-02'::date,
-     'SPEC023-A2-' || gen_random_uuid()::text)
+     '2026-05-02'::date)
   returning id
 )
 select id from ins;
