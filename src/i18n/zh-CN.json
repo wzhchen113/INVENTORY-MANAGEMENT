@@ -1328,7 +1328,6 @@
       "phoneOrderSchedule": "订货计划",
       "phoneOrderScheduleToast": "订货计划 — 暂时仅支持桌面端",
       "phoneDateFor": "日期 {date}",
-      "phoneDateHint": "请在桌面端更改订货日期",
       "lastOrderFull": "上次 {date} · 盘点 {counted} · 订购 {ordered}",
       "lastOrderNoCounted": "上次 {date} · 订购 {ordered}",
       "lastOrderNotOrdered": "上次 {date} · 盘点 {counted} · 未订购",

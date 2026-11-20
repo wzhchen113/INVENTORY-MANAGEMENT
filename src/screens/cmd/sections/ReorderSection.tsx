@@ -1833,7 +1833,12 @@ export default function ReorderSection() {
     return pendingApproval ? (
       <PhoneApproveOrder request={pendingApproval} />
     ) : (
-      <PhoneOrdering />
+      <PhoneOrdering
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        maxDate={maxDate}
+        activeWeekdays={activeWeekdays}
+      />
     );
   }
 

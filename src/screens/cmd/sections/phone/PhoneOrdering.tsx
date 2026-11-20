@@ -53,6 +53,7 @@ import { sharePurchaseOrder } from '../../lib/sharePo';
 // Spec 201 — the shared (desktop + phone) "switch primary vendor" flow.
 import { runPrimaryVendorSwitch } from '../../lib/primaryVendorSwitch';
 import { ResponsiveSheet } from '../../../../components/cmd/ResponsiveSheet';
+import ReorderDatePicker from '../../../../components/cmd/ReorderDatePicker';
 // Spec 183 — the per-export language prompt, hosted by the ROOT (it must
 // outlive the ··· sheet, which unmounts on every action — AC-19).
 import {
@@ -69,6 +70,7 @@ import {
   importVendorForCard,
 } from '../ReorderSection';
 import type { ReorderVendor, ReorderItem } from '../../../../types';
+import type { DayName } from '../../../../utils/enumLabels';
 import type { Locale } from '../../../../i18n';
 
 // Spec 183 §3 — native modal → modal handoff. On iOS, presenting a `Modal` in
@@ -769,7 +771,26 @@ function OverflowSheet({
 }
 
 // ── Root ─────────────────────────────────────────────────────────────────────
-export const PhoneOrdering: React.FC = () => {
+// The as-of date is OWNED by ReorderSection (its fetch effect reloads the
+// suggestions + clears the edit buffer on a date change), so the phone chip
+// opens the shared ReorderDatePicker and reports the pick back up. All props
+// are optional so the screen still renders standalone (tests); without
+// `onDateChange` the chip is display-only.
+export interface PhoneOrderingProps {
+  selectedDate?: string;
+  onDateChange?: (isoDate: string) => void;
+  maxDate?: string;
+  activeWeekdays?: ReadonlySet<DayName>;
+}
+
+const NO_ACTIVE_WEEKDAYS: ReadonlySet<DayName> = new Set();
+
+export const PhoneOrdering: React.FC<PhoneOrderingProps> = ({
+  selectedDate,
+  onDateChange,
+  maxDate,
+  activeWeekdays,
+}) => {
   const C = useCmdColors();
   const T = useT();
   const currentStore = useStore((s) => s.currentStore);
@@ -968,18 +989,35 @@ export const PhoneOrdering: React.FC = () => {
     setPromptReady(false);
   };
 
-  const dateChip = (
+  // Show the picked date immediately (the payload's asOfDate lags until the
+  // parent's reload lands); fall back to the payload date standalone.
+  const chipDate = selectedDate ?? asOf;
+  const renderDateChip = (onPress?: () => void) => (
     <TouchableOpacity
       testID="phone-order-date-chip"
-      onPress={() => Toast.show({ type: 'info', text1: T('section.reorder.phoneDateHint') })}
+      onPress={onPress}
+      disabled={!onPress}
       accessibilityRole="button"
+      accessibilityLabel="Select reorder date"
       style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 5, paddingHorizontal: 9, borderWidth: 1, borderColor: C.borderStrong, borderRadius: CmdRadius.sm }}
     >
       <Text style={{ fontFamily: mono(600), fontSize: 9.5, letterSpacing: 0.7, color: C.fg2 }}>
-        {T('section.reorder.phoneDateFor', { date: formatDateChip(asOf) })}
+        {T('section.reorder.phoneDateFor', { date: formatDateChip(chipDate) })}
       </Text>
       <Text style={{ fontFamily: mono(400), fontSize: 9.5, color: C.fg3 }}>▾</Text>
     </TouchableOpacity>
+  );
+  const dateChip = onDateChange ? (
+    <ReorderDatePicker
+      value={chipDate}
+      onChange={onDateChange}
+      maxDate={maxDate ?? todayIso()}
+      activeWeekdays={activeWeekdays ?? NO_ACTIVE_WEEKDAYS}
+      testIdPrefix="phone-order-datepicker"
+      renderTrigger={(open) => renderDateChip(open)}
+    />
+  ) : (
+    renderDateChip()
   );
 
   const header = (

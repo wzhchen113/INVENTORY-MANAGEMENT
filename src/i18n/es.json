@@ -1328,7 +1328,6 @@
       "phoneOrderSchedule": "CALENDARIO DE PEDIDOS",
       "phoneOrderScheduleToast": "Calendario de pedidos — por ahora solo en escritorio",
       "phoneDateFor": "PARA {date}",
-      "phoneDateHint": "Cambia la fecha del pedido en el escritorio",
       "lastOrderFull": "ÚLTIMO {date} · CONTADO {counted} · PEDIDO {ordered}",
       "lastOrderNoCounted": "ÚLTIMO {date} · PEDIDO {ordered}",
       "lastOrderNotOrdered": "ÚLTIMO {date} · CONTADO {counted} · NO SE PIDIÓ",

@@ -32,6 +32,12 @@ interface ReorderDatePickerProps {
   /** Weekdays to highlight (the focal store's order-out days). */
   activeWeekdays: ReadonlySet<DayName>;
   testIdPrefix?: string;
+  /**
+   * Optional custom closed-state trigger. Receives the open callback; when
+   * omitted the default bordered date pill renders (desktop). The phone
+   * Ordering screen passes its own "FOR <date> ▾" chip here.
+   */
+  renderTrigger?: (open: () => void) => React.ReactNode;
 }
 
 // Spec 091 A4 — kept single-letter (option a). The T/T and S/S pairs are
@@ -72,6 +78,7 @@ export default function ReorderDatePicker({
   maxDate,
   activeWeekdays,
   testIdPrefix = 'reorder-datepicker',
+  renderTrigger,
 }: ReorderDatePickerProps) {
   const C = useCmdColors();
   const [open, setOpen] = useState(false);
@@ -137,17 +144,21 @@ export default function ReorderDatePicker({
     <View>
       {/* Closed-state trigger — bordered-pill matching the CSV/PDF/REFRESH
           buttons in ReorderSection (mono, borderStrong). */}
-      <TouchableOpacity
-        testID={`${testIdPrefix}-trigger`}
-        accessibilityRole="button"
-        accessibilityLabel="Select reorder date"
-        onPress={openModal}
-        style={[styles.trigger, { borderColor: C.borderStrong, borderRadius: CmdRadius.sm }]}
-      >
-        <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
-          {value ? formatDisplay(value) : 'DATE'}
-        </Text>
-      </TouchableOpacity>
+      {renderTrigger ? (
+        renderTrigger(openModal)
+      ) : (
+        <TouchableOpacity
+          testID={`${testIdPrefix}-trigger`}
+          accessibilityRole="button"
+          accessibilityLabel="Select reorder date"
+          onPress={openModal}
+          style={[styles.trigger, { borderColor: C.borderStrong, borderRadius: CmdRadius.sm }]}
+        >
+          <Text style={{ fontFamily: mono(500), fontSize: 10.5, color: C.fg2 }}>
+            {value ? formatDisplay(value) : 'DATE'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       <Modal visible={open} transparent animationType="fade">
         <TouchableOpacity
