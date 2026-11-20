@@ -2642,12 +2642,13 @@ function mapOrderApproval(row: any): OrderApproval {
 }
 
 /**
- * RPC `create_order_approval` — the ONLY INSERT path (design §3.2). Idempotent
- * on `(store_id, vendor_id, business_date)`: a double-tap or a retry after a
- * network error returns the SAME row rather than creating a second one
- * (guidance 6). An already-`approved`/`ordered` row is returned VERBATIM with
- * no write (R-6) — the caller branches on `status` and renders the
- * already-actioned state instead of silently re-approving.
+ * RPC `create_order_approval` — the insert path the app uses (design §3.2; a
+ * direct INSERT is also possible under RLS, and spec 187's trigger still stamps
+ * the approver). Idempotent on `(store_id, vendor_id, business_date)`: a
+ * double-tap or a retry after a network error returns the SAME row rather than
+ * creating a second one (guidance 6). An already-`approved`/`ordered` row is
+ * returned VERBATIM with no write (R-6) — the caller branches on `status` and
+ * renders the already-actioned state instead of silently re-approving.
  *
  * The channel is resolved SERVER-side; the client never supplies it.
  */
