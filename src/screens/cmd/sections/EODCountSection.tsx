@@ -27,6 +27,7 @@ import {
   type EodRowState,
 } from '../../../lib/eodNoNeed';
 import { eodRowSnapshot, planEodSubmit, type EodRowSnapshot } from '../../../lib/eodChangeSet';
+import { eodDayKey, eodSlotKey, isEodSlotOfDay } from '../../../lib/eodDraftSlot';
 import { TabStrip } from '../../../components/cmd/TabStrip';
 import { FilterInput } from '../../../components/cmd/FilterInput';
 import CountOrderDragList from '../../../components/cmd/CountOrderDragList';
@@ -81,9 +82,9 @@ const DAY_NAMES: ReadonlyArray<DayName> = [
 // spec forbids.
 //
 // This returns the set of item ids that are counted SOMEWHERE for the current
-// (store, date): an item with a non-blank case/unit entry in ANY vendor tab's
-// local input map, OR an item present in an already-submitted submission for
-// any vendor at this (store, date). The gate's `hasEntry` predicate ORs this
+// (store, date): an item with a non-blank case/unit entry in any vendor tab's
+// slot for this (store, date), OR an item present in an already-submitted
+// submission for any vendor at this (store, date). The gate's `hasEntry` predicate ORs this
 // set with the current tab's local entry so a shared item counted under tab V1
 // is not a blocking gap (nor painted red, nor jumped-to) under tab V2.
 //
@@ -98,32 +99,45 @@ const DAY_NAMES: ReadonlyArray<DayName> = [
 // persisted entry is a recorded count; spec 171 §10). Omitting the resolver
 // reproduces the pre-spec-171 result byte-for-byte.
 //
-// Spec 172 (AC-17) — optional `noNeedByVendor` (vendorId → itemId → true). Arm
+// Spec 172 (AC-17) — optional `noNeedBySlot` (slotKey → itemId → true). Arm
 // (c): an item marked NO NEED in ANY vendor tab is counted in every tab (spec
 // 102 counted-once-globally). Arm (b) needs no change — a persisted NO NEED
 // entry is an entry. Omitting the argument reproduces today's output.
+//
+// Spec 192 (§5.1, AC-4) — the local maps are keyed by SLOT
+// (`eodSlotKey(store, date, vendor)`, see `src/lib/eodDraftSlot.ts`), and arms
+// (a) and (c) read only the slots of the selected (storeId, dateIso): a value
+// typed on another day or at another store is not a count here. Within the day
+// they still read every vendor's slot (spec 102). The arguments were renamed
+// from `*ByVendor` so `typecheck:test` flags any caller still passing
+// vendor-keyed maps.
 export function deriveCountedItemIds(args: {
-  caseCountsByVendor: Record<string, Record<string, string>>;
-  unitCountsByVendor: Record<string, Record<string, string>>;
+  caseCountsBySlot: Record<string, Record<string, string>>;
+  unitCountsBySlot: Record<string, Record<string, string>>;
   submissions: ReadonlyArray<{ storeId: string; date: string; status: string; entries: ReadonlyArray<{ itemId: string }> }>;
   storeId: string;
   dateIso: string;
   effectiveModeOf?: (itemId: string) => EodCountMode | undefined;
-  noNeedByVendor?: Record<string, Record<string, boolean>>;
+  noNeedBySlot?: Record<string, Record<string, boolean>>;
 }): Set<string> {
   const counted = new Set<string>();
   const boxEnabled = (itemId: string, box: 'cases' | 'units'): boolean => {
     const mode = args.effectiveModeOf?.(itemId);
     return !mode || eodBoxes(mode)[box];
   };
-  // (a) Any non-blank local entry in ANY vendor tab's input map (in an
-  // enabled box, when a mode resolver is supplied).
-  for (const byItem of Object.values(args.caseCountsByVendor)) {
+  // The selected day's slots of a slot-keyed map, any vendor.
+  const daySlots = <V,>(bySlot: Record<string, Record<string, V>>): Array<Record<string, V>> =>
+    Object.entries(bySlot)
+      .filter(([slot]) => isEodSlotOfDay(slot, args.storeId, args.dateIso))
+      .map(([, byItem]) => byItem);
+  // (a) Any non-blank local entry in any vendor tab's slot for this (store,
+  // date) (in an enabled box, when a mode resolver is supplied).
+  for (const byItem of daySlots(args.caseCountsBySlot)) {
     for (const [itemId, v] of Object.entries(byItem)) {
       if ((v ?? '').trim() !== '' && boxEnabled(itemId, 'cases')) counted.add(itemId);
     }
   }
-  for (const byItem of Object.values(args.unitCountsByVendor)) {
+  for (const byItem of daySlots(args.unitCountsBySlot)) {
     for (const [itemId, v] of Object.entries(byItem)) {
       if ((v ?? '').trim() !== '' && boxEnabled(itemId, 'units')) counted.add(itemId);
     }
@@ -136,9 +150,10 @@ export function deriveCountedItemIds(args: {
     if (s.date !== args.dateIso) continue;
     for (const e of s.entries) counted.add(e.itemId);
   }
-  // (c) Spec 172 — any local NO NEED mark in ANY vendor tab.
-  if (args.noNeedByVendor) {
-    for (const byItem of Object.values(args.noNeedByVendor)) {
+  // (c) Spec 172 — any local NO NEED mark in any vendor tab's slot for this
+  // (store, date).
+  if (args.noNeedBySlot) {
+    for (const byItem of daySlots(args.noNeedBySlot)) {
       for (const [itemId, on] of Object.entries(byItem)) {
         if (on === true) counted.add(itemId);
       }
@@ -177,24 +192,9 @@ function localDayIso(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-// Spec 189 §5 — the one place a baseline key is built (see `baselineRef`).
-// The vendor id is the LAST segment, so `dropVendorBaselines` can match every
-// date and store for a vendor by its `|${vendorId}` suffix.
-function eodBaselineKey(storeId: string, dateIso: string, vendorId: string): string {
-  return `${storeId}|${dateIso}|${vendorId}`;
-}
-
-// Delete every baseline for `vendorId`, on any date or store. Called wherever
-// that vendor's input maps are cleared: the maps are keyed by vendor only, so
-// a baseline that outlives them describes values the screen no longer holds,
-// and a later SUBMIT would read each of its rows as "blanked" and remove it.
-// Fails safe: with no baseline, `buildEodChangeSet` produces no removals.
-function dropVendorBaselines(baselines: Record<string, unknown>, vendorId: string): void {
-  const suffix = `|${vendorId}`;
-  for (const k of Object.keys(baselines)) {
-    if (k.endsWith(suffix)) delete baselines[k];
-  }
-}
+// Spec 192 §4 — the day's + COUNT set when nothing was added. Module-level so
+// its identity is stable: `additionalItems` feeds the `filteredItems` memo.
+const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
 
 // Pattern A — workflow: 240px week sidebar (date list with status pills)
 // + worksheet (vendor tabs, category chips, status line, grouped item
@@ -249,36 +249,47 @@ export default function EODCountSection() {
   // untouched (AC).
   const appLocale = useLocale();
   const [exportLocale, setExportLocale] = React.useState<Locale>(() => appLocale);
-  // Spec 020 Q4 — per-vendor draft state. Switching vendor tabs preserves
-  // typed-but-unsubmitted values for the session. Keyed by vendorId →
-  // itemId → text. Refresh discards (no autosave).
-  const [caseCountsByVendor, setCaseCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
-  const [unitCountsByVendor, setUnitCountsByVendor] = React.useState<Record<string, Record<string, string>>>({});
-  const [notesByVendor, setNotesByVendor] = React.useState<Record<string, Record<string, string>>>({});
-  // Spec 172 (N5) — per-vendor NO NEED marks ("more than enough; not counted
-  // numerically"), mirroring the case/unit maps: vendorId → itemId → true. An
+  // Spec 020 Q4 + spec 192 R1 — per-SLOT draft state. A slot is one (store,
+  // date, vendor), keyed by `eodSlotKey` (src/lib/eodDraftSlot.ts — the same
+  // key as spec 189's baseline). Switching vendor tabs, dates or stores
+  // preserves typed-but-unsubmitted values for the session, and each slot
+  // shows only its own: slotKey → itemId → text. Refresh or leaving the
+  // section discards (no autosave).
+  const [caseCountsBySlot, setCaseCountsBySlot] = React.useState<Record<string, Record<string, string>>>({});
+  const [unitCountsBySlot, setUnitCountsBySlot] = React.useState<Record<string, Record<string, string>>>({});
+  const [notesBySlot, setNotesBySlot] = React.useState<Record<string, Record<string, string>>>({});
+  // Spec 172 (N5) — per-slot NO NEED marks ("more than enough; not counted
+  // numerically"), mirroring the case/unit maps: slotKey → itemId → true. An
   // absent key means "not marked". Invariant (eodNoNeed.ts): a marked item has
-  // blank case/unit text in that tab.
-  const [noNeedByVendor, setNoNeedByVendor] = React.useState<Record<string, Record<string, boolean>>>({});
-  // Vendors the user has tapped EDIT on. Once in this set the inputs unlock
-  // even though the server has a submitted row for the vendor; submitting
-  // overwrites and removes the vendor from this set.
-  const [editingVendorIds, setEditingVendorIds] = React.useState<Set<string>>(() => new Set());
+  // blank case/unit text in that slot.
+  const [noNeedBySlot, setNoNeedBySlot] = React.useState<Record<string, Record<string, boolean>>>({});
+  // Slots the user has tapped EDIT on (spec 192 R3: EDIT is per store, date
+  // and vendor). Once in this set the inputs unlock even though the server has
+  // a submitted row for the slot; a successful submit removes the slot.
+  const [editingSlots, setEditingSlots] = React.useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = React.useState(false);
   // Spec 189 §5 — the BASELINE: per row, what the manager was shown and what
-  // is known to be saved, keyed `${storeId}|${dateIso}|${vendorId}` (the input
-  // maps are keyed by vendor only, so the date and store must be in the key —
-  // a removal can never fire across dates). Set by EDIT from the submission's
-  // entries, advanced by a successful SAVE DRAFT, cleared by a successful
-  // SUBMIT (for every date and store: the SUBMIT empties the vendor-keyed maps
-  // that all of them describe; `dropVendorBaselines`), left alone on failure
-  // so a retry computes the same diff. It's how "blanked" differs from "never
+  // is known to be saved, keyed by slot like the input maps. Set by EDIT from
+  // the submission's entries, advanced by a successful SAVE DRAFT, cleared
+  // for the submitted slot by a successful SUBMIT, left alone on failure so a
+  // retry computes the same diff. It's how "blanked" differs from "never
   // touched" (`buildEodChangeSet`). A ref, not state: it's read only when
   // SUBMIT / SAVE DRAFT is pressed.
   const baselineRef = React.useRef<Record<string, Record<string, EodRowSnapshot>>>({});
-  const baselineKey = (vendorId: string) => eodBaselineKey(currentStore.id, selectedIso, vendorId);
+  // Spec 192 §4 — the render's day and slot keys. Every per-day draft read and
+  // write goes through these, so the selected (store, date) is in every key.
+  const dayKey = eodDayKey(currentStore.id, selectedIso);
+  const slotKeyFor = (vendorId: string) => eodSlotKey(currentStore.id, selectedIso, vendorId);
+  const slot: string | null = selectedVendorId ? slotKeyFor(selectedVendorId) : null;
+  // D-192-1 (§7.3) — the day on screen NOW, read after a submit's await to
+  // decide whether a success may still jump to Ordering.
+  const liveDayKeyRef = React.useRef(dayKey);
+  React.useEffect(() => {
+    liveDayKeyRef.current = dayKey;
+  }, [dayKey]);
   // Spec 103 — per-user custom order. The order is per-(admin-eod, vendor)
-  // (OQ-1), so hold a per-vendor saved-id map mirroring `caseCountsByVendor`.
+  // (OQ-1), so hold a per-vendor saved-id map. It stays vendor-keyed on
+  // purpose (spec 192 §3): it isn't per-day draft state.
   // `viewMode` toggles the default category-grouped worksheet vs a flat Custom
   // view in the user's saved drag order. Render-only: the gate still iterates
   // `filteredItems` (AC-9), and submission covers the vendor's whole input
@@ -286,26 +297,27 @@ export default function EODCountSection() {
   const [viewMode, setViewMode] = React.useState<'default' | 'custom'>('default');
   const [savedIdsByVendor, setSavedIdsByVendor] = React.useState<Record<string, string[] | null>>({});
 
-  // Per-vendor accessors so the rest of the section can read/write a single
-  // "current vendor's" map without re-typing the spread dance everywhere.
-  const caseCounts = selectedVendorId ? (caseCountsByVendor[selectedVendorId] || {}) : {};
-  const unitCounts = selectedVendorId ? (unitCountsByVendor[selectedVendorId] || {}) : {};
-  const notes      = selectedVendorId ? (notesByVendor[selectedVendorId]      || {}) : {};
-  const noNeed     = selectedVendorId ? (noNeedByVendor[selectedVendorId]     || {}) : {};
+  // Per-slot accessors so the rest of the section can read/write the current
+  // (store, date, vendor) slot's map without re-typing the spread dance
+  // everywhere.
+  const caseCounts = slot ? (caseCountsBySlot[slot] || {}) : {};
+  const unitCounts = slot ? (unitCountsBySlot[slot] || {}) : {};
+  const notes      = slot ? (notesBySlot[slot]      || {}) : {};
+  const noNeed     = slot ? (noNeedBySlot[slot]     || {}) : {};
   const setCaseCounts = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
-    if (!selectedVendorId) return;
-    setCaseCountsByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
-  }, [selectedVendorId]);
+    if (!slot) return;
+    setCaseCountsBySlot((p) => ({ ...p, [slot]: updater(p[slot] || {}) }));
+  }, [slot]);
   const setUnitCounts = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
-    if (!selectedVendorId) return;
-    setUnitCountsByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
-  }, [selectedVendorId]);
+    if (!slot) return;
+    setUnitCountsBySlot((p) => ({ ...p, [slot]: updater(p[slot] || {}) }));
+  }, [slot]);
   const setNotes = React.useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
-    if (!selectedVendorId) return;
-    setNotesByVendor((p) => ({ ...p, [selectedVendorId]: updater(p[selectedVendorId] || {}) }));
-  }, [selectedVendorId]);
+    if (!slot) return;
+    setNotesBySlot((p) => ({ ...p, [slot]: updater(p[slot] || {}) }));
+  }, [slot]);
 
-  // Spec 172 — one row's NO NEED transitions over the CURRENT vendor's three
+  // Spec 172 — one row's NO NEED transitions over the CURRENT slot's three
   // maps. The rules (AC-16 / AC-19 / AC-35) live in the pure
   // `src/lib/eodNoNeed.ts`; this only reads the row's state and writes the
   // result back. A map key is written only when its value actually changes,
@@ -316,20 +328,20 @@ export default function EODCountSection() {
     noNeed: noNeed[id] === true,
   });
   const commitRow = (id: string, next: EodRowState) => {
-    if (!selectedVendorId) return;
-    const vid = selectedVendorId;
-    setCaseCountsByVendor((p) =>
-      (p[vid]?.[id] ?? '') === next.caseRaw ? p : { ...p, [vid]: { ...(p[vid] || {}), [id]: next.caseRaw } },
+    if (!slot) return;
+    const k = slot;
+    setCaseCountsBySlot((p) =>
+      (p[k]?.[id] ?? '') === next.caseRaw ? p : { ...p, [k]: { ...(p[k] || {}), [id]: next.caseRaw } },
     );
-    setUnitCountsByVendor((p) =>
-      (p[vid]?.[id] ?? '') === next.unitRaw ? p : { ...p, [vid]: { ...(p[vid] || {}), [id]: next.unitRaw } },
+    setUnitCountsBySlot((p) =>
+      (p[k]?.[id] ?? '') === next.unitRaw ? p : { ...p, [k]: { ...(p[k] || {}), [id]: next.unitRaw } },
     );
-    setNoNeedByVendor((p) => {
-      if ((p[vid]?.[id] === true) === next.noNeed) return p;
-      const byItem = { ...(p[vid] || {}) };
+    setNoNeedBySlot((p) => {
+      if ((p[k]?.[id] === true) === next.noNeed) return p;
+      const byItem = { ...(p[k] || {}) };
       if (next.noNeed) byItem[id] = true;
       else delete byItem[id];
-      return { ...p, [vid]: byItem };
+      return { ...p, [k]: byItem };
     });
   };
   // Row button (AC-18/19): on ↔ off, both boxes cleared.
@@ -339,13 +351,13 @@ export default function EODCountSection() {
   // Any keystroke clears NO NEED (the phone keypad writes its digit through
   // the functional case/unit setters, so it only needs the flag dropped).
   const clearNoNeed = (id: string) => {
-    if (!selectedVendorId) return;
-    const vid = selectedVendorId;
-    setNoNeedByVendor((p) => {
-      if (p[vid]?.[id] !== true) return p;
-      const byItem = { ...(p[vid] || {}) };
+    if (!slot) return;
+    const k = slot;
+    setNoNeedBySlot((p) => {
+      if (p[k]?.[id] !== true) return p;
+      const byItem = { ...(p[k] || {}) };
       delete byItem[id];
-      return { ...p, [vid]: byItem };
+      return { ...p, [k]: byItem };
     });
   };
   const [tabId, setTabId] = React.useState('count.tsx');
@@ -362,8 +374,21 @@ export default function EODCountSection() {
     setShowUnscheduled(false);
   }, [currentStore?.id]);
   // Items added via + COUNT — unioned into the worksheet regardless of
-  // current vendor/category filter so the user sees their addition.
-  const [additionalItems, setAdditionalItems] = React.useState<Set<string>>(new Set());
+  // current vendor/category filter so the user sees their addition. Spec 192
+  // R5 / Q6: keyed by (store, date) — a row added on one day doesn't appear
+  // on, or get asked for by the gate of, another — and still shared across
+  // vendor tabs within the day.
+  const [additionalItemsByDay, setAdditionalItemsByDay] = React.useState<Record<string, ReadonlySet<string>>>({});
+  const additionalItems = additionalItemsByDay[dayKey] ?? EMPTY_ID_SET;
+  const addAdditionalItem = React.useCallback((day: string, id: string) => {
+    setAdditionalItemsByDay((p) => {
+      const prev = p[day] ?? EMPTY_ID_SET;
+      if (prev.has(id)) return p;
+      const next = new Set(prev);
+      next.add(id);
+      return { ...p, [day]: next };
+    });
+  }, []);
   const [pendingFocusItem, setPendingFocusItem] = React.useState<string | null>(null);
   // Refs to each row's FOCUS-TARGET input, keyed by itemId. Used by both the
   // AddCountModal jump and the inventory-detail "+ COUNT" button to focus
@@ -379,15 +404,11 @@ export default function EODCountSection() {
   React.useEffect(() => {
     const id = pendingPaletteAction?.eodFocusItemId;
     if (!id) return;
-    setAdditionalItems((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
+    // Spec 192 §8 — the render's day (today, on the normal fresh-mount route).
+    addAdditionalItem(dayKey, id);
     setPendingFocusItem(id);
     usePaletteAction.getState().consume();
-  }, [pendingPaletteAction]);
+  }, [pendingPaletteAction, dayKey, addAdditionalItem]);
 
   // After the focused row mounts, focus its input + clear the pending flag.
   React.useEffect(() => {
@@ -617,7 +638,8 @@ export default function EODCountSection() {
 
   // Convenience flags for the currently-active vendor.
   const isCurrentVendorSubmitted = !!selectedVendorId && submittedVendorIds.has(selectedVendorId);
-  const isCurrentVendorEditing   = !!selectedVendorId && editingVendorIds.has(selectedVendorId);
+  // Spec 192 R3 — EDIT is per slot: another date or store opens by its own status.
+  const isCurrentVendorEditing   = !!slot && editingSlots.has(slot);
   // Inputs read-only when vendor is submitted AND not in EDIT mode. The
   // existing isRestDay gate composes with this (added in render below).
   const isVendorLocked = isCurrentVendorSubmitted && !isCurrentVendorEditing;
@@ -641,9 +663,13 @@ export default function EODCountSection() {
   // leftover '' would show a saved value as blank, and the change set would
   // read it as "blanked" and remove the saved row. A local NO NEED mark also
   // keeps its (blank) boxes, preserving the NO NEED ⇒ blank-boxes invariant.
+  //
+  // Spec 192 §6 — EDIT, its baseline and its seed all act on the selected
+  // slot only, so one date's typed values never beat another date's
+  // submission (AC-13).
   const onEditCurrentVendor = React.useCallback(() => {
-    if (!selectedVendorId || !currentVendorSubmission) return;
-    const vid = selectedVendorId;
+    if (!slot || !currentVendorSubmission) return;
+    const k = slot;
     const sub = currentVendorSubmission;
     const entries = sub.entries || [];
     // Spec 189 §5 — the baseline snapshots the ENTRY-derived values (the same
@@ -663,8 +689,8 @@ export default function EODCountSection() {
         noNeed: e.noNeed === true,
       };
     }
-    baselineRef.current[eodBaselineKey(currentStore.id, selectedIso, vid)] = baseline;
-    const localNoNeed = noNeedByVendor[vid] || {};
+    baselineRef.current[k] = baseline;
+    const localNoNeed = noNeedBySlot[k] || {};
     const overlay = (seed: Record<string, string>, local: Record<string, string> | undefined, keepNoNeedBlank: boolean) => {
       const out = { ...seed };
       for (const [id, v] of Object.entries(local || {})) {
@@ -672,32 +698,32 @@ export default function EODCountSection() {
       }
       return out;
     };
-    setEditingVendorIds((prev) => {
-      if (prev.has(vid)) return prev;
+    setEditingSlots((prev) => {
+      if (prev.has(k)) return prev;
       const next = new Set(prev);
-      next.add(vid);
+      next.add(k);
       return next;
     });
-    setCaseCountsByVendor((p) => ({ ...p, [vid]: overlay(seedCases, p[vid], true) }));
-    setUnitCountsByVendor((p) => ({ ...p, [vid]: overlay(seedUnits, p[vid], true) }));
-    setNotesByVendor((p) => ({ ...p, [vid]: overlay(seedNotes, p[vid], false) }));
+    setCaseCountsBySlot((p) => ({ ...p, [k]: overlay(seedCases, p[k], true) }));
+    setUnitCountsBySlot((p) => ({ ...p, [k]: overlay(seedUnits, p[k], true) }));
+    setNotesBySlot((p) => ({ ...p, [k]: overlay(seedNotes, p[k], false) }));
     // Spec 172 (AC-25) — seed the NO NEED marks from the submission, with the
     // same "user-typed wins" rule: an item with non-blank local case/unit text
     // (or an existing local mark) keeps its local state, which preserves the
     // NO NEED ⇒ blank-boxes invariant. `unitsDisplayFor` already yields '' for
     // a NO NEED entry (actualRemaining null), so no "0" is seeded above.
-    const localCases = caseCountsByVendor[vid] || {};
-    const localUnits = unitCountsByVendor[vid] || {};
-    setNoNeedByVendor((p) => {
+    const localCases = caseCountsBySlot[k] || {};
+    const localUnits = unitCountsBySlot[k] || {};
+    setNoNeedBySlot((p) => {
       const seeded: Record<string, boolean> = {};
       for (const e of entries) {
         if (e.noNeed !== true) continue;
         const typed = (localCases[e.itemId] ?? '').trim() !== '' || (localUnits[e.itemId] ?? '').trim() !== '';
         if (!typed) seeded[e.itemId] = true;
       }
-      return { ...p, [vid]: { ...seeded, ...(p[vid] || {}) } };
+      return { ...p, [k]: { ...seeded, ...(p[k] || {}) } };
     });
-  }, [selectedVendorId, currentVendorSubmission, caseCountsByVendor, unitCountsByVendor, noNeedByVendor, currentStore.id, selectedIso]);
+  }, [slot, currentVendorSubmission, caseCountsBySlot, unitCountsBySlot, noNeedBySlot]);
 
   // Category chips — derived from this vendor's items
   const categories = React.useMemo(() => {
@@ -779,17 +805,18 @@ export default function EODCountSection() {
   const countedItemIds = React.useMemo(
     () =>
       deriveCountedItemIds({
-        caseCountsByVendor,
-        unitCountsByVendor,
+        // Spec 192 §5.1 — arms (a) and (c) read only this (store, date)'s slots.
+        caseCountsBySlot,
+        unitCountsBySlot,
         submissions: eodSubmissions,
         storeId: currentStore.id,
         dateIso: selectedIso,
         // Spec 171 (AC-12) — ignore values sitting in a disabled box.
         effectiveModeOf: (id) => modeById.get(id),
         // Spec 172 (AC-17) — a NO NEED mark in any tab counts the item.
-        noNeedByVendor,
+        noNeedBySlot,
       }),
-    [caseCountsByVendor, unitCountsByVendor, eodSubmissions, currentStore.id, selectedIso, modeById, noNeedByVendor],
+    [caseCountsBySlot, unitCountsBySlot, eodSubmissions, currentStore.id, selectedIso, modeById, noNeedBySlot],
   );
   // Spec 171 (AC-7) — counted only when an ENABLED box is non-blank.
   // Spec 172 (AC-16) — …or the row is marked NO NEED in this tab. This is the
@@ -822,7 +849,8 @@ export default function EODCountSection() {
   // ─── Spec 139: count-export orchestration (impure, mirrors ReorderSection) ──
   // Assemble the per-vendor grouped snapshot from the transient count maps
   // across ALL vendor tabs shown for the selected day (not just the active
-  // vendor), for the selected date. Blank where nothing was typed → the sheet
+  // vendor), for the selected date — each tab reads its slot for the selected
+  // (store, date) only (spec 192 AC-7). Blank where nothing was typed → the sheet
   // doubles as a fill-in worksheet. EOD deliberately OMITS System On-Hand
   // (blind count). The pure builder never touches React state.
   const parseCount = (raw: string | undefined): number | null => {
@@ -833,10 +861,11 @@ export default function EODCountSection() {
   };
   const buildExportGroups = React.useCallback((): CountExportGroup[] => {
     return vendorTabs.map((v) => {
-      const cases = caseCountsByVendor[v.id] || {};
-      const units = unitCountsByVendor[v.id] || {};
-      const vNotes = notesByVendor[v.id] || {};
-      const vNoNeed = noNeedByVendor[v.id] || {};
+      const k = eodSlotKey(currentStore.id, selectedIso, v.id);
+      const cases = caseCountsBySlot[k] || {};
+      const units = unitCountsBySlot[k] || {};
+      const vNotes = notesBySlot[k] || {};
+      const vNoNeed = noNeedBySlot[k] || {};
       const items = storeInventory
         .filter((i) => (i.vendorIds ?? (i.vendorId ? [i.vendorId] : [])).includes(v.id))
         .map((i) => ({
@@ -854,7 +883,7 @@ export default function EODCountSection() {
         }));
       return { label: v.name, items };
     });
-  }, [vendorTabs, caseCountsByVendor, unitCountsByVendor, notesByVendor, noNeedByVendor, storeInventory]);
+  }, [vendorTabs, caseCountsBySlot, unitCountsBySlot, notesBySlot, noNeedBySlot, storeInventory, currentStore.id, selectedIso]);
 
   const onExportCsv = React.useCallback(async () => {
     try {
@@ -935,7 +964,7 @@ export default function EODCountSection() {
     const maps = { caseCounts, unitCounts, notes, noNeed };
     const plan = planEodSubmit({
       storeItems: storeInventory,
-      baseline: baselineRef.current[baselineKey(selectedVendorId)],
+      baseline: baselineRef.current[slotKeyFor(selectedVendorId)],
       ...maps,
       modeOf: liveModeById,
       // Same-session draft → SUBMIT, or EDIT → SAVE DRAFT, with no row changed
@@ -1048,16 +1077,19 @@ export default function EODCountSection() {
       showDraftSaved(built.savedCount);
       return;
     }
-    const key = baselineKey(built.submission.vendorId);
+    // Spec 192 §7.1 — the slot is fixed BEFORE the await, in the same tick as
+    // buildSubmission, so a date change during the request can't redirect the
+    // baseline advance. Nothing below reads `slot` / `selectedIso`.
+    const submittedSlot = slotKeyFor(built.submission.vendorId);
     setSubmitting(true);
     const undo = submitEOD(built.submission, { removedItemIds: built.removedItemIds });
     try {
       await submitEODCount(built.submission, built.removedItemIds);
       // Spec 189 §5 — the shipped rows are now known to be saved; the removed
       // ones are gone. A later blank of a shipped row is then a removal.
-      const next = { ...(baselineRef.current[key] || {}) };
+      const next = { ...(baselineRef.current[submittedSlot] || {}) };
       for (const id of built.removedItemIds) delete next[id];
-      baselineRef.current[key] = { ...next, ...built.shipped };
+      baselineRef.current[submittedSlot] = { ...next, ...built.shipped };
       showDraftSaved(built.resultCount);
     } catch (e: any) {
       // Spec 189 §8 (AC-22) — the server write is all-or-nothing, so revert
@@ -1117,30 +1149,40 @@ export default function EODCountSection() {
       Toast.show({ type: 'error', text1: T('section.eod.pickVendor') });
       return;
     }
-    const vid = selectedVendorId;
+    // Spec 192 §7.1 — capture the slot and day synchronously, before the
+    // await (buildSubmission above ran in this same tick, so the payload's
+    // date and rows come from the same render). Success and failure act on
+    // these captured values only; nothing below reads `slot`, `selectedIso`
+    // or `currentStore.id`, so picking another date or store while the write
+    // is in flight can't redirect the clear (R2, AC-8).
     const dateIso = selectedIso;
+    const submittedSlot = slotKeyFor(selectedVendorId);
+    const submittedDay = dayKey;
     const finishSubmitted = (itemCount: number) => {
-      // Spec 020: clear only THIS vendor's draft after submit; other vendors'
-      // typed-but-unsaved drafts survive (Q4). Also drop EDIT mode for the
-      // vendor so it relocks to the read-only view. Only on success, per
-      // code-reviewer S1 — clearing before the cloud write dropped the user's
-      // typed values on cloud failure, which is the worst possible UX for the
-      // escape-hatch path where the items aren't on the server-rendered list
-      // yet. Spec 189 §5: the baseline is cleared with the maps, for EVERY
-      // date and store, not just this one. The maps are keyed by vendor only,
-      // so this clear also empties values typed on other dates; a surviving
-      // baseline there (e.g. a draft saved on Monday, then SUBMIT on Tuesday)
-      // would read each of its rows as "blanked" on Monday's next SUBMIT and
-      // delete the drafted counts behind a success toast.
-      dropVendorBaselines(baselineRef.current, vid);
-      setCaseCountsByVendor((p) => ({ ...p, [vid]: {} }));
-      setUnitCountsByVendor((p) => ({ ...p, [vid]: {} }));
-      setNotesByVendor((p) => ({ ...p, [vid]: {} }));
-      setNoNeedByVendor((p) => ({ ...p, [vid]: {} }));
-      setEditingVendorIds((prev) => {
-        if (!prev.has(vid)) return prev;
+      // Spec 020 / spec 192 R2: clear only THIS slot's draft after submit;
+      // other vendors' and other dates' typed-but-unsaved drafts survive. Also
+      // drop EDIT mode for the slot so it relocks to the read-only view. Only
+      // on success, per code-reviewer S1 — clearing before the cloud write
+      // dropped the user's typed values on cloud failure, which is the worst
+      // possible UX for the escape-hatch path where the items aren't on the
+      // server-rendered list yet.
+      //
+      // Spec 189 §5 + spec 192 P10: the baseline is cleared with the maps, for
+      // the submitted slot only. Spec 189 dropped the vendor's baselines on
+      // every date and store (`dropVendorBaselines`) because its vendor-keyed
+      // maps were emptied on every date at once. The maps are now slot-keyed,
+      // so other dates keep their values, and their baselines must stay with
+      // them: dropping one would turn a later blank of a saved row there into
+      // "never touched" and silently keep the count.
+      delete baselineRef.current[submittedSlot];
+      setCaseCountsBySlot((p) => ({ ...p, [submittedSlot]: {} }));
+      setUnitCountsBySlot((p) => ({ ...p, [submittedSlot]: {} }));
+      setNotesBySlot((p) => ({ ...p, [submittedSlot]: {} }));
+      setNoNeedBySlot((p) => ({ ...p, [submittedSlot]: {} }));
+      setEditingSlots((prev) => {
+        if (!prev.has(submittedSlot)) return prev;
         const next = new Set(prev);
-        next.delete(vid);
+        next.delete(submittedSlot);
         return next;
       });
       Toast.show({
@@ -1155,7 +1197,16 @@ export default function EODCountSection() {
       // the manager both sees the count landed AND lands on the list it feeds
       // (Ordering opens on its default Reorder tab). Spec 137 renamed the
       // former 'Reorder' section to the unified 'Ordering' destination.
-      usePaletteAction.getState().request({ section: 'Ordering', selectedName: null });
+      //
+      // D-192-1 (spec 192 §7.3, owner-kept) — only while the user is still on
+      // the submitted (store, date). The jump unmounts this section and with
+      // it every unsaved slot, so if they moved to another day during the
+      // request (and may be typing there), stay put; the toast above still
+      // names the submitted date. By day, not slot: a vendor-tab switch on
+      // the same date still jumps, as before.
+      if (liveDayKeyRef.current === submittedDay) {
+        usePaletteAction.getState().request({ section: 'Ordering', selectedName: null });
+      }
     };
     // Spec 189 §5 — EDIT then UPDATE COUNT with nothing changed: no RPC, no
     // optimistic writes, no audit, no bell, then the normal success path with
@@ -1646,7 +1697,8 @@ export default function EODCountSection() {
           rightSlot={tabId === 'order-schedule' ? undefined : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={{ fontFamily: mono(400), fontSize: 10.5, color: C.fg3 }}>
-                {new Date().toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })}
+                {/* Spec 192 R4 — the SELECTED day, in the app locale, from local midnight. */}
+                {new Date(selectedIso + 'T00:00:00').toLocaleDateString(appLocale, { weekday: 'long', month: 'short', day: 'numeric' })}
               </Text>
               <View style={{ width: 1, height: 16, backgroundColor: C.border }} />
               {isRestDay ? (
@@ -2216,11 +2268,7 @@ export default function EODCountSection() {
         onClose={() => setAddCountOpen(false)}
         excludedItemIds={new Set(filteredItems.map((i) => i.id))}
         onAdd={(itemId, jump) => {
-          setAdditionalItems((prev) => {
-            const next = new Set(prev);
-            next.add(itemId);
-            return next;
-          });
+          addAdditionalItem(dayKey, itemId);
           if (jump) setPendingFocusItem(itemId);
         }}
       />

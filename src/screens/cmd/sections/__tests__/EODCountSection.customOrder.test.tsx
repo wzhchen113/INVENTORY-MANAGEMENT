@@ -45,6 +45,7 @@ jest.mock('../../../../lib/supabase', () => ({
 }));
 
 import { deriveCountedItemIds } from '../EODCountSection';
+import { eodSlotKey } from '../../../../lib/eodDraftSlot';
 import { applyCountOrder, firstUncounted } from '../../../../lib/countOrder';
 
 // A minimal item shape carrying the fields the EOD submission entry-builder
@@ -136,8 +137,9 @@ describe('EODCountSection — spec 103 custom order (AC-9 / AC-10 / AC-12)', () 
     // The section's real gate predicate (counted-once-globally) over the
     // local entries — exercised through the section's OWN exported helper.
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: { [VENDOR_A]: caseCounts },
-      unitCountsByVendor: { [VENDOR_A]: unitCounts },
+      // Spec 192 §5.1 — the local maps are keyed by (store, date, vendor) slot.
+      caseCountsBySlot: { [eodSlotKey(STORE, DATE, VENDOR_A)]: caseCounts },
+      unitCountsBySlot: { [eodSlotKey(STORE, DATE, VENDOR_A)]: unitCounts },
       submissions: [],
       storeId: STORE,
       dateIso: DATE,

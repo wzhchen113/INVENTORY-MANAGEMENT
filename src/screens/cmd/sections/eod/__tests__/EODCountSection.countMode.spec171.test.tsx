@@ -68,6 +68,7 @@ jest.mock('../../../../../theme/breakpoints', () => {
 });
 
 import EODCountSection, { deriveCountedItemIds, unitsDisplayFor } from '../../EODCountSection';
+import { eodSlotKey } from '../../../../../lib/eodDraftSlot';
 import { useStore } from '../../../../../store/useStore';
 import { useCmdColors } from '../../../../../theme/colors';
 import type { EodCountMode } from '../../../../../lib/eodCountMode';
@@ -164,14 +165,16 @@ beforeEach(() => {
 // ── AC-12: deriveCountedItemIds (pure) ─────────────────────────────────
 describe('deriveCountedItemIds — spec 171 effectiveModeOf (AC-12)', () => {
   const base = { submissions: [], storeId: 'store-1', dateIso: TODAY };
+  // Spec 192 §5.1 — the local maps are keyed by (store, date, vendor) slot.
+  const slotOf = (vendorId: string) => eodSlotKey('store-1', TODAY, vendorId);
   const modes: Record<string, EodCountMode> = { u: 'units_only', c: 'cases_only', b: 'cases_and_units' };
   const effectiveModeOf = (id: string) => modes[id];
 
   it('ignores a CASE value in any tab for a units_only item', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      caseCountsByVendor: { vA: { u: '2' }, vB: { u: '3' } },
-      unitCountsByVendor: {},
+      caseCountsBySlot: { [slotOf('vA')]: { u: '2' }, [slotOf('vB')]: { u: '3' } },
+      unitCountsBySlot: {},
       effectiveModeOf,
     });
     expect(counted.has('u')).toBe(false);
@@ -180,8 +183,8 @@ describe('deriveCountedItemIds — spec 171 effectiveModeOf (AC-12)', () => {
   it('ignores a UNIT value in any tab for a cases_only item', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      caseCountsByVendor: {},
-      unitCountsByVendor: { vB: { c: '5' } },
+      caseCountsBySlot: {},
+      unitCountsBySlot: { [slotOf('vB')]: { c: '5' } },
       effectiveModeOf,
     });
     expect(counted.has('c')).toBe(false);
@@ -190,8 +193,8 @@ describe('deriveCountedItemIds — spec 171 effectiveModeOf (AC-12)', () => {
   it('credits the ENABLED box per mode, and either box for cases_and_units', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      caseCountsByVendor: { vA: { c: '1', b: '1' } },
-      unitCountsByVendor: { vB: { u: '4' } },
+      caseCountsBySlot: { [slotOf('vA')]: { c: '1', b: '1' } },
+      unitCountsBySlot: { [slotOf('vB')]: { u: '4' } },
       effectiveModeOf,
     });
     expect([...counted].sort()).toEqual(['b', 'c', 'u']);
@@ -200,8 +203,8 @@ describe('deriveCountedItemIds — spec 171 effectiveModeOf (AC-12)', () => {
   it('an id the resolver does not know keeps the either-box rule', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      caseCountsByVendor: { vA: { zz: '1' } },
-      unitCountsByVendor: {},
+      caseCountsBySlot: { [slotOf('vA')]: { zz: '1' } },
+      unitCountsBySlot: {},
       effectiveModeOf,
     });
     expect(counted.has('zz')).toBe(true);
@@ -210,8 +213,8 @@ describe('deriveCountedItemIds — spec 171 effectiveModeOf (AC-12)', () => {
   it('arm (b) persisted submissions are unchanged by the mode', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      caseCountsByVendor: {},
-      unitCountsByVendor: {},
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
       submissions: [{ storeId: 'store-1', date: TODAY, status: 'draft', entries: [{ itemId: 'u' }] }],
       effectiveModeOf,
     });

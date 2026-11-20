@@ -433,11 +433,17 @@ describe('EODCountSection — spec 189 after a re-submit (AC-20 / AC-23)', () =>
 });
 
 // ── code-reviewer S1: a stale baseline on another date ──────────────
-// The input maps are keyed by vendor only; the baseline is keyed by store,
-// date and vendor. A SUBMIT on one date empties the vendor's maps, so it must
-// also drop that vendor's baselines for every other date. Otherwise a draft
-// saved on day A keeps a baseline the screen no longer holds values for, and
-// day A's next SUBMIT reads every drafted row as "blanked" and removes it.
+// A SUBMIT on day B must never cost day A's drafted rows: day A's next SUBMIT
+// must not read them as "blanked" and remove them.
+//
+// Spec 192 (AC-22 / P9) edited steps 2 and 3. Under spec 189 the input maps
+// were keyed by vendor only, so day A's values leaked onto day B (step 2 only
+// had to count d1) and day B's SUBMIT emptied them on day A too (step 3 read
+// blank), which is why 189 dropped the vendor's baselines on every date. The
+// maps are now keyed by (store, date, vendor) slot like the baseline: day B
+// shows its own blank rows, so step 2 counts all three; day B's SUBMIT clears
+// only day B's slot, so day A's values and baseline both survive and step 3
+// reads them back. Steps 4 and 5 — the point of the arm — are unchanged.
 describe('EODCountSection — spec 189 stale baseline across dates (code-reviewer S1)', () => {
   const dayA = new Date();
   dayA.setHours(0, 0, 0, 0);
@@ -464,19 +470,23 @@ describe('EODCountSection — spec 189 stale baseline across dates (code-reviewe
     expect(lastWrite().submission.status).toBe('draft');
     expect(ids(lastWrite().submission)).toEqual(['p1', 'p2']);
 
-    // 2. Day B: the vendor-keyed maps still hold day A's values (spec 192's
-    //    leak); count the rest and SUBMIT. This empties v1's maps.
+    // 2. Day B: its own slot, so nothing from day A shows; count every row
+    //    and SUBMIT. This clears day B's slot only.
     selectDay(api, today);
+    expect(unitInput(api, 'p1').props.value).toBe('');
+    fireEvent.changeText(unitInput(api, 'p1'), '1');
+    fireEvent.changeText(unitInput(api, 'p2'), '2');
     fireEvent.changeText(unitInput(api, 'd1'), '7');
     await press(api, 'SUBMIT COUNT');
     expect(lastWrite().submission.date).toBe(TODAY);
     expect(lastWrite().submission.status).toBe('submitted');
 
-    // 3. Back to day A: the draft is unlocked and its rows don't refill.
+    // 3. Back to day A: the draft is unlocked and its typed rows are still
+    //    there (spec 192 R1/R2: day B's SUBMIT didn't touch day A's slot).
     selectDay(api, dayA);
     expect(unitInput(api, 'p1').props.editable).toBe(true);
-    expect(unitInput(api, 'p1').props.value).toBe('');
-    expect(unitInput(api, 'p2').props.value).toBe('');
+    expect(unitInput(api, 'p1').props.value).toBe('5');
+    expect(unitInput(api, 'p2').props.value).toBe('6');
 
     // 4. Count the one row left and SUBMIT (the drafted rows pass the gate).
     fireEvent.changeText(unitInput(api, 'd1'), '3');

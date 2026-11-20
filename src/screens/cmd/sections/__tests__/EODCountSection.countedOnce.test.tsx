@@ -39,6 +39,7 @@ jest.mock('../../../../lib/supabase', () => ({
 }));
 
 import { deriveCountedItemIds } from '../EODCountSection';
+import { eodSlotKey } from '../../../../lib/eodDraftSlot';
 
 const STORE = 'store-1';
 const DATE = '2026-06-29';
@@ -47,12 +48,14 @@ const VENDOR_B = 'vendor-b';
 const SHARED = 'item-shared';
 const ONLY_A = 'item-a';
 const ONLY_B = 'item-b';
+// Spec 192 §5.1 — the local maps are keyed by (store, date, vendor) slot.
+const slotOf = (vendorId: string) => eodSlotKey(STORE, DATE, vendorId);
 
 describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () => {
   it('returns an empty set when nothing is entered or submitted', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: {},
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
       submissions: [],
       storeId: STORE,
       dateIso: DATE,
@@ -63,8 +66,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
   it('credits an item counted via a UNIT entry under ANY vendor tab', () => {
     // Shared item typed under vendor A's tab only.
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: { [VENDOR_A]: { [SHARED]: '12' } },
+      caseCountsBySlot: {},
+      unitCountsBySlot: { [slotOf(VENDOR_A)]: { [SHARED]: '12' } },
       submissions: [],
       storeId: STORE,
       dateIso: DATE,
@@ -74,8 +77,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('credits an item counted via a CASE entry under any vendor tab', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: { [VENDOR_A]: { [SHARED]: '2' } },
-      unitCountsByVendor: {},
+      caseCountsBySlot: { [slotOf(VENDOR_A)]: { [SHARED]: '2' } },
+      unitCountsBySlot: {},
       submissions: [],
       storeId: STORE,
       dateIso: DATE,
@@ -87,8 +90,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
     // Counted under A's tab; the gate for B's tab ORs this set, so SHARED is
     // not an outstanding gap when the user switches to B.
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: { [VENDOR_A]: { [SHARED]: '12' } },
+      caseCountsBySlot: {},
+      unitCountsBySlot: { [slotOf(VENDOR_A)]: { [SHARED]: '12' } },
       submissions: [],
       storeId: STORE,
       dateIso: DATE,
@@ -101,8 +104,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('treats a blank / whitespace-only entry as NOT counted', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: { [VENDOR_A]: { [SHARED]: '   ' } },
-      unitCountsByVendor: { [VENDOR_A]: { [ONLY_A]: '' } },
+      caseCountsBySlot: { [slotOf(VENDOR_A)]: { [SHARED]: '   ' } },
+      unitCountsBySlot: { [slotOf(VENDOR_A)]: { [ONLY_A]: '' } },
       submissions: [],
       storeId: STORE,
       dateIso: DATE,
@@ -113,8 +116,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('credits items from an already-submitted submission for this (store, date)', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: {},
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
       submissions: [
         {
           storeId: STORE,
@@ -132,8 +135,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('ignores submissions for a DIFFERENT store or date', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: {},
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
       submissions: [
         { storeId: 'other-store', date: DATE, status: 'submitted', entries: [{ itemId: SHARED }] },
         { storeId: STORE, date: '2026-06-28', status: 'submitted', entries: [{ itemId: ONLY_A }] },
@@ -146,8 +149,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('unions local entries across MULTIPLE vendor tabs + submissions', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: { [VENDOR_B]: { [ONLY_B]: '1' } },
-      unitCountsByVendor: { [VENDOR_A]: { [SHARED]: '5' } },
+      caseCountsBySlot: { [slotOf(VENDOR_B)]: { [ONLY_B]: '1' } },
+      unitCountsBySlot: { [slotOf(VENDOR_A)]: { [SHARED]: '5' } },
       submissions: [
         { storeId: STORE, date: DATE, status: 'submitted', entries: [{ itemId: ONLY_A }] },
       ],
@@ -162,8 +165,8 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
 
   it('counts a DRAFT submission too (a recorded count of the shared on-hand)', () => {
     const counted = deriveCountedItemIds({
-      caseCountsByVendor: {},
-      unitCountsByVendor: {},
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
       submissions: [
         { storeId: STORE, date: DATE, status: 'draft', entries: [{ itemId: SHARED }] },
       ],
@@ -171,5 +174,59 @@ describe('deriveCountedItemIds (spec 102 §6c — counted-once-globally)', () =>
       dateIso: DATE,
     });
     expect(counted.has(SHARED)).toBe(true);
+  });
+});
+
+// Spec 192 (AC-4) — arms (a) and (c) read only the selected (store, date)'s
+// slots, any vendor; arm (b), submissions for the date, is unchanged.
+describe('deriveCountedItemIds — spec 192 day-scoped local arms (AC-4)', () => {
+  const OTHER_DATE = '2026-06-28';
+  const OTHER_STORE = 'store-10'; // starts with STORE's id; the `|` guard keeps them apart
+
+  it('arm (a) ignores a slot for another date and another store', () => {
+    const counted = deriveCountedItemIds({
+      caseCountsBySlot: {
+        [eodSlotKey(STORE, OTHER_DATE, VENDOR_A)]: { [ONLY_A]: '1' },
+        [eodSlotKey(OTHER_STORE, DATE, VENDOR_A)]: { [SHARED]: '2' },
+      },
+      unitCountsBySlot: {
+        [eodSlotKey(STORE, OTHER_DATE, VENDOR_B)]: { [ONLY_B]: '3' },
+      },
+      submissions: [],
+      storeId: STORE,
+      dateIso: DATE,
+    });
+    expect(counted.size).toBe(0);
+  });
+
+  it('arm (c) ignores a NO NEED mark for another date and another store', () => {
+    const counted = deriveCountedItemIds({
+      caseCountsBySlot: {},
+      unitCountsBySlot: {},
+      submissions: [],
+      storeId: STORE,
+      dateIso: DATE,
+      noNeedBySlot: {
+        [eodSlotKey(STORE, OTHER_DATE, VENDOR_A)]: { [ONLY_A]: true },
+        [eodSlotKey(OTHER_STORE, DATE, VENDOR_B)]: { [ONLY_B]: true },
+      },
+    });
+    expect(counted.size).toBe(0);
+  });
+
+  it("still credits every vendor's slot for the selected day, and arm (b) for the date", () => {
+    const counted = deriveCountedItemIds({
+      caseCountsBySlot: {
+        [slotOf(VENDOR_A)]: { [SHARED]: '1' },
+        [eodSlotKey(STORE, OTHER_DATE, VENDOR_A)]: { [ONLY_A]: '9' },
+      },
+      unitCountsBySlot: {},
+      submissions: [{ storeId: STORE, date: DATE, status: 'submitted', entries: [{ itemId: ONLY_A }] }],
+      storeId: STORE,
+      dateIso: DATE,
+      noNeedBySlot: { [slotOf(VENDOR_B)]: { [ONLY_B]: true } },
+    });
+    // ONLY_A comes from arm (b) (today's submission), not from the other day's slot.
+    expect([...counted].sort()).toEqual([ONLY_A, ONLY_B, SHARED].sort());
   });
 });

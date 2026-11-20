@@ -72,6 +72,7 @@ jest.mock('../../../../../utils', () => ({
 }));
 
 import EODCountSection, { deriveCountedItemIds } from '../../EODCountSection';
+import { eodSlotKey } from '../../../../../lib/eodDraftSlot';
 import { PhoneKeypadSheet } from '../PhoneKeypadSheet';
 import { useStore } from '../../../../../store/useStore';
 import { useCmdColors } from '../../../../../theme/colors';
@@ -169,10 +170,12 @@ beforeEach(() => {
 const LOCKED_NO_NEED = { itemId: 'n', actualRemaining: null, noNeed: true };
 
 // ── AC-17: deriveCountedItemIds arm (c) (pure) ─────────────────────────
-describe('deriveCountedItemIds — spec 172 noNeedByVendor (AC-17)', () => {
+describe('deriveCountedItemIds — spec 172 noNeedBySlot (AC-17)', () => {
+  // Spec 192 §5.1 — the local maps are keyed by (store, date, vendor) slot.
+  const slotOf = (vendorId: string) => eodSlotKey('store-1', TODAY, vendorId);
   const base = {
-    caseCountsByVendor: { vA: { typed: '1' } },
-    unitCountsByVendor: {},
+    caseCountsBySlot: { [slotOf('vA')]: { typed: '1' } },
+    unitCountsBySlot: {},
     submissions: [{ storeId: 'store-1', date: TODAY, status: 'draft', entries: [{ itemId: 'persisted' }] }],
     storeId: 'store-1',
     dateIso: TODAY,
@@ -185,7 +188,7 @@ describe('deriveCountedItemIds — spec 172 noNeedByVendor (AC-17)', () => {
   it('an item marked NO NEED in ANY vendor tab is counted', () => {
     const counted = deriveCountedItemIds({
       ...base,
-      noNeedByVendor: { vB: { nn: true }, vC: { off: false } },
+      noNeedBySlot: { [slotOf('vB')]: { nn: true }, [slotOf('vC')]: { off: false } },
     });
     expect([...counted].sort()).toEqual(['nn', 'persisted', 'typed']);
   });
