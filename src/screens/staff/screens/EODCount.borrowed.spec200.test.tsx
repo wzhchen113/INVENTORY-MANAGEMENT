@@ -241,7 +241,9 @@ describe('EODCount — spec 200 shared item counted once', () => {
     mockFetchBorrowSources.mockResolvedValue([sourceA([units(X, 5)])]);
     mockNextResultStack = [vendorsBA, itemsFixture([{ id: X, name: 'Flour' }, { id: Y, name: 'Sugar' }]), NONE];
     const api = render(<EODCount />);
-    await waitFor(() => expect(borrowedLabel(api, X)).toBe('Counted under Sysco'));
+    // First test in the file: it pays the cold module/render cost, which can
+    // exceed waitFor's default 1 s on a slow CI runner (failed run 44502645676).
+    await waitFor(() => expect(borrowedLabel(api, X)).toBe('Counted under Sysco'), { timeout: 5000 });
     expect(mockFetchBorrowSources).toHaveBeenCalledWith(STORE, TODAY());
     expect(wellValue(api, X, 'units')).toBe('5');
     expect(wellValue(api, X, 'cases')).toBe('—');
