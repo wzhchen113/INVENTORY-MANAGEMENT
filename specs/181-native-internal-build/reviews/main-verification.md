@@ -1,6 +1,6 @@
 # Spec 181 — verification note (AC-24)
 
-Status of this note: **code/config/jest half DONE (2026-10-26, frontend-developer); Simulator half PENDING** on the owner's Xcode / EAS prerequisites (spec "Owner-only prerequisites" 1, 3, 4).
+Status of this note: **code/config/jest half DONE (2026-10-26, frontend-developer). Simulator half run 2026-11-21 (main Claude): AC-1 to AC-8 PASS; AC-9 business date PASS, the raw `formatToParts` comparison not run.** See "Simulator run (2026-11-21)" below.
 
 ## Environment at implementation time
 
@@ -8,21 +8,31 @@ Status of this note: **code/config/jest half DONE (2026-10-26, frontend-develope
 - `xcode-select` points at CommandLineTools. No Xcode.app, no `simctl`, no CocoaPods, no Android SDK/Java, no `eas login`. So **no Simulator run was possible**. `npx expo run:ios` / EAS `simulator` builds are blocked until the owner installs Xcode.
 - Local Supabase stack (`npm run dev:db`) was up. It was not exercised from a native client, for the reason above.
 
-## Simulator acceptance criteria (AC-1 to AC-9): PENDING (owner Xcode prerequisite)
+## Simulator run (2026-11-21)
 
-When run, record for each row: the build path (`npx expo run:ios` vs EAS `simulator` profile), the Simulator device type, and the iOS version.
+**Build path:** EAS cloud build, `simulator` profile (build `4cc34c29-8c4e-47bd-9f1a-82a95e81e6f2`), built with Xcode 26.0 against the iOS 26.0 SDK. **Device:** iPhone 18 Pro Simulator, iOS 27.2 runtime, on this Mac (Xcode 27.2). **Backend:** local stack, with the four `EXPO_PUBLIC_*` values set in the EAS `development` environment (local URL, local demo anon key, local resolve token, `http://localhost:8081/reset-password`).
 
-| AC | What | Result | Build path / device / iOS |
+| AC | What | Result | Notes |
 |---|---|---|---|
-| AC-1 | Builds + launches to login, no red box | PENDING | |
-| AC-2 | Admin login lands on the phone tier (no sidebar / TitleBar / ⌘K) | PENDING | |
-| AC-3 | Staff login → store picker → EOD count screen | PENDING | |
-| AC-4 | Staff EOD submit → `eod_submissions` row `status='submitted'`, valid UUID `client_uuid` | PENDING | |
-| AC-5 | Admin phone weekly count submit → `submit_inventory_count` success, v4 `client_uuid`, success toast (proves B1) | PENDING | |
-| AC-6 | Session survives swipe-kill + relaunch (admin and staff) | PENDING | |
-| AC-7 | No notification-permission dialog on a fresh install (boot or post-login) | PENDING | |
-| AC-8 | Icon (opaque dark square, no transparent corners) + splash (mark on `#1A1A18`, no white flash) | PENDING | |
-| AC-9 | Intl `formatToParts` with `timeZone` matches Node/Chrome; EOD business date matches web | PENDING. **If this fails, stop and take it to the user** (polyfill = scope decision). | |
+| AC-1 | Builds + launches to login, no red box | PASS | |
+| AC-2 | Admin login lands on the phone tier (no sidebar / TitleBar / ⌘K) | PASS | `admin@local.test` → spec 161 store chooser → phone Inventory, data loads |
+| AC-3 | Staff login → store picker → EOD count screen | PASS | `manager@local.test` → staff store picker → EOD count |
+| AC-4 | Staff EOD submit → `eod_submissions` row `status='submitted'`, valid UUID `client_uuid` | PASS | row `submitted`, date 2026-11-21, `client_uuid` `8969fbf3-3bc5-49fa-92d6-0aea2091919d` (v4) |
+| AC-5 | Admin phone weekly count submit → `submit_inventory_count` success, v4 `client_uuid`, success toast (proves B1) | PASS | toast "Count submitted"; `inventory_counts` row `submitted`, `client_uuid` `68500854-4f6a-44ad-84b5-d2c05429950a` (v4). Saved as kind `spot` because no local store has `weekly_count_due_dow` set |
+| AC-6 | Session survives swipe-kill + relaunch (admin and staff) | PASS | No login screen either time. Admin gets the spec 161 store chooser again, because the pick is kept per session (`sessionStorage` on web, memory on native); staff lands back on its EOD screen |
+| AC-7 | No notification-permission dialog on a fresh install (boot or post-login) | PASS | fresh install, both logins |
+| AC-8 | Icon (opaque dark square, no transparent corners) + splash (mark on `#1A1A18`, no white flash) | PASS | |
+| AC-9 | Intl `formatToParts` with `timeZone` matches Node/Chrome; EOD business date matches web | PARTIAL | The staff EOD screen shows "Today · Sat, Nov 21" and "Yesterday · Fri, Nov 20", which are correct for the store at that moment. The raw `formatToParts` comparison was not run: the Release build has no JS console |
+
+AC-4 and AC-5 used a throwaway local store, "Sim Test 181" (2 items, US FOOD scheduled Saturday, both test users granted). The local seed has no `order_schedule` rows and 143 items per store, and weekly Submit requires every item counted. The store and every row the two submissions wrote were deleted afterwards. Nothing was written to prod.
+
+**Findings:**
+- **Web-only banner on native:** "Notifications aren't available in this browser." shows in both the admin phone shell and the staff app, including staff Settings. It is not a permission prompt, so AC-7 holds, but the copy is wrong on native. Follow-up: hide it or reword it on native (spec 182 territory).
+- **Expo SDK 54 doesn't work with Xcode 27.** A local `xcodebuild` with Xcode 27.2 / iOS 27 SDK builds, but the app is killed at launch in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`. iOS 27 requires UIScene lifecycle adoption for apps linked against the iOS 27 SDK, and SDK 54 / RN 0.81 don't adopt it. The EAS build, linked against iOS 26, runs fine on iOS 27. Until the Expo SDK upgrade, iOS builds go through EAS (or a local Xcode 26). An SDK upgrade is needed before Apple requires the iOS 27 SDK for uploads.
+- **Other local-build snags (Xcode 27):**
+  - `npx expo run:ios` fails because Xcode 27 ships no `Simulator.app`.
+  - Two pods (RNSVG filters, RNCAsyncStorage resources) declare iOS 12.4 / 13.4 minimums, which Xcode 27 rejects. `IPHONEOS_DEPLOYMENT_TARGET=15.1` on the command line fixes it.
+  - With build output under the iCloud-synced `~/Documents`, code signing fails ("resource fork, Finder information, or similar detritus not allowed"). Use a `-derivedDataPath` outside `~/Documents`.
 
 AC-9 reference to compare against (Node, same input). Fill in the Simulator column when run:
 
