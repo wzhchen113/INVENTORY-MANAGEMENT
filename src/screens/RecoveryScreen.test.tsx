@@ -170,5 +170,8 @@ describe('RecoveryScreen — recovery parse → form', () => {
     fireEvent.press(getByTestId('recovery-success-continue'));
     await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1));
     expect(supabase.auth.signOut).toHaveBeenCalledTimes(1);
+    // Deliberately the default ('global') scope: after a password reset every
+    // other session should end, unlike the everyday sign-outs (scope 'local').
+    expect((supabase.auth.signOut as jest.Mock).mock.calls[0]).toEqual([]);
   });
 });

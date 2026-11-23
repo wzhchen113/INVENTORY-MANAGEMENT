@@ -149,9 +149,15 @@ export async function signIn(identifier: string, password: string): Promise<Auth
   return await fetchProfile(data.user.id);
 }
 
-/** Sign out */
+/**
+ * Sign out THIS device only. The default scope ('global') revokes every
+ * session the user has, which silently broke an admin's other open tabs and
+ * devices: their access token still passed the gateway and PostgREST, so the
+ * UI looked signed in, but edge functions' auth.getUser() answered "Session
+ * not found" (2026-11-23, Set Password → "invalid token").
+ */
 export async function signOut(): Promise<void> {
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: 'local' });
 }
 
 /** Get current session (call on app start) */
@@ -276,6 +282,8 @@ async function fetchProfile(userId: string): Promise<AuthResult> {
  *   - HTTP non-2xx with non-JSON body → { data: null, error: "HTTP <status>" }
  *   - fetch rejection → { data: null, error: <e.message or "Network error"> }
  *   - missing session → { data: null, error: "Not authenticated" }
+ *   - HTTP 401 whose error is a lost-session marker ("invalid token",
+ *     "missing bearer token", gateway "Invalid JWT") → SESSION_ENDED_ERROR
  *
  * Some callers (inviteUser / registerInvitedUser) intentionally
  * fire-and-forget this helper without awaiting — the email send is
@@ -348,8 +356,21 @@ export async function callEdgeFunction(
   } else {
     error = `HTTP ${response.status}`;
   }
+  // The caller's session is gone server-side (signed out on another device,
+  // or the JWT expired). The raw strings mean nothing to an admin; say what
+  // to do instead. Other 401s pass through unchanged.
+  if (response.status === 401 && LOST_SESSION_ERRORS.has(error)) {
+    error = SESSION_ENDED_ERROR;
+  }
   return { data: null, error };
 }
+
+/** Shown when an edge function rejects the caller's session. */
+export const SESSION_ENDED_ERROR = 'Your session has ended. Sign out and sign in again.';
+
+// "invalid token" / "missing bearer token": every edge function's
+// requireAdminCaller(). "Invalid JWT": the gateway's verify_jwt rejection.
+const LOST_SESSION_ERRORS = new Set(['invalid token', 'missing bearer token', 'Invalid JWT']);
 
 /**
  * Spec 012b §4 — options-object signature so future inviter forms can

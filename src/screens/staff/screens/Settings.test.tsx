@@ -299,6 +299,8 @@ describe('Settings — sign out marks the intentional path (Spec 152)', () => {
     fireEvent.press(getByTestId('staff-settings-sign-out'));
 
     await waitFor(() => expect(supabase.auth.signOut).toHaveBeenCalledTimes(1));
+    // This device only — store accounts are shared across tablets.
+    expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(mockMarkIntentionalSignOut).toHaveBeenCalledTimes(1);
     expect(mockMarkIntentionalSignOut.mock.invocationCallOrder[0])
       .toBeLessThan(supabase.auth.signOut.mock.invocationCallOrder[0]);

@@ -47,12 +47,13 @@ jest.mock('./supabase', () => ({
   supabase: {
     auth: {
       getSession: jest.fn(),
+      signOut: jest.fn(),
     },
   },
 }));
 
 import { supabase } from './supabase';
-import { deleteUser } from './auth';
+import { deleteUser, signOut, SESSION_ENDED_ERROR } from './auth';
 
 // Tighten the `supabase.auth.getSession` reference to the jest.Mock type
 // without spreading `(supabase.auth.getSession as jest.Mock)` everywhere.
@@ -182,6 +183,36 @@ describe('callEdgeFunction (via deleteUser)', () => {
     expect(result).toEqual({ error: 'Unauthorized' });
   });
 
+  // Lost session (2026-11-23): the caller signed out on another device, so
+  // the edge function's auth.getUser() fails while the JWT still looks valid.
+  it.each([
+    ['edge function', { error: 'invalid token' }],
+    ['edge function, no bearer', { error: 'missing bearer token' }],
+    ['gateway verify_jwt', { code: 401, message: 'Invalid JWT' }],
+  ])('maps a lost-session 401 (%s) to SESSION_ENDED_ERROR', async (_label, body) => {
+    (global as any).fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+
+    const result = await deleteUser('user-id-abc');
+
+    expect(result).toEqual({ error: SESSION_ENDED_ERROR });
+  });
+
+  it('leaves "invalid token" alone on a non-401 status', async () => {
+    (global as any).fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve(JSON.stringify({ error: 'invalid token' })),
+    });
+
+    const result = await deleteUser('user-id-abc');
+
+    expect(result).toEqual({ error: 'invalid token' });
+  });
+
   it('returns the rejection message on fetch failure (network error)', async () => {
     // DNS failure / connection refused / timeout. fetch rejects; helper
     // catches and surfaces the message.
@@ -231,5 +262,15 @@ describe('callEdgeFunction (via deleteUser)', () => {
     expect(callOpts.headers['Content-Type']).toBe('application/json');
     // Body carries the userId.
     expect(JSON.parse(callOpts.body)).toEqual({ userId: 'user-id-abc' });
+  });
+});
+
+describe('signOut', () => {
+  it('signs out this device only, leaving other sessions alive', async () => {
+    (supabase.auth.signOut as jest.Mock).mockResolvedValue({ error: null });
+
+    await signOut();
+
+    expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 });

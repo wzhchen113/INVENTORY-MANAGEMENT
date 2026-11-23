@@ -22,7 +22,7 @@ jest.mock('./supabase', () => ({
   supabase: {
     auth: {
       getSession: (...args: unknown[]) => mockGetSession(...args),
-      signOut: () => mockSignOut(),
+      signOut: (...args: unknown[]) => mockSignOut(...args),
     },
     from: (...args: unknown[]) => mockFrom(...args),
   },
@@ -63,8 +63,9 @@ describe('restoreSession — cold-start gate (AC1.5)', () => {
     if (!result.ok) {
       expect(result.message).toMatch(/staff only/i);
     }
-    // checkAuthGate fired signOut as part of the gate-denial path.
-    expect(mockSignOut).toHaveBeenCalled();
+    // checkAuthGate fired signOut as part of the gate-denial path — this
+    // device only, so the user's other sessions survive.
+    expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 
   it('signs out and returns no-stores when a stored session has zero user_stores rows', async () => {

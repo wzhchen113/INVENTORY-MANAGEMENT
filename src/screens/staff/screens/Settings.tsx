@@ -103,7 +103,9 @@ export function Settings() {
         // here: authState is still 'signed-in' until the setAuthState below.)
         markIntentionalSignOut();
         try {
-          await supabase.auth.signOut();
+          // This device only: store accounts are shared across tablets, and
+          // the default 'global' scope would sign every one of them out.
+          await supabase.auth.signOut({ scope: 'local' });
         } catch (err) {
           // Spec 152 — auth-js skips the SIGNED_OUT emission when signOut()
           // fails on anything but 401/404/403 (a network error, say), so the

@@ -64,7 +64,7 @@ export async function checkAuthGate(
     return { ok: false, reason: 'error', message: profileErr.message || messages.generic };
   }
   if (!profile || profile.role !== 'user') {
-    await supabase.auth.signOut().catch(() => {});
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     return { ok: false, reason: 'not-staff', message: messages.notStaff };
   }
 
@@ -84,7 +84,7 @@ export async function checkAuthGate(
     })
     .filter((x): x is UserStore => x !== null);
   if (stores.length === 0) {
-    await supabase.auth.signOut().catch(() => {});
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     return { ok: false, reason: 'no-stores', message: messages.noStores };
   }
   return { ok: true, stores };
