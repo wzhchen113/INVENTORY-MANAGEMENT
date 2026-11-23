@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useStore } from '../store/useStore';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
+import { useRealtimeReloadScheduler } from '../hooks/useRealtimeReloadScheduler';
 import { useSubmissionNotifications } from '../hooks/useSubmissionNotifications';
 import { useCmdColors } from '../theme/colors';
 import { useCommandPaletteIndex, PaletteEntry } from '../lib/cmdSelectors';
@@ -59,19 +60,10 @@ function AuthedRoot() {
   const storeId = useStore((s) => s.currentStore?.id);
   const brandId = useStore((s) => s.brand?.id);
 
-  // Shared realtime debounce.
-  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleSync = useCallback(() => {
-    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-    reloadTimerRef.current = setTimeout(() => {
-      reloadTimerRef.current = null;
-      const sid = useStore.getState().currentStore?.id;
-      if (sid) useStore.getState().loadFromSupabase(sid);
-    }, 400);
-  }, []);
-  useEffect(() => () => {
-    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-  }, []);
+  // Spec 206 — realtime reload scheduler: write-aware (self-echoes held
+  // while tracked writes are in flight) and single-flight. Must be declared
+  // above `useRealtimeSync` so the scheduler exists before channels subscribe.
+  const handleSync = useRealtimeReloadScheduler();
   useRealtimeSync(storeId, handleSync, brandId);
   // Spec 120 — submission-notification bell feed + dedicated realtime
   // channel. Kept off the heavy `onSync` full-reload (see the hook).

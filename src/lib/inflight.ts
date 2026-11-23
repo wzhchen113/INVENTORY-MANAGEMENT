@@ -17,6 +17,10 @@
 //   useInflight              — the Zustand store hook + `.getState()` for db.ts
 //   selectHasInflight        — pre-bound selector for the TopProgressBar
 //   selectHasSlow            — pre-bound selector for the "taking longer"
+//   selectHasWriteInflight   — spec 206: true while ≥1 `kind: 'write'` call
+//                              is in flight. The realtime reload scheduler
+//                              (src/lib/realtimeReloadScheduler.ts) holds
+//                              self-echo reloads on it.
 //   InflightTimeoutError     — typed synthetic error so aborts compose with
 //                              the existing toast plumbing
 //
@@ -37,6 +41,10 @@ interface InflightState {
   _activeCount: number;
   /** Internal — number of in-flight calls that have crossed the 5s mark. */
   _slowCount: number;
+  /** True iff `_writeCount > 0`. Spec 206: the realtime reload scheduler's hold signal. */
+  hasWriteInflight: boolean;
+  /** Internal: number of in-flight `track()` calls declared `kind: 'write'`. */
+  _writeCount: number;
 }
 
 interface InflightActions {
@@ -88,6 +96,8 @@ export const useInflight = create<InflightState & InflightActions>((set, get) =>
   hasSlow: false,
   _activeCount: 0,
   _slowCount: 0,
+  hasWriteInflight: false,
+  _writeCount: 0,
 
   track: async <T>(
     fn: (signal: AbortSignal) => Promise<T>,
@@ -97,12 +107,25 @@ export const useInflight = create<InflightState & InflightActions>((set, get) =>
     // signal — so its `signal.aborted` is always false at construction time.
     // The only abort path is the 30s hard-abort timer below.
     const ctrl = new AbortController();
+    // Spec 206 — writes are also counted separately. `kind: 'read'` never
+    // touches the write counter.
+    const isWrite = opts.kind === 'write';
 
     // Single atomic increment so the boolean and counter flip in one frame.
-    set((s) => ({
-      _activeCount: s._activeCount + 1,
-      hasInflight: true,
-    }));
+    // For a write, the write counter flips in the same `set`.
+    set((s) =>
+      isWrite
+        ? {
+            _activeCount: s._activeCount + 1,
+            hasInflight: true,
+            _writeCount: s._writeCount + 1,
+            hasWriteInflight: true,
+          }
+        : {
+            _activeCount: s._activeCount + 1,
+            hasInflight: true,
+          },
+    );
 
     let warnFired = false;
     const warnTimer = setTimeout(() => {
@@ -153,12 +176,17 @@ export const useInflight = create<InflightState & InflightActions>((set, get) =>
       set((s) => {
         const nextActive = s._activeCount - 1;
         const nextSlow = warnFired ? s._slowCount - 1 : s._slowCount;
-        return {
+        const base = {
           _activeCount: nextActive,
           hasInflight: nextActive > 0,
           _slowCount: nextSlow,
           hasSlow: nextSlow > 0,
         };
+        if (!isWrite) return base;
+        // Spec 206 — same `finally`, so the write count drops on resolve,
+        // reject and the 30s hard abort alike.
+        const nextWrite = s._writeCount - 1;
+        return { ...base, _writeCount: nextWrite, hasWriteInflight: nextWrite > 0 };
       });
     }
   },
@@ -170,3 +198,5 @@ export const useInflight = create<InflightState & InflightActions>((set, get) =>
 // would defeat that (a derived expression has a fresh reference each call).
 export const selectHasInflight = (s: InflightState) => s.hasInflight;
 export const selectHasSlow = (s: InflightState) => s.hasSlow;
+/** Spec 206 — true while ≥1 `kind: 'write'` track is in flight. */
+export const selectHasWriteInflight = (s: InflightState) => s.hasWriteInflight;

@@ -15,6 +15,7 @@ import {
   useInflight,
   selectHasInflight,
   selectHasSlow,
+  selectHasWriteInflight,
   InflightTimeoutError,
   SLOW_WARNING_MS,
   HARD_ABORT_MS,
@@ -29,6 +30,9 @@ function resetStore() {
     hasSlow: false,
     _activeCount: 0,
     _slowCount: 0,
+    // Spec 206 — the write counter.
+    _writeCount: 0,
+    hasWriteInflight: false,
   });
 }
 
@@ -319,5 +323,105 @@ describe('InflightTimeoutError', () => {
     expect(err.message).toBe(
       'Request timed out — the change may or may not have been saved. Refresh to verify.',
     );
+  });
+});
+
+// ─── spec 206: write counter ─────────────────────────────────────────────
+
+describe('useInflight.track — write counter (spec 206)', () => {
+  function writeState() {
+    const s = useInflight.getState();
+    return { count: s._writeCount, flag: s.hasWriteInflight };
+  }
+
+  test('a write track raises the count synchronously and lowers it on resolve', async () => {
+    const d = defer<string>();
+    const tracked = useInflight.getState().track(() => d.promise, { kind: 'write', label: 'w' });
+    expect(writeState()).toEqual({ count: 1, flag: true });
+    d.resolve('ok');
+    await tracked;
+    expect(writeState()).toEqual({ count: 0, flag: false });
+  });
+
+  test('a write track lowers the count on reject', async () => {
+    const tracked = useInflight
+      .getState()
+      .track(() => Promise.reject(new Error('boom')), { kind: 'write', label: 'w' });
+    expect(writeState()).toEqual({ count: 1, flag: true });
+    await expect(tracked).rejects.toThrow('boom');
+    expect(writeState()).toEqual({ count: 0, flag: false });
+  });
+
+  test('a write track lowers the count on the 30s hard abort', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const tracked = useInflight.getState().track<string>(
+        (signal) =>
+          new Promise<string>((_, reject) => {
+            signal.addEventListener('abort', () => {
+              const err: any = new Error('AbortError');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }),
+        { kind: 'write', label: 'hung-write' },
+      );
+      expect(writeState()).toEqual({ count: 1, flag: true });
+      jest.advanceTimersByTime(HARD_ABORT_MS + 100);
+      await expect(tracked).rejects.toBeInstanceOf(InflightTimeoutError);
+      expect(writeState()).toEqual({ count: 0, flag: false });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('a read track never touches the write counter', async () => {
+    const d = defer<string>();
+    const tracked = useInflight.getState().track(() => d.promise, { kind: 'read', label: 'r' });
+    expect(useInflight.getState().hasInflight).toBe(true);
+    expect(writeState()).toEqual({ count: 0, flag: false });
+    d.resolve('ok');
+    await tracked;
+    expect(writeState()).toEqual({ count: 0, flag: false });
+  });
+
+  test('two concurrent writes count 2; the flag stays true until both settle', async () => {
+    const a = defer<string>();
+    const b = defer<string>();
+    const ta = useInflight.getState().track(() => a.promise, { kind: 'write', label: 'a' });
+    const tb = useInflight.getState().track(() => b.promise, { kind: 'write', label: 'b' });
+    expect(writeState()).toEqual({ count: 2, flag: true });
+    a.resolve('a');
+    await ta;
+    expect(writeState()).toEqual({ count: 1, flag: true });
+    b.resolve('b');
+    await tb;
+    expect(writeState()).toEqual({ count: 0, flag: false });
+  });
+
+  test('a write settling while a read is pending clears the write flag only', async () => {
+    const r = defer<string>();
+    const w = defer<string>();
+    const tr = useInflight.getState().track(() => r.promise, { kind: 'read', label: 'r' });
+    const tw = useInflight.getState().track(() => w.promise, { kind: 'write', label: 'w' });
+    expect(writeState()).toEqual({ count: 1, flag: true });
+    w.resolve('w');
+    await tw;
+    expect(writeState()).toEqual({ count: 0, flag: false });
+    expect(useInflight.getState().hasInflight).toBe(true);
+    expect(useInflight.getState()._activeCount).toBe(1);
+    r.resolve('r');
+    await tr;
+    expect(useInflight.getState().hasInflight).toBe(false);
+  });
+
+  test('selectHasWriteInflight mirrors the flag', async () => {
+    expect(selectHasWriteInflight(useInflight.getState())).toBe(false);
+    const d = defer<string>();
+    const tracked = useInflight.getState().track(() => d.promise, { kind: 'write', label: 'w' });
+    expect(selectHasWriteInflight(useInflight.getState())).toBe(true);
+    d.resolve('ok');
+    await tracked;
+    expect(selectHasWriteInflight(useInflight.getState())).toBe(false);
   });
 });
