@@ -203,13 +203,13 @@ As a store manager using the admin app, I want lists to load and edits and submi
 
 ### Prod (owner go-ahead only; recorded in the implementation notes)
 
-- [ ] **AC-13 (pre-check, read-only):**
+- [x] **AC-13 (pre-check, read-only):**
   - prod's `pg_policies` for the R4 tables match the local pre-migration texts the design recorded;
   - prod's `auth_can_see_store` / `auth_can_see_brand` / `auth_is_super_admin` match local by normalized md5;
   - `to_regprocedure('public.auth_visible_store_ids()')` and `to_regprocedure('public.auth_profile_brand_id()')` are both NULL on prod before the apply. `create or replace` would keep an existing function's owner and ACL; the migration's pre-flight also refuses this case (release proposal B-1).
 
   **AC-13 is a hard gate, not paperwork** (release proposal A-4). Any mismatch stops the apply and goes to the owner.
-- [ ] **AC-14 (post-check):**
+- [x] **AC-14 (post-check):**
   - prod's helpers match local by normalized md5 and by `prosecdef` / `proconfig` / `proacl` (the `proacl` includes `anon` and `authenticated`, not `public`);
   - prod's `pg_policies` for the R4 tables match local post-migration;
   - the index is present;
@@ -1227,6 +1227,37 @@ The AC-12 re-rehearsal used the new R9 text:
    - both helpers and the index are gone.
 4. Ran the 112 pre-existing pgTAP files, with the four edited files swapped for their `git show HEAD:` versions: **112/112, 2,600 assertions**.
 5. Re-migrated with `supabase db reset`.
+
+### Prod rollout (main Claude, 2026-11-23, project `ebwnovzzkwhsdxkpyjka`, owner go-ahead in chat)
+
+Commit e213a2a (spec-205 paths only, shared-index procedure; jest 322/4,131 on the exported tree).
+
+**AC-13 pre-check (read-only): PASS.**
+- `version()`: PostgreSQL 17.6 aarch64, the same as local.
+- `to_regprocedure` is NULL for both new helpers; the index is absent; `schema_migrations` had no `20261123120000` (latest was `20261118120100`).
+- The five helper md5s match the Build step 0 table exactly.
+- D-1 returned the 36 expected policies.
+- The AC-6 manifest (126 policies on the 35 tables, raw md5 of qual and with_check), hashed as one string in `tablename, policyname` order: `396705159d116c3bd0741b12508206f1` on prod and on the local pre-205 capture. Byte-identical.
+
+**Apply.** One `execute_sql` of the migration body (L204-583, `begin` through `commit`) succeeded on the first try, with no lock timeout. Then `insert into supabase_migrations.schema_migrations (version, name) values ('20261123120000', 'rls_visibility_once_per_query')`. Pushed to `main` straight after.
+
+**AC-14 post-check: PASS.**
+- New helpers: md5 `a80debb55360aa50cffda341748ca678` (`auth_visible_store_ids`) and `9f64acd91030e6e765b8b266dfc68409` (`auth_profile_brand_id`), the same as local. Both are `prosecdef`, `search_path=public, auth`, STABLE, owner `postgres`, with `proacl` `{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}` and no PUBLIC (`=X/`) entry. Return types `uuid[]` and `uuid`.
+- The five existing helper md5s are unchanged. (They carry a pre-existing PUBLIC `=X/postgres` entry on prod; not changed by this spec.)
+- D-1 returns 0 rows.
+- AC-6 manifest on prod: `d96e8635f625a1fb356ab4290db91d1c`, 126 policies, identical to the same query on the local post-205 DB.
+- `audit_log_store_id_created_at_idx` is present: `btree (store_id, created_at DESC)`.
+- `pg_read_all_data` members are `postgres`, `supabase_etl_admin` and `supabase_read_only_user`; both service roles are still BYPASSRLS.
+- **SF-2 sizing:** 130 of 887 `inventory_items` have `last_updated_by` set. In plan (a) the profiles node runs 887 loops at 0.005 ms each, with `auth_is_super_admin()` still per row in its Filter (from `super_admin_read_all_profiles`). Total cost is a few ms, so it doesn't threaten the 3x target. FU-1 can wait.
+
+**AC-8 timings on prod**, as the brand admin (`role authenticated`, admin JWT claims, local settings inside one implicit transaction, nothing written), one run each:
+
+| query | 2026-11-23 before | after | no-RLS |
+|---|---|---|---|
+| (a) `INVENTORY_SELECT` equivalent, 887 rows | 1,574 ms | **73.1 ms** | 35 ms (2.1x) |
+| (b) `items_last_counted(Towson)` call, 150 rows | 2.4-2.9 s | **22.1 ms** | n/a |
+| (b) body form, literal store id | n/a | 103.9 ms execution (58.8 ms planning) | n/a |
+| (c) `audit_log` Towson top 100 | 630 ms | **9.2 ms** (index scan on the new index) | n/a |
 
 ## Files changed
 
