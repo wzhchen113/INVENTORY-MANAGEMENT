@@ -259,13 +259,17 @@ select is(
   'S-2: no UPDATE policy on audit_log (default-deny; rows immutable via the API)'
 );
 
--- S-3 (AC-1): literal captured from the local DB BEFORE the spec 170 migration.
+-- S-3 (AC-1): literal captured from the local DB AFTER the spec 205 migration
+-- (20261123120000_rls_visibility_once_per_query). Spec 205 rewrote this USING
+-- into the InitPlan form; the spec 157 semantics are unchanged (proved by
+-- supabase/tests/rls_visibility_once_per_query.test.sql). S-4 below still pins
+-- the INSERT with_check byte-unchanged: the write side was not touched.
 select is(
   (select qual from pg_policies
     where schemaname = 'public' and tablename = 'audit_log'
       and policyname = 'store_member_read_audit_log'),
-  '(((store_id IS NOT NULL) AND auth_can_see_store(store_id)) OR ((store_id IS NULL) AND auth_is_privileged()))',
-  'S-3: store_member_read_audit_log USING is byte-unchanged from spec 157'
+  '(((store_id IS NOT NULL) AND (( SELECT auth_is_super_admin() AS auth_is_super_admin) OR (store_id = ANY (( SELECT auth_visible_store_ids() AS auth_visible_store_ids)::uuid[])))) OR ((store_id IS NULL) AND ( SELECT auth_is_privileged() AS auth_is_privileged)))',
+  'S-3: store_member_read_audit_log USING is the literal captured AFTER the spec 205 migration; the spec 157 semantics are unchanged (proved by rls_visibility_once_per_query)'
 );
 
 -- S-4 (AC-1): literal captured from the local DB BEFORE the spec 170 migration.

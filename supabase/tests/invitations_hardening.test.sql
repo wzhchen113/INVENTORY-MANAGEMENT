@@ -228,9 +228,16 @@ select ok(
            union all
            select lower(regexp_replace(with_check, '\s+', ' ', 'g'))
              from pg_policies where schemaname = 'public' and tablename = 'invitations') x)
+  -- spec 205: the SELECT qual now scopes the brand through the InitPlan
+  -- helper auth_profile_brand_id() (no per-row auth_can_see_brand call); the
+  -- DELETE qual is write-side and still calls auth_can_see_brand.
   and (select count(*) = 2 from pg_policies
         where schemaname = 'public' and tablename = 'invitations' and cmd in ('SELECT', 'DELETE')
-          and lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%auth_can_see_brand%'
+          and case cmd
+                when 'SELECT' then lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%auth_profile_brand_id()%'
+                               and lower(regexp_replace(qual, '\s+', ' ', 'g')) not like '%auth_can_see_brand(%'
+                else lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%auth_can_see_brand%'
+              end
           and lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%auth_is_super_admin()%'
           and lower(regexp_replace(qual, '\s+', ' ', 'g')) like '%invited_by = auth.uid()%')
   and (select count(*) = 1 from pg_policies

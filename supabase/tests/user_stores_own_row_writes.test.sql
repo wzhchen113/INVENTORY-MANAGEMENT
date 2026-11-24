@@ -205,11 +205,13 @@ select is(
   'T2 (AC-1): own-row read policy is PERMISSIVE SELECT (user_id = auth.uid()), unchanged'
 );
 
--- T3: literal captured from local pg_policies on 2026-11-09 BEFORE the
--- spec 195 migration was applied. qual and with_check are the same
--- 139-byte string, so one md5 covers both:
--- md5(qual) = md5(with_check) = b05a4d4429e322a9cf194d6072b5f6d3.
--- Reuse it for the prod P-1 comparison.
+-- T3: qual captured from local pg_policies AFTER the spec 205 migration
+-- (USING rewritten into the InitPlan form, equivalence proved by
+-- rls_visibility_once_per_query.test.sql); with_check unchanged since spec
+-- 195. with_check is still the literal captured on 2026-11-09 BEFORE the
+-- spec 195 migration was applied, a 139-byte string:
+-- md5(with_check) = b05a4d4429e322a9cf194d6072b5f6d3 (pre-205 this was also
+-- md5(qual)). Reuse it for the prod P-1 comparison.
 -- The literal is Postgres' pretty-printed deparse (newlines, indentation).
 -- If T3 fails after a Postgres major-version bump with no policy edit,
 -- re-capture it from pg_policies; that is a deparse change, not a security
@@ -219,8 +221,8 @@ select is(
      from pg_policies
     where schemaname = 'public' and tablename = 'user_stores'
       and policyname = 'Admins can manage all store links'),
-  E'PERMISSIVE|ALL|(auth_is_privileged() AND (EXISTS ( SELECT 1\n   FROM stores s\n  WHERE ((s.id = user_stores.store_id) AND auth_can_see_brand(s.brand_id)))))|(auth_is_privileged() AND (EXISTS ( SELECT 1\n   FROM stores s\n  WHERE ((s.id = user_stores.store_id) AND auth_can_see_brand(s.brand_id)))))',
-  'T3 (AC-1): admin policy permissive/cmd/qual/with_check byte-identical to the pre-migration text'
+  E'PERMISSIVE|ALL|(( SELECT auth_is_privileged() AS auth_is_privileged) AND (EXISTS ( SELECT 1\n   FROM stores s\n  WHERE ((s.id = user_stores.store_id) AND (( SELECT auth_is_super_admin() AS auth_is_super_admin) OR (s.brand_id = ( SELECT auth_profile_brand_id() AS auth_profile_brand_id)))))))|(auth_is_privileged() AND (EXISTS ( SELECT 1\n   FROM stores s\n  WHERE ((s.id = user_stores.store_id) AND auth_can_see_brand(s.brand_id)))))',
+  'T3 (AC-1): admin policy permissive/cmd byte-identical, qual = the spec 205 InitPlan text, with_check byte-identical to the pre-spec-195 text'
 );
 
 -- T4: the fail-closed DO block's W + R checks as one string.

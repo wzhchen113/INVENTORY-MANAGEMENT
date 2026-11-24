@@ -80,8 +80,9 @@
 --   LINT + SHAPE (AC-21 / AC-23 / R-B)
 --    (P1a) the five source tables still carry their EXPECTED NAMED SELECT
 --          policies — nothing renamed, nothing added.
---    (P1b) …and every one of those quals still routes through
---          auth_can_see_store (plus auth_is_privileged for order_approvals).
+--    (P1b) …and every one of those quals still routes through the spec 205
+--          store-visibility InitPlan, auth_visible_store_ids() (plus
+--          auth_is_privileged for order_approvals).
 --          Together these are the entire authorization story a SECURITY INVOKER
 --          function leans on.
 --     (P2) authenticated HAS execute.   (P3) anon does NOT.
@@ -845,7 +846,7 @@ select is(
 select is(
   (select string_agg(
             format('%s:%s%s', tablename,
-                   case when qual like '%auth_can_see_store%' then 'store'
+                   case when qual like '%auth_visible_store_ids()%' then 'store'
                         else 'UNSCOPED' end,
                    case when qual like '%auth_is_privileged%' then '+priv'
                         else '' end),
@@ -857,7 +858,7 @@ select is(
                         'eod_submissions','eod_entries')),
   'eod_entries:store, eod_submissions:store, order_approvals:store+priv, '
   'po_items:store, purchase_orders:store',
-  '(P1b) AC-20/R-B — every one of those quals still routes through auth_can_see_store, and order_approvals still carries its auth_is_privileged conjunct (the row filter Z3/Z4 prove is doing the work)'
+  '(P1b) AC-20/R-B — every one of those quals still routes through the spec 205 store-visibility InitPlan (auth_visible_store_ids), and order_approvals still carries its auth_is_privileged conjunct (the row filter Z3/Z4 prove is doing the work)'
 );
 
 select ok(
