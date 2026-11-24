@@ -66,8 +66,13 @@ begin
   select id into v_v3 from public.vendors order by id offset 2 limit 1;
 
   -- FRESH catalog ingredient X in brand A (unique name → no seed collision).
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_a, '__spec119_ingredient_x__', 'ea', 'test')
+  -- Spec 207 (R3): case_qty 12 keeps every fixture (cost, case_price) pair on
+  -- the per-each rule (5 = 60/12, 3 = 36/12, 7 = 84/12, 11 = 132/12, and the
+  -- submitted V2 pair 20 = 240/12). The submitted V1 pair (99, 999) is NOT on
+  -- the rule (999/12 = 83.25), so a wrongly overwritten existing link would
+  -- still be caught by (11)/(12).
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_a, '__spec119_ingredient_x__', 'ea', 'test', 12)
   returning id into v_cat_x;
 
   -- X items in Towson + Charles ONLY (Frederick + Reisters intentionally absent).
@@ -93,8 +98,8 @@ begin
   insert into public.stores (id, brand_id, name, address)
     values (v_store_b, v_brand_b, '__spec119_store_b__', '1 Fixture Way')
   on conflict (id) do nothing;
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_b, '__spec119_ingredient_y__', 'ea', 'test')
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_b, '__spec119_ingredient_y__', 'ea', 'test', 12)
   returning id into v_cat_y;
   insert into public.inventory_items (store_id, catalog_id, vendor_id, cost_per_unit, case_price)
   values (v_store_b, v_cat_y, v_v1, 11.00, 132.00) returning id into v_item_b;

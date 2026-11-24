@@ -129,11 +129,14 @@ values (current_setting('test.store_z', true)::uuid, '__s179_store_z__',
         current_setting('test.brand_z', true)::uuid, '2 Spec 179 Way');
 
 -- One catalog row per item (cS shared on purpose by iA5 / iB4).
-insert into public.catalog_ingredients (id, brand_id, name, unit)
+-- Spec 207 (R3): case_qty 12 keeps the priced writes below on the per-each
+-- rule (T18/T19: 2.5 = 30 / 12; T24/T25: 1.25 = 15 / 12), so the
+-- derive-on-write trigger stores the values those assertions expect.
+insert into public.catalog_ingredients (id, brand_id, name, unit, case_qty)
 select ('c1790000-0000-0000-0000-0000000000' || n)::uuid,
        case when n in ('41', '42') then current_setting('test.brand_z', true)::uuid
             else current_setting('test.brand', true)::uuid end,
-       '__s179_cat_' || n || '__', 'each'
+       '__s179_cat_' || n || '__', 'each', 12
   from unnest(array['01','02','03','04','11','12','13','15','16','17','18','20',
                     '31','32','41','42','50']) as n;
 
@@ -1046,13 +1049,17 @@ select is(
             and tgfoid = 'public.inventory_items_record_tombstone()'::regprocedure
             and pg_get_triggerdef(oid) like '%AFTER DELETE ON public.inventory_items FOR EACH ROW%'))),
   -- fix round 1: no non-internal BEFORE INSERT trigger remains (tgtype bits 2 = BEFORE, 4 = INSERT)
-  (select count(*)::int from pg_trigger
+  -- Spec 207 D-9: the one allowed exception is the cost derivation trigger
+  -- zz_derive_cost_per_unit_trg (R3). It never raises, so it cannot pre-empt
+  -- the RLS message; the tombstone check stays AFTER INSERT. Any other BEFORE
+  -- INSERT trigger still fails this pin.
+  (select coalesce(string_agg(tgname::text, ',' order by tgname), '') from pg_trigger
     where tgrelid = 'public.inventory_items'::regclass
       and not tgisinternal
       and (tgtype & 2) <> 0
       and (tgtype & 4) <> 0)),
-  '3|0',
-  'T72 AC-18 the three triggers exist, are enabled, carry the designed event lists (check = AFTER INSERT), and no BEFORE INSERT trigger remains'
+  '3|zz_derive_cost_per_unit_trg',
+  'T72 AC-18 the three triggers exist, are enabled, carry the designed event lists (check = AFTER INSERT), and the only BEFORE INSERT trigger is the spec 207 cost derivation'
 );
 
 -- T73 (D-8) — BEFORE (tgtype bit 2) + UPDATE (tgtype bit 16) triggers, name order.
@@ -1063,7 +1070,10 @@ select is(
       and not tgisinternal
       and (tgtype & 2)  <> 0
       and (tgtype & 16) <> 0),
-  array['inventory_items_identity_lock_trg', 'inventory_items_updated_at', 'trg_item_vendor_changed_at'],
+  -- Spec 207: zz_derive_cost_per_unit_trg sorts last, so the identity lock
+  -- still fires first and the cost derivation sees the final NEW.
+  array['inventory_items_identity_lock_trg', 'inventory_items_updated_at', 'trg_item_vendor_changed_at',
+        'zz_derive_cost_per_unit_trg'],
   'T73 D-8 inventory_items BEFORE UPDATE triggers fire the identity lock first'
 );
 

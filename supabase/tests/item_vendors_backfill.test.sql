@@ -79,12 +79,14 @@ select set_config(
 
 -- Two fresh catalog_ingredients (random names side-step the
 -- (brand, lower(name)) UNIQUE on any re-run without rollback).
+-- Spec 207 (R3): VEN carries case_qty 4 so its distinctive pair below is on the
+-- per-each rule (8.35 = 33.40 / 4) and the derive-on-write trigger keeps it.
 create temp table _cat on commit drop as
 with ins as (
-  insert into public.catalog_ingredients (brand_id, name, unit)
+  insert into public.catalog_ingredients (brand_id, name, unit, case_qty)
   values
-    (current_setting('test.brand_id', true)::uuid, 'SPEC102-BF-VEN-'||gen_random_uuid()::text, 'each'),
-    (current_setting('test.brand_id', true)::uuid, 'SPEC102-BF-NUL-'||gen_random_uuid()::text, 'each')
+    (current_setting('test.brand_id', true)::uuid, 'SPEC102-BF-VEN-'||gen_random_uuid()::text, 'each', 4),
+    (current_setting('test.brand_id', true)::uuid, 'SPEC102-BF-NUL-'||gen_random_uuid()::text, 'each', 1)
   returning id, name
 )
 select id, name,
@@ -92,8 +94,8 @@ select id, name,
   from ins;
 
 -- Two inventory_items in Frederick:
---   VEN → vendor_id set, with DISTINCTIVE costs (cost_per_unit 7.25,
---         case_price 33.40) so the cost-preservation assertions can't pass
+--   VEN → vendor_id set, with DISTINCTIVE costs (cost_per_unit 8.35,
+--         case_price 33.40; spec 207: on-rule at case_qty 4) so the cost-preservation assertions can't pass
 --         by coincidence with the seed's typical cost=1 items.
 --   NUL → vendor_id IS NULL (the null-vendor case → zero links).
 create temp table _items on commit drop as
@@ -104,7 +106,7 @@ with ins as (
     (current_setting('test.frederick_id', true)::uuid,
      (select id from _cat where kind = 'ven'),
      current_setting('test.vendor_id', true)::uuid,
-     7.25, 33.40, 0, 0, 0),
+     8.35, 33.40, 0, 0, 0),
     (current_setting('test.frederick_id', true)::uuid,
      (select id from _cat where kind = 'nul'),
      null,
@@ -151,7 +153,7 @@ select is(
 select is(
   (select cost_per_unit from public.item_vendors
     where item_id = current_setting('test.item_ven', true)::uuid),
-  7.25::numeric,
+  8.35::numeric,
   '(4) link.cost_per_unit equals the item''s cost_per_unit (cost preserved)'
 );
 

@@ -173,11 +173,16 @@ insert into public.vendors (id, brand_id, name) values
   (pg_temp.vid(50), pg_temp.bid(2), '__s184_vb__'),
   (pg_temp.vid(60), pg_temp.bid(3), '__s184_vc__');
 
-insert into public.catalog_ingredients (id, brand_id, name, unit, category, default_cost, default_case_price, i18n_names)
+-- Spec 207 (R3): c1 carries case_qty 12 so its priced pairs are on the per-each
+-- rule (item + V1 link 1.041667 = round(12.50 / 12, 6); V2 link 2.5 = 30 / 12)
+-- and the derive-on-write trigger stores the six-decimal values T-3 / T-5
+-- assert. Every other catalog row keeps case_qty 1.
+insert into public.catalog_ingredients (id, brand_id, name, unit, category, default_cost, default_case_price, i18n_names, case_qty)
 select pg_temp.cid(v.n), pg_temp.bid(v.b), '__s184_c' || v.n || '__', 'each', 'test',
        case when v.n = 31 then 77.5 else 0 end,
        case when v.n = 31 then 88.5 else 0 end,
-       case when v.n = 64 then '{"es":"Ese"}'::jsonb else '{}'::jsonb end
+       case when v.n = 64 then '{"es":"Ese"}'::jsonb else '{}'::jsonb end,
+       case when v.n = 1 then 12 else 1 end
   from (values
     (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),(7,1),(8,1),
     (21,1),(22,1),(23,1),(24,1),
@@ -194,7 +199,7 @@ insert into public.inventory_items
    expiry_date, last_updated_by, vendor_changed_at)
 values
   -- c1: two links, V1 primary and equal to the scalar. Non-zero everything.
-  (pg_temp.sid(1), pg_temp.cid(1), pg_temp.vid(1), 1.234567, 12.50, 10, 2, 0.5, 7, 6, 3.5,
+  (pg_temp.sid(1), pg_temp.cid(1), pg_temp.vid(1), 1.041667, 12.50, 10, 2, 0.5, 7, 6, 3.5,
    '2030-01-01', pg_temp.uid(1), '2026-01-01T00:00:00Z'),
   -- c2: one link.
   (pg_temp.sid(1), pg_temp.cid(2), pg_temp.vid(2), 2, 20, 20, 0, 0, 3, 3, 1, null, null, null),
@@ -217,7 +222,7 @@ insert into public.item_vendors
   (item_id, vendor_id, cost_per_unit, case_price, is_primary, order_code, product_page_url)
 select (pg_temp.item(pg_temp.sid(1), pg_temp.cid(v.c))).id, pg_temp.vid(v.v), v.cost, v.cp, v.pri, v.code, v.url
   from (values
-    (1, 1, 1.234567, 12.50, true,  'A1',      'https://example.test/a'),
+    (1, 1, 1.041667, 12.50, true,  'A1',      'https://example.test/a'),
     (1, 2, 2.500000, 30.00, false, 'B2',      null),
     (2, 2, 2.000000, 20.00, true,  null,      null),
     (5, 1, 5.000000, 50.00, false, null,      null),
@@ -373,7 +378,7 @@ select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).catalog_id, pg_temp.cid
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).par_level, 10::numeric, 'T-3 par_level copied');
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).safety_stock, 2::numeric, 'T-3 safety_stock copied');
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).usage_per_portion, 0.5::numeric, 'T-3 usage_per_portion copied');
-select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).cost_per_unit, 1.234567::numeric, 'T-3 cost_per_unit verbatim, six decimals');
+select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).cost_per_unit, 1.041667::numeric, 'T-3 cost_per_unit verbatim, six decimals');
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).case_price, 12.50::numeric, 'T-3 case_price verbatim');
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).vendor_id, pg_temp.vid(1), 'T-3 vendor_id is the primary link');
 select is((pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).current_stock, 0::numeric, 'T-3 current_stock reset (source 7)');
@@ -403,7 +408,7 @@ select is(
   (select row(iv.cost_per_unit, iv.case_price, iv.order_code, iv.product_page_url, iv.is_primary)::text
      from public.item_vendors iv
     where iv.item_id = (pg_temp.item(pg_temp.sid(2), pg_temp.cid(1))).id and iv.vendor_id = pg_temp.vid(1)),
-  '(1.234567,12.50,A1,https://example.test/a,t)',
+  '(1.041667,12.50,A1,https://example.test/a,t)',
   'T-5 AC-4 V1 link: cost, case price, order code, url, primary');
 select is(
   (select row(iv.cost_per_unit, iv.case_price, iv.order_code, iv.product_page_url, iv.is_primary)::text

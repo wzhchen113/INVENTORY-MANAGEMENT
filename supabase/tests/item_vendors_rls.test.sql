@@ -109,10 +109,14 @@ begin
   -- on RLS visibility/mutability, not on primary, so a non-primary link is
   -- fine. on conflict do nothing keeps it robust if the seed already linked
   -- this exact (item, vendor) pair.
+  -- Spec 207: case_price 0 keeps this link UNPRICED, so the R3 derive-on-write
+  -- trigger leaves its hand-picked cost (99.00) alone. A priced link would have
+  -- its cost re-derived from case_price on every write, which would make the
+  -- (6) "UPDATE set cost_per_unit = 1 did not land" probe vacuous.
   insert into public.item_vendors (item_id, vendor_id, cost_per_unit, case_price, is_primary)
-  values (v_charles_item, v_vendor_id, 99.00, 99.00, false)
+  values (v_charles_item, v_vendor_id, 99.00, 0, false)
   on conflict (item_id, vendor_id)
-    do update set cost_per_unit = 99.00, case_price = 99.00, is_primary = false;
+    do update set cost_per_unit = 99.00, case_price = 0, is_primary = false;
 
   perform set_config('test.manager_id',    v_manager_id::text,   true);
   perform set_config('test.frederick_id',  v_frederick::text,    true);

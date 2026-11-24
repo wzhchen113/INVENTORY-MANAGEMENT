@@ -41,8 +41,11 @@ begin
   select id into v_reisters  from public.stores where name = 'Reisters'  limit 1;
   select id into v_v1 from public.vendors order by id limit 1;
 
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_a, '__store_subset_ingredient_x__', 'ea', 'test')
+  -- Spec 207 (R3): case_qty 12 keeps every (cost, case_price) pair below on
+  -- the per-each rule (5 = 60/12, 7 = 84/12, 20 = 240/12, 11 = 132/12), so the
+  -- derive-on-write trigger stores the same values the assertions expect.
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_a, '__store_subset_ingredient_x__', 'ea', 'test', 12)
   returning id into v_cat_x;
 
   insert into public.inventory_items
@@ -59,8 +62,8 @@ begin
   insert into public.stores (id, brand_id, name, address)
     values (v_store_b, v_brand_b, '__store_subset_store_b__', '1 Fixture Way')
   on conflict (id) do nothing;
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_b, '__store_subset_ingredient_y__', 'ea', 'test')
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_b, '__store_subset_ingredient_y__', 'ea', 'test', 12)
   returning id into v_cat_y;
   insert into public.inventory_items
     (store_id, catalog_id, vendor_id, par_level, cost_per_unit, case_price, current_stock)

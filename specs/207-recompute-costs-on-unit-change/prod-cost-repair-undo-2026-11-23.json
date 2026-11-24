@@ -1,0 +1,1380 @@
+{
+ "taken_at": "2026-11-23",
+ "project": "prod (ebwnovzzkwhsdxkpyjka)",
+ "rule": "cost_per_unit := round(case_price / (units_per_case * sub_units), 6), each factor taken as 1 when <= 0; applied to rows where |old - new| > max(0.01, 2% of new)",
+ "undo": "for each row: update public.<table> set cost_per_unit = <old> where id = <id> and cost_per_unit = <new>",
+ "tables": {
+  "inventory_items": [
+   {
+    "id": "cd291f83-a1b6-4fa7-ab40-05aa14784aaf",
+    "name": "8oz Cup w/ Lid",
+    "store": "Frederick",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "dbb35569-3c7a-4d5f-831f-9c2dad16bf21",
+    "name": "8oz Cup w/ Lid",
+    "store": "Reisterstown",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "8ee7cb64-93dd-4462-8f74-2f354784faa4",
+    "name": "8oz Cup w/ Lid",
+    "store": "Towson",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "5ee30b58-b04d-4f96-a444-b7caf8b23a18",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Frederick",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "8cb16ede-0e50-4721-9620-0cb768a51d74",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Reisterstown",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "6d0da006-2533-40f9-a0a0-a48a118606e5",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Towson",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "69c4fbab-2bf9-4f0f-b775-010f85de4632",
+    "name": "Banana Pudding",
+    "store": "Charles",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "67e0ce74-7fdb-4762-8ba1-af54f2fc333d",
+    "name": "Banana Pudding",
+    "store": "Frederick",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "64a86ea1-17c0-4138-85e3-8aee436dbf0d",
+    "name": "Banana Pudding",
+    "store": "H Street",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "bc006a1e-5b6d-401b-a242-6050e0180baa",
+    "name": "Banana Pudding",
+    "store": "Kenyon",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "b6436320-0359-4220-8b05-ae613e946a8e",
+    "name": "Banana Pudding",
+    "store": "Reisterstown",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "bf56d3b9-c8f5-4991-96ff-891a053d84cc",
+    "name": "Blue Raspberry  Mix",
+    "store": "Frederick",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "6b7bade9-a4d2-40dc-90d6-95500ba7db47",
+    "name": "Blue Raspberry  Mix",
+    "store": "Reisterstown",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "5262dacb-0b73-429a-8706-b4aeee659749",
+    "name": "Blue Raspberry  Mix",
+    "store": "Towson",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "5ea9aaf0-6974-446e-8076-9efd1fb01635",
+    "name": "Brioche Bun 4”",
+    "store": "Charles",
+    "case_price": 5.3,
+    "old": 0.441667,
+    "new": 0.055208
+   },
+   {
+    "id": "58d8d010-acb5-4f3e-9ced-476b341145db",
+    "name": "Brioche Bun 4”",
+    "store": "Frederick",
+    "case_price": 5.3,
+    "old": 0.441667,
+    "new": 0.055208
+   },
+   {
+    "id": "e9d9c1f4-094e-4dfd-b421-bb0ead114427",
+    "name": "Brioche Bun 4”",
+    "store": "Reisterstown",
+    "case_price": 5.3,
+    "old": 0.441667,
+    "new": 0.055208
+   },
+   {
+    "id": "d01cac46-af5b-4247-8567-a1f6c12bdd02",
+    "name": "Brioche Bun 4”",
+    "store": "Towson",
+    "case_price": 5.3,
+    "old": 0.441667,
+    "new": 0.055208
+   },
+   {
+    "id": "577611da-5752-4b74-b4e5-ce9f38580f9c",
+    "name": "Chicken Stock (Totole)",
+    "store": "Frederick",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "cb63b131-6448-43fd-88c8-5fe137e93224",
+    "name": "Chicken Stock (Totole)",
+    "store": "Reisterstown",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "c78b8920-3748-4c83-9580-53dca4a1443c",
+    "name": "Chicken Stock (Totole)",
+    "store": "Towson",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "e1ffba38-4808-4d3e-ad64-b93ffc3febeb",
+    "name": "Creme Brulee",
+    "store": "Charles",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "c696637b-27d8-447a-8d32-568b6c050cec",
+    "name": "Creme Brulee",
+    "store": "Frederick",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "c9156d2f-e323-4765-9cd5-4eb2abf268df",
+    "name": "Creme Brulee",
+    "store": "H Street",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "cabc4b24-c264-49e9-b3f8-54b89077763f",
+    "name": "Creme Brulee",
+    "store": "Kenyon",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "b5b1d689-0d44-427e-9aee-b0019af7754b",
+    "name": "Creme Brulee",
+    "store": "Reisterstown",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "eb50a5ad-797c-4dc7-be95-8821e79927e0",
+    "name": "Deluxe Sub Rolls 8” (6)",
+    "store": "Charles",
+    "case_price": 3.2,
+    "old": 0.53,
+    "new": 0.044444
+   },
+   {
+    "id": "1476a75e-56b0-4a89-9af8-195b5340454f",
+    "name": "Deluxe Sub Rolls 8” (6)",
+    "store": "Frederick",
+    "case_price": 3.2,
+    "old": 0.53,
+    "new": 0.044444
+   },
+   {
+    "id": "fd0e3501-f64e-4ff0-b946-f24cd8b53c06",
+    "name": "Deluxe Sub Rolls 8” (6)",
+    "store": "Reisterstown",
+    "case_price": 3.2,
+    "old": 0.53,
+    "new": 0.044444
+   },
+   {
+    "id": "713520d1-ffd6-4348-a6bf-a7d6f8fae5f3",
+    "name": "Deluxe Sub Rolls 8” (6)",
+    "store": "Towson",
+    "case_price": 3.2,
+    "old": 0.53,
+    "new": 0.044444
+   },
+   {
+    "id": "6f21cd53-7a1a-4223-87bf-6d04487a4c44",
+    "name": "Egg Large",
+    "store": "Reisterstown",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.138889
+   },
+   {
+    "id": "56de849a-b309-49d1-9448-e049f2762767",
+    "name": "Egg Large",
+    "store": "Towson",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.138889
+   },
+   {
+    "id": "8e7a8af3-65c3-4c7e-a849-3f18e548dc15",
+    "name": "Fork (Plastic Black)",
+    "store": "Charles",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "12c3acea-87f3-49d8-9910-a832e329dbad",
+    "name": "Fork (Plastic Black)",
+    "store": "H Street",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "acd965f8-a70f-4d84-8ec3-33a754bbacf3",
+    "name": "Fork (Plastic Black)",
+    "store": "Kenyon",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "426e4aff-f154-4972-a8a0-20d310e3d0b6",
+    "name": "Fork (Plastic Black)",
+    "store": "Reisterstown",
+    "case_price": 56.85,
+    "old": 56.85,
+    "new": 0.028425
+   },
+   {
+    "id": "badd2610-1996-46d2-b576-aa9a504e6033",
+    "name": "Fork (Plastic Black)",
+    "store": "Towson",
+    "case_price": 56.85,
+    "old": 56.85,
+    "new": 0.028425
+   },
+   {
+    "id": "d7378683-8185-49be-9b70-19cf2160855a",
+    "name": "Fry Oil Canola",
+    "store": "Frederick",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "47588065-0797-442b-a0d7-b028715a9f3e",
+    "name": "Fry Oil Canola",
+    "store": "Reisterstown",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "7643e943-ebae-4bdd-bb48-c22f368cdd2a",
+    "name": "Fry Oil Canola",
+    "store": "Towson",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "ff8d3cb9-9257-4903-8c37-f91b6dd26b86",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Charles",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "2fa6fc9d-5fdb-408f-af4d-680bd130dd11",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Frederick",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "4e176daa-aa07-41e2-b43b-80141b2e5e94",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "H Street",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "8eb11a9d-ea07-48a8-8667-f0896821daeb",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Kenyon",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "c650685c-ca7b-45f4-aaf8-a868afbaaf40",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Reisterstown",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "dfd2e1ba-8a39-4eae-8eb9-6af3c1815fe9",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Towson",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "a7e0aff2-ff86-4838-9256-6f2af17538be",
+    "name": "Horseradish",
+    "store": "Frederick",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "8e50e279-13f2-4e9e-92a1-119d23dc384d",
+    "name": "Horseradish",
+    "store": "Reisterstown",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "d68e1a72-f5c1-49be-81ff-6b48a7ccb8c9",
+    "name": "Horseradish",
+    "store": "Towson",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "3ad1219a-769c-4038-aef1-9e1eca57d60e",
+    "name": "Ice Tea mix",
+    "store": "Charles",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "a96ecefa-2fbf-4679-a3bc-747a511fde2f",
+    "name": "Ice Tea mix",
+    "store": "Frederick",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "c42aa644-7f6f-47f0-88f1-1916e77bfb56",
+    "name": "Ice Tea mix",
+    "store": "H Street",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "6183836d-efac-4c03-9a3d-5f1e1cf45762",
+    "name": "Ice Tea mix",
+    "store": "Kenyon",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "1cfbf0ec-9bce-4168-9793-45983adfc96d",
+    "name": "Ice Tea mix",
+    "store": "Towson",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "928c591e-5449-45c6-9389-80107b3a915e",
+    "name": "Ketchup (Package)",
+    "store": "Reisterstown",
+    "case_price": 20.5,
+    "old": 20.5,
+    "new": 0.0205
+   },
+   {
+    "id": "ee44e37c-c5e2-4249-80dd-18583fb2b52d",
+    "name": "Ketchup (Package)",
+    "store": "Towson",
+    "case_price": 20.5,
+    "old": 20.5,
+    "new": 0.0205
+   },
+   {
+    "id": "73b2aebd-cf4f-4f5a-99fb-abb00601895f",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Frederick",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "64dddaac-d11d-4428-b907-4fd63618162a",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Reisterstown",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "859f5af9-6cf1-423f-9260-d630a7d76fc0",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Towson",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "a42ba2bb-3d12-4a9b-987a-b66bb169f522",
+    "name": "Pickle",
+    "store": "Charles",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "94c68663-719a-4294-a039-efa5ddee9950",
+    "name": "Pickle",
+    "store": "H Street",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "fa26b478-0c11-497b-abd5-f9bea5b69e53",
+    "name": "Pickle",
+    "store": "Kenyon",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "c241e3fe-3361-4c7e-b9ef-1061c120cdb9",
+    "name": "Pickle",
+    "store": "Reisterstown",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "c7cad3bf-0293-4034-a0b1-d26b834e552f",
+    "name": "Pickle",
+    "store": "Towson",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "6dfed489-2520-4581-8263-0db347287734",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Frederick",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "941e30d0-913d-42ac-a055-1344dc965565",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Reisterstown",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "a70ec98b-463e-40bc-a1c8-4e9ce951ea7f",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Towson",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "c25487ad-97e1-41dd-b801-ffd9d90e5ffa",
+    "name": "Red Potato",
+    "store": "Frederick",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "5b7da4dd-9f9f-4f7e-96fa-a15329aff288",
+    "name": "Red Potato",
+    "store": "Reisterstown",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "ab91a6c4-da73-4c6b-84ae-7107758cd82f",
+    "name": "Red Potato",
+    "store": "Towson",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "ff6ffd29-c234-4df5-9bd5-171c00b0b985",
+    "name": "Register Paper Roll",
+    "store": "Frederick",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "8c63ec12-642f-4bba-8f93-5b7e7e306305",
+    "name": "Register Paper Roll",
+    "store": "Reisterstown",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "f3283377-6dbd-4294-a203-ff86cf82d40d",
+    "name": "Register Paper Roll",
+    "store": "Towson",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "76256317-a34b-4948-88f7-39ddb6af938d",
+    "name": "Salt (25 lb.)",
+    "store": "Frederick",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "c20bfabc-92e5-46bc-8f9c-642885ede82d",
+    "name": "Salt (25 lb.)",
+    "store": "Reisterstown",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "d808a31e-cbd8-4a3f-b5c6-9d98d6625b6d",
+    "name": "Salt (25 lb.)",
+    "store": "Towson",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "28baf60c-26e7-4e43-9bc9-389ce6763394",
+    "name": "Seafood Bag",
+    "store": "Charles",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "1f69d1be-aeac-49b3-99d1-f72c6c39724e",
+    "name": "Seafood Bag",
+    "store": "H Street",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "c372d094-7d0a-47de-9e03-d8af7563ea51",
+    "name": "Seafood Bag",
+    "store": "Kenyon",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "dce1109b-5370-4d1f-b23e-52613e5f5954",
+    "name": "Seafood Bag",
+    "store": "Reisterstown",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "5913be7c-fef5-4511-b1c2-04f620e20ec3",
+    "name": "Seafood Bag",
+    "store": "Towson",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "7d3068b2-d490-4bf3-80d8-b90b746a3cc1",
+    "name": "Shard Cheddar Cheese ",
+    "store": "Charles",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "d88ba294-6a91-4c54-9978-3077030b91ee",
+    "name": "Shard Cheddar Cheese ",
+    "store": "H Street",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "4796cf60-982e-457c-82d8-d62fdca93f91",
+    "name": "Shard Cheddar Cheese ",
+    "store": "Kenyon",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "5880332c-0ec5-478c-a8bf-199b1bc95de9",
+    "name": "Toilet Paper Rolls",
+    "store": "Reisterstown",
+    "case_price": 24,
+    "old": 24,
+    "new": 1
+   },
+   {
+    "id": "979124d7-931c-43c2-a129-a9d13f03341c",
+    "name": "Toilet Paper Rolls",
+    "store": "Towson",
+    "case_price": 24,
+    "old": 24,
+    "new": 1
+   }
+  ],
+  "item_vendors": [
+   {
+    "id": "e9b9b192-69ca-49e0-bc25-50a97c0bde19",
+    "name": "8oz Cup w/ Lid",
+    "store": "Frederick",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "2d000ca5-bba3-46c4-b85f-fe3e1b592664",
+    "name": "8oz Cup w/ Lid",
+    "store": "Reisterstown",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "732582da-d2e8-4395-a582-0a2e1632c1a9",
+    "name": "8oz Cup w/ Lid",
+    "store": "Towson",
+    "case_price": 44.5,
+    "old": 0.00072,
+    "new": 0.178
+   },
+   {
+    "id": "7ec187e8-f79b-43f0-8121-df3302d4cdb2",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Frederick",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "9f7592ff-20cd-4def-ad7b-c75954da37a4",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Reisterstown",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "47e5579e-b1b6-405e-8f22-020ccd695bbe",
+    "name": "Aluminum Foil 12\" x 10 3/4\"",
+    "store": "Towson",
+    "case_price": 86.99,
+    "old": 1.7e-05,
+    "new": 0.036246
+   },
+   {
+    "id": "36e78b7a-67e0-42ae-8f6d-154094376657",
+    "name": "Banana Pudding",
+    "store": "Charles",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "a68adf75-c1b4-41e1-9d84-331039d08e89",
+    "name": "Banana Pudding",
+    "store": "Frederick",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "aad52e8d-f2ac-476b-9d42-555faeaf5635",
+    "name": "Banana Pudding",
+    "store": "H Street",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "62a7e17a-2d22-4315-84f2-ea1a91603ce4",
+    "name": "Banana Pudding",
+    "store": "Kenyon",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "6b781ee2-92a6-4e99-8395-4c8640d22c36",
+    "name": "Banana Pudding",
+    "store": "Reisterstown",
+    "case_price": 20.41,
+    "old": 2.55125,
+    "new": 0.637813
+   },
+   {
+    "id": "d9422049-d729-478e-ac16-ec88d3644ef9",
+    "name": "Blue Raspberry  Mix",
+    "store": "Frederick",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "fe6c7274-5042-4694-9129-1ceb83ebcc45",
+    "name": "Blue Raspberry  Mix",
+    "store": "Reisterstown",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "11e27382-b9be-44c6-bd05-03412460fcf4",
+    "name": "Blue Raspberry  Mix",
+    "store": "Towson",
+    "case_price": 3,
+    "old": 0,
+    "new": 0.041667
+   },
+   {
+    "id": "b51d7314-df8f-4982-b4dd-fb06e4cfb926",
+    "name": "Chicken Stock (Totole)",
+    "store": "Frederick",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "6440597c-53ad-455e-907c-2ffa28d8ffd6",
+    "name": "Chicken Stock (Totole)",
+    "store": "Reisterstown",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "38f629ce-e721-47e4-b5b2-d77ead4ec46a",
+    "name": "Chicken Stock (Totole)",
+    "store": "Towson",
+    "case_price": 19.67,
+    "old": 8.940909,
+    "new": 0.745076
+   },
+   {
+    "id": "42e6bae2-f791-4610-b509-8707661a43a0",
+    "name": "Creme Brulee",
+    "store": "Charles",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "470bf297-4d99-4eb3-a5c8-778e094b0b1d",
+    "name": "Creme Brulee",
+    "store": "Frederick",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "f16e0384-80bd-48a6-9716-9ef06e90b4b3",
+    "name": "Creme Brulee",
+    "store": "H Street",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "ba817a9b-0507-4e94-a492-58de2ec6e21d",
+    "name": "Creme Brulee",
+    "store": "Kenyon",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "ebdd82bb-0b16-4749-94fc-47cba4b60e4c",
+    "name": "Creme Brulee",
+    "store": "Reisterstown",
+    "case_price": 9.98,
+    "old": 1.66,
+    "new": 0.415833
+   },
+   {
+    "id": "e337eeea-1620-4d25-9536-519bf638816a",
+    "name": "Egg Large",
+    "store": "Reisterstown",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.138889
+   },
+   {
+    "id": "e255a21b-e1be-4d9d-82be-4b77215359ba",
+    "name": "Egg Large",
+    "store": "Towson",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.138889
+   },
+   {
+    "id": "ba928461-242a-4fa7-969a-d76145aaec53",
+    "name": "Fork (Plastic Black)",
+    "store": "Charles",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "540068a7-e2a0-4d76-9280-bfb55e599c87",
+    "name": "Fork (Plastic Black)",
+    "store": "H Street",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "e59d6a2f-c2a3-4753-8f1e-d610c4709390",
+    "name": "Fork (Plastic Black)",
+    "store": "Kenyon",
+    "case_price": 56.85,
+    "old": 0.05685,
+    "new": 0.028425
+   },
+   {
+    "id": "a6754d50-047e-421b-b4cc-7eb24125792f",
+    "name": "Fork (Plastic Black)",
+    "store": "Reisterstown",
+    "case_price": 56.85,
+    "old": 56.85,
+    "new": 0.028425
+   },
+   {
+    "id": "b8bb10f3-7aba-48cd-ae83-4ad33d59e7f5",
+    "name": "Fork (Plastic Black)",
+    "store": "Towson",
+    "case_price": 56.85,
+    "old": 56.85,
+    "new": 0.028425
+   },
+   {
+    "id": "6bee126f-ea2a-4752-8040-e9897116ec97",
+    "name": "Fry Oil Canola",
+    "store": "Frederick",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "e5491d26-fa7b-478f-86b8-eefaa4d300f1",
+    "name": "Fry Oil Canola",
+    "store": "Reisterstown",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "fabd062f-9050-409d-a65d-08be226b214d",
+    "name": "Fry Oil Canola",
+    "store": "Towson",
+    "case_price": 33.95,
+    "old": 33.95,
+    "new": 0.97
+   },
+   {
+    "id": "b40d51c8-febe-4ebd-ac6d-bbb4d4293372",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Charles",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "00635ad4-7455-4fde-acd2-fa93ae5c3807",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Frederick",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "862ecace-a173-4610-ba38-226f8f252ebf",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "H Street",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "bc1c0bf9-e3e0-492b-99c5-9b6498f0eb33",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Kenyon",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "fdd4c489-dd9c-45c7-91cb-f545a982e444",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Reisterstown",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "a1b23ec7-8241-4aec-ba31-b5cf206fb79e",
+    "name": "Garbage Bag (Black Heavy Duty)",
+    "store": "Towson",
+    "case_price": 5.5,
+    "old": 5.5,
+    "new": 0.22
+   },
+   {
+    "id": "77f311d8-97b9-4de7-97fd-00bfbb29bad1",
+    "name": "Horseradish",
+    "store": "Frederick",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "b16e345b-6c21-4334-90e2-73e5271e8d96",
+    "name": "Horseradish",
+    "store": "Reisterstown",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "9f8bb2c9-1079-437f-92a6-22cc0021ef84",
+    "name": "Horseradish",
+    "store": "Towson",
+    "case_price": 16.95,
+    "old": 2.12,
+    "new": 16.95
+   },
+   {
+    "id": "532977bf-1107-4fc0-9179-35d371c47b93",
+    "name": "Ice Tea mix",
+    "store": "Charles",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "e56db5ff-0673-48c3-b609-5072e388b6bd",
+    "name": "Ice Tea mix",
+    "store": "Frederick",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "24e1a092-0a85-4c9d-bf79-cd2ca69b411c",
+    "name": "Ice Tea mix",
+    "store": "H Street",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "d8daea2a-036f-41d8-85e3-a8cc3cf5b089",
+    "name": "Ice Tea mix",
+    "store": "Kenyon",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "aa5aa92b-93f8-42b2-b955-b4665ff0413e",
+    "name": "Ice Tea mix",
+    "store": "Towson",
+    "case_price": 8.87,
+    "old": 8.87,
+    "new": 0.098775
+   },
+   {
+    "id": "fb7fea0f-cdbe-452d-8a30-296177f3004a",
+    "name": "Ketchup (Package)",
+    "store": "Reisterstown",
+    "case_price": 20.5,
+    "old": 20.5,
+    "new": 0.0205
+   },
+   {
+    "id": "a636db2f-a29f-42c2-b9ec-5429850ae8ee",
+    "name": "Ketchup (Package)",
+    "store": "Towson",
+    "case_price": 20.5,
+    "old": 20.5,
+    "new": 0.0205
+   },
+   {
+    "id": "0daf3fa4-b4c0-4253-846e-4f65de583fbb",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Frederick",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "99c9b453-905b-4f71-a60f-6bbbcb7b96c2",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Reisterstown",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "af059c67-b953-4cda-b742-e3b7fb9871a6",
+    "name": "Lemonade Mix (Country Time)",
+    "store": "Towson",
+    "case_price": 9.88,
+    "old": 9.88,
+    "new": 0.119758
+   },
+   {
+    "id": "da1dbcf9-04eb-438c-b947-a2aab59a5f9f",
+    "name": "Muenster Cheese",
+    "store": "Charles",
+    "case_price": 8,
+    "old": 0,
+    "new": 8
+   },
+   {
+    "id": "51601e2e-17a8-4e95-aae5-03e619a3e24b",
+    "name": "Muenster Cheese",
+    "store": "H Street",
+    "case_price": 8,
+    "old": 0,
+    "new": 8
+   },
+   {
+    "id": "af3cf7dd-0847-4f8a-b618-35fad58bbfd7",
+    "name": "Muenster Cheese",
+    "store": "Kenyon",
+    "case_price": 8,
+    "old": 0,
+    "new": 8
+   },
+   {
+    "id": "68918d96-12df-4e84-9ee1-e0f9c9a205f0",
+    "name": "Pickle",
+    "store": "Charles",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "9397d8cb-3896-446f-aac8-97f0904056a3",
+    "name": "Pickle",
+    "store": "H Street",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "fda6ec97-b27c-48e0-aad1-5b6b3a989e3c",
+    "name": "Pickle",
+    "store": "Kenyon",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "8b3bc6c7-245c-476e-9559-96e0701a64a1",
+    "name": "Pickle",
+    "store": "Reisterstown",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "fa626da8-05c7-4d20-b421-daeb0100c989",
+    "name": "Pickle",
+    "store": "Towson",
+    "case_price": 26.24,
+    "old": 26.24,
+    "new": 13.12
+   },
+   {
+    "id": "f0f26a97-e9c7-4f3a-9559-50dd51e1352d",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Frederick",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "c2c285f4-a080-4667-85ac-885f9311f72c",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Reisterstown",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "054dc631-a03d-4095-9a18-78d18e17e761",
+    "name": "Potato Starch (50 lb.)",
+    "store": "Towson",
+    "case_price": 22,
+    "old": 22,
+    "new": 0.44
+   },
+   {
+    "id": "821fedde-d0e1-4153-8e7c-5f4576e2a659",
+    "name": "Red Potato",
+    "store": "Frederick",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "cf130b1c-99be-4df4-ba2a-61b81bebecbf",
+    "name": "Red Potato",
+    "store": "Reisterstown",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "8f480187-b6b1-4f12-a8b4-6028207fcde3",
+    "name": "Red Potato",
+    "store": "Towson",
+    "case_price": 27,
+    "old": 27,
+    "new": 0.54
+   },
+   {
+    "id": "019f3483-39a0-4ae5-925e-17d29ffb7a84",
+    "name": "Register Paper Roll",
+    "store": "Frederick",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "711d94c2-5c16-4d9a-9c3d-e6cb54caad95",
+    "name": "Register Paper Roll",
+    "store": "Reisterstown",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "d746b1c3-1e7b-4269-afe5-d266a6a781aa",
+    "name": "Register Paper Roll",
+    "store": "Towson",
+    "case_price": 40,
+    "old": 40,
+    "new": 0.666667
+   },
+   {
+    "id": "c5b01e4e-167d-460f-b3b3-8a3578651e78",
+    "name": "Salt (25 lb.)",
+    "store": "Frederick",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "6c97d120-9db4-4542-928b-22d66e9d417f",
+    "name": "Salt (25 lb.)",
+    "store": "Reisterstown",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "009a1a18-9c51-4366-b68b-bbd4d58ed7b6",
+    "name": "Salt (25 lb.)",
+    "store": "Towson",
+    "case_price": 16,
+    "old": 16,
+    "new": 0.64
+   },
+   {
+    "id": "97f836ff-729a-4554-aedd-6c7bce458d4d",
+    "name": "Seafood Bag",
+    "store": "Charles",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "8f5015da-8356-43d0-8cc6-5a670538af19",
+    "name": "Seafood Bag",
+    "store": "H Street",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "a0f6deca-1e03-44bf-a8ef-bf4918744299",
+    "name": "Seafood Bag",
+    "store": "Kenyon",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "69839ae5-d662-48ee-8cba-4a07fa32d87e",
+    "name": "Seafood Bag",
+    "store": "Reisterstown",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "5f5c8564-f78d-4c2a-93af-61f8d5abc442",
+    "name": "Seafood Bag",
+    "store": "Towson",
+    "case_price": 50,
+    "old": 50,
+    "new": 0.1
+   },
+   {
+    "id": "4de359f7-4350-4f6e-b78c-1a16ed295f2c",
+    "name": "Shard Cheddar Cheese ",
+    "store": "Charles",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "d545f2c2-a1a1-4cf6-8616-7b10dd54b7d9",
+    "name": "Shard Cheddar Cheese ",
+    "store": "H Street",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "f68382b7-a676-4220-95be-f4d8eac1b6a5",
+    "name": "Shard Cheddar Cheese ",
+    "store": "Kenyon",
+    "case_price": 7,
+    "old": 0,
+    "new": 3.5
+   },
+   {
+    "id": "a976448d-89e2-48aa-8790-911ec1b5308f",
+    "name": "Toilet Paper Rolls",
+    "store": "Reisterstown",
+    "case_price": 24,
+    "old": 24,
+    "new": 1
+   },
+   {
+    "id": "e0b48a2f-292c-48c1-af35-d90b14c5b07a",
+    "name": "Toilet Paper Rolls",
+    "store": "Towson",
+    "case_price": 24,
+    "old": 24,
+    "new": 1
+   },
+   {
+    "id": "7898acaa-b1b3-482b-9b79-f542ed907dff",
+    "name": "Tortilla 10\"",
+    "store": "Charles",
+    "case_price": 8.98,
+    "old": 0.22,
+    "new": 0.046771
+   },
+   {
+    "id": "183ba34d-3772-434e-91cd-249ccbd01553",
+    "name": "Tortilla 10\"",
+    "store": "Frederick",
+    "case_price": 8.98,
+    "old": 0.22,
+    "new": 0.046771
+   },
+   {
+    "id": "22035c82-1a4c-4920-9a8c-6fd576669fcb",
+    "name": "Tortilla 10\"",
+    "store": "Reisterstown",
+    "case_price": 8.98,
+    "old": 0.2245,
+    "new": 0.046771
+   },
+   {
+    "id": "08534fd1-3ed4-4f61-a1d6-080ea09c6451",
+    "name": "Tortilla 10\"",
+    "store": "Towson",
+    "case_price": 8.98,
+    "old": 0.22,
+    "new": 0.046771
+   }
+  ]
+ }
+}

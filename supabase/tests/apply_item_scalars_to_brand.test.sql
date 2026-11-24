@@ -36,7 +36,7 @@
 begin;
 create extension if not exists pgtap;
 
-select plan(18);
+select plan(20);
 
 -- ─── fixtures (postgres role) ───────────────────────────────────────────────
 do $$
@@ -63,8 +63,11 @@ begin
   select id into v_v1 from public.vendors order by id limit 1;
 
   -- FRESH catalog ingredient X in brand A (unique name → no seed collision).
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_a, '__spec122_ingredient_x__', 'ea', 'test')
+  -- Spec 207 (R3): case_qty 12 keeps every (cost, case_price) pair in this
+  -- file on the per-each rule (5 = 60/12, 7 = 84/12, 20 = 240/12,
+  -- 11 = 132/12), so the derive-on-write trigger stores the values asserted.
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_a, '__spec122_ingredient_x__', 'ea', 'test', 12)
   returning id into v_cat_x;
 
   -- X items in Towson + Charles ONLY (Frederick + Reisters intentionally
@@ -90,8 +93,8 @@ begin
   insert into public.stores (id, brand_id, name, address)
     values (v_store_b, v_brand_b, '__spec122_store_b__', '1 Fixture Way')
   on conflict (id) do nothing;
-  insert into public.catalog_ingredients (brand_id, name, unit, category)
-  values (v_brand_b, '__spec122_ingredient_y__', 'ea', 'test')
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values (v_brand_b, '__spec122_ingredient_y__', 'ea', 'test', 12)
   returning id into v_cat_y;
   insert into public.inventory_items
     (store_id, catalog_id, vendor_id, par_level, cost_per_unit, case_price, current_stock)
@@ -230,10 +233,54 @@ select is(
   7::numeric,
   '(14) NULL-means-skip: par_level still fans out (overwritten to 7)'
 );
+-- Spec 207 note: Charles's row is priced (case 240, pieces 12), so under the R3
+-- derive-on-write trigger its cost follows case_price whatever the RPC does
+-- with p_cost_per_unit. (15) therefore only pins that a priced row keeps its
+-- derived cost through the NULL-skip call; the NULL-means-skip contract for
+-- cost itself is pinned on an UNPRICED row in (15a) / (15b) below.
 select is(
   (select cost_per_unit from public.inventory_items where id = current_setting('t.item_charles')::uuid),
   20.00::numeric,
-  '(15) NULL-means-skip: cost_per_unit LEFT ALONE (still 20.00, the p_cost_per_unit => null no-op)'
+  '(15) priced row: cost_per_unit stays the derived 20.00 (240 / 12) through the NULL-skip call'
+);
+
+-- ─── NULL-means-skip on an UNPRICED row (spec 207 S-1) ──────────────────────
+-- A separate fresh catalog row W with one Towson row: case_price 0 and a
+-- hand-set cost 3.33. Unpriced, so R3 keeps whatever cost is written and the
+-- assertion can fail if the RPC wrote p_cost_per_unit (NULL) or anything else.
+-- Its own call, so the updated/skipped counts in (3)-(5) are unaffected.
+do $$
+declare
+  v_cat_w  uuid;
+  v_item_w uuid;
+begin
+  insert into public.catalog_ingredients (brand_id, name, unit, category, case_qty)
+  values ('2a000000-0000-0000-0000-000000000001', '__spec122_ingredient_w__', 'ea', 'test', 12)
+  returning id into v_cat_w;
+  insert into public.inventory_items
+    (store_id, catalog_id, par_level, cost_per_unit, case_price, current_stock)
+  values ((select id from public.stores where name = 'Towson' limit 1), v_cat_w, 4, 3.33, 0, 5)
+  returning id into v_item_w;
+  perform set_config('t.cat_w',  v_cat_w::text,  false);
+  perform set_config('t.item_w', v_item_w::text, false);
+end $$;
+set local role authenticated;
+set local request.jwt.claims to '{"sub": "11111111-1111-1111-1111-111111111111", "role": "authenticated", "app_metadata": {"role": "admin"}}';
+do $$
+begin
+  perform public.apply_item_scalars_to_brand(
+    current_setting('t.cat_w')::uuid, 7, null, null);
+end $$;
+reset role;
+select is(
+  (select par_level from public.inventory_items where id = current_setting('t.item_w')::uuid),
+  7::numeric,
+  '(15a) NULL-means-skip, unpriced row: par_level fans out (overwritten to 7)'
+);
+select is(
+  (select array[cost_per_unit, case_price] from public.inventory_items where id = current_setting('t.item_w')::uuid),
+  array[3.33, 0]::numeric[],
+  '(15b) NULL-means-skip, unpriced row: the hand-set cost 3.33 (and case_price 0) survive the p_cost_per_unit => null call'
 );
 
 -- ─── cross-brand item completely untouched (never-cross-brand, AC-8) ────────
