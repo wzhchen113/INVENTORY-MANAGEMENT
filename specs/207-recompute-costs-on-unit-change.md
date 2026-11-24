@@ -147,7 +147,7 @@ So "for `case_price > 0`, `cost_per_unit = round(case_price / pieces, 6)`" is sa
   - The new pgTAP file(s) under `supabase/tests/` cover AC-1 to AC-11.
   - The full pgTAP suite (`scripts/test-db.sh`), full `npx jest`, `typecheck` and `typecheck:test` pass.
   - Existing fixtures that insert inconsistent (cost, case_price) pairs (about 37 test files mention `case_price`) are audited. Where R3 now rewrites their cost, they are updated to assert the derived value. They are not weakened.
-- [ ] **AC-13 (prod check after apply).** After the migration is applied to prod, the drift function returns 0 priced rows above the tolerance. The repair already brought these to 0, and the result is recorded in the spec's rollout notes.
+- [x] **AC-13 (prod check after apply).** After the migration is applied to prod, the drift function returns 0 priced rows above the tolerance. The repair already brought these to 0, and the result is recorded in the spec's rollout notes.
 
 ## In scope
 
@@ -615,6 +615,34 @@ prompt: Implement against the "## Backend design" section in this spec:
 payload_paths:
   - specs/207-recompute-costs-on-unit-change.md
   - specs/207-recompute-costs-on-unit-change/prod-cost-repair-undo-2026-11-23.json
+
+## Rollout notes (main Claude, 2026-11-24)
+
+Applied to prod (`ebwnovzzkwhsdxkpyjka`) through MCP `execute_sql` on owner approval ("Yes, ship it"), per D-11. The code commit is 082ba17.
+
+**Pre-checks (read-only):**
+- The caller was `postgres`, and version `20261123130000` was absent.
+- None of the six new functions existed.
+- Drift baseline was 0 rows in both `inventory_items` and `item_vendors`.
+- No `inventory_items` row pointed at another brand's catalog row.
+- Prod's `receive_purchase_order` normalized md5 (`3ddb7b32…`) matched the local body with the spec 207 line reverted. The verbatim base is therefore the deployed one.
+
+**Apply:** lines 133-736 of the migration were sent in one call, with the `schema_migrations` insert just before `commit;`.
+
+**Verify:**
+- The normalized md5 matches local for all seven functions: `pieces_per_case`, `per_each_cost`, `inventory_items_derive_cost`, `item_vendors_derive_cost`, `catalog_ingredients_rederive_item_costs`, `list_cost_drift` and `receive_purchase_order`.
+- Security definer is on for R1 only. Every new function sets `search_path=""`, and the owner is `postgres`.
+- Triggers: `zz_derive_cost_per_unit_trg` is on `inventory_items` and `item_vendors`, and `catalog_ingredients_rederive_item_costs_trg` is on `catalog_ingredients`. All three are enabled (`O`) with the designed definitions.
+- Privileges:
+  - The trigger functions are not executable by anon or authenticated.
+  - `list_cost_drift` is denied to anon and allowed to authenticated.
+  - `per_each_cost` is allowed to anon.
+  - `receive_purchase_order` is unchanged: anon denied, authenticated allowed.
+- Version `20261123130000` is recorded.
+
+**AC-13:** `select kind, count(*) from public.list_cost_drift() group by kind;` returned no rows. That means `drift` = 0 and `cost_without_case_price` = 0.
+
+**Skipped:** the optional D-11 step 5 rolled-back behavior check, so prod took no writes beyond the migration itself.
 
 ## Implementation notes (backend-developer, 2026-11-24)
 
